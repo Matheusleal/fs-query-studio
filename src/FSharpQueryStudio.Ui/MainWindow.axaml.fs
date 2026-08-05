@@ -3,6 +3,7 @@ namespace FSharpQueryStudio.Ui
 open System
 open System.IO
 open Avalonia.Controls
+open Avalonia.Interactivity
 open Avalonia.Markup.Xaml
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Editor
@@ -34,7 +35,22 @@ type MainWindow() as this =
             | Ok _otherRequest -> () // Wired as each lands in its own later task.
             | Error _err -> ()) // Malformed message from the page - never crashes the host.
 
+        let runButton = this.FindControl<Button>("RunButton")
+        runButton.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.RunAsync() |> ignore)
+
+        let cancelButton = this.FindControl<Button>("CancelButton")
+        cancelButton.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.Cancel() |> ignore)
+
         this.Closed.Add(fun _ ->
             match assetHost with
             | Some host -> (host :> IDisposable).Dispose()
             | None -> ())
+
+    /// Composition root: wires `shellViewModel`'s `ExecuteAsync`/`CancelAsync`
+    /// to a real worker process — set once, from `App.axaml.fs`. Kept out of
+    /// the constructor so headless/`Ui.Tests` construction of `MainWindow`
+    /// never spawns a real worker process as a side effect.
+    member _.WireExecution(executeAsync: string -> System.Threading.Tasks.Task<ResultEnvelope>, cancelAsync: unit -> System.Threading.Tasks.Task<unit>) =
+        shellViewModel.ExecuteAsync <- Some executeAsync
+        shellViewModel.CancelAsync <- Some cancelAsync
+        shellViewModel.WorkerState.TryTransition(WorkerState.Ready) |> ignore

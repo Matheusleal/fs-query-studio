@@ -26,14 +26,20 @@
 
       <GridSplitter Grid.Column="1" Grid.Row="0" Width="4" ResizeDirection="Columns" />
 
-      <Grid Grid.Column="2" Grid.Row="0" RowDefinitions="Auto,*,4,200">
-        <TabControl Grid.Row="0" Name="ScriptTabs" />
+      <Grid Grid.Column="2" Grid.Row="0" RowDefinitions="Auto,Auto,*,4,200">
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="4">
+          <Button Name="RunButton" Content="Run (F5)" Margin="0,0,4,0" />
+          <Button Name="CancelButton" Content="Cancel" Margin="0,0,8,0" />
+          <TextBlock Text="{Binding WorkerState.Current}" VerticalAlignment="Center" />
+        </StackPanel>
 
-        <NativeWebView Grid.Row="1" Name="MonacoWebView" />
+        <TabControl Grid.Row="1" Name="ScriptTabs" />
 
-        <GridSplitter Grid.Row="2" Height="4" ResizeDirection="Rows" />
+        <NativeWebView Grid.Row="2" Name="MonacoWebView" />
 
-        <TabControl Grid.Row="3" Name="ResultsTabs">
+        <GridSplitter Grid.Row="3" Height="4" ResizeDirection="Rows" />
+
+        <TabControl Grid.Row="4" Name="ResultsTabs">
           <TabItem Header="Results">
             <Grid>
               <!--

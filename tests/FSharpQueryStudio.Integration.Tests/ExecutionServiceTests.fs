@@ -8,32 +8,6 @@ open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Ui
 open TestHelpers
 
-/// Wires `ExecuteAsync`/`CancelAsync` the way the App composition root
-/// does: `CancelAsync` closes over whatever request id the most recent
-/// `ExecuteAsync` call sent, so `shell.Cancel()` cancels the evaluation
-/// actually in flight without `ShellViewModel` itself knowing request ids
-/// exist.
-let private wireShell (gracePeriod: TimeSpan) (client: WorkerClient) (shell: ShellViewModel) =
-    let currentRequestId = ref None
-
-    shell.ExecuteAsync <-
-        Some(fun source ->
-            task {
-                let id = Guid.NewGuid().ToString()
-                currentRequestId.Value <- Some id
-                let! result = ExecutionService.evaluateWithId client id source
-                currentRequestId.Value <- None
-                return result
-            })
-
-    shell.CancelAsync <-
-        Some(fun () ->
-            task {
-                match currentRequestId.Value with
-                | Some id -> do! client.Cancel(id, gracePeriod)
-                | None -> ()
-            })
-
 [<Fact>]
 let ``Run (F5) end to end: ShellViewModel -> ExecutionService -> real worker -> ResultViewModel`` () =
     task {
