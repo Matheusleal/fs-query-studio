@@ -14,6 +14,7 @@
     <Compile Include="Checker.fs" />
     <Compile Include="DiagnosticMapping.fs" />
     <Compile Include="Hover.fs" />
+    <Compile Include="Completions.fs" />
   </ItemGroup>
 
   <ItemGroup>

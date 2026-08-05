@@ -14,6 +14,7 @@
     <Compile Include="AnalysisContextTests.fs" />
     <Compile Include="DiagnosticMappingTests.fs" />
     <Compile Include="HoverTests.fs" />
+    <Compile Include="CompletionsTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

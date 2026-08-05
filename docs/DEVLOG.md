@@ -314,3 +314,11 @@ Added `HostNotification.HoverResolved(requestId, documentUri, hover)` — the on
 Filled in `editor-host.html`'s JS side properly this time: registered a real `monaco.languages.registerHoverProvider` that sends `hoverRequested` and resolves its promise when the matching `hoverResolved` arrives (tracked in a `pendingHoverResolvers` map keyed by id), plus a `hoverInfoToContents` mapper from `HoverInfo`'s fields to Monaco's `contents` shape. Also closed a gap noticed from B.7: `caretMoved`'s encode side existed but nothing in the JS ever consumed it — added that case (`setPosition`/`revealPositionInCenter`/`focus`) while already in this file. All of this JS remains manual-verify-only, same rationale as A.13/B.6 — Avalonia's WebView isn't headlessly testable.
 
 Full solution: 140 tests, all green (`Editor.Tests` 17, up from 15).
+
+---
+
+## 2026-08-06 — B.10: completions tier 1 (MVP)
+
+Added `Analysis.Completions`: static `keywords`/`snippets`/`connectorHelperNames` lists (the connector names are the MVP placeholder — Section 11's `Connections.sql "Sales" "..."` shape — since no real connector exists until Milestone C) plus `complete recentNames`, which merges all of it with whatever names the caller passes in for "the most recent successful check." Deliberately not position-sensitive: tier 1 doesn't filter by cursor context, matching the task's own "arbitrary cursor position" framing — that's tier 2's job (B.11). `recentNames` is accepted as a plain parameter rather than cached inside this module, since owning that cache (tied to document/session state) belongs to whatever calls this, not to a stateless completions list merge.
+
+Full solution: 142 tests, all green (`Analysis.Tests` 15, up from 13).
