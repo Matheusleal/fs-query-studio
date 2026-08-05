@@ -13,6 +13,7 @@
     <Compile Include="AnalysisContext.fs" />
     <Compile Include="Checker.fs" />
     <Compile Include="DiagnosticMapping.fs" />
+    <Compile Include="Hover.fs" />
   </ItemGroup>
 
   <ItemGroup>

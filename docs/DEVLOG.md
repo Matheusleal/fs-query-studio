@@ -294,3 +294,13 @@ Added a second `HostNotification` case, `CaretMoved(documentUri, line, column)`,
 Added `Ui.ProblemViewModel` (one row per diagnostic) and `ShellViewModel.Problems`/`SendToEditor`: `Problems` maps `ActiveDocument.Diagnostics` to `ProblemViewModel`s on every access (nothing binds to it yet, so no caching/observable machinery), and `SendToEditor` is the composition root's hook into the real WebView bridge — same optional-function pattern as `ExecuteAsync`/`CancelAsync` (A.15/A.17), letting `Navigate()` be tested by capturing what it would have sent rather than driving a real WebView. `Navigate()` sends the diagnostic's start position as a `caretMoved` message; a no-op if `SendToEditor` was never configured, matching `RunAsync`/`Cancel`'s existing no-op-when-unconfigured contract.
 
 Full solution: 133 tests, all green (`Ui.Tests` 41, up from 38; `Editor.Tests` 15, up from 14).
+
+---
+
+## 2026-08-06 — B.8: analysis/hover
+
+Spiked (throwaway, deleted after) the exact FCS hover API before writing anything real — three things weren't in memory precisely enough to trust: `GetSymbolUseAtLocation`'s exact parameter shape, whether `FSharpMemberOrFunctionOrValue.XmlDoc` distinguishes "no doc comment" from "empty doc comment" as a separate union case, and how to resolve a symbol from a bare `(line, column)` when the protocol only ever gives a cursor position, never a pre-split identifier list. Findings: `XmlDoc` always comes back as `FromXmlText`, even with no `///` comment above the binding — the *inner* `XmlDoc.IsEmpty` is what actually distinguishes "no doc" (`true`) from "has doc" (`false`), not the outer case. And `FSharp.Compiler.EditorServices.QuickParse.GetPartialLongNameEx(lineText, column)` is the real mechanism editor tooling uses to turn a raw cursor column into the qualified-identifier list `GetSymbolUseAtLocation` needs — confirmed it round-trips correctly for a plain identifier before writing the real module.
+
+Added `Protocol.HoverInfo` (Section 8's fields verbatim) and `Analysis.Hover.hover`, taking FCS's own coordinate convention directly (1-based line, 0-based column at/after the identifier's end) — this layer talks straight to FCS, so no protocol-facing coordinate conversion belongs here (unlike B.3's `DiagnosticMapping`, there's no position *in* `HoverInfo`'s output to convert; the caller already knows what position it asked about). `Signature` is `Some` only for callable members (`IsFunction` or non-empty `CurriedParameterGroups`) — a plain `let` binding's `Signature` is `None`, distinct from its always-present `Type`. Five tests, all green on the first run after the spike de-risked the two unknowns.
+
+Full solution: 138 tests, all green (`Analysis.Tests` 13, up from 8).

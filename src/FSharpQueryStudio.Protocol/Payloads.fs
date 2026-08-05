@@ -15,3 +15,12 @@ type AnalysisCheckParams =
       Source: string }
 
 type AnalysisCheckResult = { Diagnostics: Diagnostic list }
+
+/// `analysis/hover` result payload — see Section 7's method table and
+/// Section 8's hover call-out (display name, inferred type, full
+/// signature where available, XML doc when FCS can provide it).
+type HoverInfo =
+    { DisplayName: string
+      Type: string
+      Signature: string option
+      XmlDoc: string option }
