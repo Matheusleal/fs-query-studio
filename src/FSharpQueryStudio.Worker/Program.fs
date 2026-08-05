@@ -5,7 +5,7 @@ open FSharpQueryStudio.Logging
 
 [<EntryPoint>]
 let main _argv =
-    Log.Logger <- LoggerSetup.build "worker" "worker"
+    Log.Logger <- LoggerSetup.build "worker" "worker" (LoggerSetup.defaultLogsDirectory ())
 
     try
         Log.Information("F# Query Studio worker starting")

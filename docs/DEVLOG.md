@@ -32,6 +32,12 @@ Added `NdjsonStream.readFrame`/`writeFrame` in `Worker`, generic over any protoc
 
 Note for future reference: an early build of the test file threw a cascade of unrelated-looking errors (ambiguous record field resolution between `WorkerRequestFrame`/`WorkerResponseFrame`, wrong-type errors) purely because `NdjsonStream` didn't exist yet — the missing module broke type inference for everything downstream in the file. Implementing the real module made all of it resolve cleanly; worth not chasing phantom errors like that before checking whether the primary "not defined" error is the actual root cause.
 
+## 2026-08-05 — Fix: worker's console sink was writing to stdout
+
+Caught while starting A.3's stdin/stdout main loop, before it was wired up: `LoggerSetup.build` always sent its console sink to stdout, but Section 7 reserves the worker's stdout exclusively for NDJSON protocol frames. A worker-role logger would have interleaved Serilog console lines into the same stream the host parses as JSON frames — a bug that wouldn't have shown up until real logging volume made a parse failure likely, and would have been confusing to diagnose from the symptom alone.
+
+Fixed by making `LoggerSetup.build` route console output through stderr whenever `processRole = "worker"` (via Serilog's `standardErrorFromLevel`), and added a `logsDirectory` parameter (previously hardcoded to the real `%LOCALAPPDATA%` path) so tests can point the file sink at a temp directory instead of writing into the user's real logs folder on every test run. Two new tests assert the stdout/stderr split and that the file lands where told.
+
 ---
 
 ## In progress
