@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <Compile Include="Frames.fs" />
+    <Compile Include="Payloads.fs" />
     <Compile Include="Serialization.fs" />
   </ItemGroup>
 

@@ -38,8 +38,14 @@ Caught while starting A.3's stdin/stdout main loop, before it was wired up: `Log
 
 Fixed by making `LoggerSetup.build` route console output through stderr whenever `processRole = "worker"` (via Serilog's `standardErrorFromLevel`), and added a `logsDirectory` parameter (previously hardcoded to the real `%LOCALAPPDATA%` path) so tests can point the file sink at a temp directory instead of writing into the user's real logs folder on every test run. Two new tests assert the stdout/stderr split and that the file lands where told.
 
+## 2026-08-05 — A.3: worker bootstrap and worker/health handshake
+
+Added `HealthInfo` to `Protocol`, `Handlers.dispatch`/`handleHealth` to `Worker` (unit-tested directly, 3 tests: happy path, non-empty version, unknown-method error), and wired `Program.fs`'s real stdin/stdout loop — read a frame, push its ID as the correlation ID for the duration of handling it, dispatch, write the response, repeat until EOF.
+
+The integration test spawns the actual compiled `FSharpQueryStudio.Worker.dll` as a child process (`dotnet <dll>`, located via `AppContext.BaseDirectory` — confirmed the referenced project's build output, dll *and* apphost `.exe`, gets copied into the referencing test project's own output directory automatically, so no fragile relative-path guessing across configurations), writes a `worker/health` request to its stdin, and reads the response from its stdout. Wrote the test before the loop existed — it failed with "expected a health response, got end of stream" (the old `Program.fs` returned immediately without reading anything), confirming RED for the right reason before wiring the loop made it pass. Added a `Task.WhenAny`-based timeout wrapper around the read so a real hang would fail loudly instead of blocking the test run indefinitely.
+
 ---
 
 ## In progress
 
-A.3 — Worker process bootstrap and `worker/health` handshake.
+A.4 — `session/create`: isolated `FsiEvaluationSession` construction.
