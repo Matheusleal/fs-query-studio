@@ -2,6 +2,9 @@
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <!-- Transitively pulls FSharp.Compiler.Service; see the matching note in
+         FSharpQueryStudio.Execution.fsproj for why NU1608 is suppressed here too. -->
+    <NoWarn>$(NoWarn);NU1608</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

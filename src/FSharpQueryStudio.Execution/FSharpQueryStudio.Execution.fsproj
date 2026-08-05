@@ -2,10 +2,19 @@
 
   <PropertyGroup>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- FSharp.Compiler.Service 43.12.204 pins FSharp.Core = 10.1.204 exactly;
+         the .NET 10 SDK resolves 10.1.302. Newer FSharp.Core is compatible in
+         practice, so this specific NuGet advisory is suppressed rather than
+         weakening TreatWarningsAsErrors for the whole project. -->
+    <NoWarn>$(NoWarn);NU1608</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="Library.fs" />
+    <Compile Include="FsiSession.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FSharp.Compiler.Service" Version="43.12.204" />
   </ItemGroup>
 
 </Project>

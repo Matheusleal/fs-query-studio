@@ -44,6 +44,16 @@ Added `HealthInfo` to `Protocol`, `Handlers.dispatch`/`handleHealth` to `Worker`
 
 The integration test spawns the actual compiled `FSharpQueryStudio.Worker.dll` as a child process (`dotnet <dll>`, located via `AppContext.BaseDirectory` — confirmed the referenced project's build output, dll *and* apphost `.exe`, gets copied into the referencing test project's own output directory automatically, so no fragile relative-path guessing across configurations), writes a `worker/health` request to its stdin, and reads the response from its stdout. Wrote the test before the loop existed — it failed with "expected a health response, got end of stream" (the old `Program.fs` returned immediately without reading anything), confirming RED for the right reason before wiring the loop made it pass. Added a `Task.WhenAny`-based timeout wrapper around the read so a real hang would fail loudly instead of blocking the test run indefinitely.
 
+## 2026-08-05 — A.4: isolated FsiEvaluationSession construction
+
+Added `FsiSession.create` in `Execution`, wrapping `FSharp.Compiler.Interactive.Shell.FsiEvaluationSession` with a controlled working directory, redirected output/error, and a pre-exhausted stdin reader so no interactive prompt can ever block the process.
+
+Before writing any real code, spiked the FCS API in a throwaway console app under the scratchpad (deleted afterward, per the TDD skill's rule on spikes) — first tried via `dotnet fsi` directly, but that failed with an assembly-identity mismatch (running FCS *inside* another FCS-hosted process rather than a normal net10.0 host doesn't reflect the real target environment). Rebuilding the spike as a plain console app matching how `Execution` actually references the package worked immediately and confirmed the exact shape needed: `EvalInteractionNonThrowing(code) : Choice<FsiValue option, exn> * FSharpDiagnostic[]`.
+
+Two environment issues along the way, both fixed narrowly rather than by loosening standards:
+- `FSharp.Compiler.Service` 43.12.204 pins `FSharp.Core = 10.1.204` exactly; the .NET 10 SDK resolves `10.1.302`. `TreatWarningsAsErrors` turned that advisory (NU1608) into a build failure. Suppressed just `NU1608`, just in `Execution` and `Execution.Tests` (the only projects that pull FCS in), with a comment explaining why — not a blanket `NoWarn`.
+- On Windows, `Directory.SetCurrentDirectory` locks that directory against deletion for as long as it's the process's current directory. The first test run failed at cleanup with "process cannot access the file" — not a bug in `FsiSession`, but a real OS constraint worth remembering for later workspace-management work (e.g. can't rename/delete a workspace folder while a worker has it open as its CWD). Tests now point the current directory elsewhere before deleting their temp directories.
+
 ---
 
 ## In progress
