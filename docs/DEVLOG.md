@@ -140,8 +140,14 @@ Also learned mid-verification that `dotnet run` launches through the shared `dot
 
 **A mistake worth recording plainly:** cleaning up after the timeout-killed run, `Get-Process -Name msedgewebview2 | Stop-Process -Force` killed more than intended — `msedgewebview2.exe` is a shared runtime other Windows applications use too, not exclusive to this app, and I killed by name globally instead of scoping to this process's own child tree. A second batch of `msedgewebview2` processes appeared immediately after (almost certainly pre-existing, unrelated to this session), and I stopped and asked rather than touching them further. Lesson for next time: get the child PID list *before* killing anything broad by name, and prefer killing a specific process tree (parent PID) over a name-based match against a shared/multi-owner process.
 
+## 2026-08-05 — A.14: wire TextChanged to a DocumentViewModel
+
+Added `DocumentViewModel` (`Uri`/`Text`/`Version`/`IsDirty`, cursor location and execution state join later per Section 5) and `ApplyTextChanged`, which applies the same stale-message defense Section 7 describes for analysis responses — a version guard — to the document's own version counter too: an update whose version isn't strictly greater than the current one is silently ignored, so an out-of-order bridge message can never regress `Version` or flip `IsDirty` back off. `ShellViewModel` grew a single `ActiveDocument` (the vertical slice's one editor tab; a real collection replaces this once Milestone C's script explorer exists).
+
+Replaced A.13's placeholder `Ok _request -> ()` in `MainWindow.axaml.fs`'s `WebMessageReceived` handler with a real match on `TextChanged`, routing it into `shellViewModel.ActiveDocument.ApplyTextChanged`; every other `EditorRequest` case still falls through to a no-op until its own task wires it.
+
 ---
 
 ## In progress
 
-A.14 — wire TextChanged from Monaco through the bridge to a DocumentViewModel.
+A.15 — wire Run (F5) end to end: Ui command → host service → execution/evaluate → ResultEnvelope → ResultViewModel.

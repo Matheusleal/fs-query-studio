@@ -4,6 +4,7 @@ open System
 open System.IO
 open Avalonia.Controls
 open Avalonia.Markup.Xaml
+open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Editor
 
 type MainWindow() as this =
@@ -11,9 +12,11 @@ type MainWindow() as this =
 
     let mutable assetHost: AssetHost.Host option = None
 
+    let shellViewModel = ShellViewModel()
+
     do
         AvaloniaXamlLoader.Load(this)
-        this.DataContext <- ShellViewModel()
+        this.DataContext <- shellViewModel
 
         let webView = this.FindControl<NativeWebView>("MonacoWebView")
         let assetsRoot = Path.Combine(AppContext.BaseDirectory, "EditorAssets")
@@ -23,13 +26,12 @@ type MainWindow() as this =
 
         webView.WebMessageReceived.Add(fun args ->
             let envelope =
-                System.Text.Json.JsonSerializer.Deserialize<FSharpQueryStudio.Protocol.EditorEnvelope>(
-                    args.Body,
-                    FSharpQueryStudio.Protocol.Serialization.options
-                )
+                System.Text.Json.JsonSerializer.Deserialize<EditorEnvelope>(args.Body, Serialization.options)
 
             match EditorBridge.decode envelope with
-            | Ok _request -> () // Consumed into ViewModels starting with A.14 (TextChanged -> DocumentViewModel).
+            | Ok(TextChanged(_documentUri, version, source)) ->
+                shellViewModel.ActiveDocument.ApplyTextChanged(version, source)
+            | Ok _otherRequest -> () // Wired as each lands in its own later task.
             | Error _err -> ()) // Malformed message from the page - never crashes the host.
 
         this.Closed.Add(fun _ ->
