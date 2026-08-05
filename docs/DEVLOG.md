@@ -186,3 +186,17 @@ TDD'd at both levels the dev plan calls for: `Ui.Tests` (`ShellViewModelTests`) 
 **Same known gap as A.16, now also covering Cancel:** the real `App` composition root (`App.axaml.fs`) still never constructs a `WorkerClient` or sets `ExecuteAsync`/`CancelAsync` on the real `ShellViewModel`, and `MainWindow.axaml` has no actual Run/Cancel controls wired to commands yet (just a placeholder `_Run` menu item). Both are integration-tested at the service level but not reachable by running the compiled app. Tracked as the same pre-A.19 closing task as A.16's gap — best done together in one pass rather than twice.
 
 Full solution: 105 tests, all green (`Ui.Tests` 32, `Integration.Tests` 9, up from 28/7 respectively).
+
+---
+
+## 2026-08-05 — A.18: structured log instrumentation for Milestone A's code paths
+
+Scoped to Section 15's table entries that A.3–A.9's handlers actually own, matching the dev plan's Notes column ("driving A.3–A.9's handlers emits the expected event for each, with the correlation ID from the triggering request attached") rather than the table's full breadth — UI-triggered actions and connector-call logging belong with the code that does those things (later milestones), not retrofitted here.
+
+Worker-side (`Handlers.fs`, now `open Serilog` directly — the `Worker` project already carries the `Serilog`/`Logging` references from A0): `Log.Information` for session creation (`runEvaluate`, right before `FsiSession.create`), execution outcome (after projection, with `ElapsedMs` and the resulting `ResultKind`), and cancellation-requested (`handleCancel`, unconditionally — even a no-op cancel is worth a log line). None of these needed to touch `Correlation`/`LogContext` themselves: `Program.fs`'s read loop already pushes `request.Id` as `CorrelationId` around both the backgrounded `runEvaluate` task and the synchronous `dispatch` path (from A.9's work), so anything logged inside those handlers picks it up automatically via Serilog's ambient `LogContext` enricher.
+
+Host-side (`WorkerClient.fs`, same `open Serilog` addition): `Log.Information` with `Pid` when a process starts (covers both "start" and "restart" — a restart after a crash is just another call to the same `startProcess`), `Log.Warning` when the reader loop's stdout-closed branch fires (a crash, from A.8), `Log.Warning` when `Cancel`'s grace period expires and it kills the process (from A.9). These don't carry a `CorrelationId` on principle, not by omission: process lifecycle isn't scoped to one request the way `Handlers`' events are — a crash can arrive while several requests are pending, and attaching just one of their ids would be arbitrary.
+
+TDD'd with the same in-memory-sink pattern `Logging.Tests` established (a `CollectingSink : ILogEventSink`, `LoggerConfiguration().Enrich.FromLogContext().WriteTo.Sink(...)`), but with a twist neither `Logging.Tests` nor any earlier test needed: `Handlers`/`WorkerClient` log through Serilog's *static* `Log.Logger`, not an injected instance, so the tests swap `Log.Logger` for the collecting one and restore the original in a `finally` — safe only because `Worker.Tests` and `Integration.Tests` both already disable cross-test parallelism (for unrelated process-global-state reasons from earlier milestones), so no other test on the same thread pool sees the swapped logger mid-test.
+
+Full solution: 110 tests, all green (`Worker.Tests` 12, `Integration.Tests` 12, up from 10/9 respectively).

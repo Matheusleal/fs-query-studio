@@ -5,6 +5,7 @@ open System.Collections.Concurrent
 open System.Diagnostics
 open System.Text.Json
 open System.Threading.Tasks
+open Serilog
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Worker
 
@@ -62,6 +63,7 @@ type WorkerClient(workerDllPath: string) =
                     | None ->
                         keepGoing <- false
                         currentProcess <- None
+                        Log.Warning("Worker process exited unexpectedly")
                         failAllPending crashedResponse
             })
             :> Task)
@@ -80,6 +82,7 @@ type WorkerClient(workerDllPath: string) =
 
         let p = new Process(StartInfo = psi)
         p.Start() |> ignore
+        Log.Information("Worker process started with pid {Pid}", p.Id)
         startReaderLoop p
         p
 
@@ -130,6 +133,10 @@ type WorkerClient(workerDllPath: string) =
                         match pending.TryRemove(requestId) with
                         | false, _ -> () // completed in the gap
                         | true, tcs ->
+                            Log.Warning(
+                                "The worker did not stop cooperatively within the grace period and was terminated"
+                            )
+
                             proc.Kill()
                             tcs.TrySetResult(forciblyStoppedResponse requestId) |> ignore
         }

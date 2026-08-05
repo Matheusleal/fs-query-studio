@@ -6,6 +6,7 @@ open System.IO
 open System.Reflection
 open System.Text.Json
 open System.Threading
+open Serilog
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Execution
 open FSharpQueryStudio.Results
@@ -80,6 +81,7 @@ module Handlers =
                 JsonSerializer.Deserialize<EvaluateParams>(request.Params, Serialization.options)
 
             let stopwatch = Stopwatch.StartNew()
+            Log.Information("Creating FSI session in {WorkingDirectory}", workDir)
             let session = FsiSession.create workDir
             let outcome = Evaluation.evaluate session evalParams.Source
             stopwatch.Stop()
@@ -95,6 +97,12 @@ module Handlers =
 
                     { Projection.project value stopwatch.ElapsedMilliseconds with
                         Output = output }
+
+            Log.Information(
+                "Execution completed with outcome {Outcome} in {ElapsedMs}ms",
+                envelope.Kind,
+                stopwatch.ElapsedMilliseconds
+            )
 
             { Id = request.Id
               Result = Some(JsonSerializer.SerializeToElement(envelope, Serialization.options))
@@ -117,6 +125,8 @@ module Handlers =
     /// — see Section 9's two-step cancellation policy. The evaluate
     /// request's own response arrives separately, whenever it completes.
     let handleCancel (request: WorkerRequestFrame) : WorkerResponseFrame =
+        Log.Information("Cancellation requested")
+
         match currentWorkDir with
         | Some workDir -> CancellationSignal.requestCancel workDir
         | None -> ()
