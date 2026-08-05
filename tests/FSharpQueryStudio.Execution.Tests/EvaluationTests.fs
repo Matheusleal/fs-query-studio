@@ -83,26 +83,34 @@ let ``a bare generic failwith never runs, so its own message never surfaces`` ()
             cleanupWorkingDirectory workDir
     }
 
-/// Binding a host-constructed BCL value into an FSI session directly (via
-/// AddBoundValue) fails on assembly identity - FSI type-checks scripts
-/// against reference assemblies, distinct from the runtime assemblies a
-/// host object is built from, so even `bool` doesn't unify across that
-/// boundary. `FsiSession.create` sidesteps this by adding a `--reference:`
-/// to Execution's own already-loaded assembly, so a script can call a
-/// static member on it directly - resolved entirely within FSI's own
-/// compilation, no cross-boundary value ever crosses.
+/// A script observes cancellation via a plain `System.IO.File.Exists`
+/// check against a sentinel file in its own working directory (relative
+/// path — `FsiSession.create` already points CWD there) rather than a
+/// host-injected value or a call back into a host assembly. Both of
+/// those were tried first and both failed for real reasons: binding a
+/// BCL value via `AddBoundValue` doesn't unify (FSI type-checks against
+/// reference assemblies, distinct from the runtime assemblies a host
+/// object comes from, so even `bool` fails); and an earlier
+/// self-referencing-assembly design (a static field, script calling back
+/// into `FSharpQueryStudio.Execution` via `--reference:`) was
+/// *intermittently* broken — `FsiEvaluationSession`'s collectible
+/// AssemblyLoadContext sometimes loaded its own separate copy of the
+/// explicitly-referenced assembly instead of reusing the one already
+/// loaded in the process, giving the script an independent static field
+/// disconnected from the one the host mutated. A file has no assembly
+/// identity to get out of sync.
 [<Fact>]
 let ``evaluate stops a cooperative loop early once CancellationSignal is requested`` () =
     task {
         let workDir = tempWorkingDirectory ()
 
         try
-            CancellationSignal.reset ()
+            CancellationSignal.reset workDir
 
             let script =
                 """
 let mutable i = 0
-while i < 2_000_000_000 && not (FSharpQueryStudio.Execution.CancellationSignal.isCancelled ()) do
+while i < 2_000_000_000 && not (System.IO.File.Exists(".cancel-requested")) do
     i <- i + 1
 i
 """
@@ -113,7 +121,7 @@ i
                     Evaluation.evaluate session script)
 
             do! Task.Delay(200)
-            CancellationSignal.requestCancel ()
+            CancellationSignal.requestCancel workDir
 
             let! outcome = evalTask |> withTimeout 30.0
 
@@ -126,7 +134,6 @@ i
                 | other -> failwithf "expected an int, got %A" other
             | None -> failwith "expected a value, got none"
         finally
-            CancellationSignal.reset ()
             cleanupWorkingDirectory workDir
     }
 

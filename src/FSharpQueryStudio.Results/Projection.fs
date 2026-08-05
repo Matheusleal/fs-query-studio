@@ -87,3 +87,11 @@ module Projection =
     let projectError (ex: exn) (elapsedMs: int64) : ResultEnvelope =
         { emptyEnvelope ResultKind.Error elapsedMs with
             DisplayText = Some ex.Message }
+
+    /// A worker-level error (crash, busy) — see A.8/A.9's `WorkerErrorInfo`
+    /// — reads the same as a script-level Error to whatever's displaying
+    /// results; the caller didn't get to run at all, but the UI still
+    /// needs one shape to show.
+    let projectWorkerError (error: WorkerErrorInfo) : ResultEnvelope =
+        { emptyEnvelope ResultKind.Error 0L with
+            DisplayText = Some error.Message }

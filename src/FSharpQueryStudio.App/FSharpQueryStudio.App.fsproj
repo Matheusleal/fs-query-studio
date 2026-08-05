@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <Compile Include="WorkerClient.fs" />
+    <Compile Include="ExecutionService.fs" />
     <Compile Include="App.axaml.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
@@ -25,6 +26,7 @@
     <ProjectReference Include="..\FSharpQueryStudio.Worker\FSharpQueryStudio.Worker.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Ui\FSharpQueryStudio.Ui.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Results\FSharpQueryStudio.Results.fsproj" />
   </ItemGroup>
 
 </Project>

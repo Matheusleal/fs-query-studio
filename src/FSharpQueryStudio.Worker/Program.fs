@@ -30,20 +30,31 @@ let rec private loop (stdin: TextReader) (stdout: TextWriter) =
         match frame with
         | None -> ()
         | Some request when request.Method = "execution/evaluate" ->
-            // Backgrounded so the loop can keep reading — an
-            // execution/cancel for this request needs to reach
-            // Handlers.dispatch while this is still running.
-            Task.Run(fun () ->
-                (task {
-                    use _ = Correlation.pushCorrelationId request.Id
-                    Log.Debug("Handling request {Method}", request.Method)
-                    let response = Handlers.dispatch request
-                    do! writeResponse stdout response
-                })
-                :> Task)
-            |> ignore
+            // Reserving the slot happens synchronously, right here, before
+            // this loop iteration ends — not inside the backgrounded task
+            // below. A concurrent execution/cancel can only be read on the
+            // *next* iteration, so by construction it always sees the
+            // reservation; if it were made inside the Task.Run instead, a
+            // freshly started process's threadpool could still be
+            // injecting worker threads and the cancel could arrive before
+            // that callback had even started, silently no-op'ing against
+            // Handlers' still-unset current-working-directory state.
+            match Handlers.beginEvaluate request with
+            | Choice2Of2 busy ->
+                do! writeResponse stdout busy
+                do! loop stdin stdout
+            | Choice1Of2 workDir ->
+                Task.Run(fun () ->
+                    (task {
+                        use _ = Correlation.pushCorrelationId request.Id
+                        Log.Debug("Handling request {Method}", request.Method)
+                        let response = Handlers.runEvaluate request workDir
+                        do! writeResponse stdout response
+                    })
+                    :> Task)
+                |> ignore
 
-            do! loop stdin stdout
+                do! loop stdin stdout
         | Some request ->
             use _ = Correlation.pushCorrelationId request.Id
             Log.Debug("Handling request {Method}", request.Method)

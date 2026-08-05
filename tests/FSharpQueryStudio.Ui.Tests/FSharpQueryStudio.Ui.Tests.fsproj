@@ -8,6 +8,7 @@
     <Compile Include="Tests.fs" />
     <Compile Include="WorkerStateViewModelTests.fs" />
     <Compile Include="DocumentViewModelTests.fs" />
+    <Compile Include="ResultViewModelTests.fs" />
     <Compile Include="ShellViewModelTests.fs" />
   </ItemGroup>
 

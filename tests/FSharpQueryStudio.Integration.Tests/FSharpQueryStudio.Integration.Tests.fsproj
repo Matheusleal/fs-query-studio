@@ -8,9 +8,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="AssemblyInfo.fs" />
     <Compile Include="TestHelpers.fs" />
     <Compile Include="Tests.fs" />
     <Compile Include="WorkerClientTests.fs" />
+    <Compile Include="ExecutionServiceTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -24,6 +26,7 @@
     <ProjectReference Include="..\..\src\FSharpQueryStudio.App\FSharpQueryStudio.App.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Worker\FSharpQueryStudio.Worker.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Ui\FSharpQueryStudio.Ui.fsproj" />
   </ItemGroup>
 
 </Project>

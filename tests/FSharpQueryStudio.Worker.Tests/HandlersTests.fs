@@ -4,7 +4,6 @@ open System.Text.Json
 open System.Threading.Tasks
 open Xunit
 open FSharpQueryStudio.Protocol
-open FSharpQueryStudio.Execution
 open FSharpQueryStudio.Worker
 
 let private emptyParamsRequest (id: string) (method_: string) : WorkerRequestFrame =
@@ -52,32 +51,32 @@ let ``dispatch on an unknown method returns a structured error and no Result`` (
     | None -> failwith "expected an Error"
 
 [<Fact>]
-let ``dispatch on execution/cancel requests cancellation and acknowledges`` () =
-    CancellationSignal.reset ()
+let ``dispatch on execution/cancel acknowledges even when no evaluation is running`` () =
+    let response = Handlers.dispatch (emptyParamsRequest "c1" "execution/cancel")
 
-    try
-        let response = Handlers.dispatch (emptyParamsRequest "c1" "execution/cancel")
-
-        Assert.Equal("c1", response.Id)
-        Assert.True(response.Result.IsSome)
-        Assert.True(response.Error.IsNone)
-        Assert.True(CancellationSignal.isCancelled ())
-    finally
-        CancellationSignal.reset ()
+    Assert.Equal("c1", response.Id)
+    Assert.True(response.Result.IsSome)
+    Assert.True(response.Error.IsNone)
 
 [<Fact>]
 let ``handleEvaluate rejects a second concurrent evaluate with a structured busy error`` () =
     task {
-        CancellationSignal.reset ()
+        // A plain file check, not a call back into a host assembly - see
+        // Execution.Tests/EvaluationTests.fs for why the earlier
+        // static-field-plus-self-reference design was unreliable.
+        let longRunningScript =
+            "let mutable i = 0 in (while i < 2_000_000_000 && not (System.IO.File.Exists(\".cancel-requested\")) do i <- i + 1); i"
 
-        try
-            let longRunningScript =
-                "let mutable i = 0 in (while i < 2_000_000_000 && not (FSharpQueryStudio.Execution.CancellationSignal.isCancelled ()) do i <- i + 1); i"
-
+        // Reserve the slot synchronously (mirrors Program.fs's own loop)
+        // rather than backgrounding the whole handleEvaluate call and
+        // hoping a Task.Delay outlasts the threadpool picking it up - a
+        // freshly started process's threadpool can take a while to inject
+        // worker threads under load, which made this test flaky before.
+        match Handlers.beginEvaluate (evaluateRequest "e1" longRunningScript) with
+        | Choice2Of2 _ -> failwith "expected to reserve the evaluation slot"
+        | Choice1Of2 workDir ->
             let firstTask =
-                Task.Run(fun () -> Handlers.dispatch (evaluateRequest "e1" longRunningScript))
-
-            do! Task.Delay(200)
+                Task.Run(fun () -> Handlers.runEvaluate (evaluateRequest "e1" longRunningScript) workDir)
 
             let secondResponse = Handlers.dispatch (evaluateRequest "e2" "1")
 
@@ -87,9 +86,8 @@ let ``handleEvaluate rejects a second concurrent evaluate with a structured busy
             | Some err -> Assert.Equal("execution/busy", err.Code)
             | None -> failwith "expected a busy error"
 
-            CancellationSignal.requestCancel ()
+            Handlers.dispatch (emptyParamsRequest "c2" "execution/cancel") |> ignore
+
             let! _ = firstTask
             ()
-        finally
-            CancellationSignal.reset ()
     }

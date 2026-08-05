@@ -7,6 +7,7 @@
   <ItemGroup>
     <Compile Include="WorkerStateViewModel.fs" />
     <Compile Include="DocumentViewModel.fs" />
+    <Compile Include="ResultViewModel.fs" />
     <Compile Include="ShellViewModel.fs" />
     <Compile Include="MainWindow.axaml.fs" />
   </ItemGroup>

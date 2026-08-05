@@ -31,8 +31,13 @@ module Handlers =
     /// 0 = idle, 1 = an evaluation is running. A worker handles at most one
     /// evaluation at a time — FsiSession.create mutates process-wide state
     /// (current directory, Console.Out/Error) that a second concurrent
-    /// evaluation would corrupt, and CancellationSignal is a single flag.
+    /// evaluation would corrupt, and CancellationSignal is keyed by
+    /// working directory, one per evaluation.
     let private evaluationInFlight = ref 0
+
+    /// The current evaluation's working directory, so `handleCancel` knows
+    /// where to write the cancellation sentinel. `None` when idle.
+    let mutable private currentWorkDir: string option = None
 
     let private busyResponse (id: string) : WorkerResponseFrame =
         { Id = id
@@ -42,51 +47,76 @@ module Handlers =
                 { Code = "execution/busy"
                   Message = "Another evaluation is already in progress." } }
 
-    /// Isolated by default (Section 9): every call gets a fresh session in
-    /// a fresh temp working directory. An uncaught script exception becomes
-    /// a structured Error result (Section 11), never an unhandled crash —
-    /// EvalInteractionNonThrowing already keeps it from propagating.
-    let handleEvaluate (request: WorkerRequestFrame) : WorkerResponseFrame =
+    /// Reserves the evaluation slot synchronously: the busy-check and
+    /// `currentWorkDir` assignment happen here, not inside the background
+    /// task that actually runs FSI. This matters because the caller (the
+    /// worker's read loop) must have `currentWorkDir` set *before* it goes
+    /// back to reading the next frame — otherwise a client that sends
+    /// execution/cancel quickly enough can have it arrive before a
+    /// `Task.Run`'d evaluation has actually started on a threadpool
+    /// thread (a fresh process's threadpool needs time to inject worker
+    /// threads under load), and `handleCancel` would silently no-op
+    /// against a still-`None` `currentWorkDir`. Reserving synchronously
+    /// closes that race by construction instead of relying on timing.
+    let beginEvaluate (request: WorkerRequestFrame) : Choice<string, WorkerResponseFrame> =
         if Interlocked.CompareExchange(evaluationInFlight, 1, 0) <> 0 then
-            busyResponse request.Id
+            Choice2Of2(busyResponse request.Id)
         else
-            try
-                CancellationSignal.reset ()
+            let workDir =
+                Path.Combine(Path.GetTempPath(), "fqs-exec-" + Guid.NewGuid().ToString("N"))
 
-                let evalParams =
-                    JsonSerializer.Deserialize<EvaluateParams>(request.Params, Serialization.options)
+            Directory.CreateDirectory(workDir) |> ignore
+            CancellationSignal.reset workDir
+            currentWorkDir <- Some workDir
+            Choice1Of2 workDir
 
-                let workDir =
-                    Path.Combine(Path.GetTempPath(), "fqs-exec-" + Guid.NewGuid().ToString("N"))
+    /// Isolated by default (Section 9): a fresh session in the reserved
+    /// working directory. An uncaught script exception becomes a
+    /// structured Error result (Section 11), never an unhandled crash —
+    /// EvalInteractionNonThrowing already keeps it from propagating.
+    let runEvaluate (request: WorkerRequestFrame) (workDir: string) : WorkerResponseFrame =
+        try
+            let evalParams =
+                JsonSerializer.Deserialize<EvaluateParams>(request.Params, Serialization.options)
 
-                Directory.CreateDirectory(workDir) |> ignore
+            let stopwatch = Stopwatch.StartNew()
+            let session = FsiSession.create workDir
+            let outcome = Evaluation.evaluate session evalParams.Source
+            stopwatch.Stop()
 
-                let stopwatch = Stopwatch.StartNew()
-                let session = FsiSession.create workDir
-                let outcome = Evaluation.evaluate session evalParams.Source
-                stopwatch.Stop()
+            let envelope =
+                match outcome.Exception with
+                | Some ex -> Projection.projectError ex stopwatch.ElapsedMilliseconds
+                | None ->
+                    let value =
+                        outcome.Value |> Option.map (fun v -> v.ReflectionValue) |> Option.toObj
 
-                let envelope =
-                    match outcome.Exception with
-                    | Some ex -> Projection.projectError ex stopwatch.ElapsedMilliseconds
-                    | None ->
-                        let value =
-                            outcome.Value |> Option.map (fun v -> v.ReflectionValue) |> Option.toObj
+                    Projection.project value stopwatch.ElapsedMilliseconds
 
-                        Projection.project value stopwatch.ElapsedMilliseconds
+            { Id = request.Id
+              Result = Some(JsonSerializer.SerializeToElement(envelope, Serialization.options))
+              Error = None }
+        finally
+            currentWorkDir <- None
+            Interlocked.Exchange(evaluationInFlight, 0) |> ignore
 
-                { Id = request.Id
-                  Result = Some(JsonSerializer.SerializeToElement(envelope, Serialization.options))
-                  Error = None }
-            finally
-                Interlocked.Exchange(evaluationInFlight, 0) |> ignore
+    /// Convenience wrapper (reserve, then run, both synchronous) for
+    /// callers that don't need the two steps split — direct/unit-test use.
+    /// The worker's own read loop uses `beginEvaluate`/`runEvaluate`
+    /// separately so it can background only the run step.
+    let handleEvaluate (request: WorkerRequestFrame) : WorkerResponseFrame =
+        match beginEvaluate request with
+        | Choice2Of2 busy -> busy
+        | Choice1Of2 workDir -> runEvaluate request workDir
 
     /// Requests cooperative cancellation of whatever evaluation is
     /// currently running (a no-op if none is) and acknowledges immediately
     /// — see Section 9's two-step cancellation policy. The evaluate
     /// request's own response arrives separately, whenever it completes.
     let handleCancel (request: WorkerRequestFrame) : WorkerResponseFrame =
-        CancellationSignal.requestCancel ()
+        match currentWorkDir with
+        | Some workDir -> CancellationSignal.requestCancel workDir
+        | None -> ()
 
         { Id = request.Id
           Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))

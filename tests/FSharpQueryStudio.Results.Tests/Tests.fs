@@ -60,3 +60,14 @@ let ``an exception projects to a structured Error with a non-empty message`` () 
     Assert.Equal(ResultKind.Error, envelope.Kind)
     Assert.Equal(Some "boom", envelope.DisplayText)
     Assert.Equal(7L, envelope.ElapsedMs)
+
+[<Fact>]
+let ``a worker-level error (crash, busy) projects to a structured Error with its message`` () =
+    let workerError: WorkerErrorInfo =
+        { Code = "worker/crashed"
+          Message = "The worker process exited before responding." }
+
+    let envelope = Projection.projectWorkerError workerError
+
+    Assert.Equal(ResultKind.Error, envelope.Kind)
+    Assert.Equal(Some "The worker process exited before responding.", envelope.DisplayText)

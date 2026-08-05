@@ -1,25 +1,35 @@
 namespace FSharpQueryStudio.Execution
 
+open System.IO
+
 /// Cooperative cancellation for the currently running evaluation — see
-/// Section 9. A script observes cancellation by calling `isCancelled ()`
-/// directly, not via a host-injected value: `FsiEvaluationSession`
-/// type-checks scripts against *reference* assemblies, which are a
-/// different identity than the *runtime* assemblies a host-constructed
-/// .NET object comes from, so binding a value across that boundary
-/// (`AddBoundValue`) fails even for `bool`. `FsiSession.create` instead
-/// adds `--reference:` to this assembly's own already-loaded location, so
-/// a script's call resolves entirely within FSI's own compilation — no
-/// value ever crosses the boundary.
-///
-/// A single flag is enough: a worker process runs at most one evaluation
-/// at a time (`Handlers.handleEvaluate` guards against a second
-/// concurrent one).
+/// Section 9. Backed by a sentinel file in the evaluation's working
+/// directory, not a static field: an earlier version used a static bool
+/// that a script observed by calling back into this assembly via a
+/// `--reference:` self-load, but `FsiEvaluationSession`'s `collectible`
+/// AssemblyLoadContext sometimes loads its own separate copy of an
+/// explicitly path-referenced assembly rather than reusing the one
+/// already loaded in the process — giving the script its own independent
+/// static field, disconnected from the one the host mutates, so
+/// cancellation silently never took effect. A file is OS-level and has
+/// no assembly identity to get out of sync: the script just calls
+/// `System.IO.File.Exists(".cancel-requested")` directly (relative to
+/// its CWD, which `FsiSession.create` already points at the working
+/// directory this module uses) — no reference to this assembly needed.
 module CancellationSignal =
 
-    let mutable private cancelled = false
+    [<Literal>]
+    let SentinelFileName = ".cancel-requested"
 
-    let isCancelled () = cancelled
+    let private sentinelPath (workingDirectory: string) =
+        Path.Combine(workingDirectory, SentinelFileName)
 
-    let requestCancel () = cancelled <- true
+    let isCancelled (workingDirectory: string) : bool =
+        File.Exists(sentinelPath workingDirectory)
 
-    let reset () = cancelled <- false
+    let requestCancel (workingDirectory: string) : unit =
+        File.WriteAllText(sentinelPath workingDirectory, "")
+
+    let reset (workingDirectory: string) : unit =
+        let path = sentinelPath workingDirectory
+        if File.Exists(path) then File.Delete(path)

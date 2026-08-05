@@ -57,7 +57,7 @@ let ``cancelling a cooperative script lets it stop early without killing the wor
         let client = WorkerClient(workerDllPath ())
 
         let script =
-            "let mutable i = 0 in (while i < 2_000_000_000 && not (FSharpQueryStudio.Execution.CancellationSignal.isCancelled ()) do i <- i + 1); i"
+            "let mutable i = 0 in (while i < 2_000_000_000 && not (System.IO.File.Exists(\".cancel-requested\")) do i <- i + 1); i"
 
         let inFlight = client.Send(evaluateRequest "coop-1" script)
         do! Task.Delay(200)
