@@ -1,7 +1,11 @@
 module WorkerClientTests
 
+open System
+open System.Text.Json
+open System.Threading.Tasks
 open Xunit
 open FSharpQueryStudio.App
+open FSharpQueryStudio.Protocol
 open TestHelpers
 
 [<Fact>]
@@ -40,4 +44,60 @@ let ``killing the worker process mid-request surfaces a crashed error, and the n
         match client.CurrentProcess with
         | Some p -> Assert.NotEqual(firstPid, p.Id)
         | None -> failwith "expected a new running worker process"
+    }
+
+let private evaluateRequest (id: string) (source: string) : WorkerRequestFrame =
+    { Id = id
+      Method = "execution/evaluate"
+      Params = JsonSerializer.SerializeToElement<EvaluateParams>({ Source = source }, Serialization.options) }
+
+[<Fact>]
+let ``cancelling a cooperative script lets it stop early without killing the worker`` () =
+    task {
+        let client = WorkerClient(workerDllPath ())
+
+        let script =
+            "let mutable i = 0 in (while i < 2_000_000_000 && not (FSharpQueryStudio.Execution.CancellationSignal.isCancelled ()) do i <- i + 1); i"
+
+        let inFlight = client.Send(evaluateRequest "coop-1" script)
+        do! Task.Delay(200)
+
+        do! client.Cancel("coop-1", TimeSpan.FromSeconds(15.0))
+
+        let! response = inFlight |> withTimeout 20.0
+
+        Assert.True(response.Result.IsSome)
+        Assert.True(response.Error.IsNone)
+
+        let envelope =
+            JsonSerializer.Deserialize<ResultEnvelope>(response.Result.Value, Serialization.options)
+
+        Assert.Equal(ResultKind.Scalar, envelope.Kind)
+
+        match envelope.DisplayText with
+        | Some text -> Assert.True(int text < 2_000_000_000, $"expected the loop to stop early, got {text}")
+        | None -> failwith "expected a display value"
+
+        match client.CurrentProcess with
+        | Some p -> Assert.False(p.HasExited, "a cooperative stop should not kill the worker")
+        | None -> failwith "expected the worker to still be running"
+    }
+
+[<Fact>]
+let ``cancelling a non-cooperative script forces termination after the grace period`` () =
+    task {
+        let client = WorkerClient(workerDllPath ())
+
+        let inFlight = client.Send(evaluateRequest "forced-1" "while true do ()")
+        do! Task.Delay(200)
+
+        do! client.Cancel("forced-1", TimeSpan.FromMilliseconds(500.0))
+
+        let! response = inFlight |> withTimeout 20.0
+
+        Assert.True(response.Result.IsNone)
+
+        match response.Error with
+        | Some err -> Assert.Equal("execution/forciblyStopped", err.Code)
+        | None -> failwith "expected a forcibly-stopped error"
     }

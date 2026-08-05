@@ -1,9 +1,27 @@
 module FSharpQueryStudio.Worker.Program
 
 open System.IO
+open System.Threading
+open System.Threading.Tasks
 open Serilog
 open FSharpQueryStudio.Logging
 open FSharpQueryStudio.Protocol
+
+// Serializes writes to stdout: execution/evaluate runs on a background
+// task (see below) so the read loop can keep accepting a concurrent
+// execution/cancel, and that background task's eventual response must not
+// interleave with a response the loop itself is writing at the same time.
+let private writeLock = new SemaphoreSlim(1, 1)
+
+let private writeResponse (stdout: TextWriter) (response: WorkerResponseFrame) =
+    task {
+        do! writeLock.WaitAsync()
+
+        try
+            do! NdjsonStream.writeFrame stdout response
+        finally
+            writeLock.Release() |> ignore
+    }
 
 let rec private loop (stdin: TextReader) (stdout: TextWriter) =
     task {
@@ -11,11 +29,26 @@ let rec private loop (stdin: TextReader) (stdout: TextWriter) =
 
         match frame with
         | None -> ()
+        | Some request when request.Method = "execution/evaluate" ->
+            // Backgrounded so the loop can keep reading — an
+            // execution/cancel for this request needs to reach
+            // Handlers.dispatch while this is still running.
+            Task.Run(fun () ->
+                (task {
+                    use _ = Correlation.pushCorrelationId request.Id
+                    Log.Debug("Handling request {Method}", request.Method)
+                    let response = Handlers.dispatch request
+                    do! writeResponse stdout response
+                })
+                :> Task)
+            |> ignore
+
+            do! loop stdin stdout
         | Some request ->
             use _ = Correlation.pushCorrelationId request.Id
             Log.Debug("Handling request {Method}", request.Method)
             let response = Handlers.dispatch request
-            do! NdjsonStream.writeFrame stdout response
+            do! writeResponse stdout response
             do! loop stdin stdout
     }
 

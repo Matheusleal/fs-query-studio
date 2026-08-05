@@ -2,6 +2,7 @@ namespace FSharpQueryStudio.Execution
 
 open System
 open System.IO
+open System.Reflection
 open FSharp.Compiler.Interactive.Shell
 
 /// Isolated FSI evaluation session — see Section 9. Each worker process
@@ -32,7 +33,17 @@ module FsiSession =
         Console.SetOut(output)
         Console.SetError(errors)
 
-        let argv = [| "fsi.exe"; "--noninteractive"; "--nologo"; "--gui-" |]
+        // Lets scripts call FSharpQueryStudio.Execution.CancellationSignal
+        // directly — see that module's doc comment for why a host-injected
+        // value can't cross the FSI reference-assembly boundary instead.
+        let executionAssemblyPath = Assembly.GetExecutingAssembly().Location
+
+        let argv =
+            [| "fsi.exe"
+               "--noninteractive"
+               "--nologo"
+               "--gui-"
+               $"--reference:{executionAssemblyPath}" |]
         let config = FsiEvaluationSession.GetDefaultConfiguration()
         let stdin = new StringReader("")
 

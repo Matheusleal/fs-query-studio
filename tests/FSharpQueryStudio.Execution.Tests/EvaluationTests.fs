@@ -1,5 +1,6 @@
 module EvaluationTests
 
+open System.Threading.Tasks
 open Xunit
 open FSharpQueryStudio.Execution
 open TestHelpers
@@ -79,6 +80,53 @@ let ``a bare generic failwith never runs, so its own message never surfaces`` ()
 
             Assert.NotEmpty(outcome.Diagnostics)
         finally
+            cleanupWorkingDirectory workDir
+    }
+
+/// Binding a host-constructed BCL value into an FSI session directly (via
+/// AddBoundValue) fails on assembly identity - FSI type-checks scripts
+/// against reference assemblies, distinct from the runtime assemblies a
+/// host object is built from, so even `bool` doesn't unify across that
+/// boundary. `FsiSession.create` sidesteps this by adding a `--reference:`
+/// to Execution's own already-loaded assembly, so a script can call a
+/// static member on it directly - resolved entirely within FSI's own
+/// compilation, no cross-boundary value ever crosses.
+[<Fact>]
+let ``evaluate stops a cooperative loop early once CancellationSignal is requested`` () =
+    task {
+        let workDir = tempWorkingDirectory ()
+
+        try
+            CancellationSignal.reset ()
+
+            let script =
+                """
+let mutable i = 0
+while i < 2_000_000_000 && not (FSharpQueryStudio.Execution.CancellationSignal.isCancelled ()) do
+    i <- i + 1
+i
+"""
+
+            let evalTask =
+                Task.Run(fun () ->
+                    let session = FsiSession.create workDir
+                    Evaluation.evaluate session script)
+
+            do! Task.Delay(200)
+            CancellationSignal.requestCancel ()
+
+            let! outcome = evalTask |> withTimeout 30.0
+
+            Assert.True(outcome.Exception.IsNone)
+
+            match outcome.Value with
+            | Some fsiValue ->
+                match fsiValue.ReflectionValue with
+                | :? int as i -> Assert.True(i < 2_000_000_000, $"expected the loop to stop early, got i={i}")
+                | other -> failwithf "expected an int, got %A" other
+            | None -> failwith "expected a value, got none"
+        finally
+            CancellationSignal.reset ()
             cleanupWorkingDirectory workDir
     }
 

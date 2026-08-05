@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="CancellationSignal.fs" />
     <Compile Include="FsiSession.fs" />
     <Compile Include="Evaluation.fs" />
   </ItemGroup>
