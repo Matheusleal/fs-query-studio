@@ -2,9 +2,13 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <!-- Transitively pulls FSharp.Compiler.Service via Worker -> Execution;
+         see the matching note in FSharpQueryStudio.Execution.fsproj. -->
+    <NoWarn>$(NoWarn);NU1608</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="WorkerClient.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -14,6 +18,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FSharpQueryStudio.Logging\FSharpQueryStudio.Logging.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Worker\FSharpQueryStudio.Worker.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
   </ItemGroup>
 
 </Project>

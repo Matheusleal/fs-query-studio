@@ -1,25 +1,11 @@
 module Tests
 
-open System
 open System.Diagnostics
-open System.IO
 open System.Threading.Tasks
 open Xunit
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Worker
-
-let private workerDllPath () =
-    Path.Combine(AppContext.BaseDirectory, "FSharpQueryStudio.Worker.dll")
-
-let private withTimeout (seconds: float) (work: Task<'T>) : Task<'T> =
-    task {
-        let! winner = Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds seconds))
-
-        if winner = (work :> Task) then
-            return! work
-        else
-            return failwith $"timed out after {seconds}s waiting for the worker process"
-    }
+open TestHelpers
 
 let private startWorker () =
     let psi =
@@ -35,11 +21,6 @@ let private startWorker () =
     let proc = new Process(StartInfo = psi)
     proc.Start() |> ignore
     proc
-
-let private request (id: string) (method_: string) (paramsJson: string) : WorkerRequestFrame =
-    { Id = id
-      Method = method_
-      Params = Text.Json.JsonDocument.Parse(paramsJson).RootElement }
 
 let private roundTrip (proc: Process) (req: WorkerRequestFrame) : Task<WorkerResponseFrame option> =
     task {
@@ -82,7 +63,7 @@ let ``a throwing script returns a structured Error result and the worker survive
             match errorResponse with
             | Some resp ->
                 Assert.True(resp.Result.IsSome)
-                let envelope = Text.Json.JsonSerializer.Deserialize<ResultEnvelope>(resp.Result.Value, Serialization.options)
+                let envelope = System.Text.Json.JsonSerializer.Deserialize<ResultEnvelope>(resp.Result.Value, Serialization.options)
                 Assert.Equal(ResultKind.Error, envelope.Kind)
                 Assert.Contains("boom", envelope.DisplayText |> Option.defaultValue "")
             | None -> failwith "expected an error result, got end of stream"
