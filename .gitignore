@@ -11,6 +11,13 @@
 *.sln.docstates
 *.env
 
+# F# Query Studio: never track local secrets, credentials, or app-data logs
+secrets.json
+*.secrets.json
+*.pem
+*.key
+/logs/
+
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 

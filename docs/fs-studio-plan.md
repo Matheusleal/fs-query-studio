@@ -113,7 +113,8 @@ FSharpQueryStudio.sln
 │   ├── FSharpQueryStudio.Results/      # Bounded result projection and export
 │   ├── FSharpQueryStudio.Connectors/   # Connector abstraction and implementations
 │   ├── FSharpQueryStudio.Storage/      # Workspace, preferences, secret references
-│   └── FSharpQueryStudio.Security/     # Trust policy/capabilities, initially small
+│   ├── FSharpQueryStudio.Security/     # Trust policy/capabilities, initially small
+│   └── FSharpQueryStudio.Logging/      # Serilog composition helper, correlation + redaction enrichers
 └── tests/
     ├── FSharpQueryStudio.Analysis.Tests/
     ├── FSharpQueryStudio.Execution.Tests/
@@ -122,11 +123,14 @@ FSharpQueryStudio.sln
     ├── FSharpQueryStudio.Results.Tests/
     ├── FSharpQueryStudio.Storage.Tests/
     ├── FSharpQueryStudio.Security.Tests/
+    ├── FSharpQueryStudio.Editor.Tests/
+    ├── FSharpQueryStudio.Worker.Tests/
+    ├── FSharpQueryStudio.Logging.Tests/
     ├── FSharpQueryStudio.Ui.Tests/          # Avalonia.Headless view/view-model tests
     └── FSharpQueryStudio.Integration.Tests/
 ```
 
-Every `src/` project has a matching `tests/` project from the moment it is created — there is no project without one. See [Section 16](#16-engineering-standards-and-tdd-workflow) for the workflow that keeps them paired.
+Every `src/` project has a matching `tests/` project from the moment it is created, with one deliberate exception: `App` is the thin composition root and is exercised indirectly through `Worker`/`Ui` integration tests rather than a dedicated suite of its own — see the pyramid table in [Section 16](#16-engineering-standards-and-tdd-workflow), which also covers the workflow that keeps every other pair aligned.
 
 ### Responsibilities
 
@@ -143,6 +147,7 @@ Every `src/` project has a matching `tests/` project from the moment it is creat
 | `Connectors` | SQL/file/API connector interfaces and runtime implementations. |
 | `Storage` | Workspace files, local history, layout, secret references. |
 | `Security` | Script trust declarations and capability checks for future sharing. |
+| `Logging` | Serilog `LoggerConfiguration` builder shared by `App` and `Worker`, plus the correlation-ID and secret-redaction enrichers from [Section 15](#15-logging-and-observability). The only project that references Serilog directly outside the two composition roots themselves — everything else depends on `Microsoft.Extensions.Logging`. |
 
 Keep FSharp.Compiler.Service types, database driver objects, and runtime values inside the worker. The host only receives stable protocol models.
 
@@ -607,7 +612,7 @@ The first release targets Windows, but avoid Windows-only coupling outside the p
 
 ## 15. Logging and Observability
 
-The application should always be able to answer "what was it doing right before this went wrong" without a debugger attached. Use [Serilog](https://serilog.net/) as the logging library across `App` (host) and `Worker`. Other libraries depend only on `Microsoft.Extensions.Logging`'s abstraction, never on Serilog types directly — Serilog is wired to that abstraction once, at each process's composition root, so libraries stay testable without a real sink.
+The application should always be able to answer "what was it doing right before this went wrong" without a debugger attached. Use [Serilog](https://serilog.net/) as the logging library across `App` (host) and `Worker`. The shared `LoggerConfiguration` builder and the correlation/redaction enrichers below live in the `Logging` project (see [Section 4](#4-solution-and-project-structure)), referenced by both composition roots so the behavior — and its tests — exist exactly once. Every other library depends only on `Microsoft.Extensions.Logging`'s abstraction, never on Serilog types directly.
 
 ### Sinks
 
