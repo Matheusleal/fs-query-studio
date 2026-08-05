@@ -216,3 +216,15 @@ No new automated test covers `App.axaml.fs`/`MainWindow.WireExecution` directly 
 Full solution: 111 tests, all green (`Integration.Tests` 13, up from 12).
 
 **Milestone A acceptance criterion met:** a user can open a standalone `.fsx` script, execute it in isolation, read output/results, cancel it, and recover from a worker crash without restarting the UI — proven at the `ShellViewModel`/`WorkerClient` level by `MilestoneAAcceptanceTests.fs`, and now actually reachable by running the compiled app (interactive rendering itself still manual-verify-only, per A.13).
+
+---
+
+## 2026-08-05 — B.1: standalone-script analysis context builder
+
+First `Analysis` project code. Per Section 8's call to keep FCS analysis logically separate from FSI runtime evaluation, `AnalysisContext` doesn't reuse anything from `Execution.FsiSession` — it's a fresh `FSharpChecker.Create()` asking `GetProjectOptionsFromScript` what an empty script anchored at a given working directory would see, then filtering `OtherOptions` down to `-r:` reference entries.
+
+The determinism requirement (building the context twice for the same inputs yields byte-identical reference sets) is the one this task is explicitly graded on, so it's not left as an assumption about FCS's own resolution order — `Array.sort` is applied before returning, making the guarantee structural rather than incidental.
+
+Same `FSharp.Compiler.Service`/`FSharp.Core` version-pin `NU1608` suppression A.4 already needed in `Execution`/`Execution.Tests` was required again in `Analysis`/`Analysis.Tests`, for the same reason.
+
+Full solution: 114 tests, all green (`Analysis.Tests` 3, new).

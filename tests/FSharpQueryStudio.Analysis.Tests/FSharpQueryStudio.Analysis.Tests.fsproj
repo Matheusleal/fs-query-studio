@@ -2,10 +2,16 @@
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
+    <!-- FSharp.Compiler.Service 43.12.204 pins FSharp.Core = 10.1.204 exactly;
+         the .NET 10 SDK resolves 10.1.302. Newer FSharp.Core is compatible in
+         practice, so this specific NuGet advisory is suppressed rather than
+         weakening TreatWarningsAsErrors for the whole project. -->
+    <NoWarn>$(NoWarn);NU1608</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="Tests.fs" />
+    <Compile Include="TestHelpers.fs" />
+    <Compile Include="AnalysisContextTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
