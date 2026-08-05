@@ -6,6 +6,8 @@
 
   <ItemGroup>
     <Compile Include="Tests.fs" />
+    <Compile Include="FakeDebounceScheduler.fs" />
+    <Compile Include="DebouncerTests.fs" />
     <Compile Include="WorkerStateViewModelTests.fs" />
     <Compile Include="DocumentViewModelTests.fs" />
     <Compile Include="ResultViewModelTests.fs" />

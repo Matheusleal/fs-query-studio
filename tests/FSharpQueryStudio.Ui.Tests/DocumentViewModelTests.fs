@@ -1,8 +1,10 @@
 module DocumentViewModelTests
 
+open System
 open System.ComponentModel
 open Xunit
 open FSharpQueryStudio.Ui
+open FSharpQueryStudio.Ui.Tests
 
 [<Fact>]
 let ``starts with empty text, version 0, and not dirty`` () =
@@ -63,3 +65,37 @@ let ``PropertyChanged does not fire for a stale ApplyTextChanged`` () =
     vm.ApplyTextChanged(3, "stale")
 
     Assert.False(raised)
+
+[<Fact>]
+let ``rapid successive text changes raise DebouncedTextChanged exactly once, carrying the latest edit`` () =
+    let scheduler = FakeDebounceScheduler()
+    let vm = DocumentViewModel("file:///a.fsx", scheduler)
+    let mutable fireCount = 0
+    let mutable lastVersion = 0
+    let mutable lastText = ""
+
+    vm.DebouncedTextChanged.Add(fun (version, text) ->
+        fireCount <- fireCount + 1
+        lastVersion <- version
+        lastText <- text)
+
+    vm.ApplyTextChanged(1, "let x = 1")
+    scheduler.Advance(TimeSpan.FromMilliseconds(100.0))
+    vm.ApplyTextChanged(2, "let x = 1\nlet y = 2")
+    scheduler.Advance(TimeSpan.FromMilliseconds(500.0))
+
+    Assert.Equal(1, fireCount)
+    Assert.Equal(2, lastVersion)
+    Assert.Equal("let x = 1\nlet y = 2", lastText)
+
+[<Fact>]
+let ``a text change that never reaches the debounce window never raises DebouncedTextChanged`` () =
+    let scheduler = FakeDebounceScheduler()
+    let vm = DocumentViewModel("file:///a.fsx", scheduler)
+    let mutable fireCount = 0
+    vm.DebouncedTextChanged.Add(fun _ -> fireCount <- fireCount + 1)
+
+    vm.ApplyTextChanged(1, "let x = 1")
+    scheduler.Advance(TimeSpan.FromMilliseconds(399.0))
+
+    Assert.Equal(0, fireCount)

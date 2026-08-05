@@ -256,3 +256,13 @@ That same `DiagnosticSeverity.Error` case collided with `FSharp.Core`'s `Result.
 `Analysis.Tests`: five cases per the task's own list — multiline span, leading blank lines, end-of-file span, Unicode source (all assert the 0-based line/column lands correctly), plus one for severity/error-number-code mapping.
 
 Full solution: 121 tests, all green (`Analysis.Tests` 8, up from 3).
+
+---
+
+## 2026-08-06 — B.4: debounce source-change requests
+
+Added `IDebounceScheduler`/`RealDebounceScheduler`/`Debouncer` in `Ui`: `Notify` cancels whatever was previously scheduled before scheduling the new action, so a burst of calls within the delay window collapses to one eventual fire — the mechanism, not yet wired to anything. `RealDebounceScheduler` wraps `System.Threading.Timer`; tests get a `FakeDebounceScheduler` (`Ui.Tests`) driven by a virtual clock (`Advance(TimeSpan)`) instead of waiting on a real one, avoiding the class of timing flake earlier milestones already hit with real waits.
+
+Wired it into `DocumentViewModel`: a new `DebouncedTextChanged` event fires once, 400ms (mid Section 8's 300-500ms range) after the last of a burst of `ApplyTextChanged` calls, carrying the settled version/text rather than any intermediate keystroke — the hook a later task's `analysis/check` call will subscribe to. `DocumentViewModel`'s constructor takes an optional `IDebounceScheduler`, defaulting to the real one, so every existing call site (`ShellViewModel`, prior tests) is unaffected.
+
+Full solution: 125 tests, all green (`Ui.Tests` 36, up from 32).
