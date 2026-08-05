@@ -16,47 +16,66 @@ let private evaluateRequest (id: string) (source: string) : WorkerRequestFrame =
       Method = "execution/evaluate"
       Params = JsonSerializer.SerializeToElement<EvaluateParams>({ Source = source }, Serialization.options) }
 
+let private analysisCheckRequest (id: string) (source: string) : WorkerRequestFrame =
+    { Id = id
+      Method = "analysis/check"
+      Params =
+        JsonSerializer.SerializeToElement<AnalysisCheckParams>(
+            { DocumentUri = "file:///workspace/sales.fsx"
+              Version = 1
+              Source = source },
+            Serialization.options
+        ) }
+
 [<Fact>]
 let ``dispatch on worker/health returns a Result with no Error`` () =
-    let request = emptyParamsRequest "h1" "worker/health"
+    task {
+        let request = emptyParamsRequest "h1" "worker/health"
 
-    let response = Handlers.dispatch request
+        let! response = Handlers.dispatch request
 
-    Assert.Equal("h1", response.Id)
-    Assert.True(response.Result.IsSome)
-    Assert.True(response.Error.IsNone)
+        Assert.Equal("h1", response.Id)
+        Assert.True(response.Result.IsSome)
+        Assert.True(response.Error.IsNone)
+    }
 
 [<Fact>]
 let ``dispatch on worker/health returns a non-empty version`` () =
-    let request = emptyParamsRequest "h2" "worker/health"
+    task {
+        let request = emptyParamsRequest "h2" "worker/health"
 
-    let response = Handlers.dispatch request
-    let health = JsonSerializer.Deserialize<HealthInfo>(response.Result.Value, Serialization.options)
+        let! response = Handlers.dispatch request
+        let health = JsonSerializer.Deserialize<HealthInfo>(response.Result.Value, Serialization.options)
 
-    Assert.False(System.String.IsNullOrWhiteSpace(health.Version))
+        Assert.False(System.String.IsNullOrWhiteSpace(health.Version))
+    }
 
 [<Fact>]
 let ``dispatch on an unknown method returns a structured error and no Result`` () =
-    let request = emptyParamsRequest "u1" "not/a-real-method"
+    task {
+        let request = emptyParamsRequest "u1" "not/a-real-method"
 
-    let response = Handlers.dispatch request
+        let! response = Handlers.dispatch request
 
-    Assert.Equal("u1", response.Id)
-    Assert.True(response.Result.IsNone)
+        Assert.Equal("u1", response.Id)
+        Assert.True(response.Result.IsNone)
 
-    match response.Error with
-    | Some err ->
-        Assert.Equal("method/unknown", err.Code)
-        Assert.Contains("not/a-real-method", err.Message)
-    | None -> failwith "expected an Error"
+        match response.Error with
+        | Some err ->
+            Assert.Equal("method/unknown", err.Code)
+            Assert.Contains("not/a-real-method", err.Message)
+        | None -> failwith "expected an Error"
+    }
 
 [<Fact>]
 let ``dispatch on execution/cancel acknowledges even when no evaluation is running`` () =
-    let response = Handlers.dispatch (emptyParamsRequest "c1" "execution/cancel")
+    task {
+        let! response = Handlers.dispatch (emptyParamsRequest "c1" "execution/cancel")
 
-    Assert.Equal("c1", response.Id)
-    Assert.True(response.Result.IsSome)
-    Assert.True(response.Error.IsNone)
+        Assert.Equal("c1", response.Id)
+        Assert.True(response.Result.IsSome)
+        Assert.True(response.Error.IsNone)
+    }
 
 [<Fact>]
 let ``handleEvaluate captures printed stdout into the envelope's Output lines`` () =
@@ -87,7 +106,7 @@ let ``handleEvaluate rejects a second concurrent evaluate with a structured busy
             let firstTask =
                 Task.Run(fun () -> Handlers.runEvaluate (evaluateRequest "e1" longRunningScript) workDir)
 
-            let secondResponse = Handlers.dispatch (evaluateRequest "e2" "1")
+            let! secondResponse = Handlers.dispatch (evaluateRequest "e2" "1")
 
             Assert.True(secondResponse.Result.IsNone)
 
@@ -95,8 +114,20 @@ let ``handleEvaluate rejects a second concurrent evaluate with a structured busy
             | Some err -> Assert.Equal("execution/busy", err.Code)
             | None -> failwith "expected a busy error"
 
-            Handlers.dispatch (emptyParamsRequest "c2" "execution/cancel") |> ignore
+            let! _ = Handlers.dispatch (emptyParamsRequest "c2" "execution/cancel")
+            ()
 
             let! _ = firstTask
             ()
+    }
+
+[<Fact>]
+let ``dispatch on analysis/check returns at least one diagnostic for a script with a type error`` () =
+    task {
+        let! response = Handlers.handleAnalysisCheck (analysisCheckRequest "a1" "let x : int = \"not an int\"")
+
+        Assert.True(response.Result.IsSome)
+        let result = JsonSerializer.Deserialize<AnalysisCheckResult>(response.Result.Value, Serialization.options)
+
+        Assert.NotEmpty(result.Diagnostics)
     }

@@ -11,9 +11,14 @@ module AnalysisContext =
 
     type Context =
         { WorkingDirectory: string
-          References: string list }
+          ScriptPath: string
+          References: string list
+          ProjectOptions: FSharpProjectOptions }
 
-    let private checker = FSharpChecker.Create()
+    /// Shared with `Checker` so both modules benefit from FCS's own
+    /// project/parse caching instead of each holding a separate, colder
+    /// instance.
+    let checker = FSharpChecker.Create()
 
     /// Resolves the baseline FSharp.Core/framework reference set an empty
     /// standalone script anchored at `workingDirectory` would see. Sorted so
@@ -35,4 +40,6 @@ module AnalysisContext =
             |> Array.toList
 
         { WorkingDirectory = workingDirectory
-          References = references }
+          ScriptPath = scriptPath
+          References = references
+          ProjectOptions = projectOptions }

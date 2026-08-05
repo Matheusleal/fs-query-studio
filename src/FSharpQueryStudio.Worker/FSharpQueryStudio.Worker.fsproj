@@ -22,6 +22,7 @@
     <ProjectReference Include="..\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Execution\FSharpQueryStudio.Execution.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Results\FSharpQueryStudio.Results.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Analysis\FSharpQueryStudio.Analysis.fsproj" />
   </ItemGroup>
 
 </Project>

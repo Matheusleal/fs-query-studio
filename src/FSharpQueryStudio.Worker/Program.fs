@@ -58,7 +58,7 @@ let rec private loop (stdin: TextReader) (stdout: TextWriter) =
         | Some request ->
             use _ = Correlation.pushCorrelationId request.Id
             Log.Debug("Handling request {Method}", request.Method)
-            let response = Handlers.dispatch request
+            let! response = Handlers.dispatch request
             do! writeResponse stdout response
             do! loop stdin stdout
     }

@@ -228,3 +228,17 @@ The determinism requirement (building the context twice for the same inputs yiel
 Same `FSharp.Compiler.Service`/`FSharp.Core` version-pin `NU1608` suppression A.4 already needed in `Execution`/`Execution.Tests` was required again in `Analysis`/`Analysis.Tests`, for the same reason.
 
 Full solution: 114 tests, all green (`Analysis.Tests` 3, new).
+
+---
+
+## 2026-08-06 — B.2: analysis/check handler
+
+Extended `AnalysisContext.Context` with `ScriptPath`/`ProjectOptions` (B.1 only needed `References`) and added `Analysis.Checker.check`, which reuses `context.ScriptPath` as the file identity FCS type-checks a new source snapshot against — the context was already built with that path as its sole source file, so no file needs to exist on disk for a real snapshot to be checked. `AnalysisContext.checker` (the shared `FSharpChecker` instance) is now exposed for `Checker` to reuse, rather than each module cold-starting its own.
+
+Deliberately stayed at "raw FCS diagnostics" scope per the task split: `Protocol.RawDiagnostic`/`AnalysisCheckResult` carry only `Message`/`Severity`, no position — coordinate conversion into the real `Diagnostic` shape (Section 8's 1-based-FCS-vs-0-based-Monaco call-out) is B.3's job, not this one's.
+
+Wiring `analysis/check` into `Handlers.dispatch` forced `dispatch` itself from sync to `Task<WorkerResponseFrame>` (analysis needs FCS's async `ParseAndCheckFileInProject`), which meant touching every existing `dispatch` call site — `Program.fs`'s loop and four `HandlersTests.fs` cases — to await it instead of binding it directly. All were mechanical (`let` to `let!` inside a `task` block); no behavior changed for the pre-existing methods.
+
+Hit an unrelated compile break surfaced by adding `AnalysisCheckParams { DocumentUri; Version; Source }` to `Protocol`: it has the exact same field set as `Editor.TextChangedPayload`, and F#'s record-field-name resolution picked the newer type for the one call site in `EditorBridge.fs`'s `TextChanged` case that relied on inferred (not explicit) record typing — a real ambiguity, not a red herring, since two same-shaped records now exist. Fixed by annotating that record literal explicitly, matching the pattern already used one case below it in the same file.
+
+Full solution: 116 tests, all green (`Worker.Tests` 13, up from 12).

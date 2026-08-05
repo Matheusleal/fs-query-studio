@@ -24,9 +24,9 @@ module EditorBridge =
         match request with
         | TextChanged(uri, version, source) ->
             JsonSerializer.SerializeToElement<TextChangedPayload>(
-                { DocumentUri = uri
-                  Version = version
-                  Source = source },
+                ({ DocumentUri = uri
+                   Version = version
+                   Source = source }: TextChangedPayload),
                 Serialization.options
             )
         | CompletionRequested(uri, version, line, column) ->

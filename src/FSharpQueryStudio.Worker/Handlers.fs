@@ -6,10 +6,12 @@ open System.IO
 open System.Reflection
 open System.Text.Json
 open System.Threading
+open System.Threading.Tasks
 open Serilog
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Execution
 open FSharpQueryStudio.Results
+open FSharpQueryStudio.Analysis
 
 /// Method dispatch for incoming WorkerRequestFrames — see Section 7's
 /// method table.
@@ -135,15 +137,47 @@ module Handlers =
           Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
           Error = None }
 
-    let dispatch (request: WorkerRequestFrame) : WorkerResponseFrame =
-        match request.Method with
-        | "worker/health" -> handleHealth request
-        | "execution/evaluate" -> handleEvaluate request
-        | "execution/cancel" -> handleCancel request
-        | unknown ->
-            { Id = request.Id
-              Result = None
-              Error =
-                Some
-                    { Code = "method/unknown"
-                      Message = $"Unknown method: {unknown}" } }
+    /// Parses/type-checks the request's source snapshot via FCS, in a fresh
+    /// analysis context per call (Section 8, step 3-4) — the context is
+    /// cheap to (re)build and this stays stateless, unlike `runEvaluate`'s
+    /// process-wide FSI session.
+    let handleAnalysisCheck (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
+        task {
+            let checkParams =
+                JsonSerializer.Deserialize<AnalysisCheckParams>(request.Params, Serialization.options)
+
+            let workDir =
+                Path.Combine(Path.GetTempPath(), "fqs-analysis-" + Guid.NewGuid().ToString("N"))
+
+            Directory.CreateDirectory(workDir) |> ignore
+            let context = AnalysisContext.build workDir
+            let! diagnostics = Checker.check context checkParams.Source
+
+            let result: AnalysisCheckResult =
+                { Diagnostics =
+                    diagnostics
+                    |> Array.map (fun d -> { Message = d.Message; Severity = string d.Severity })
+                    |> Array.toList }
+
+            return
+                { Id = request.Id
+                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                  Error = None }
+        }
+
+    let dispatch (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
+        task {
+            match request.Method with
+            | "worker/health" -> return handleHealth request
+            | "execution/evaluate" -> return handleEvaluate request
+            | "execution/cancel" -> return handleCancel request
+            | "analysis/check" -> return! handleAnalysisCheck request
+            | unknown ->
+                return
+                    { Id = request.Id
+                      Result = None
+                      Error =
+                        Some
+                            { Code = "method/unknown"
+                              Message = $"Unknown method: {unknown}" } }
+        }
