@@ -242,3 +242,17 @@ Wiring `analysis/check` into `Handlers.dispatch` forced `dispatch` itself from s
 Hit an unrelated compile break surfaced by adding `AnalysisCheckParams { DocumentUri; Version; Source }` to `Protocol`: it has the exact same field set as `Editor.TextChangedPayload`, and F#'s record-field-name resolution picked the newer type for the one call site in `EditorBridge.fs`'s `TextChanged` case that relied on inferred (not explicit) record typing — a real ambiguity, not a red herring, since two same-shaped records now exist. Fixed by annotating that record literal explicitly, matching the pattern already used one case below it in the same file.
 
 Full solution: 116 tests, all green (`Worker.Tests` 13, up from 12).
+
+---
+
+## 2026-08-06 — B.3: FCS-to-protocol Diagnostic mapping and coordinate conversion
+
+Before writing the mapping, spiked (throwaway, deleted after) what FCS's `FSharpDiagnostic` actually reports rather than trusting the task title's shorthand at face value: `StartLine`/`EndLine` are 1-based, but `StartColumn`/`EndColumn` are *already* 0-based — not the uniformly-1-based picture "1-based FCS vs 0-based Monaco" suggests. `DiagnosticMapping.map` in `Analysis` converts only the line numbers (`- 1`); columns pass through unchanged. Worth the five minutes: a mapping written straight from the doc's prose would have silently double-offset every column.
+
+Added `Protocol.Diagnostic`/`DiagnosticSeverity` verbatim from Section 8's type definition, and replaced B.2's placeholder `RawDiagnostic` (message + severity string, no position) with the real thing now that the conversion exists — `AnalysisCheckResult.Diagnostics` is `Diagnostic list` end to end.
+
+That same `DiagnosticSeverity.Error` case collided with `FSharp.Core`'s `Result.Error` everywhere `Protocol` is opened alongside a `Result`-returning match — same class of bug as B.2's `TextChangedPayload`/`AnalysisCheckParams` field-set collision, different mechanism (case-name shadowing a BCL case, not ambiguous record-field inference). Surfaced in three unrelated-looking places (`EditorBridge.fs`, `EditorBridgeTests.fs`, `MainWindow.axaml.fs`) the moment `Diagnostics.fs` compiled — fixed by qualifying the shadowed pattern as `Result.Error` at each site rather than renaming the documented type.
+
+`Analysis.Tests`: five cases per the task's own list — multiline span, leading blank lines, end-of-file span, Unicode source (all assert the 0-based line/column lands correctly), plus one for severity/error-number-code mapping.
+
+Full solution: 121 tests, all green (`Analysis.Tests` 8, up from 3).

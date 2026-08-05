@@ -83,6 +83,6 @@ module EditorBridge =
 
                 Ok(ExecuteRequested(p.DocumentUri, p.Version, p.Selection))
             | "cancelRequested" -> Ok CancelRequested
-            | unknown -> Error { Message = $"Unknown envelope kind: {unknown}" }
+            | unknown -> Result.Error { Message = $"Unknown envelope kind: {unknown}" }
         with ex ->
-            Error { Message = $"Malformed payload for kind '{envelope.Kind}': {ex.Message}" }
+            Result.Error { Message = $"Malformed payload for kind '{envelope.Kind}': {ex.Message}" }

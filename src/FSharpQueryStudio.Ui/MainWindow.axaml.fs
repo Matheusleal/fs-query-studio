@@ -33,7 +33,7 @@ type MainWindow() as this =
             | Ok(TextChanged(_documentUri, version, source)) ->
                 shellViewModel.ActiveDocument.ApplyTextChanged(version, source)
             | Ok _otherRequest -> () // Wired as each lands in its own later task.
-            | Error _err -> ()) // Malformed message from the page - never crashes the host.
+            | Result.Error _err -> ()) // Malformed message from the page - never crashes the host.
 
         let runButton = this.FindControl<Button>("RunButton")
         runButton.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.RunAsync() |> ignore)

@@ -9,7 +9,7 @@ let private roundTrips (request: EditorRequest) =
 
     match EditorBridge.decode envelope with
     | Ok decoded -> Assert.Equal(request, decoded)
-    | Error err -> failwithf "expected a successful decode, got %A" err
+    | Result.Error err -> failwithf "expected a successful decode, got %A" err
 
 [<Fact>]
 let ``TextChanged round-trips through encode/decode`` () =
@@ -43,7 +43,7 @@ let ``decoding an envelope with an unknown Kind produces a typed error, not an e
           Payload = System.Text.Json.JsonDocument.Parse("{}").RootElement }
 
     match EditorBridge.decode envelope with
-    | Error _ -> ()
+    | Result.Error _ -> ()
     | Ok decoded -> failwithf "expected an error, got %A" decoded
 
 [<Fact>]
@@ -54,5 +54,5 @@ let ``decoding an envelope with a payload missing required fields produces a typ
           Payload = System.Text.Json.JsonDocument.Parse("""{"documentUri":"file:///a.fsx"}""").RootElement }
 
     match EditorBridge.decode envelope with
-    | Error _ -> ()
+    | Result.Error _ -> ()
     | Ok decoded -> failwithf "expected an error, got %A" decoded

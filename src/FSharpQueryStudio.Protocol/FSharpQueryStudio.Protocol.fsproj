@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <Compile Include="Frames.fs" />
+    <Compile Include="Diagnostics.fs" />
     <Compile Include="Payloads.fs" />
     <Compile Include="Results.fs" />
     <Compile Include="EditorRequest.fs" />

@@ -154,10 +154,7 @@ module Handlers =
             let! diagnostics = Checker.check context checkParams.Source
 
             let result: AnalysisCheckResult =
-                { Diagnostics =
-                    diagnostics
-                    |> Array.map (fun d -> { Message = d.Message; Severity = string d.Severity })
-                    |> Array.toList }
+                { Diagnostics = diagnostics |> Array.map DiagnosticMapping.map |> Array.toList }
 
             return
                 { Id = request.Id

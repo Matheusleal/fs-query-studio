@@ -14,9 +14,4 @@ type AnalysisCheckParams =
       Version: int
       Source: string }
 
-/// A diagnostic as FCS reports it, with no coordinate conversion into the
-/// protocol-neutral `Diagnostic` shape yet — that mapping is a later task
-/// (Section 8's explicit 1-based-FCS-vs-0-based-Monaco call-out).
-type RawDiagnostic = { Message: string; Severity: string }
-
-type AnalysisCheckResult = { Diagnostics: RawDiagnostic list }
+type AnalysisCheckResult = { Diagnostics: Diagnostic list }

@@ -12,6 +12,7 @@
   <ItemGroup>
     <Compile Include="TestHelpers.fs" />
     <Compile Include="AnalysisContextTests.fs" />
+    <Compile Include="DiagnosticMappingTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
