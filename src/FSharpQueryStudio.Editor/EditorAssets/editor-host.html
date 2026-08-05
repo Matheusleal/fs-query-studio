@@ -16,12 +16,20 @@
       // WebView2's native channel (window.chrome.webview) is what
       // Avalonia's WebView control proxies on Windows.
       function postToHost(kind, payload) {
+        postToHostWithId(crypto.randomUUID(), kind, payload);
+      }
+
+      function postToHostWithId(id, kind, payload) {
         if (window.chrome && window.chrome.webview) {
-          window.chrome.webview.postMessage(
-            JSON.stringify({ id: crypto.randomUUID(), kind: kind, payload: payload })
-          );
+          window.chrome.webview.postMessage(JSON.stringify({ id: id, kind: kind, payload: payload }));
         }
       }
+
+      // Pending `provideHover` promises, keyed by the hoverRequested
+      // envelope's own id — HoverResolved echoes that same id back
+      // (Protocol.HostNotification.HoverResolved), which is how a
+      // response is matched to the request that triggered it.
+      var pendingHoverResolvers = {};
 
       require.config({ paths: { vs: "vs" } });
 
@@ -50,6 +58,26 @@
           });
         });
 
+        monaco.languages.registerHoverProvider("fsharp", {
+          provideHover: function (model, position) {
+            return new Promise(function (resolve) {
+              var id = crypto.randomUUID();
+              pendingHoverResolvers[id] = resolve;
+
+              // Monaco positions are 1-based; the host/FCS side is
+              // 0-based on the column (Diagnostic's own convention -
+              // see DiagnosticsUpdated below) and 1-based on the line
+              // to match FCS's own native line numbering directly.
+              postToHostWithId(id, "hoverRequested", {
+                documentUri: documentUri,
+                version: currentVersion,
+                line: position.lineNumber,
+                column: position.column - 1
+              });
+            });
+          }
+        });
+
         // FCS's DiagnosticSeverity -> Monaco's MarkerSeverity. Matched
         // case-insensitively since the exact casing the F#-side union
         // encoding puts on the wire isn't pinned down by an automated
@@ -65,15 +93,52 @@
           }
         }
 
+        // HoverInfo -> Monaco's `contents` (an array of markdown-ish
+        // value objects). One line per field that's actually present -
+        // Signature/XmlDoc are optional per Section 8.
+        function hoverInfoToContents(hover) {
+          var lines = [hover.displayName + ": " + hover.type];
+          if (hover.signature) {
+            lines.push("```fsharp\n" + hover.signature + "\n```");
+          }
+          if (hover.xmlDoc) {
+            lines.push(hover.xmlDoc);
+          }
+          return lines.map(function (value) {
+            return { value: value };
+          });
+        }
+
         if (window.chrome && window.chrome.webview) {
           window.chrome.webview.addEventListener("message", function (event) {
             var envelope = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
 
-            // Host -> editor messages (completions, hover, navigation,
-            // themes, execution state) are wired as each lands in its own
-            // later task. An unrecognized kind is ignored, not thrown — a
+            // Host -> editor messages (completions, navigation, themes,
+            // execution state) are wired as each lands in its own later
+            // task. An unrecognized kind is ignored, not thrown — a
             // malformed/future message must never crash the page.
             switch (envelope.kind) {
+              case "caretMoved": {
+                var caretPosition = {
+                  lineNumber: envelope.payload.line + 1,
+                  column: envelope.payload.column + 1
+                };
+                editor.setPosition(caretPosition);
+                editor.revealPositionInCenter(caretPosition);
+                editor.focus();
+                break;
+              }
+              case "hoverResolved": {
+                var resolve = pendingHoverResolvers[envelope.id];
+
+                if (resolve) {
+                  delete pendingHoverResolvers[envelope.id];
+                  var hover = envelope.payload.hover;
+                  resolve(hover ? { contents: hoverInfoToContents(hover) } : null);
+                }
+
+                break;
+              }
               case "diagnosticsUpdated": {
                 var payload = envelope.payload;
                 var model = editor.getModel();

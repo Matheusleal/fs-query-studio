@@ -304,3 +304,13 @@ Spiked (throwaway, deleted after) the exact FCS hover API before writing anythin
 Added `Protocol.HoverInfo` (Section 8's fields verbatim) and `Analysis.Hover.hover`, taking FCS's own coordinate convention directly (1-based line, 0-based column at/after the identifier's end) — this layer talks straight to FCS, so no protocol-facing coordinate conversion belongs here (unlike B.3's `DiagnosticMapping`, there's no position *in* `HoverInfo`'s output to convert; the caller already knows what position it asked about). `Signature` is `Some` only for callable members (`IsFunction` or non-empty `CurriedParameterGroups`) — a plain `let` binding's `Signature` is `None`, distinct from its always-present `Type`. Five tests, all green on the first run after the spike de-risked the two unknowns.
 
 Full solution: 138 tests, all green (`Analysis.Tests` 13, up from 8).
+
+---
+
+## 2026-08-06 — B.9: hover wiring through the bridge to a Monaco hover provider
+
+Added `HostNotification.HoverResolved(requestId, documentUri, hover)` — the one host-to-editor case that deliberately reuses the *triggering* `EditorRequest.HoverRequested`'s own envelope `Id` instead of minting a fresh one (`encodeNotification`'s other cases all mint fresh IDs), since Monaco's `provideHover` returns a `Promise` that only this specific request's caller is waiting on — there is no other way to correlate a response to the right pending promise. `Editor.Tests` covers both the id-reuse and the `None`-hover (no crash, no error) cases, same bridge-contract-only scope as B.6/B.7.
+
+Filled in `editor-host.html`'s JS side properly this time: registered a real `monaco.languages.registerHoverProvider` that sends `hoverRequested` and resolves its promise when the matching `hoverResolved` arrives (tracked in a `pendingHoverResolvers` map keyed by id), plus a `hoverInfoToContents` mapper from `HoverInfo`'s fields to Monaco's `contents` shape. Also closed a gap noticed from B.7: `caretMoved`'s encode side existed but nothing in the JS ever consumed it — added that case (`setPosition`/`revealPositionInCenter`/`focus`) while already in this file. All of this JS remains manual-verify-only, same rationale as A.13/B.6 — Avalonia's WebView isn't headlessly testable.
+
+Full solution: 140 tests, all green (`Editor.Tests` 17, up from 15).

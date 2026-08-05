@@ -83,6 +83,15 @@ module EditorBridge =
                       Column = column },
                     Serialization.options
                 ) }
+        | HoverResolved(requestId, uri, hover) ->
+            { Id = requestId
+              Kind = "hoverResolved"
+              Payload =
+                JsonSerializer.SerializeToElement<HoverResolvedPayload>(
+                    { DocumentUri = uri
+                      Hover = hover },
+                    Serialization.options
+                ) }
 
     let decode (envelope: EditorEnvelope) : Result<EditorRequest, BridgeError> =
         try

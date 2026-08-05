@@ -11,6 +11,12 @@ type HostNotification =
     /// Moves Monaco's caret to a 0-based (line, column) — e.g. the Problems
     /// pane's "go to diagnostic" navigation (Section 8/5).
     | CaretMoved of documentUri: string * line: int * column: int
+    /// The answer to one `EditorRequest.HoverRequested` — `requestId`
+    /// carries that request's own envelope `Id` (not a freshly-minted
+    /// one), the only way for Monaco's hover provider to know which
+    /// pending `provideHover` promise this resolves. `None` means FCS
+    /// found nothing to show, not an error.
+    | HoverResolved of requestId: string * documentUri: string * hover: HoverInfo option
 
 type DiagnosticsUpdatedPayload =
     { DocumentUri: string
@@ -20,3 +26,7 @@ type CaretMovedPayload =
     { DocumentUri: string
       Line: int
       Column: int }
+
+type HoverResolvedPayload =
+    { DocumentUri: string
+      Hover: HoverInfo option }

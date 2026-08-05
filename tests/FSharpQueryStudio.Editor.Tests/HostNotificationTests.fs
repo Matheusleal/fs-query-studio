@@ -39,3 +39,27 @@ let ``encoding a CaretMoved notification produces the caretMoved envelope kind a
     Assert.Equal("file:///a.fsx", payload.DocumentUri)
     Assert.Equal(3, payload.Line)
     Assert.Equal(7, payload.Column)
+
+[<Fact>]
+let ``encoding a HoverResolved notification reuses the original request's Id and carries the hover info`` () =
+    let hover: HoverInfo =
+        { DisplayName = "add"
+          Type = "int -> int -> int"
+          Signature = Some "int -> int -> int"
+          XmlDoc = Some "Adds two numbers together." }
+
+    let envelope =
+        EditorBridge.encodeNotification (HoverResolved("req-42", "file:///a.fsx", Some hover))
+
+    Assert.Equal("req-42", envelope.Id)
+    Assert.Equal("hoverResolved", envelope.Kind)
+    let payload = JsonSerializer.Deserialize<HoverResolvedPayload>(envelope.Payload, Serialization.options)
+    Assert.Equal("file:///a.fsx", payload.DocumentUri)
+    Assert.Equal(Some hover, payload.Hover)
+
+[<Fact>]
+let ``encoding a HoverResolved notification with no hover info carries None, not an error`` () =
+    let envelope = EditorBridge.encodeNotification (HoverResolved("req-43", "file:///a.fsx", None))
+
+    let payload = JsonSerializer.Deserialize<HoverResolvedPayload>(envelope.Payload, Serialization.options)
+    Assert.Equal(None, payload.Hover)
