@@ -16,10 +16,14 @@ open FSharpQueryStudio.Results
 /// Result to begin with).
 module ExecutionService =
 
-    let evaluate (client: WorkerClient) (source: string) : Task<ResultEnvelope> =
+    /// Same as `evaluate`, but with the request id supplied by the caller
+    /// instead of generated internally — lets a composition root track
+    /// which request is in flight so it can wire `WorkerClient.Cancel`
+    /// (which needs that id) to a UI cancel command. See A.17.
+    let evaluateWithId (client: WorkerClient) (requestId: string) (source: string) : Task<ResultEnvelope> =
         task {
             let request: WorkerRequestFrame =
-                { Id = Guid.NewGuid().ToString()
+                { Id = requestId
                   Method = "execution/evaluate"
                   Params = JsonSerializer.SerializeToElement<EvaluateParams>({ Source = source }, Serialization.options) }
 
@@ -34,3 +38,6 @@ module ExecutionService =
                         { Code = "execution/unknown"
                           Message = "The worker returned neither a result nor an error." }
         }
+
+    let evaluate (client: WorkerClient) (source: string) : Task<ResultEnvelope> =
+        evaluateWithId client (Guid.NewGuid().ToString()) source

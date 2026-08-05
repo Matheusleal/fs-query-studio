@@ -73,3 +73,74 @@ let ``RunAsync is a no-op when ExecuteAsync has not been configured`` () =
 
         Assert.Equal(ResultKind.NoValue, vm.Result.Kind)
     }
+
+[<Fact>]
+let ``RunAsync moves WorkerState Ready -> Running -> Ready around a successful execution`` () =
+    task {
+        let vm = ShellViewModel()
+        vm.WorkerState.TryTransition(WorkerState.Ready) |> ignore
+        let executeSignal = TaskCompletionSource<ResultEnvelope>()
+        vm.ExecuteAsync <- Some(fun _source -> executeSignal.Task)
+
+        let runTask = vm.RunAsync()
+        Assert.Equal(WorkerState.Running, vm.WorkerState.Current)
+
+        executeSignal.SetResult(canned ResultKind.Scalar "2")
+        do! runTask
+
+        Assert.Equal(WorkerState.Ready, vm.WorkerState.Current)
+    }
+
+[<Fact>]
+let ``Cancel invokes CancelAsync and moves WorkerState through Cancelling while Running`` () =
+    task {
+        let vm = ShellViewModel()
+        vm.WorkerState.TryTransition(WorkerState.Ready) |> ignore
+        let executeSignal = TaskCompletionSource<ResultEnvelope>()
+        vm.ExecuteAsync <- Some(fun _source -> executeSignal.Task)
+        let mutable cancelInvoked = false
+        vm.CancelAsync <- Some(fun () ->
+            cancelInvoked <- true
+            Task.FromResult(()))
+
+        let runTask = vm.RunAsync()
+        do! vm.Cancel()
+
+        Assert.True(cancelInvoked)
+        Assert.Equal(WorkerState.Cancelling, vm.WorkerState.Current)
+
+        executeSignal.SetResult(canned ResultKind.Error "cancelled")
+        do! runTask
+    }
+
+[<Fact>]
+let ``Cancel is a no-op when the worker is not Running`` () =
+    task {
+        let vm = ShellViewModel()
+        let mutable cancelInvoked = false
+        vm.CancelAsync <- Some(fun () ->
+            cancelInvoked <- true
+            Task.FromResult(()))
+
+        do! vm.Cancel()
+
+        Assert.False(cancelInvoked)
+        Assert.Equal(WorkerState.Starting, vm.WorkerState.Current)
+    }
+
+[<Fact>]
+let ``Cancel is a no-op when CancelAsync has not been configured`` () =
+    task {
+        let vm = ShellViewModel()
+        vm.WorkerState.TryTransition(WorkerState.Ready) |> ignore
+        let executeSignal = TaskCompletionSource<ResultEnvelope>()
+        vm.ExecuteAsync <- Some(fun _source -> executeSignal.Task)
+
+        let runTask = vm.RunAsync()
+        do! vm.Cancel() // No CancelAsync configured - must not throw or change state.
+
+        Assert.Equal(WorkerState.Running, vm.WorkerState.Current)
+
+        executeSignal.SetResult(canned ResultKind.Scalar "2")
+        do! runTask
+    }
