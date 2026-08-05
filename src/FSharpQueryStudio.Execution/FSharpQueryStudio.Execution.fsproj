@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <Compile Include="FsiSession.fs" />
+    <Compile Include="Evaluation.fs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -54,6 +54,14 @@ Two environment issues along the way, both fixed narrowly rather than by looseni
 - `FSharp.Compiler.Service` 43.12.204 pins `FSharp.Core = 10.1.204` exactly; the .NET 10 SDK resolves `10.1.302`. `TreatWarningsAsErrors` turned that advisory (NU1608) into a build failure. Suppressed just `NU1608`, just in `Execution` and `Execution.Tests` (the only projects that pull FCS in), with a comment explaining why — not a blanket `NoWarn`.
 - On Windows, `Directory.SetCurrentDirectory` locks that directory against deletion for as long as it's the process's current directory. The first test run failed at cleanup with "process cannot access the file" — not a bug in `FsiSession`, but a real OS constraint worth remembering for later workspace-management work (e.g. can't rename/delete a workspace folder while a worker has it open as its CWD). Tests now point the current directory elsewhere before deleting their temp directories.
 
+## 2026-08-05 — A.5: execution/evaluate for a whole script
+
+Added `Evaluation.evaluate` in `Execution`: runs a script through the session from A.4 and returns a raw `EvaluationOutcome` (FSI value, captured output/error text, diagnostics, exception) — deliberately not yet the protocol-neutral `ResultEnvelope` from Section 11, which is a later task that will consume this.
+
+The first test run (`printfn "hi"; 1 + 1`, asserting `"hi"` shows up in captured output) failed for a real reason: `FsiEvaluationSession`'s own `outWriter`/`errorWriter` only capture FSI's REPL echo (`"> val it: int = 2"`), not the script's own `printfn`/`Console.Write` calls — those go through `System.Console.Out`, a separate global that isn't automatically redirected just because you passed a custom writer into `FsiEvaluationSession.Create`. Fixed by having `FsiSession.create` also call `Console.SetOut`/`Console.SetError` with the same writers, so both land in one captured buffer.
+
+Second, unrelated failure surfaced at the same time: the CWD test from A.4 started failing intermittently once a second test module (`EvaluationTests`) existed, because `FsiSession.create`'s `Directory.SetCurrentDirectory` call is process-global and xUnit runs different test classes/modules in parallel by default — two tests each setting a different "current directory" race each other. Fixed with `[<assembly: CollectionBehavior(DisableTestParallelization = true)>]` in a new `AssemblyInfo.fs`, scoped to `Execution.Tests` only (the one test project whose subject mutates process-global state; parallelism elsewhere is unaffected). Re-ran the suite three times after the fix to confirm the flake was actually gone, not just not reproduced once.
+
 ---
 
 ## In progress

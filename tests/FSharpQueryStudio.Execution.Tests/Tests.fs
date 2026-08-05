@@ -1,33 +1,9 @@
 module Tests
 
 open System
-open System.IO
-open System.Threading.Tasks
 open Xunit
 open FSharpQueryStudio.Execution
-
-let private withTimeout (seconds: float) (work: Task<'T>) : Task<'T> =
-    task {
-        let! winner = Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds seconds))
-
-        if winner = (work :> Task) then
-            return! work
-        else
-            return failwith $"timed out after {seconds}s"
-    }
-
-let private tempWorkingDirectory () =
-    let dir = Path.Combine(Path.GetTempPath(), "fqs-fsi-tests-" + Guid.NewGuid().ToString("N"))
-    Directory.CreateDirectory(dir) |> ignore
-    dir
-
-/// `FsiSession.create` calls Directory.SetCurrentDirectory, which on
-/// Windows locks that directory against deletion for as long as it's the
-/// process's current directory. Tests must point the current directory
-/// elsewhere before cleaning up their temp directory.
-let private cleanupWorkingDirectory (dir: string) =
-    Directory.SetCurrentDirectory(Path.GetTempPath())
-    Directory.Delete(dir, true)
+open TestHelpers
 
 [<Fact>]
 let ``create sets the current directory to the one requested`` () =
@@ -35,7 +11,7 @@ let ``create sets the current directory to the one requested`` () =
 
     try
         FsiSession.create workDir |> ignore
-        Assert.Equal(Path.GetFullPath(workDir), Path.GetFullPath(Environment.CurrentDirectory))
+        Assert.Equal(IO.Path.GetFullPath(workDir), IO.Path.GetFullPath(Environment.CurrentDirectory))
     finally
         cleanupWorkingDirectory workDir
 
