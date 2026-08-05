@@ -322,3 +322,15 @@ Full solution: 140 tests, all green (`Editor.Tests` 17, up from 15).
 Added `Analysis.Completions`: static `keywords`/`snippets`/`connectorHelperNames` lists (the connector names are the MVP placeholder — Section 11's `Connections.sql "Sales" "..."` shape — since no real connector exists until Milestone C) plus `complete recentNames`, which merges all of it with whatever names the caller passes in for "the most recent successful check." Deliberately not position-sensitive: tier 1 doesn't filter by cursor context, matching the task's own "arbitrary cursor position" framing — that's tier 2's job (B.11). `recentNames` is accepted as a plain parameter rather than cached inside this module, since owning that cache (tied to document/session state) belongs to whatever calls this, not to a stateless completions list merge.
 
 Full solution: 142 tests, all green (`Analysis.Tests` 15, up from 13).
+
+---
+
+## 2026-08-06 — B.11: completions tier 2 (semantic)
+
+Spiked (throwaway, deleted after) `FSharpCheckFileResults.GetDeclarationListInfo` before writing the real code — needed the exact parameter shape (it takes the parse results too, not just check results, plus a `PartialLongName` from `QuickParse.GetPartialLongNameEx` and a `getAllEntities` callback) and, more importantly, hit a real gap in my own assumptions about FCS's `column` convention: it's the *inclusive index of the last consumed character*, not "one past the end" the way `Diagnostic`'s columns work. Confirmed by comparing `QuickParse.GetPartialLongNameEx("List.m", col)` across every column value and watching exactly where `QualifyingIdents`/`PartialIdent` split.
+
+That same spike surfaced a genuine FCS quirk, not a bug in this code: a bare trailing dot on a *module* name (`"List."`, nothing typed after) is a hard parse error (`"Missing qualification after '.'"`) in FCS's standalone-script checker, unlike a bare trailing dot on a *value* (`"foo."` resolves fine as an in-progress member access). A first attempt at the task's "known standard-library symbol" test using `List.` triggered exactly this and returned zero completions; a second attempt using `List.m` returned a single spurious `<Note>` item instead of `List` module members, which didn't reproduce cleanly enough to trust as a real FCS behavior rather than an artifact of the spike reusing one script path across multiple source snapshots. Rather than chase an FCS edge case further, retargeted the test to the same proven-reliable pattern as the member-access test: a bound value of a known BCL type (`System.Text.StringBuilder`), which is just as much "a real FCS session for a known standard-library symbol" and doesn't depend on module-qualified-access behavior that's fragile even in real F# tooling.
+
+Added `Completions.completeAtPosition`, alongside tier 1's `complete`, following `Hover.hover`'s same FCS-native-coordinate convention (this layer talks straight to FCS, no protocol-facing conversion here either).
+
+Full solution: 144 tests, all green (`Analysis.Tests` 17, up from 15).
