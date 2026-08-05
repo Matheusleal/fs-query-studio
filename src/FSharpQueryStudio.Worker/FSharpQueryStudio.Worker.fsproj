@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="NdjsonStream.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
@@ -14,6 +15,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FSharpQueryStudio.Logging\FSharpQueryStudio.Logging.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
   </ItemGroup>
 
 </Project>
