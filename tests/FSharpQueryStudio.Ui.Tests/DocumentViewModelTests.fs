@@ -3,8 +3,18 @@ module DocumentViewModelTests
 open System
 open System.ComponentModel
 open Xunit
+open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Ui
 open FSharpQueryStudio.Ui.Tests
+
+let private diagnostic (message: string) : Diagnostic =
+    { Message = message
+      Severity = DiagnosticSeverity.Error
+      StartLine = 0
+      StartColumn = 0
+      EndLine = 0
+      EndColumn = 1
+      Code = None }
 
 [<Fact>]
 let ``starts with empty text, version 0, and not dirty`` () =
@@ -99,3 +109,27 @@ let ``a text change that never reaches the debounce window never raises Debounce
     scheduler.Advance(TimeSpan.FromMilliseconds(399.0))
 
     Assert.Equal(0, fireCount)
+
+[<Fact>]
+let ``ApplyAnalysisResult with the current document version updates Diagnostics`` () =
+    let vm = DocumentViewModel("file:///a.fsx")
+    vm.ApplyTextChanged(1, "let x : int = \"oops\"")
+
+    let diagnostics = [ diagnostic "type error" ]
+    vm.ApplyAnalysisResult(1, diagnostics)
+
+    Assert.Equal<Diagnostic list>(diagnostics, vm.Diagnostics)
+
+[<Fact>]
+let ``a stale analysis response arriving after a newer one is discarded, not applied`` () =
+    let vm = DocumentViewModel("file:///a.fsx")
+    vm.ApplyTextChanged(1, "let x = 1")
+    vm.ApplyTextChanged(2, "let x : int = \"oops\"")
+
+    let currentDiagnostics = [ diagnostic "type error" ]
+    vm.ApplyAnalysisResult(2, currentDiagnostics)
+
+    // The response for version 1 arrives late, after version 2's already landed.
+    vm.ApplyAnalysisResult(1, [ diagnostic "stale" ])
+
+    Assert.Equal<Diagnostic list>(currentDiagnostics, vm.Diagnostics)

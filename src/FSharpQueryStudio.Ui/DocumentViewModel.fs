@@ -2,6 +2,7 @@ namespace FSharpQueryStudio.Ui
 
 open System
 open System.ComponentModel
+open FSharpQueryStudio.Protocol
 
 /// See Section 5's core view models. Cursor location and execution state
 /// join later, alongside the tasks that actually need them.
@@ -12,6 +13,7 @@ type DocumentViewModel(uri: string, ?scheduler: IDebounceScheduler) as self =
     let mutable text = ""
     let mutable version = 0
     let mutable isDirty = false
+    let mutable diagnostics: Diagnostic list = []
     let propertyChanged = Event<PropertyChangedEventHandler, PropertyChangedEventArgs>()
     let debouncedTextChanged = Event<int * string>()
 
@@ -26,6 +28,7 @@ type DocumentViewModel(uri: string, ?scheduler: IDebounceScheduler) as self =
     member _.Text = text
     member _.Version = version
     member _.IsDirty = isDirty
+    member _.Diagnostics = diagnostics
 
     /// Fires once, debounced 300-500ms per Section 8's analysis pipeline,
     /// after the last of a burst of `ApplyTextChanged` calls — the trigger
@@ -48,3 +51,13 @@ type DocumentViewModel(uri: string, ?scheduler: IDebounceScheduler) as self =
             propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof self.Text))
             propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof self.IsDirty))
             debouncer.Notify(fun () -> debouncedTextChanged.Trigger(version, text))
+
+    /// Applies an `analysis/check` response only if its version exactly
+    /// matches the current document version — Section 7's stale-response
+    /// guard. A response for an older version arriving after a newer
+    /// one already landed (out-of-order delivery) is silently discarded,
+    /// never regressing what's shown.
+    member _.ApplyAnalysisResult(responseVersion: int, newDiagnostics: Diagnostic list) =
+        if responseVersion = version then
+            diagnostics <- newDiagnostics
+            propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof self.Diagnostics))

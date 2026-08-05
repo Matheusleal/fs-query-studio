@@ -266,3 +266,11 @@ Added `IDebounceScheduler`/`RealDebounceScheduler`/`Debouncer` in `Ui`: `Notify`
 Wired it into `DocumentViewModel`: a new `DebouncedTextChanged` event fires once, 400ms (mid Section 8's 300-500ms range) after the last of a burst of `ApplyTextChanged` calls, carrying the settled version/text rather than any intermediate keystroke — the hook a later task's `analysis/check` call will subscribe to. `DocumentViewModel`'s constructor takes an optional `IDebounceScheduler`, defaulting to the real one, so every existing call site (`ShellViewModel`, prior tests) is unaffected.
 
 Full solution: 125 tests, all green (`Ui.Tests` 36, up from 32).
+
+---
+
+## 2026-08-06 — B.5: document-version guard
+
+Added `DocumentViewModel.Diagnostics`/`ApplyAnalysisResult(responseVersion, diagnostics)`: applies only when `responseVersion = version` exactly (not `>=`, unlike `ApplyTextChanged`'s monotonic guard — an `analysis/check` response is tied to one specific snapshot, not a running counter, so anything but an exact match is either stale or from a version that no longer exists). Two tests: the matching-version case, and the literal out-of-order scenario the task names — a response for version 2 applied first, then a late response for version 1 arrives and is discarded, leaving version 2's diagnostics untouched.
+
+Full solution: 127 tests, all green (`Ui.Tests` 38, up from 36).
