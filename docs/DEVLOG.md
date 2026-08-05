@@ -161,6 +161,14 @@ Re-verified with the same rigor as the original diagnosis: the specific test tha
 
 ---
 
-## In progress
+## 2026-08-05 — A.16: output console, scalar view, and basic table preview binding
 
-A.16 — output console, scalar view, and basic table preview binding.
+Found a real gap while starting this: `Handlers.runEvaluate` never populated `ResultEnvelope.Output` — captured stdout/stderr from `Evaluation.evaluate` (A.5) was computed but silently dropped, so an "Output console" would have had nothing to bind to. TDD'd `Projection.toOutputLines` (stdout lines tagged `Stdout`, stderr lines tagged `Stderr`, single trailing-newline artifact dropped) and wired it into `runEvaluate`, merging it onto both the success and error envelope paths. Caught one real-behavior surprise along the way: FSI's captured output includes its own interactive echo (`> `-prefixed input line, `val it: ... = ...`), not just what the script printed — not a bug, just what `EvalInteractionNonThrowing` actually captures; adjusted the test to check `Contains` rather than exact equality against a raw `printfn` line.
+
+Extended `ResultViewModel` for the three things the views need that weren't there yet: `Output: OutputLine list` (copied straight through from the envelope — Apply never re-enumerates anything, it only assigns already-materialized arrays/lists, confirmed with a test that fails if a sequence is pulled more than once); `IsTable`/`IsScalarOrText`, derived booleans so the XAML can switch presentation without a custom value converter; and `FormattedRows: string list`, a comma-joined-per-row string list for a plain (non-virtualized) table preview — real `DataGrid` virtualization is explicitly C.12's job, building on this, once Milestone C's larger result sets make it worth the complexity.
+
+Wired `MainWindow.axaml`'s Results tab (`DisplayText` for Scalar/Text/Error, `FormattedRows` list for Table) and Output tab (a `ListBox` over `Output`, monospace). Discovered this project's first data-binding XAML doesn't compile as-is on Avalonia 12.1.1: `ItemsControl`/`ListBox` bind via `ItemsSource`, not `Items` (AVLN3000 pointed at the wrong property name); and compiled bindings need an `x:DataType` at every template level once anything binds — since this is the first binding markup in the app (everything through A.15 only used `FindControl`/code-behind), set `x:CompileBindings="False"` on the `Window` rather than introduce per-template `x:DataType` scaffolding for a single view. Verified by building `FSharpQueryStudio.App` (which compiles the XAML) clean; real interactive rendering isn't headlessly automatable, same "manual verification deferred" rationale as A.13.
+
+**Known gap, not this task's scope:** `ShellViewModel.ExecuteAsync` is still never actually set anywhere in `App` — `App.axaml.fs`'s composition root constructs a bare `MainWindow()` with no `WorkerClient`/`ExecutionService` wired in, so A.15's "wire Run end to end" is complete at the view-model/service level (and integration-tested directly) but not yet reachable by actually running the compiled app and pressing F5. Needs closing before A.19's milestone acceptance test, which requires the real UI process end to end.
+
+Full solution: 89 tests, all green (`Ui.Tests` 28, `Worker.Tests` 10, `Results.Tests` 10, up from 20/6/7 respectively).

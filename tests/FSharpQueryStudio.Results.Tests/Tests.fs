@@ -71,3 +71,25 @@ let ``a worker-level error (crash, busy) projects to a structured Error with its
 
     Assert.Equal(ResultKind.Error, envelope.Kind)
     Assert.Equal(Some "The worker process exited before responding.", envelope.DisplayText)
+
+[<Fact>]
+let ``toOutputLines tags stdout and stderr lines separately`` () =
+    let lines = Projection.toOutputLines "hi\nthere" "warn1"
+
+    Assert.Equal<OutputLine list>(
+        [ { Stream = OutputStream.Stdout; Text = "hi" }
+          { Stream = OutputStream.Stdout; Text = "there" }
+          { Stream = OutputStream.Stderr; Text = "warn1" } ],
+        lines
+    )
+
+[<Fact>]
+let ``toOutputLines drops a single trailing empty line from a trailing newline`` () =
+    let lines = Projection.toOutputLines "hi\n" ""
+
+    Assert.Equal<OutputLine list>([ { Stream = OutputStream.Stdout; Text = "hi" } ], lines)
+
+[<Fact>]
+let ``toOutputLines returns an empty list for empty captured output`` () =
+    let lines = Projection.toOutputLines "" ""
+    Assert.Empty(lines)

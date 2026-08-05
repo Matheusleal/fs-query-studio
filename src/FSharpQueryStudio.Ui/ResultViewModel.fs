@@ -12,6 +12,7 @@ type ResultViewModel() as self =
     let mutable rows: obj array array = [||]
     let mutable isTruncated = false
     let mutable elapsedMs = 0L
+    let mutable output: OutputLine list = []
     let propertyChanged = Event<PropertyChangedEventHandler, PropertyChangedEventArgs>()
 
     interface INotifyPropertyChanged with
@@ -24,6 +25,21 @@ type ResultViewModel() as self =
     member _.Rows = rows
     member _.IsTruncated = isTruncated
     member _.ElapsedMs = elapsedMs
+    member _.Output = output
+
+    /// Derived from `Kind` for the results view's XAML to switch between a
+    /// row-oriented and a single display-text presentation without a
+    /// custom value converter.
+    member _.IsTable = kind = ResultKind.Table
+
+    member _.IsScalarOrText =
+        kind = ResultKind.Scalar || kind = ResultKind.Text || kind = ResultKind.Error
+
+    /// The "basic" (non-virtualized) table preview for A.16's Results tab —
+    /// one comma-joined display string per row. C.12 replaces this with a
+    /// real virtualized `DataGrid` bound to `Schema`/`Rows` directly.
+    member _.FormattedRows: string list =
+        rows |> Array.map (fun row -> row |> Array.map string |> String.concat ", ") |> Array.toList
 
     member _.Apply(envelope: ResultEnvelope) =
         kind <- envelope.Kind
@@ -32,6 +48,17 @@ type ResultViewModel() as self =
         rows <- envelope.Rows
         isTruncated <- envelope.IsTruncated
         elapsedMs <- envelope.ElapsedMs
+        output <- envelope.Output
 
-        for name in [ "Kind"; "DisplayText"; "Schema"; "Rows"; "IsTruncated"; "ElapsedMs" ] do
+        for name in
+            [ "Kind"
+              "DisplayText"
+              "Schema"
+              "Rows"
+              "IsTruncated"
+              "ElapsedMs"
+              "Output"
+              "IsTable"
+              "IsScalarOrText"
+              "FormattedRows" ] do
             propertyChanged.Trigger(self, PropertyChangedEventArgs(name))

@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         x:Class="FSharpQueryStudio.Ui.MainWindow"
+        x:CompileBindings="False"
         Title="F# Query Studio"
         Width="1200"
         Height="800">
@@ -33,8 +34,36 @@
         <GridSplitter Grid.Row="2" Height="4" ResizeDirection="Rows" />
 
         <TabControl Grid.Row="3" Name="ResultsTabs">
-          <TabItem Header="Results" />
-          <TabItem Header="Output" />
+          <TabItem Header="Results">
+            <Grid>
+              <!--
+                Basic binding for A.16: DisplayText for Scalar/Text/Error,
+                a plain (non-virtualized) row list for Table. C.12
+                upgrades the Table branch to a virtualized DataGrid once
+                Milestone C's larger result sets make that necessary.
+              -->
+              <TextBlock Text="{Binding Result.DisplayText}"
+                         IsVisible="{Binding Result.IsScalarOrText}"
+                         Margin="8"
+                         TextWrapping="Wrap" />
+              <ItemsControl ItemsSource="{Binding Result.FormattedRows}" IsVisible="{Binding Result.IsTable}">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate>
+                    <TextBlock Text="{Binding}" Margin="8,2" />
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </Grid>
+          </TabItem>
+          <TabItem Header="Output">
+            <ListBox ItemsSource="{Binding Result.Output}" Name="OutputList">
+              <ListBox.ItemTemplate>
+                <DataTemplate>
+                  <TextBlock Text="{Binding Text}" FontFamily="Consolas,Cascadia Mono,monospace" />
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </TabItem>
           <TabItem Header="Problems" />
           <TabItem Header="Schema" />
         </TabControl>

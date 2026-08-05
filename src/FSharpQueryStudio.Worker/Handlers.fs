@@ -84,14 +84,17 @@ module Handlers =
             let outcome = Evaluation.evaluate session evalParams.Source
             stopwatch.Stop()
 
+            let output = Projection.toOutputLines outcome.Output outcome.ErrorOutput
+
             let envelope =
                 match outcome.Exception with
-                | Some ex -> Projection.projectError ex stopwatch.ElapsedMilliseconds
+                | Some ex -> { Projection.projectError ex stopwatch.ElapsedMilliseconds with Output = output }
                 | None ->
                     let value =
                         outcome.Value |> Option.map (fun v -> v.ReflectionValue) |> Option.toObj
 
-                    Projection.project value stopwatch.ElapsedMilliseconds
+                    { Projection.project value stopwatch.ElapsedMilliseconds with
+                        Output = output }
 
             { Id = request.Id
               Result = Some(JsonSerializer.SerializeToElement(envelope, Serialization.options))

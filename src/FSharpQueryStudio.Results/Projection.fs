@@ -95,3 +95,26 @@ module Projection =
     let projectWorkerError (error: WorkerErrorInfo) : ResultEnvelope =
         { emptyEnvelope ResultKind.Error 0L with
             DisplayText = Some error.Message }
+
+    let private linesOf (stream: OutputStream) (text: string) : OutputLine list =
+        if String.IsNullOrEmpty(text) then
+            []
+        else
+            let raw = text.Split('\n')
+            // A trailing "\n" produces one trailing empty split segment
+            // that isn't a real printed line - drop just that one.
+            let segments =
+                if raw.Length > 0 && raw.[raw.Length - 1] = "" then
+                    raw.[.. raw.Length - 2]
+                else
+                    raw
+
+            segments |> Array.map (fun line -> { Stream = stream; Text = line.TrimEnd('\r') }) |> Array.toList
+
+    /// Captured stdout/stderr (Section 15's Evaluation outcome) become the
+    /// `ResultEnvelope.Output` lines the UI's output console binds to —
+    /// see A.16. Order is stdout-then-stderr, not interleaved by time:
+    /// `Evaluation` captures them as two separate buffers, not a single
+    /// timestamped stream.
+    let toOutputLines (stdout: string) (stderr: string) : OutputLine list =
+        linesOf OutputStream.Stdout stdout @ linesOf OutputStream.Stderr stderr

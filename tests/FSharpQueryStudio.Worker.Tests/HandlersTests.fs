@@ -59,6 +59,15 @@ let ``dispatch on execution/cancel acknowledges even when no evaluation is runni
     Assert.True(response.Error.IsNone)
 
 [<Fact>]
+let ``handleEvaluate captures printed stdout into the envelope's Output lines`` () =
+    let response = Handlers.handleEvaluate (evaluateRequest "p1" "printfn \"hello from fsi\"")
+
+    Assert.True(response.Result.IsSome)
+    let envelope = JsonSerializer.Deserialize<ResultEnvelope>(response.Result.Value, Serialization.options)
+
+    Assert.Contains(envelope.Output, (fun (line: OutputLine) -> line.Text.Contains("hello from fsi")))
+
+[<Fact>]
 let ``handleEvaluate rejects a second concurrent evaluate with a structured busy error`` () =
     task {
         // A plain file check, not a call back into a host assembly - see

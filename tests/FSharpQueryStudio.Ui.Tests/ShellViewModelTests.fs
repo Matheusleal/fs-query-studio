@@ -44,6 +44,27 @@ let ``RunAsync calls ExecuteAsync with the active document's text and applies th
     }
 
 [<Fact>]
+let ``RunAsync awaits a slow ExecuteAsync instead of blocking synchronously on it`` () =
+    task {
+        let vm = ShellViewModel()
+        let executeSignal = TaskCompletionSource<ResultEnvelope>()
+        vm.ExecuteAsync <- Some(fun _source -> executeSignal.Task)
+
+        // A blocking implementation would never return control here until
+        // ExecuteAsync's task completed - proving the call returns while
+        // ExecuteAsync is still pending demonstrates the await doesn't
+        // stall whatever thread called RunAsync (the UI thread, in the
+        // real app), regardless of how slow/large the eventual result is.
+        let runTask = vm.RunAsync()
+        Assert.False(runTask.IsCompleted)
+
+        executeSignal.SetResult(canned ResultKind.Table "done")
+        do! runTask
+
+        Assert.Equal(ResultKind.Table, vm.Result.Kind)
+    }
+
+[<Fact>]
 let ``RunAsync is a no-op when ExecuteAsync has not been configured`` () =
     task {
         let vm = ShellViewModel()

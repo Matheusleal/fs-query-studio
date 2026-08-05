@@ -1,4 +1,9 @@
 <Solution>
+  <Folder Name="/docs/">
+    <File Path="docs/DEVLOG.md" />
+    <File Path="docs/fs-studio-development-plan.md" />
+    <File Path="docs/fs-studio-plan.md" />
+  </Folder>
   <Folder Name="/src/">
     <Project Path="src/FSharpQueryStudio.Analysis/FSharpQueryStudio.Analysis.fsproj" />
     <Project Path="src/FSharpQueryStudio.App/FSharpQueryStudio.App.fsproj" />
