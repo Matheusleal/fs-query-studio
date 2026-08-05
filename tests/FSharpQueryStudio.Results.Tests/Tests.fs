@@ -50,3 +50,13 @@ let ``a sequence longer than the preview-row limit is truncated`` () =
 
     Assert.Equal(Projection.PreviewRowLimit, envelope.Rows.Length)
     Assert.True(envelope.IsTruncated)
+
+[<Fact>]
+let ``an exception projects to a structured Error with a non-empty message`` () =
+    let ex = System.Exception("boom")
+
+    let envelope = Projection.projectError ex 7L
+
+    Assert.Equal(ResultKind.Error, envelope.Kind)
+    Assert.Equal(Some "boom", envelope.DisplayText)
+    Assert.Equal(7L, envelope.ElapsedMs)

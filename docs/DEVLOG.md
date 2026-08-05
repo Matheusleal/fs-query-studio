@@ -70,8 +70,14 @@ Added `Projection.project` in `Results`, covering the three kinds in scope: prim
 
 One test failure, `a record projects to a one-row Table...`, initially looked like it might be an ordering bug in the `match`, but turned out to be a real gap in the projection code once isolated: `Microsoft.FSharp.Reflection.FSharpType.IsRecord`/`GetRecordFields` default to public-only reflection, so a `type private Foo = { ... }` — which a `.fsx` script can legitimately write — would silently fall through to the generic `Text` fallback instead of being recognized as a record. Confirmed the diagnosis by temporarily removing `private` from the test's record (test went green), then reverted that and fixed the real cause instead: pass `BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance` explicitly everywhere a record is inspected. Worth the extra step — the tempting fix (adjust the test) would have shipped a real bug.
 
+## 2026-08-05 — A.7: error projection and wiring execution/evaluate for real
+
+Added `Projection.projectError` (straightforward — `ResultKind.Error` with the exception's message) and, since this task's own test description ("the worker process is still alive afterward") only means something once there's a real request/response round trip through a real worker process, wired `execution/evaluate` as an actual `Handlers.dispatch` case: deserialize `EvaluateParams`, create a fresh `FsiSession` in a fresh temp directory (isolated-by-default per Section 9 — no session persistence across requests yet), evaluate, project to `Error` or the A.6 value-based projection depending on whether the outcome carries an exception.
+
+Hit a genuinely interesting FSI/F# semantics gotcha while writing the "throwing script" test. First attempt used the script `failwith "boom"` and got back the message *"Operation could not be completed due to earlier error(s)"* instead of "boom" — looked like a bug in `Evaluation`. Isolated it with a direct unit test (bypassing JSON/process transport entirely) and got the identical wrong message, which ruled out the integration test's transport as the cause and pointed at FSI itself. The real mechanism: `failwith` has type `string -> 'a` — a *bare* top-level `failwith "boom"` never gets a concrete type, so F#'s value restriction rejects the interaction as a **compile** diagnostic before it ever runs; no runtime exception is ever raised, so of course "boom" never surfaces. Confirmed by annotating a concrete type, `(failwith "boom" : int)`, which executes and throws normally. Kept both as tests: one exercising the realistic case (concretely-typed throw, real message), one as a characterization test documenting the value-restriction trap for anyone who hits it again — flagged as relevant to Milestone B's diagnostics work, since a user could genuinely write a script that's just `failwith "some message"` and would need to see *why* nothing ran, not a generic crash message.
+
 ---
 
 ## In progress
 
-A.4 — `session/create`: isolated `FsiEvaluationSession` construction.
+A.8 — host-side worker supervision: detect exit/crash mid-request.

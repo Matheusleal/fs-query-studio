@@ -81,3 +81,9 @@ module Projection =
                 Rows = rows |> Array.map (fun r -> [| r |])
                 IsTruncated = truncated }
         | v -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some(string v) }
+
+    /// An uncaught script exception becomes a structured Error result —
+    /// see Section 9 — never an unhandled worker crash.
+    let projectError (ex: exn) (elapsedMs: int64) : ResultEnvelope =
+        { emptyEnvelope ResultKind.Error elapsedMs with
+            DisplayText = Some ex.Message }
