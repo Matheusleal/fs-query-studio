@@ -59,6 +59,21 @@ module EditorBridge =
           Kind = kindOf request
           Payload = encodePayload request }
 
+    /// Encodes a host -> Monaco notification. There is no matching
+    /// `decode` here — the JS side in `editor-host.html` is the only
+    /// consumer of this direction.
+    let encodeNotification (notification: HostNotification) : EditorEnvelope =
+        match notification with
+        | DiagnosticsUpdated(uri, diagnostics) ->
+            { Id = Guid.NewGuid().ToString()
+              Kind = "diagnosticsUpdated"
+              Payload =
+                JsonSerializer.SerializeToElement<DiagnosticsUpdatedPayload>(
+                    { DocumentUri = uri
+                      Diagnostics = diagnostics },
+                    Serialization.options
+                ) }
+
     let decode (envelope: EditorEnvelope) : Result<EditorRequest, BridgeError> =
         try
             match envelope.Kind with

@@ -50,16 +50,54 @@
           });
         });
 
+        // FCS's DiagnosticSeverity -> Monaco's MarkerSeverity. Matched
+        // case-insensitively since the exact casing the F#-side union
+        // encoding puts on the wire isn't pinned down by an automated
+        // test (this whole path is manual-verify-only — see below).
+        function severityToMonacoMarkerSeverity(severity) {
+          switch (String(severity).toLowerCase()) {
+            case "error":
+              return monaco.MarkerSeverity.Error;
+            case "warning":
+              return monaco.MarkerSeverity.Warning;
+            default:
+              return monaco.MarkerSeverity.Info;
+          }
+        }
+
         if (window.chrome && window.chrome.webview) {
           window.chrome.webview.addEventListener("message", function (event) {
             var envelope = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
 
-            // Host -> editor messages (diagnostics, completions, hover,
-            // navigation, themes, execution state) are wired as each
-            // lands in its own later task. An unrecognized kind is
-            // ignored, not thrown — a malformed/future message must
-            // never crash the page.
+            // Host -> editor messages (completions, hover, navigation,
+            // themes, execution state) are wired as each lands in its own
+            // later task. An unrecognized kind is ignored, not thrown — a
+            // malformed/future message must never crash the page.
             switch (envelope.kind) {
+              case "diagnosticsUpdated": {
+                var payload = envelope.payload;
+                var model = editor.getModel();
+
+                if (model) {
+                  // Diagnostic positions are 0-based (Section 8); Monaco's
+                  // marker API is 1-based on both line and column.
+                  var markers = payload.diagnostics.map(function (d) {
+                    return {
+                      severity: severityToMonacoMarkerSeverity(d.severity),
+                      message: d.message,
+                      startLineNumber: d.startLine + 1,
+                      startColumn: d.startColumn + 1,
+                      endLineNumber: d.endLine + 1,
+                      endColumn: d.endColumn + 1,
+                      code: d.code || undefined
+                    };
+                  });
+
+                  monaco.editor.setModelMarkers(model, "fsharp", markers);
+                }
+
+                break;
+              }
               default:
                 break;
             }

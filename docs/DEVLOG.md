@@ -274,3 +274,13 @@ Full solution: 125 tests, all green (`Ui.Tests` 36, up from 32).
 Added `DocumentViewModel.Diagnostics`/`ApplyAnalysisResult(responseVersion, diagnostics)`: applies only when `responseVersion = version` exactly (not `>=`, unlike `ApplyTextChanged`'s monotonic guard — an `analysis/check` response is tied to one specific snapshot, not a running counter, so anything but an exact match is either stale or from a version that no longer exists). Two tests: the matching-version case, and the literal out-of-order scenario the task names — a response for version 2 applied first, then a late response for version 1 arrives and is discarded, leaving version 2's diagnostics untouched.
 
 Full solution: 127 tests, all green (`Ui.Tests` 38, up from 36).
+
+---
+
+## 2026-08-06 — B.6: Monaco marker rendering from Diagnostic list
+
+Added `Protocol.HostNotification`/`DiagnosticsUpdatedPayload` and `EditorBridge.encodeNotification` — the opposite direction from `EditorRequest`/`decode` (host to Monaco, not Monaco to host), so there's deliberately no matching `decode` for it; only the JS side in `editor-host.html` ever consumes this direction. `Editor.Tests` covers the bridge contract only (envelope kind + payload shape), per the task's own scope split — actual marker rendering is manual-verify-only, same rationale as A.13's WebView work.
+
+Filled in `editor-host.html`'s `"diagnosticsUpdated"` case (left as a stub since A.14, explicitly called out in that stub's own comment as "wired... in its own later task") — converts each `Diagnostic`'s 0-based line/column to Monaco's 1-based marker coordinates and calls `setModelMarkers`. Severity matched case-insensitively rather than against a specific string casing: `FSharp.SystemTextJson`'s exact wire encoding for a fieldless-case union isn't pinned down by an automated test on this path, so guessing the exact casing and getting it wrong would have been a silent, untestable bug.
+
+Full solution: 129 tests, all green (`Editor.Tests` 14, up from 12).
