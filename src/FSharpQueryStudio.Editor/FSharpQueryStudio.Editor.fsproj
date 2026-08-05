@@ -10,6 +10,13 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Vendored Monaco (bundled locally per Section 6) + the bridge
+         page. Content + CopyToOutputDirectory so it also lands next to
+         the App executable that actually serves it via AssetHost. -->
+    <Content Include="EditorAssets/**/*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
   </ItemGroup>
 

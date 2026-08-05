@@ -1,0 +1,71 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'" />
+    <style>
+      html, body, #editor { height: 100%; margin: 0; padding: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="editor"></div>
+    <script src="vs/loader.js"></script>
+    <script>
+      // Host <-> Monaco bridge — see Section 6. Envelopes match
+      // FSharpQueryStudio.Protocol.EditorEnvelope: { id, kind, payload }.
+      // WebView2's native channel (window.chrome.webview) is what
+      // Avalonia's WebView control proxies on Windows.
+      function postToHost(kind, payload) {
+        if (window.chrome && window.chrome.webview) {
+          window.chrome.webview.postMessage(
+            JSON.stringify({ id: crypto.randomUUID(), kind: kind, payload: payload })
+          );
+        }
+      }
+
+      require.config({ paths: { vs: "vs" } });
+
+      require(["vs/editor/editor.main"], function () {
+        // F# has no built-in Monaco language yet — real tokenization,
+        // completion, and hover providers are registered in Milestone B
+        // (Section 8). Plain-text tokenization is the starting point so
+        // the editor surface exists now.
+        monaco.languages.register({ id: "fsharp" });
+
+        var editor = monaco.editor.create(document.getElementById("editor"), {
+          value: "",
+          language: "fsharp",
+          automaticLayout: true
+        });
+
+        var documentUri = "untitled:Script1.fsx";
+        var currentVersion = 0;
+
+        editor.onDidChangeModelContent(function () {
+          currentVersion += 1;
+          postToHost("textChanged", {
+            documentUri: documentUri,
+            version: currentVersion,
+            source: editor.getValue()
+          });
+        });
+
+        if (window.chrome && window.chrome.webview) {
+          window.chrome.webview.addEventListener("message", function (event) {
+            var envelope = typeof event.data === "string" ? JSON.parse(event.data) : event.data;
+
+            // Host -> editor messages (diagnostics, completions, hover,
+            // navigation, themes, execution state) are wired as each
+            // lands in its own later task. An unrecognized kind is
+            // ignored, not thrown — a malformed/future message must
+            // never crash the page.
+            switch (envelope.kind) {
+              default:
+                break;
+            }
+          });
+        }
+      });
+    </script>
+  </body>
+</html>

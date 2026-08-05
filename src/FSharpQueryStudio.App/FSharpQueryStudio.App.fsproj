@@ -2,6 +2,7 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
     <!-- Transitively pulls FSharp.Compiler.Service via Worker -> Execution;
          see the matching note in FSharpQueryStudio.Execution.fsproj. -->
     <NoWarn>$(NoWarn);NU1608</NoWarn>

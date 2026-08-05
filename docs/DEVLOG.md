@@ -123,8 +123,25 @@ Two real compiler-level bugs, both from patterns already seen earlier this sessi
 - `open FSharpQueryStudio.Protocol` shadowed F#'s own `Result.Error` case with `ResultKind.Error` (a DU case I'd named `Error` back in A.6) — `Error { Message = ... }` silently resolved to the wrong `Error` and failed to typecheck as "not a function". Same category of bug as A.1's `WorkerRequestFrame`/`WorkerResponseFrame` field-name collision, but this time at the case-name level instead of record-field level. Fixed properly rather than working around it locally: marked `ResultKind` `[<RequireQualifiedAccess>]`, which happened to require no other changes anywhere — every existing use already wrote `ResultKind.Error` etc. explicitly.
 - `CompletionRequestedPayload` and `HoverRequestedPayload` have identical field sets (`DocumentUri`/`Version`/`Line`/`Column`), so F# inferred a record literal's type from its field names independently of the `SerializeToElement<T>` call's explicit generic argument, guessing wrong for one of the two. Exactly the ambiguous-record-field problem from A.9's `WorkerRequestFrame`/`WorkerResponseFrame` `Id` clash — same fix, an explicit type annotation directly on the record literal, not just on the surrounding call.
 
+## 2026-08-05 — A.13: WebView host wiring (Monaco actually loads)
+
+The one `Manual` task in Milestone A — no automated test is possible for "does a real browser control render a real editor," and this environment has no display to check it visually. User explicitly signed off on best-effort-now, verify-later before starting.
+
+Found the right package by searching NuGet directly rather than guessing: `Avalonia.Controls.WebView`, owned by the `avaloniaui` org itself (not a third-party community package). Its actual control class turned out to be `NativeWebView`, not `WebView` as its own package name would suggest — found by reading the assembly's raw PE metadata (`System.Reflection.Metadata`) rather than guessing at API shape blind, since a full `Assembly.Load` failed on missing Avalonia runtime dependencies in an isolated inspection context. Same for `WebMessageReceivedEventArgs`: a plain `Body: string` property, not the `TryGetWebMessageAsString()` pattern I'd assumed from the lower-level `ICoreWebView2` interop types nearby in the assembly.
+
+Vendored Monaco's `min/vs` distribution (24MB, 151 files) via `npm install monaco-editor` into a scratch dir, then copied straight into `Editor/EditorAssets/`, served by A.11's `AssetHost`. Full bundle, not tree-shaken to just what F# Query Studio needs — doing that properly needs a bundler (webpack/esbuild) this repo doesn't have set up, not worth the risk to add mid-task. Wrote `editor-host.html`: loads Monaco via its AMD loader, registers a (currently empty) `fsharp` language, posts `textChanged` envelopes to the host via `window.chrome.webview.postMessage` on every edit, listens for host→editor messages with an intentionally-empty `switch` (each kind gets wired as its own later task) that ignores anything unrecognized rather than throwing.
+
+Wiring `MainWindow.axaml.fs` to actually launch the app surfaced two real Windows-specific runtime bugs neither compiler nor any test could have caught:
+
+- `RPC_E_CHANGED_MODE` (`COMException`) the instant the `NativeWebView` tried to attach — WebView2's COM initialization requires the main thread to be STA, and F#'s `[<EntryPoint>]` doesn't default to that the way C#'s `[STAThread] static void Main` does. Fixed with `[<STAThread>]` stacked on the entry point.
+- After that, "Unable to create child window for native control host. Application manifest with supported OS list might be required." — a real Win32/manifest requirement for Avalonia's native control hosting. Added `app.manifest` with `supportedOS` GUIDs for Windows 7 through 11 and DPI-awareness settings, wired via `<ApplicationManifest>` in `App.fsproj`.
+
+Also learned mid-verification that `dotnet run` launches through the shared `dotnet.exe` host, which does **not** carry the embedded manifest — had to run the built `FSharpQueryStudio.App.exe` apphost directly for the manifest fix to actually take effect. With both fixes in place: no exception, the process ran the full timeout duration, only a benign Chromium teardown log line on exit.
+
+**A mistake worth recording plainly:** cleaning up after the timeout-killed run, `Get-Process -Name msedgewebview2 | Stop-Process -Force` killed more than intended — `msedgewebview2.exe` is a shared runtime other Windows applications use too, not exclusive to this app, and I killed by name globally instead of scoping to this process's own child tree. A second batch of `msedgewebview2` processes appeared immediately after (almost certainly pre-existing, unrelated to this session), and I stopped and asked rather than touching them further. Lesson for next time: get the child PID list *before* killing anything broad by name, and prefer killing a specific process tree (parent PID) over a name-based match against a shared/multi-owner process.
+
 ---
 
 ## In progress
 
-A.12 — editor bridge message contract (EditorRequest/host-to-editor serialization).
+A.14 — wire TextChanged from Monaco through the bridge to a DocumentViewModel.
