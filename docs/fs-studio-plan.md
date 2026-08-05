@@ -479,6 +479,12 @@ type Column =
     { Name: string
       DisplayType: string }
 
+type OutputStream =
+    | Stdout
+    | Stderr
+
+type OutputLine = { Stream: OutputStream; Text: string }
+
 type ResultEnvelope =
     { Kind: ResultKind
       DisplayText: string option
@@ -489,6 +495,8 @@ type ResultEnvelope =
       ElapsedMs: int64
       Output: OutputLine list }
 ```
+
+These types are protocol-neutral wire shapes (they live in `Protocol`, alongside `Diagnostic` from [Section 8](#8-f-analysis-with-fsharpcompilerservice)); `Results` produces them from raw evaluation outcomes, it doesn't own their definitions.
 
 ### Projection rules
 
@@ -504,7 +512,7 @@ type ResultEnvelope =
 
 ### Bounded sequence rules
 
-- Materialize at most a configured preview-row limit, such as 500 rows.
+- Materialize at most a configured preview-row limit — **500 rows** is the v1 default, a named constant rather than a magic number wherever it's used.
 - Enforce an elapsed-time limit for preview generation.
 - Never enumerate on the UI thread.
 - Inform the user when results are truncated.

@@ -62,6 +62,14 @@ The first test run (`printfn "hi"; 1 + 1`, asserting `"hi"` shows up in captured
 
 Second, unrelated failure surfaced at the same time: the CWD test from A.4 started failing intermittently once a second test module (`EvaluationTests`) existed, because `FsiSession.create`'s `Directory.SetCurrentDirectory` call is process-global and xUnit runs different test classes/modules in parallel by default — two tests each setting a different "current directory" race each other. Fixed with `[<assembly: CollectionBehavior(DisableTestParallelization = true)>]` in a new `AssemblyInfo.fs`, scoped to `Execution.Tests` only (the one test project whose subject mutates process-global state; parallelism elsewhere is unaffected). Re-ran the suite three times after the fix to confirm the flake was actually gone, not just not reproduced once.
 
+## 2026-08-05 — A.6: result projection for Scalar/Text/Table
+
+Filled a gap noticed while re-reading Section 11 for this task: `ResultEnvelope`'s `Output: OutputLine list` field referenced a type that was never actually defined anywhere in the doc. Added `OutputStream`/`OutputLine`, and made explicit that these projection types are protocol-neutral wire shapes belonging in `Protocol` (matching `Diagnostic`'s placement from Section 8) — `Results` produces them, it doesn't own them. Also turned "such as 500 rows" into a concrete named constant, `PreviewRowLimit = 500`.
+
+Added `Projection.project` in `Results`, covering the three kinds in scope: primitives → `Scalar`, strings → `Text`, records → a one-row `Table` (reflection-derived columns), sequences → a bounded `Table` preview. `Object`/`Error`/`NoValue` stay out of scope here, landing with whatever later task actually needs them.
+
+One test failure, `a record projects to a one-row Table...`, initially looked like it might be an ordering bug in the `match`, but turned out to be a real gap in the projection code once isolated: `Microsoft.FSharp.Reflection.FSharpType.IsRecord`/`GetRecordFields` default to public-only reflection, so a `type private Foo = { ... }` — which a `.fsx` script can legitimately write — would silently fall through to the generic `Text` fallback instead of being recognized as a record. Confirmed the diagnosis by temporarily removing `private` from the test's record (test went green), then reverted that and fixed the real cause instead: pass `BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance` explicitly everywhere a record is inspected. Worth the extra step — the tempting fix (adjust the test) would have shipped a real bug.
+
 ---
 
 ## In progress
