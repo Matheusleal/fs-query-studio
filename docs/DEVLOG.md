@@ -114,6 +114,15 @@ Added `AssetHost` in `Editor`: a plain `HttpListener`-based static file server (
 
 `resolveAsset` rejects anything that resolves outside `assetsRoot` after `Path.GetFullPath` normalization, and every response carries a restrictive CSP header. The path-traversal test needed care to actually test something: `Uri(baseUri, "../../secret.txt")` would have .NET's own `Uri` combiner collapse the literal `..` segments client-side before the request ever left the process, making the test pass without ever exercising the server's defense. Used percent-encoded `%2e%2e` instead — `Uri`'s dot-segment normalization operates on raw, still-encoded path segments, so encoded dots survive to the server, get decoded by `HttpListener` into literal `..`, and only then hit `resolveAsset`'s check. All four tests (known asset serves, unknown 404s, encoded traversal rejected, loopback-only) passed on the first real run.
 
+## 2026-08-05 — A.12: editor bridge message contract
+
+Added `EditorRequest` (the DU from Section 6, `TextChanged`/`CompletionRequested`/`HoverRequested`/`ExecuteRequested`/`CancelRequested`) and its per-case payload records to `Protocol`, and `EditorBridge.encode`/`decode` in `Editor` converting between it and the `EditorEnvelope` wire shape from A.1 — `Kind` identifies the case, `Payload` holds its fields. `decode` never throws: an unknown `Kind` or a payload missing required fields both return a typed `BridgeError`.
+
+Two real compiler-level bugs, both from patterns already seen earlier this session:
+
+- `open FSharpQueryStudio.Protocol` shadowed F#'s own `Result.Error` case with `ResultKind.Error` (a DU case I'd named `Error` back in A.6) — `Error { Message = ... }` silently resolved to the wrong `Error` and failed to typecheck as "not a function". Same category of bug as A.1's `WorkerRequestFrame`/`WorkerResponseFrame` field-name collision, but this time at the case-name level instead of record-field level. Fixed properly rather than working around it locally: marked `ResultKind` `[<RequireQualifiedAccess>]`, which happened to require no other changes anywhere — every existing use already wrote `ResultKind.Error` etc. explicitly.
+- `CompletionRequestedPayload` and `HoverRequestedPayload` have identical field sets (`DocumentUri`/`Version`/`Line`/`Column`), so F# inferred a record literal's type from its field names independently of the `SerializeToElement<T>` call's explicit generic argument, guessing wrong for one of the two. Exactly the ambiguous-record-field problem from A.9's `WorkerRequestFrame`/`WorkerResponseFrame` `Id` clash — same fix, an explicit type annotation directly on the record literal, not just on the surrounding call.
+
 ---
 
 ## In progress

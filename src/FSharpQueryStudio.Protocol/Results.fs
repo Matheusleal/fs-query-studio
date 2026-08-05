@@ -2,6 +2,9 @@ namespace FSharpQueryStudio.Protocol
 
 /// Bounded, protocol-neutral result shape — see Section 11. `Results`
 /// produces these from raw evaluation outcomes; it doesn't own the types.
+/// Qualified access required: an unqualified `Error` case would shadow
+/// F#'s `Result.Error` for any file that opens this namespace.
+[<RequireQualifiedAccess>]
 type ResultKind =
     | Scalar
     | Text
