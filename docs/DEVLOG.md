@@ -96,8 +96,20 @@ The biggest single task so far — cancellation genuinely needs concurrency: the
 
 **Tests.** Two full paths, both against a real spawned process: a script polling `CancellationSignal.isCancelled()` in a tight loop stops within the loop iteration (`Scalar` result, value far short of the loop bound, worker still alive afterward); a script that never checks it (`while true do ()`) gets killed after a short grace period and its caller receives `execution/forciblyStopped`. Also proactively added `DisableTestParallelization` to `Worker.Tests` before hitting a flake this time, having already learned that lesson the hard way in `Execution.Tests` (A.5) — `Handlers.handleEvaluate` and `CancellationSignal` mutate the same kind of process-global state.
 
+## 2026-08-05 — A.10: Avalonia shell (first UI work this project)
+
+First task touching the UI stack. `WorkerStateViewModel` is a plain state machine (`Starting/Ready/Running/Cancelling/Stopped/Faulted`) with an explicit allowed-transitions table — `Stopped` is terminal, `Faulted` only recovers via a fresh `Starting` (matching `WorkerClient`'s crash-then-restart policy from A.8/A.9), every non-terminal state can shut down. `TryTransition` returns `false` and leaves `Current` untouched for anything not in the table, firing `PropertyChanged` only on an actual change. `ShellViewModel` wraps it for now; workspace/active-document/commands join later when the tasks that need them land. Both fully unit-tested, no Avalonia runtime involved — they're plain classes.
+
+Tried wiring up `Avalonia.Headless.XUnit` for this first, since the dev plan calls for Avalonia.Headless testing. Its current version pulls in xUnit v3, which conflicts with the xUnit v2 every other test project in the solution uses — and this particular test doesn't touch any real Avalonia control, so there was nothing to gain from it. Removed the package; a plain `[<Fact>]` covers a pure state machine exactly as well. Deferred the real `Avalonia.Headless` setup (and whatever xUnit-version decision it forces) to whichever task first needs to exercise an actual View/Control.
+
+Built the fixed multi-pane Grid layout from Section 5 as `MainWindow.axaml`/`.axaml.fs` (menu row, workspace pane, script tabs + editor placeholder, results/output/problems/schema tabs, `GridSplitter`s between panes — not a docking framework, per the doc), plus `App.axaml`/`.axaml.fs` and `Program.fs` now actually bootstrap Avalonia (`AppBuilder.Configure<App>().UsePlatformDetect().StartWithClassicDesktopLifetime`) instead of just logging and exiting.
+
+Hit one immediate build error, `AVLN2002: Duplicate x:Class directive` — Avalonia's SDK tooling auto-globs `**/*.axaml` as `AvaloniaResource` by default, so the explicit `<AvaloniaResource Include="...">` I'd added in both `Ui.fsproj` and `App.fsproj` double-registered the same file. Removed both explicit entries.
+
+Can't visually verify the layout in this environment (no way to see a rendered window), so this is where the `Manual` label from A.13's WebView task applies here too: confirmed the solution builds clean and, since a broken Avalonia bootstrap would throw immediately, launched the real app with a timeout — it logged its startup line, ran the full 8 seconds with no exception, and left no orphaned process after being killed. That rules out a crash-on-boot but doesn't confirm the layout actually looks right; real visual confirmation is deferred to the milestone's acceptance check (or whenever a browser/display tool is available).
+
 ---
 
 ## In progress
 
-A.10 — Avalonia shell: fixed multi-pane layout, ShellViewModel, WorkerStateViewModel.
+A.11 — loopback asset host for Monaco.

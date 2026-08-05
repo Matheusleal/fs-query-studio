@@ -1,0 +1,44 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="FSharpQueryStudio.Ui.MainWindow"
+        Title="F# Query Studio"
+        Width="1200"
+        Height="800">
+  <DockPanel>
+    <Menu DockPanel.Dock="Top">
+      <MenuItem Header="_File" />
+      <MenuItem Header="_Edit" />
+      <MenuItem Header="_View" />
+      <MenuItem Header="_Connections" />
+      <MenuItem Header="_Run" />
+    </Menu>
+
+    <!--
+      Fixed Grid, not a docking framework — see Section 5: workspace pane,
+      script tabs + editor, results/output/problems/schema, with
+      GridSplitters for the MVP's persisted-splitter-position layout.
+    -->
+    <Grid ColumnDefinitions="250,4,*" RowDefinitions="*">
+      <Border Grid.Column="0" Grid.Row="0" BorderThickness="0,0,1,0" Name="WorkspacePane">
+        <TextBlock Text="Workspace" Margin="8" />
+      </Border>
+
+      <GridSplitter Grid.Column="1" Grid.Row="0" Width="4" ResizeDirection="Columns" />
+
+      <Grid Grid.Column="2" Grid.Row="0" RowDefinitions="Auto,*,4,200">
+        <TabControl Grid.Row="0" Name="ScriptTabs" />
+
+        <Border Grid.Row="1" Name="EditorHost" />
+
+        <GridSplitter Grid.Row="2" Height="4" ResizeDirection="Rows" />
+
+        <TabControl Grid.Row="3" Name="ResultsTabs">
+          <TabItem Header="Results" />
+          <TabItem Header="Output" />
+          <TabItem Header="Problems" />
+          <TabItem Header="Schema" />
+        </TabControl>
+      </Grid>
+    </Grid>
+  </DockPanel>
+</Window>

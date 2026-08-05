@@ -9,10 +9,13 @@
 
   <ItemGroup>
     <Compile Include="WorkerClient.fs" />
+    <Compile Include="App.axaml.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="Avalonia" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
     <PackageReference Include="Serilog" Version="4.4.0" />
   </ItemGroup>
 
@@ -20,6 +23,7 @@
     <ProjectReference Include="..\FSharpQueryStudio.Logging\FSharpQueryStudio.Logging.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Worker\FSharpQueryStudio.Worker.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Ui\FSharpQueryStudio.Ui.fsproj" />
   </ItemGroup>
 
 </Project>
