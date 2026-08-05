@@ -108,8 +108,14 @@ Hit one immediate build error, `AVLN2002: Duplicate x:Class directive` — Avalo
 
 Can't visually verify the layout in this environment (no way to see a rendered window), so this is where the `Manual` label from A.13's WebView task applies here too: confirmed the solution builds clean and, since a broken Avalonia bootstrap would throw immediately, launched the real app with a timeout — it logged its startup line, ran the full 8 seconds with no exception, and left no orphaned process after being killed. That rules out a crash-on-boot but doesn't confirm the layout actually looks right; real visual confirmation is deferred to the milestone's acceptance check (or whenever a browser/display tool is available).
 
+## 2026-08-05 — A.11: loopback asset host for Monaco
+
+Added `AssetHost` in `Editor`: a plain `HttpListener`-based static file server (no ASP.NET Core — this is Monaco asset serving, not a real web app, and pulling in a full web host for it would be a lot of weight for what it does). `"127.0.0.1"` is the only host literal anywhere in the module, so there's no code path that could ever bind all interfaces. Port is OS-assigned: `HttpListener` doesn't support ephemeral-port prefixes directly, so the standard workaround applies — bind a `TcpListener` to port 0, read back the OS-assigned port, stop it, and immediately reuse that port for the real `HttpListener` prefix.
+
+`resolveAsset` rejects anything that resolves outside `assetsRoot` after `Path.GetFullPath` normalization, and every response carries a restrictive CSP header. The path-traversal test needed care to actually test something: `Uri(baseUri, "../../secret.txt")` would have .NET's own `Uri` combiner collapse the literal `..` segments client-side before the request ever left the process, making the test pass without ever exercising the server's defense. Used percent-encoded `%2e%2e` instead — `Uri`'s dot-segment normalization operates on raw, still-encoded path segments, so encoded dots survive to the server, get decoded by `HttpListener` into literal `..`, and only then hit `resolveAsset`'s check. All four tests (known asset serves, unknown 404s, encoded traversal rejected, loopback-only) passed on the first real run.
+
 ---
 
 ## In progress
 
-A.11 — loopback asset host for Monaco.
+A.12 — editor bridge message contract (EditorRequest/host-to-editor serialization).
