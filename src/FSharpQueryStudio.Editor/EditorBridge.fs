@@ -73,6 +73,16 @@ module EditorBridge =
                       Diagnostics = diagnostics },
                     Serialization.options
                 ) }
+        | CaretMoved(uri, line, column) ->
+            { Id = Guid.NewGuid().ToString()
+              Kind = "caretMoved"
+              Payload =
+                JsonSerializer.SerializeToElement<CaretMovedPayload>(
+                    { DocumentUri = uri
+                      Line = line
+                      Column = column },
+                    Serialization.options
+                ) }
 
     let decode (envelope: EditorEnvelope) : Result<EditorRequest, BridgeError> =
         try

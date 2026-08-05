@@ -1,5 +1,6 @@
 module ShellViewModelTests
 
+open System.Text.Json
 open System.Threading.Tasks
 open Xunit
 open FSharpQueryStudio.Protocol
@@ -144,3 +145,69 @@ let ``Cancel is a no-op when CancelAsync has not been configured`` () =
         executeSignal.SetResult(canned ResultKind.Scalar "2")
         do! runTask
     }
+
+[<Fact>]
+let ``Problems reflects the active document's current diagnostics`` () =
+    let vm = ShellViewModel()
+    vm.ActiveDocument.ApplyTextChanged(1, "let x : int = \"oops\"")
+
+    let diagnostic: Diagnostic =
+        { Message = "type error"
+          Severity = DiagnosticSeverity.Error
+          StartLine = 0
+          StartColumn = 14
+          EndLine = 0
+          EndColumn = 20
+          Code = Some "FS0001" }
+
+    vm.ActiveDocument.ApplyAnalysisResult(1, [ diagnostic ])
+
+    Assert.Equal<Diagnostic list>([ diagnostic ], vm.Problems |> List.map (fun p -> p.Diagnostic))
+
+[<Fact>]
+let ``invoking a problem's Navigate command sends the diagnostic's start position as a caret-move bridge message`` () =
+    let vm = ShellViewModel()
+    vm.ActiveDocument.ApplyTextChanged(1, "let x : int = \"oops\"")
+
+    let diagnostic: Diagnostic =
+        { Message = "type error"
+          Severity = DiagnosticSeverity.Error
+          StartLine = 0
+          StartColumn = 14
+          EndLine = 0
+          EndColumn = 20
+          Code = Some "FS0001" }
+
+    vm.ActiveDocument.ApplyAnalysisResult(1, [ diagnostic ])
+
+    let mutable sentEnvelope: EditorEnvelope option = None
+    vm.SendToEditor <- Some(fun envelope -> sentEnvelope <- Some envelope)
+
+    (List.head vm.Problems).Navigate()
+
+    match sentEnvelope with
+    | None -> failwith "expected a bridge message to be sent"
+    | Some envelope ->
+        Assert.Equal("caretMoved", envelope.Kind)
+        let payload = JsonSerializer.Deserialize<CaretMovedPayload>(envelope.Payload, Serialization.options)
+        Assert.Equal(vm.ActiveDocument.Uri, payload.DocumentUri)
+        Assert.Equal(0, payload.Line)
+        Assert.Equal(14, payload.Column)
+
+[<Fact>]
+let ``Navigate is a no-op when SendToEditor has not been configured`` () =
+    let vm = ShellViewModel()
+    vm.ActiveDocument.ApplyTextChanged(1, "let x : int = \"oops\"")
+
+    let diagnostic: Diagnostic =
+        { Message = "type error"
+          Severity = DiagnosticSeverity.Error
+          StartLine = 0
+          StartColumn = 14
+          EndLine = 0
+          EndColumn = 20
+          Code = None }
+
+    vm.ActiveDocument.ApplyAnalysisResult(1, [ diagnostic ])
+
+    (List.head vm.Problems).Navigate() // Must not throw.

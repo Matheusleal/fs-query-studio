@@ -6,8 +6,17 @@ namespace FSharpQueryStudio.Protocol
 /// in `editor-host.html` decodes and applies it (e.g. `setModelMarkers`
 /// for `DiagnosticsUpdated`) — never the reverse, the host never decodes
 /// its own notifications.
-type HostNotification = DiagnosticsUpdated of documentUri: string * diagnostics: Diagnostic list
+type HostNotification =
+    | DiagnosticsUpdated of documentUri: string * diagnostics: Diagnostic list
+    /// Moves Monaco's caret to a 0-based (line, column) — e.g. the Problems
+    /// pane's "go to diagnostic" navigation (Section 8/5).
+    | CaretMoved of documentUri: string * line: int * column: int
 
 type DiagnosticsUpdatedPayload =
     { DocumentUri: string
       Diagnostics: Diagnostic list }
+
+type CaretMovedPayload =
+    { DocumentUri: string
+      Line: int
+      Column: int }

@@ -2,6 +2,7 @@ namespace FSharpQueryStudio.Ui
 
 open System.Threading.Tasks
 open FSharpQueryStudio.Protocol
+open FSharpQueryStudio.Editor
 
 /// Root view model — see Section 5. One `ActiveDocument` for the vertical
 /// slice's single editor tab; a workspace/multi-tab collection replaces
@@ -25,6 +26,19 @@ type ShellViewModel() =
     /// `Cancel` is a no-op if it's never configured, same rationale as
     /// `ExecuteAsync`.
     member val CancelAsync: (unit -> Task<unit>) option = None with get, set
+
+    /// The composition root's hook into the real WebView bridge — set
+    /// alongside `ExecuteAsync`/`CancelAsync`. Passed to every
+    /// `ProblemViewModel` so its `Navigate` command has somewhere to send
+    /// the caret-move message; a no-op there if this is never configured.
+    member val SendToEditor: (EditorEnvelope -> unit) option = None with get, set
+
+    /// Problems pane rows for the active document's current diagnostics —
+    /// see Section 5. Recomputed on every access rather than cached/
+    /// observable, since nothing binds to it yet.
+    member this.Problems: ProblemViewModel list =
+        this.ActiveDocument.Diagnostics
+        |> List.map (fun d -> ProblemViewModel(this.ActiveDocument.Uri, d, this.SendToEditor))
 
     member this.RunAsync() : Task<unit> =
         task {

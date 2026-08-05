@@ -284,3 +284,13 @@ Added `Protocol.HostNotification`/`DiagnosticsUpdatedPayload` and `EditorBridge.
 Filled in `editor-host.html`'s `"diagnosticsUpdated"` case (left as a stub since A.14, explicitly called out in that stub's own comment as "wired... in its own later task") — converts each `Diagnostic`'s 0-based line/column to Monaco's 1-based marker coordinates and calls `setModelMarkers`. Severity matched case-insensitively rather than against a specific string casing: `FSharp.SystemTextJson`'s exact wire encoding for a fieldless-case union isn't pinned down by an automated test on this path, so guessing the exact casing and getting it wrong would have been a silent, untestable bug.
 
 Full solution: 129 tests, all green (`Editor.Tests` 14, up from 12).
+
+---
+
+## 2026-08-06 — B.7: Problems pane and diagnostic navigation
+
+Added a second `HostNotification` case, `CaretMoved(documentUri, line, column)`, alongside `DiagnosticsUpdated` — same encode-only pattern (no `decode`, JS-side-only consumer), covered by the same bridge-contract test style as B.6.
+
+Added `Ui.ProblemViewModel` (one row per diagnostic) and `ShellViewModel.Problems`/`SendToEditor`: `Problems` maps `ActiveDocument.Diagnostics` to `ProblemViewModel`s on every access (nothing binds to it yet, so no caching/observable machinery), and `SendToEditor` is the composition root's hook into the real WebView bridge — same optional-function pattern as `ExecuteAsync`/`CancelAsync` (A.15/A.17), letting `Navigate()` be tested by capturing what it would have sent rather than driving a real WebView. `Navigate()` sends the diagnostic's start position as a `caretMoved` message; a no-op if `SendToEditor` was never configured, matching `RunAsync`/`Cancel`'s existing no-op-when-unconfigured contract.
+
+Full solution: 133 tests, all green (`Ui.Tests` 41, up from 38; `Editor.Tests` 15, up from 14).

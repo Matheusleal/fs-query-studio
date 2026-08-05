@@ -9,6 +9,7 @@
     <Compile Include="Debouncer.fs" />
     <Compile Include="DocumentViewModel.fs" />
     <Compile Include="ResultViewModel.fs" />
+    <Compile Include="ProblemViewModel.fs" />
     <Compile Include="ShellViewModel.fs" />
     <Compile Include="MainWindow.axaml.fs" />
   </ItemGroup>
