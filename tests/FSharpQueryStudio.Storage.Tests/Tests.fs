@@ -6,6 +6,7 @@ open System.Text.Json
 open Xunit
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Storage
+open FSharpQueryStudio.Security
 
 let private tempWorkspaceDir () =
     let dir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
@@ -96,6 +97,20 @@ let ``registerConnection replaces an existing connection with the same Id instea
 
     assertSameConnections [ renamed ] result
     assertSameConnections [ renamed ] (Workspace.readConnections dir)
+
+[<Fact>]
+let ``a registered connection's credential lives in the secret store, never in workspace.json`` () =
+    let dir = tempWorkspaceDir ()
+    let secretStore = InMemorySecretStore() :> ISecretStore
+    let reference = "vault://sales-db-cred"
+    secretStore.Save reference "correct horse battery staple"
+
+    let connection = { sampleConnection "Sales" with SecretReference = Some reference }
+    Workspace.registerConnection dir connection |> ignore
+
+    let json = File.ReadAllText(Path.Combine(dir, "workspace.json"))
+    Assert.DoesNotContain("correct horse battery staple", json)
+    Assert.Equal(Some "correct horse battery staple", secretStore.TryRead reference)
 
 [<Fact>]
 let ``registerConnection preserves other connections when adding a second one`` () =

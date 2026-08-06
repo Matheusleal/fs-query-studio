@@ -16,6 +16,7 @@
     <Compile Include="ExecutionServiceTests.fs" />
     <Compile Include="MilestoneAAcceptanceTests.fs" />
     <Compile Include="MilestoneBAcceptanceTests.fs" />
+    <Compile Include="WindowsCredentialStoreTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -30,6 +31,7 @@
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Worker\FSharpQueryStudio.Worker.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Ui\FSharpQueryStudio.Ui.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Security\FSharpQueryStudio.Security.fsproj" />
   </ItemGroup>
 
 </Project>

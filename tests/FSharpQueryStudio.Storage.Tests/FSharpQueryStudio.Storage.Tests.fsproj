@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Storage\FSharpQueryStudio.Storage.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Security\FSharpQueryStudio.Security.fsproj" />
   </ItemGroup>
 
 </Project>

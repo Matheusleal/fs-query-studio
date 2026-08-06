@@ -5,7 +5,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="Library.fs" />
+    <Compile Include="ISecretStore.fs" />
+    <Compile Include="InMemorySecretStore.fs" />
+    <Compile Include="WindowsCredentialStore.fs" />
   </ItemGroup>
 
 </Project>
