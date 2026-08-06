@@ -37,3 +37,19 @@ type AnalysisHoverParams =
       Column: int }
 
 type AnalysisHoverResult = { Hover: HoverInfo option }
+
+/// `results/page` request payload — see Section 7. `ContinuationToken`
+/// is opaque and worker-issued, never constructed by the client; a
+/// request against an unknown or expired token gets a structured error,
+/// never a silent re-run of whatever produced the original result.
+/// `SessionId` travels with the request per Section 7's shape, though
+/// nothing worker-side validates it yet — the worker handles one
+/// evaluation (and one open paging cursor) at a time, so there is only
+/// ever one session's continuation state to look up.
+type ResultPageRequest = { SessionId: string; ContinuationToken: string }
+
+/// `results/page` result payload — see Section 7.
+type ResultPage =
+    { Rows: obj array array
+      IsTruncated: bool
+      ContinuationToken: string option }

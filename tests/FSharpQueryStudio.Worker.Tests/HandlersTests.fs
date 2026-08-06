@@ -27,6 +27,15 @@ let private analysisCheckRequest (id: string) (source: string) : WorkerRequestFr
             Serialization.options
         ) }
 
+let private resultsPageRequest (id: string) (sessionId: string) (token: string) : WorkerRequestFrame =
+    { Id = id
+      Method = "results/page"
+      Params =
+        JsonSerializer.SerializeToElement<ResultPageRequest>(
+            { SessionId = sessionId; ContinuationToken = token },
+            Serialization.options
+        ) }
+
 let private analysisHoverRequest (id: string) (source: string) (line: int) (column: int) : WorkerRequestFrame =
     { Id = id
       Method = "analysis/hover"
@@ -132,6 +141,63 @@ let ``handleEvaluate rejects a second concurrent evaluate with a structured busy
 
             let! _ = firstTask
             ()
+    }
+
+[<Fact>]
+let ``handleEvaluate issues a continuation token for a truncated result, and results/page returns the rest`` () =
+    task {
+        let response = Handlers.handleEvaluate (evaluateRequest "pg1" "[1 .. 510]")
+        let envelope = JsonSerializer.Deserialize<ResultEnvelope>(response.Result.Value, Serialization.options)
+
+        Assert.True(envelope.IsTruncated)
+        Assert.Equal(500, envelope.Rows.Length)
+
+        let token =
+            match envelope.ContinuationToken with
+            | Some t -> t
+            | None -> failwith "expected a continuation token"
+
+        let! pageResponse = Handlers.dispatch (resultsPageRequest "pg1-page1" "s1" token)
+
+        Assert.True(pageResponse.Result.IsSome)
+        let page = JsonSerializer.Deserialize<ResultPage>(pageResponse.Result.Value, Serialization.options)
+
+        Assert.Equal(10, page.Rows.Length)
+        Assert.False(page.IsTruncated)
+        Assert.True(page.ContinuationToken.IsNone)
+    }
+
+[<Fact>]
+let ``results/page returns a structured error for an unknown or expired token`` () =
+    task {
+        let! response = Handlers.dispatch (resultsPageRequest "bad1" "s1" "not-a-real-token")
+
+        Assert.True(response.Result.IsNone)
+
+        match response.Error with
+        | Some err -> Assert.Equal("results/unknownToken", err.Code)
+        | None -> failwith "expected an error"
+    }
+
+[<Fact>]
+let ``a new evaluate invalidates a previous result's continuation token`` () =
+    task {
+        let firstResponse = Handlers.handleEvaluate (evaluateRequest "pg2" "[1 .. 510]")
+
+        let firstEnvelope =
+            JsonSerializer.Deserialize<ResultEnvelope>(firstResponse.Result.Value, Serialization.options)
+
+        let oldToken = firstEnvelope.ContinuationToken |> Option.get
+
+        Handlers.handleEvaluate (evaluateRequest "pg3" "1") |> ignore
+
+        let! pageResponse = Handlers.dispatch (resultsPageRequest "pg2-page" "s1" oldToken)
+
+        Assert.True(pageResponse.Result.IsNone)
+
+        match pageResponse.Error with
+        | Some err -> Assert.Equal("results/unknownToken", err.Code)
+        | None -> failwith "expected an error"
     }
 
 [<Fact>]

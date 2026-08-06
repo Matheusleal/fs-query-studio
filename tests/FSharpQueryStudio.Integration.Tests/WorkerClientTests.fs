@@ -83,6 +83,60 @@ let ``cancelling a cooperative script lets it stop early without killing the wor
         | None -> failwith "expected the worker to still be running"
     }
 
+let private resultsPageRequest (id: string) (sessionId: string) (token: string) : WorkerRequestFrame =
+    { Id = id
+      Method = "results/page"
+      Params =
+        JsonSerializer.SerializeToElement<ResultPageRequest>(
+            { SessionId = sessionId; ContinuationToken = token },
+            Serialization.options
+        ) }
+
+[<Fact>]
+let ``a large sequence truncates at the preview-row limit, then pages further via the token`` () =
+    task {
+        let client = WorkerClient(workerDllPath ())
+
+        let! evalResponse = client.Send(evaluateRequest "big1" "[1 .. 510]") |> withTimeout 20.0
+
+        Assert.True(evalResponse.Result.IsSome)
+        let envelope = JsonSerializer.Deserialize<ResultEnvelope>(evalResponse.Result.Value, Serialization.options)
+
+        Assert.True(envelope.IsTruncated)
+        Assert.Equal(500, envelope.Rows.Length)
+
+        let token =
+            match envelope.ContinuationToken with
+            | Some t -> t
+            | None -> failwith "expected a continuation token from the worker"
+
+        let! pageResponse =
+            client.Send(resultsPageRequest "big1-page1" "s1" token) |> withTimeout 20.0
+
+        Assert.True(pageResponse.Result.IsSome)
+        let page = JsonSerializer.Deserialize<ResultPage>(pageResponse.Result.Value, Serialization.options)
+
+        Assert.Equal(10, page.Rows.Length)
+        Assert.False(page.IsTruncated)
+        Assert.True(page.ContinuationToken.IsNone)
+    }
+
+[<Fact>]
+let ``a results/page request with an unknown or expired token returns a structured error, not a silent re-query`` () =
+    task {
+        let client = WorkerClient(workerDllPath ())
+
+        let! response =
+            client.Send(resultsPageRequest "unknown1" "s1" "not-a-real-token")
+            |> withTimeout 20.0
+
+        Assert.True(response.Result.IsNone)
+
+        match response.Error with
+        | Some err -> Assert.Equal("results/unknownToken", err.Code)
+        | None -> failwith "expected a structured error"
+    }
+
 [<Fact>]
 let ``cancelling a non-cooperative script forces termination after the grace period`` () =
     task {

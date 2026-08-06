@@ -114,6 +114,26 @@ let ``ConnectionDefinition round-trips a Some SecretReference and every Connecto
         Assert.Equal(false, roundTripped.IsTrusted)
 
 [<Fact>]
+let ``ResultPageRequest and ResultPage round-trip through JSON`` () =
+    let request: ResultPageRequest =
+        { SessionId = "sess-1"; ContinuationToken = "token-1" }
+
+    let requestJson = JsonSerializer.Serialize(request, Serialization.options)
+    let roundTrippedRequest = JsonSerializer.Deserialize<ResultPageRequest>(requestJson, Serialization.options)
+    Assert.Equal(request, roundTrippedRequest)
+
+    let page: ResultPage =
+        { Rows = [| [| box "a"; box 1 |] |]
+          IsTruncated = true
+          ContinuationToken = Some "token-2" }
+
+    let pageJson = JsonSerializer.Serialize(page, Serialization.options)
+    let roundTrippedPage = JsonSerializer.Deserialize<ResultPage>(pageJson, Serialization.options)
+    Assert.Equal(page.IsTruncated, roundTrippedPage.IsTruncated)
+    Assert.Equal(page.ContinuationToken, roundTrippedPage.ContinuationToken)
+    Assert.Equal("a", roundTrippedPage.Rows.[0].[0].ToString())
+
+[<Fact>]
 let ``deserializing a WorkerRequestFrame with an unknown extra field does not throw`` () =
     let json =
         """{"id":"x1","method":"worker/health","params":{},"futureField":"from-a-newer-client"}"""

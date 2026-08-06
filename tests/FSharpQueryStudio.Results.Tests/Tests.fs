@@ -52,6 +52,33 @@ let ``a sequence longer than the preview-row limit is truncated`` () =
     Assert.True(envelope.IsTruncated)
 
 [<Fact>]
+let ``projectWithCursor returns no continuation cursor for a sequence within the preview-row limit`` () =
+    let values = [ 1; 2; 3 ] :> obj
+
+    let envelope, cursor = Projection.projectWithCursor values 0L
+
+    Assert.Equal(3, envelope.Rows.Length)
+    Assert.False(envelope.IsTruncated)
+    Assert.True(cursor.IsNone)
+
+[<Fact>]
+let ``projectWithCursor returns a continuation cursor that resumes past the first page for a longer sequence`` () =
+    let values = [ 1 .. Projection.PreviewRowLimit + 10 ] :> obj
+
+    let envelope, cursor = Projection.projectWithCursor values 0L
+
+    Assert.Equal(Projection.PreviewRowLimit, envelope.Rows.Length)
+    Assert.True(envelope.IsTruncated)
+
+    match cursor with
+    | None -> failwith "expected a continuation cursor"
+    | Some c ->
+        let nextPage, hasMore = c.TakePage(20)
+        let expected = [| for i in Projection.PreviewRowLimit + 1 .. Projection.PreviewRowLimit + 10 -> box i |]
+        Assert.Equal<obj array>(expected, nextPage)
+        Assert.False(hasMore)
+
+[<Fact>]
 let ``an exception projects to a structured Error with a non-empty message`` () =
     let ex = System.Exception("boom")
 

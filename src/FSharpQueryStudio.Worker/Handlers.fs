@@ -42,6 +42,15 @@ module Handlers =
     /// where to write the cancellation sentinel. `None` when idle.
     let mutable private currentWorkDir: string option = None
 
+    /// The still-open continuation for the current evaluation's truncated
+    /// Table result, if any — Section 7's `results/page`. Keyed by the
+    /// token handed to the client in `ResultEnvelope.ContinuationToken`.
+    /// One worker handles one evaluation at a time (Section 9), so there
+    /// is only ever one paging cursor to track; a fresh evaluate replaces
+    /// or clears it, which is what "expires when the session is reset"
+    /// means in a worker that never actually holds multiple sessions.
+    let mutable private currentPaging: (string * PagingCursor) option = None
+
     let private busyResponse (id: string) : WorkerResponseFrame =
         { Id = id
           Result = None
@@ -71,6 +80,7 @@ module Handlers =
             Directory.CreateDirectory(workDir) |> ignore
             CancellationSignal.reset workDir
             currentWorkDir <- Some workDir
+            currentPaging <- None // a fresh evaluation invalidates any previous continuation token
             Choice1Of2 workDir
 
     /// Isolated by default (Section 9): a fresh session in the reserved
@@ -97,8 +107,18 @@ module Handlers =
                     let value =
                         outcome.Value |> Option.map (fun v -> v.ReflectionValue) |> Option.toObj
 
-                    { Projection.project value stopwatch.ElapsedMilliseconds with
-                        Output = output }
+                    let projected, cursor = Projection.projectWithCursor value stopwatch.ElapsedMilliseconds
+
+                    let continuationToken =
+                        cursor
+                        |> Option.map (fun c ->
+                            let token = Guid.NewGuid().ToString("N")
+                            currentPaging <- Some(token, c)
+                            token)
+
+                    { projected with
+                        Output = output
+                        ContinuationToken = continuationToken }
 
             Log.Information(
                 "Execution completed with outcome {Outcome} in {ElapsedMs}ms",
@@ -186,6 +206,35 @@ module Handlers =
                   Error = None }
         }
 
+    /// `results/page` — Section 7. An unknown or expired
+    /// `ContinuationToken` (nothing currently open, or a token from a
+    /// since-replaced evaluation) is a structured error, never a silent
+    /// re-run of whatever produced the original result.
+    let handleResultsPage (request: WorkerRequestFrame) : WorkerResponseFrame =
+        let pageParams =
+            JsonSerializer.Deserialize<ResultPageRequest>(request.Params, Serialization.options)
+
+        match currentPaging with
+        | Some(token, cursor) when token = pageParams.ContinuationToken ->
+            let rows, hasMore = cursor.TakePage(Projection.PreviewRowLimit)
+            currentPaging <- if hasMore then Some(token, cursor) else None
+
+            let page: ResultPage =
+                { Rows = rows |> Array.map (fun r -> [| r |])
+                  IsTruncated = hasMore
+                  ContinuationToken = (if hasMore then Some token else None) }
+
+            { Id = request.Id
+              Result = Some(JsonSerializer.SerializeToElement(page, Serialization.options))
+              Error = None }
+        | _ ->
+            { Id = request.Id
+              Result = None
+              Error =
+                Some
+                    { Code = "results/unknownToken"
+                      Message = "The continuation token is unknown or has expired." } }
+
     let dispatch (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
             match request.Method with
@@ -194,6 +243,7 @@ module Handlers =
             | "execution/cancel" -> return handleCancel request
             | "analysis/check" -> return! handleAnalysisCheck request
             | "analysis/hover" -> return! handleAnalysisHover request
+            | "results/page" -> return handleResultsPage request
             | unknown ->
                 return
                     { Id = request.Id

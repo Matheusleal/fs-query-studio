@@ -49,38 +49,41 @@ module Projection =
         FSharpType.GetRecordFields(t, recordBindingFlags)
         |> Array.map (fun p -> p.GetValue(value))
 
-    /// Bounds a sequence to at most `PreviewRowLimit` items, reporting
-    /// whether it had to cut anything off. Enumerates only once.
-    let private boundedRows (items: IEnumerable) : obj array * bool =
-        let taken =
-            items |> Seq.cast<obj> |> Seq.truncate (PreviewRowLimit + 1) |> Seq.toArray
-
-        if taken.Length > PreviewRowLimit then
-            taken.[.. PreviewRowLimit - 1], true
-        else
-            taken, false
-
-    let project (value: obj) (elapsedMs: int64) : ResultEnvelope =
+    /// Same shape as `project`, plus the live `PagingCursor` a truncated
+    /// Table result was cut off at — Section 7's `results/page`. `None`
+    /// whenever nothing was truncated (every other kind, or a sequence
+    /// that already fit within `PreviewRowLimit`). The cursor holds the
+    /// same enumerator `project` would have discarded, so a caller that
+    /// wants to keep paging never re-runs whatever produced `value`.
+    let projectWithCursor (value: obj) (elapsedMs: int64) : ResultEnvelope * PagingCursor option =
         match value with
-        | null -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some "null" }
-        | :? string as s -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some s }
+        | null -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some "null" }, None
+        | :? string as s -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some s }, None
         | v when isSimplePrimitive (v.GetType()) ->
             { emptyEnvelope ResultKind.Scalar elapsedMs with
-                DisplayText = Some(string v) }
+                DisplayText = Some(string v) },
+            None
         | v when FSharpType.IsRecord(v.GetType(), recordBindingFlags) ->
             let t = v.GetType()
 
             { emptyEnvelope ResultKind.Table elapsedMs with
                 Schema = recordSchema t
-                Rows = [| recordRow t v |] }
+                Rows = [| recordRow t v |] },
+            None
         | :? IEnumerable as items ->
-            let rows, truncated = boundedRows items
+            let cursor = PagingCursor(items.GetEnumerator())
+            let rows, hasMore = cursor.TakePage(PreviewRowLimit)
 
-            { emptyEnvelope ResultKind.Table elapsedMs with
-                Schema = [ { Name = "Value"; DisplayType = "obj" } ]
-                Rows = rows |> Array.map (fun r -> [| r |])
-                IsTruncated = truncated }
-        | v -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some(string v) }
+            let envelope =
+                { emptyEnvelope ResultKind.Table elapsedMs with
+                    Schema = [ { Name = "Value"; DisplayType = "obj" } ]
+                    Rows = rows |> Array.map (fun r -> [| r |])
+                    IsTruncated = hasMore }
+
+            envelope, (if hasMore then Some cursor else None)
+        | v -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some(string v) }, None
+
+    let project (value: obj) (elapsedMs: int64) : ResultEnvelope = projectWithCursor value elapsedMs |> fst
 
     /// An uncaught script exception becomes a structured Error result —
     /// see Section 9 — never an unhandled worker crash.

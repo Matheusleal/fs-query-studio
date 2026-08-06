@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="PagingCursorTests.fs" />
     <Compile Include="Tests.fs" />
   </ItemGroup>
 

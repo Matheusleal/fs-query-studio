@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="PagingCursor.fs" />
     <Compile Include="Projection.fs" />
   </ItemGroup>
 
