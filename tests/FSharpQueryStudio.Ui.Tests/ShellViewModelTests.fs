@@ -482,12 +482,12 @@ let ``a debounced text change calls CheckAsync and applies the result through th
 let ``PropertyChanged fires for ActiveDocument when OpenDocument switches to a different tab`` () =
     let vm = ShellViewModel()
     let firstUri = vm.ActiveDocument.Uri
-    let mutable raisedFor: string option = None
-    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor <- Some args.PropertyName)
+    let raisedFor = ResizeArray<string>()
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
 
     vm.OpenDocument("untitled:Script2.fsx") |> ignore
 
-    Assert.Equal(Some "ActiveDocument", raisedFor)
+    Assert.Contains("ActiveDocument", raisedFor)
     Assert.NotEqual<string>(firstUri, vm.ActiveDocument.Uri)
 
 [<Fact>]
@@ -499,3 +499,78 @@ let ``PropertyChanged does not fire for ActiveDocument when OpenDocument re-open
     vm.OpenDocument(vm.ActiveDocument.Uri) |> ignore
 
     Assert.False(raised)
+
+// `Problems` is derived from the active document's `Diagnostics`, so a
+// binding on it (the Problems pane, from UI-Foundation.9 onward) only ever
+// updates if `ShellViewModel` itself re-raises for both of the reasons the
+// derived value can change: a different tab became active, or the active
+// tab's own diagnostics changed.
+
+[<Fact>]
+let ``PropertyChanged fires for Problems when the active document's diagnostics change`` () =
+    let vm = ShellViewModel()
+    vm.ActiveDocument.ApplyTextChanged(1, "let x : int = \"oops\"")
+
+    let diagnostic: Diagnostic =
+        { Message = "type error"
+          Severity = DiagnosticSeverity.Error
+          StartLine = 0
+          StartColumn = 14
+          EndLine = 0
+          EndColumn = 20
+          Code = Some "FS0001" }
+
+    let raisedFor = ResizeArray<string>()
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    vm.ActiveDocument.ApplyAnalysisResult(1, [ diagnostic ])
+
+    Assert.Contains("Problems", raisedFor)
+    Assert.Equal<Diagnostic list>([ diagnostic ], vm.Problems |> List.map (fun p -> p.Diagnostic))
+
+[<Fact>]
+let ``PropertyChanged does not fire for Problems when a background document's diagnostics change`` () =
+    let vm = ShellViewModel()
+    let backgroundUri = vm.ActiveDocument.Uri
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+
+    let background = vm.Documents |> List.find (fun d -> d.Uri = backgroundUri)
+    background.ApplyTextChanged(1, "let x : int = \"oops\"")
+
+    let diagnostic: Diagnostic =
+        { Message = "type error"
+          Severity = DiagnosticSeverity.Error
+          StartLine = 0
+          StartColumn = 14
+          EndLine = 0
+          EndColumn = 20
+          Code = Some "FS0001" }
+
+    let raisedFor = ResizeArray<string>()
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    background.ApplyAnalysisResult(1, [ diagnostic ])
+
+    Assert.DoesNotContain("Problems", raisedFor)
+
+[<Fact>]
+let ``PropertyChanged fires for Problems when OpenDocument switches to a different tab`` () =
+    let vm = ShellViewModel()
+    let raisedFor = ResizeArray<string>()
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+
+    Assert.Contains("Problems", raisedFor)
+
+[<Fact>]
+let ``PropertyChanged fires for Problems when CloseDocument changes which tab is active`` () =
+    let vm = ShellViewModel()
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+
+    let raisedFor = ResizeArray<string>()
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    Assert.True(vm.CloseDocument("untitled:Script2.fsx"))
+
+    Assert.Contains("Problems", raisedFor)

@@ -34,8 +34,9 @@ type MainWindow() as this =
     /// delivered by dispatching a synthetic `message` event on
     /// `window.chrome.webview`, which is exactly the object
     /// `editor-host.html`'s listener is attached to. Failures are
-    /// swallowed: a message sent before the page finished loading must
-    /// never take the window down.
+    /// swallowed — both a synchronous throw and a faulted task, since
+    /// `InvokeScript` can fail either way — because a message sent before
+    /// the page finished loading must never take the window down.
     let postToEditor (envelope: EditorEnvelope) =
         let json =
             System.Text.Json.JsonSerializer.Serialize(envelope, Serialization.options)
@@ -50,7 +51,11 @@ type MainWindow() as this =
             + " })); }"
 
         try
-            webView.InvokeScript(script) |> ignore
+            webView
+                .InvokeScript(script)
+                .ContinueWith((fun (t: System.Threading.Tasks.Task<string>) -> t.Exception |> ignore),
+                              System.Threading.Tasks.TaskContinuationOptions.OnlyOnFaulted)
+            |> ignore
         with _ ->
             ()
 

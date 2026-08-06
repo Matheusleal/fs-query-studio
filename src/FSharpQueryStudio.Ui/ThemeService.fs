@@ -3,9 +3,10 @@ namespace FSharpQueryStudio.Ui
 open System.ComponentModel
 
 /// UI-Foundation's dark/light theme choice — see the UI-Foundation spec's
-/// theme section. Pure state, no Avalonia dependency: the composition
-/// root (`App.axaml.fs`) is the one place that translates `Current` into
-/// a real `ThemeVariant` on `Application.Current`.
+/// theme section. Pure state, no Avalonia dependency: translating
+/// `Current` into a real `ThemeVariant` on `Application.Current` happens
+/// in the View layer (`MainWindow`'s View > Toggle Theme handler, as of
+/// UI-Foundation.9), never here.
 type Theme =
     | Dark
     | Light
