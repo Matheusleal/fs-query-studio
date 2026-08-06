@@ -661,3 +661,11 @@ Added `Theme` discriminated union (`Dark | Light`) and `ThemeService` class to t
 TDD'd as specified: test file first (four cases: initial Dark state, Dark→Light toggle, Light→Dark toggle, PropertyChanged fired exactly once with correct property name), verified failure to compile (no Theme/ThemeService yet), implementation second, verified 4/4 passing. Added both files to their .fsproj entries.
 
 Full solution: 483 tests green, all passing.
+
+## 2026-08-06 — UI-Foundation.2: UiState persistence
+
+Added `UiState` type to `Protocol` (`Theme: string`, `DockLayout: JsonElement option` — an opaque blob carrying Dock.Avalonia's own serializer output) and a paired `Storage.UiState` module for reading/writing `ui-state.json` under `%LOCALAPPDATA%/FSharpQueryStudio/`, reusing the exact pattern established by `TrustMetadata`/`Trust.fs` from earlier in the project. `defaultState` is Dark theme + no layout, and both `read` and `write` use the shared `Serialization.options` already established in `Protocol.Serialization.fs`. Graceful degradation on missing or malformed JSON — a corrupt file never blocks startup, just reverts to defaults.
+
+TDD'd as specified: test file first, four cases (no file returns default, write+read round-trips theme and layout blob, write+read round-trips None layout, malformed JSON returns default), verified failure to compile (UiState module doesn't exist yet), implementation second (Protocol type + Storage module + .fsproj entries), verified 4/4 UiState tests passing. Full test suite remains green: 361 tests across 12 test projects (Logging.Tests 11, Protocol.Tests 10, Security.Tests 10, Editor.Tests 23, Storage.Tests 29, Ui.Tests 79, Analysis.Tests 42, Execution.Tests 28, Results.Tests 20, Connectors.Tests 39, Worker.Tests 24, Integration.Tests 46).
+
+Full solution: 361 tests green, all passing.
