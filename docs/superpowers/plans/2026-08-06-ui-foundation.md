@@ -4,7 +4,7 @@
 
 **Goal:** Replace `MainWindow.axaml`'s fixed `Grid` shell with a `Dock.Avalonia`-based dockable, VS2026-styled shell — wiring the already-built `ShellViewModel`/`DocumentViewModel`/`ResultViewModel`/`ProblemViewModel`/`WorkerStateViewModel` into real, restyled, dockable panes instead of the current single-tab stub.
 
-**Architecture:** `Dock.Model.Mvvm` types (`Factory`, `Document`, `Tool`, `DocumentDock`, `ToolDock`, `ProportionalDock`) have no Avalonia-rendering dependency, so the new `ThemeService`/`ScriptDocument`/`DockFactory` live in `FSharpQueryStudio.Ui` and are fully unit-testable with plain xUnit — only the actual `DockControl` XAML wiring in `MainWindow.axaml`/`.axaml.fs` is manual-verify, matching this codebase's established pattern for every prior XAML/WebView task (A.10, A.13, A.16, B.6, B.9, E.6, E.7). One Monaco `NativeWebView` instance is shared across every open script tab (WebView2 instances are expensive; VS itself doesn't spin up N editor engines either) — each `ScriptDocument`'s `Content` points at that same shared control, and a new `DocumentLoaded` host→editor bridge notification swaps its text/model when the active tab changes.
+**Architecture:** `Dock.Model.Mvvm` types (`Factory`, `Document`, `Tool`, `DocumentDock`, `ToolDock`, `ProportionalDock`) have no Avalonia-rendering dependency, so the new `ThemeService`/`ScriptDocument`/`DockFactory` live in `FSharpQueryStudio.Ui` and are fully unit-testable with plain xUnit — only the actual `DockControl` XAML wiring in `MainWindow.axaml`/`.axaml.fs` is manual-verify, matching this codebase's established pattern for every prior XAML/WebView task (A.10, A.13, A.16, B.6, B.9, E.6, E.7). One Monaco `NativeWebView` instance is shared across every open script tab (WebView2 instances are expensive; VS itself doesn't spin up N editor engines either) — each `ScriptDocument`'s `Context` points at that same shared control (Task 5's implementation found the real `Dock.Model.Mvvm.Controls.Document`/`DockableBase` API (12.1.0) exposes a settable `Context: obj`, not `Content` as originally assumed here — corrected throughout this plan after that discovery), and a new `DocumentLoaded` host→editor bridge notification swaps its text/model when the active tab changes.
 
 **Tech Stack:** Avalonia 12.1.1 (existing), Dock.Avalonia + Dock.Model.Mvvm + Dock.Serializer.SystemTextJson + Dock.Avalonia.Themes.Fluent (new), Material.Icons.Avalonia (new), F#/.NET (existing), xUnit (existing).
 
@@ -722,7 +722,7 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
         let initialDoc = ScriptDocument(shell.ActiveDocument, shell, editorContent)
 
         let workspaceTool = Tool(Id = "Workspace", Title = "Workspace", CanClose = false)
-        let resultsTool = Tool(Id = "Results", Title = "Results", CanClose = false, Content = resultsContent)
+        let resultsTool = Tool(Id = "Results", Title = "Results", CanClose = false, Context = resultsContent)
 
         documentDock <-
             DocumentDock(
@@ -1195,7 +1195,7 @@ Add both to `FSharpQueryStudio.Ui.fsproj`: `<Compile Include="ResultsView.axaml.
 </Window>
 ```
 `InitializeFactory`/`InitializeLayout` are deliberately left off — Step 3 assigns `Factory`/`Layout` and calls `InitLayout` explicitly in code-behind (the plain-C# init sequence Dock.Avalonia's own docs show), so relying on the XAML auto-init flags too would be a redundant second init path with unclear ordering against the manual one.
-Note this drops `NativeWebView`/`ResultsTabs`/`RunButton` etc. as directly-nested markup — the editor and results content are now built in code-behind (Step 3) and handed to `DockFactory` as `Content`, since `DockFactory.CreateLayout()` (Task 6) needs live control instances, not XAML-declared ones, to assign to `ScriptDocument.Content`/`resultsTool.Content`. `RunButton`/`CancelButton`/etc. names are kept identical to today's so `MainWindow.axaml.fs`'s existing `FindControl` calls need no renaming.
+Note this drops `NativeWebView`/`ResultsTabs`/`RunButton` etc. as directly-nested markup — the editor and results content are now built in code-behind (Step 3) and handed to `DockFactory` as plain `obj` constructor arguments, since `DockFactory.CreateLayout()` (Task 6) needs live control instances, not XAML-declared ones, to assign to `ScriptDocument.Context`/`resultsTool.Context` (Task 5 found the real Dock.Avalonia property is `Context`, not `Content` — see the Architecture section's note). `RunButton`/`CancelButton`/etc. names are kept identical to today's so `MainWindow.axaml.fs`'s existing `FindControl` calls need no renaming.
 
 - [ ] **Step 3: Rewrite `MainWindow.axaml.fs`**
 
