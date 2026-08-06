@@ -52,6 +52,12 @@ type AnalysisHoverParams =
 
 type AnalysisHoverResult = { Hover: HoverInfo option }
 
+/// `session/reset` request payload — see Section 7's method table. Drops
+/// the worker-side Persistent-mode session tracked under `SessionId`, if
+/// any; a no-op if nothing was tracked (never started, already reset, or
+/// was always Isolated).
+type SessionResetParams = { SessionId: string }
+
 /// `results/page` request payload — see Section 7. `ContinuationToken`
 /// is opaque and worker-issued, never constructed by the client; a
 /// request against an unknown or expired token gets a structured error,

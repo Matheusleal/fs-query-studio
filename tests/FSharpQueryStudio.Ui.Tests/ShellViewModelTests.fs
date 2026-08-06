@@ -35,8 +35,8 @@ let ``RunAsync calls ExecuteAsync with the active document's text and applies th
         let vm = ShellViewModel()
         vm.ActiveDocument.ApplyTextChanged(1, "1 + 1")
         let mutable receivedSource = None
-        vm.ExecuteAsync <- Some(fun source ->
-            receivedSource <- Some source
+        vm.ExecuteAsync <- Some(fun evalParams ->
+            receivedSource <- Some evalParams.Source
             Task.FromResult(canned ResultKind.Scalar "2"))
 
         do! vm.RunAsync()
@@ -47,11 +47,105 @@ let ``RunAsync calls ExecuteAsync with the active document's text and applies th
     }
 
 [<Fact>]
+let ``RunAsync sends Mode=Isolated and no SessionId when the active document's SessionMode is Isolated`` () =
+    task {
+        let vm = ShellViewModel()
+        vm.ActiveDocument.ApplyTextChanged(1, "1 + 1")
+        let mutable received = None
+        vm.ExecuteAsync <- Some(fun evalParams ->
+            received <- Some evalParams
+            Task.FromResult(canned ResultKind.Scalar "2"))
+
+        do! vm.RunAsync()
+
+        match received with
+        | Some p ->
+            Assert.Equal(Isolated, p.Mode)
+            Assert.Equal(None, p.SessionId)
+        | None -> failwith "expected ExecuteAsync to have been called"
+    }
+
+[<Fact>]
+let ``RunAsync sends Mode=Persistent and the active document's Uri as SessionId when SessionMode is Persistent`` () =
+    task {
+        let vm = ShellViewModel()
+        vm.ActiveDocument.SessionMode <- Persistent
+        vm.ActiveDocument.ApplyTextChanged(1, "1 + 1")
+        let mutable received = None
+        vm.ExecuteAsync <- Some(fun evalParams ->
+            received <- Some evalParams
+            Task.FromResult(canned ResultKind.Scalar "2"))
+
+        do! vm.RunAsync()
+
+        match received with
+        | Some p ->
+            Assert.Equal(Persistent, p.Mode)
+            Assert.Equal(Some vm.ActiveDocument.Uri, p.SessionId)
+        | None -> failwith "expected ExecuteAsync to have been called"
+    }
+
+[<Fact>]
+let ``a successful RunAsync in Persistent mode marks the active document's session active`` () =
+    task {
+        let vm = ShellViewModel()
+        vm.ActiveDocument.SessionMode <- Persistent
+        vm.ActiveDocument.ApplyTextChanged(1, "1 + 1")
+        vm.ExecuteAsync <- Some(fun _evalParams -> Task.FromResult(canned ResultKind.Scalar "2"))
+
+        Assert.False(vm.ActiveDocument.HasActiveSession)
+        do! vm.RunAsync()
+
+        Assert.True(vm.ActiveDocument.HasActiveSession)
+    }
+
+[<Fact>]
+let ``a successful RunAsync in Isolated mode never marks a session active`` () =
+    task {
+        let vm = ShellViewModel()
+        vm.ActiveDocument.ApplyTextChanged(1, "1 + 1")
+        vm.ExecuteAsync <- Some(fun _evalParams -> Task.FromResult(canned ResultKind.Scalar "2"))
+
+        do! vm.RunAsync()
+
+        Assert.False(vm.ActiveDocument.HasActiveSession)
+    }
+
+[<Fact>]
+let ``ResetSessionAsync invokes ResetSession with the active document's Uri and clears HasActiveSession`` () =
+    task {
+        let vm = ShellViewModel()
+        vm.ActiveDocument.SessionMode <- Persistent
+        vm.ActiveDocument.MarkSessionActive()
+        let mutable receivedSessionId = None
+        vm.ResetSession <- Some(fun sessionId ->
+            receivedSessionId <- Some sessionId
+            Task.FromResult(()))
+
+        do! vm.ResetSessionAsync()
+
+        Assert.Equal(Some vm.ActiveDocument.Uri, receivedSessionId)
+        Assert.False(vm.ActiveDocument.HasActiveSession)
+    }
+
+[<Fact>]
+let ``ResetSessionAsync is a no-op when ResetSession has not been configured`` () =
+    task {
+        let vm = ShellViewModel()
+        vm.ActiveDocument.SessionMode <- Persistent
+        vm.ActiveDocument.MarkSessionActive()
+
+        do! vm.ResetSessionAsync() // Must not throw.
+
+        Assert.True(vm.ActiveDocument.HasActiveSession) // Unconfigured hook changes nothing.
+    }
+
+[<Fact>]
 let ``RunAsync awaits a slow ExecuteAsync instead of blocking synchronously on it`` () =
     task {
         let vm = ShellViewModel()
         let executeSignal = TaskCompletionSource<ResultEnvelope>()
-        vm.ExecuteAsync <- Some(fun _source -> executeSignal.Task)
+        vm.ExecuteAsync <- Some(fun _evalParams -> executeSignal.Task)
 
         // A blocking implementation would never return control here until
         // ExecuteAsync's task completed - proving the call returns while
@@ -83,7 +177,7 @@ let ``RunAsync moves WorkerState Ready -> Running -> Ready around a successful e
         let vm = ShellViewModel()
         vm.WorkerState.TryTransition(WorkerState.Ready) |> ignore
         let executeSignal = TaskCompletionSource<ResultEnvelope>()
-        vm.ExecuteAsync <- Some(fun _source -> executeSignal.Task)
+        vm.ExecuteAsync <- Some(fun _evalParams -> executeSignal.Task)
 
         let runTask = vm.RunAsync()
         Assert.Equal(WorkerState.Running, vm.WorkerState.Current)
@@ -100,7 +194,7 @@ let ``Cancel invokes CancelAsync and moves WorkerState through Cancelling while 
         let vm = ShellViewModel()
         vm.WorkerState.TryTransition(WorkerState.Ready) |> ignore
         let executeSignal = TaskCompletionSource<ResultEnvelope>()
-        vm.ExecuteAsync <- Some(fun _source -> executeSignal.Task)
+        vm.ExecuteAsync <- Some(fun _evalParams -> executeSignal.Task)
         let mutable cancelInvoked = false
         vm.CancelAsync <- Some(fun () ->
             cancelInvoked <- true
@@ -137,7 +231,7 @@ let ``Cancel is a no-op when CancelAsync has not been configured`` () =
         let vm = ShellViewModel()
         vm.WorkerState.TryTransition(WorkerState.Ready) |> ignore
         let executeSignal = TaskCompletionSource<ResultEnvelope>()
-        vm.ExecuteAsync <- Some(fun _source -> executeSignal.Task)
+        vm.ExecuteAsync <- Some(fun _evalParams -> executeSignal.Task)
 
         let runTask = vm.RunAsync()
         do! vm.Cancel() // No CancelAsync configured - must not throw or change state.

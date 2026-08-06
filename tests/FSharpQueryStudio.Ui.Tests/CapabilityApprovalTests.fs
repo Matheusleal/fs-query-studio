@@ -24,7 +24,7 @@ let private trustRequesting (capabilities: string list) : TrustMetadata =
 
 let private configureExecute (vm: ShellViewModel) =
     let mutable executed = false
-    vm.ExecuteAsync <- Some(fun _source ->
+    vm.ExecuteAsync <- Some(fun _evalParams ->
         executed <- true
         Task.FromResult(canned ResultKind.Scalar "2"))
     (fun () -> executed)

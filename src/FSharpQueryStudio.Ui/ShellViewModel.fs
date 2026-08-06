@@ -93,8 +93,10 @@ type ShellViewModel(?scheduler: IDebounceScheduler) =
     /// runs a script and returns its projected result — set by the
     /// composition root. `RunAsync` is a no-op if it's never configured,
     /// which keeps this view model constructible and testable without a
-    /// worker process behind it.
-    member val ExecuteAsync: (string -> Task<ResultEnvelope>) option = None with get, set
+    /// worker process behind it. Takes the full `EvaluateParams` (E.1) so
+    /// the active document's `SessionMode`/`SessionId` reach the worker,
+    /// not just its source text.
+    member val ExecuteAsync: (EvaluateParams -> Task<ResultEnvelope>) option = None with get, set
 
     /// Requests cancellation of whatever `ExecuteAsync` call is currently
     /// in flight — set by the composition root alongside `ExecuteAsync`,
@@ -102,6 +104,10 @@ type ShellViewModel(?scheduler: IDebounceScheduler) =
     /// `Cancel` is a no-op if it's never configured, same rationale as
     /// `ExecuteAsync`.
     member val CancelAsync: (unit -> Task<unit>) option = None with get, set
+
+    /// The composition root's hook into the real `session/reset` worker
+    /// call — set alongside `ExecuteAsync`/`CancelAsync`.
+    member val ResetSession: (string -> Task<unit>) option = None with get, set
 
     /// The composition root's hook into the real WebView bridge — set
     /// alongside `ExecuteAsync`/`CancelAsync`. Passed to every
@@ -181,9 +187,40 @@ type ShellViewModel(?scheduler: IDebounceScheduler) =
             | Some execute ->
                 if this.TryApproveRun() then
                     this.WorkerState.TryTransition(WorkerState.Running) |> ignore
-                    let! envelope = execute this.ActiveDocument.Text
+
+                    let doc = this.ActiveDocument
+
+                    let evalParams: EvaluateParams =
+                        { Source = doc.Text
+                          SessionId = (match doc.SessionMode with
+                                       | Persistent -> Some doc.Uri
+                                       | Isolated -> None)
+                          Mode = doc.SessionMode }
+
+                    let! envelope = execute evalParams
                     this.Result.Apply(envelope)
+
+                    if doc.SessionMode = Persistent then
+                        doc.MarkSessionActive()
+
                     this.WorkerState.TryTransition(WorkerState.Ready) |> ignore
+        }
+
+    /// Drops the active document's worker-side Persistent-mode session
+    /// via `ResetSession` (E.2's `session/reset`, set by the composition
+    /// root) and clears its local `HasActiveSession` display state — a
+    /// no-op if the hook isn't configured, same rationale as `RunAsync`/
+    /// `ExecuteAsync`. Safe to call regardless of the document's current
+    /// `SessionMode`: resetting a session that was never Persistent, or
+    /// already reset, is a no-op both worker-side (`SessionStore.reset`)
+    /// and locally (`MarkSessionReset`).
+    member this.ResetSessionAsync() : Task<unit> =
+        task {
+            match this.ResetSession with
+            | None -> ()
+            | Some reset ->
+                do! reset this.ActiveDocument.Uri
+                this.ActiveDocument.MarkSessionReset()
         }
 
     /// Copies the active result to the clipboard — C.15. A no-op if

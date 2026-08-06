@@ -26,6 +26,61 @@ let ``starts with empty text, version 0, and not dirty`` () =
     Assert.False(vm.IsDirty)
 
 [<Fact>]
+let ``starts in Isolated mode with no active session`` () =
+    let vm = DocumentViewModel("file:///a.fsx")
+
+    Assert.Equal(Isolated, vm.SessionMode)
+    Assert.False(vm.HasActiveSession)
+    Assert.Equal("Isolated", vm.SessionStateDisplay)
+
+[<Fact>]
+let ``MarkSessionActive only takes effect in Persistent mode`` () =
+    let isolated = DocumentViewModel("file:///a.fsx")
+    isolated.MarkSessionActive()
+    Assert.False(isolated.HasActiveSession)
+
+    let persistent = DocumentViewModel("file:///b.fsx")
+    persistent.SessionMode <- Persistent
+    persistent.MarkSessionActive()
+
+    Assert.True(persistent.HasActiveSession)
+    Assert.Equal("Persistent · active", persistent.SessionStateDisplay)
+
+[<Fact>]
+let ``MarkSessionReset clears HasActiveSession`` () =
+    let vm = DocumentViewModel("file:///a.fsx")
+    vm.SessionMode <- Persistent
+    vm.MarkSessionActive()
+
+    vm.MarkSessionReset()
+
+    Assert.False(vm.HasActiveSession)
+    Assert.Equal("Persistent · reset", vm.SessionStateDisplay)
+
+[<Fact>]
+let ``switching SessionMode clears HasActiveSession, even back to the same mode it started from`` () =
+    let vm = DocumentViewModel("file:///a.fsx")
+    vm.SessionMode <- Persistent
+    vm.MarkSessionActive()
+
+    vm.SessionMode <- Isolated
+
+    Assert.False(vm.HasActiveSession)
+    Assert.Equal(Isolated, vm.SessionMode)
+
+[<Fact>]
+let ``PropertyChanged fires for SessionMode, HasActiveSession, and SessionStateDisplay on a mode switch`` () =
+    let vm = DocumentViewModel("file:///a.fsx")
+    let mutable raisedNames: string list = []
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedNames <- args.PropertyName :: raisedNames)
+
+    vm.SessionMode <- Persistent
+
+    Assert.Contains("SessionMode", raisedNames)
+    Assert.Contains("HasActiveSession", raisedNames)
+    Assert.Contains("SessionStateDisplay", raisedNames)
+
+[<Fact>]
 let ``ApplyTextChanged with a newer version updates Text and Version and marks dirty`` () =
     let vm = DocumentViewModel("file:///a.fsx")
 

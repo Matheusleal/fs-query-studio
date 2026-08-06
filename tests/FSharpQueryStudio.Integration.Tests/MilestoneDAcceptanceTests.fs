@@ -60,7 +60,7 @@ let ``an imported script requesting capabilities shows them and requires approva
         let vm = ShellViewModel()
         vm.Trust <- loadedTrust
         let mutable executed = false
-        vm.ExecuteAsync <- Some(fun _source ->
+        vm.ExecuteAsync <- Some(fun _evalParams ->
             executed <- true
             Task.FromResult(
                 { Kind = ResultKind.Scalar

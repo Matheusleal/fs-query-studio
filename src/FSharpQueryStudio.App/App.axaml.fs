@@ -7,6 +7,7 @@ open Avalonia.Controls.ApplicationLifetimes
 open Avalonia.Input.Platform
 open Avalonia.Markup.Xaml
 open Serilog
+open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Ui
 
 type App() =
@@ -31,11 +32,11 @@ type App() =
             let client = WorkerClient(workerDllPath)
             let currentRequestId = ref None
 
-            let executeAsync (source: string) =
+            let executeAsync (evalParams: EvaluateParams) =
                 task {
                     let id = Guid.NewGuid().ToString()
                     currentRequestId.Value <- Some id
-                    let! result = ExecutionService.evaluateWithId client id source
+                    let! result = ExecutionService.evaluateWithId client id evalParams
                     currentRequestId.Value <- None
                     return result
                 }
@@ -47,10 +48,12 @@ type App() =
                     | None -> ()
                 }
 
+            let resetSessionAsync (sessionId: string) = ExecutionService.resetSession client sessionId
+
             let checkAsync (version: int, source: string) =
                 AnalysisService.check client mainWindow.ShellViewModel.ActiveDocument.Uri version source
 
-            mainWindow.WireExecution(executeAsync, cancelAsync)
+            mainWindow.WireExecution(executeAsync, cancelAsync, resetSessionAsync)
             mainWindow.ShellViewModel.CheckAsync <- Some checkAsync
 
             mainWindow.ShellViewModel.CopyResultToClipboard <-

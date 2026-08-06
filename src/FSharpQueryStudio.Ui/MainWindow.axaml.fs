@@ -60,6 +60,9 @@ type MainWindow() as this =
         let copyResultButton = this.FindControl<Button>("CopyResultButton")
         copyResultButton.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.CopyResultAsync() |> ignore)
 
+        let resetSessionButton = this.FindControl<Button>("ResetSessionButton")
+        resetSessionButton.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.ResetSessionAsync() |> ignore)
+
         this.Closed.Add(fun _ ->
             match assetHost with
             | Some host -> (host :> IDisposable).Dispose()
@@ -70,11 +73,18 @@ type MainWindow() as this =
     /// `WireExecution` below.
     member _.ShellViewModel = shellViewModel
 
-    /// Composition root: wires `shellViewModel`'s `ExecuteAsync`/`CancelAsync`
-    /// to a real worker process — set once, from `App.axaml.fs`. Kept out of
-    /// the constructor so headless/`Ui.Tests` construction of `MainWindow`
-    /// never spawns a real worker process as a side effect.
-    member _.WireExecution(executeAsync: string -> System.Threading.Tasks.Task<ResultEnvelope>, cancelAsync: unit -> System.Threading.Tasks.Task<unit>) =
+    /// Composition root: wires `shellViewModel`'s `ExecuteAsync`/
+    /// `CancelAsync`/`ResetSession` to a real worker process — set once,
+    /// from `App.axaml.fs`. Kept out of the constructor so headless/
+    /// `Ui.Tests` construction of `MainWindow` never spawns a real worker
+    /// process as a side effect.
+    member _.WireExecution
+        (
+            executeAsync: EvaluateParams -> System.Threading.Tasks.Task<ResultEnvelope>,
+            cancelAsync: unit -> System.Threading.Tasks.Task<unit>,
+            resetSessionAsync: string -> System.Threading.Tasks.Task<unit>
+        ) =
         shellViewModel.ExecuteAsync <- Some executeAsync
         shellViewModel.CancelAsync <- Some cancelAsync
+        shellViewModel.ResetSession <- Some resetSessionAsync
         shellViewModel.WorkerState.TryTransition(WorkerState.Ready) |> ignore

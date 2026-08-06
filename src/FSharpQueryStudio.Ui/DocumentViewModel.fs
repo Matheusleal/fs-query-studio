@@ -14,6 +14,8 @@ type DocumentViewModel(uri: string, ?scheduler: IDebounceScheduler) as self =
     let mutable version = 0
     let mutable isDirty = false
     let mutable diagnostics: Diagnostic list = []
+    let mutable sessionMode = Isolated
+    let mutable hasActiveSession = false
     let propertyChanged = Event<PropertyChangedEventHandler, PropertyChangedEventArgs>()
     let debouncedTextChanged = Event<int * string>()
 
@@ -29,6 +31,54 @@ type DocumentViewModel(uri: string, ?scheduler: IDebounceScheduler) as self =
     member _.Version = version
     member _.IsDirty = isDirty
     member _.Diagnostics = diagnostics
+
+    /// Isolated (Milestone A's default) or opt-in per-tab Persistent
+    /// (E.1) — `Uri` doubles as the `SessionId` a Persistent-mode
+    /// evaluation is keyed by, since it's already stable for this tab's
+    /// lifetime and unique among open tabs. Switching modes clears
+    /// `HasActiveSession`: whatever "active" meant under the old mode no
+    /// longer applies once the mode itself has changed.
+    member _.SessionMode
+        with get () = sessionMode
+        and set value =
+            if value <> sessionMode then
+                sessionMode <- value
+                hasActiveSession <- false
+                propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof self.SessionMode))
+                propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof self.HasActiveSession))
+                propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof self.SessionStateDisplay))
+
+    /// True once this tab has completed at least one Persistent-mode
+    /// execution since the last mode switch or `ResetSession` — the E.2
+    /// "session-state display" signal for whether bindings are currently
+    /// live worker-side. Always false in Isolated mode.
+    member _.HasActiveSession = hasActiveSession
+
+    /// Short human-readable session state for E.2's UI display.
+    member this.SessionStateDisplay =
+        match this.SessionMode, hasActiveSession with
+        | Isolated, _ -> "Isolated"
+        | Persistent, true -> "Persistent · active"
+        | Persistent, false -> "Persistent · reset"
+
+    /// Records that a Persistent-mode execution just completed — called
+    /// by `ShellViewModel.RunAsync` after a successful run. A no-op
+    /// signal-wise in Isolated mode (nothing meaningful to mark active).
+    member _.MarkSessionActive() =
+        if sessionMode = Persistent && not hasActiveSession then
+            hasActiveSession <- true
+            propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof self.HasActiveSession))
+            propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof self.SessionStateDisplay))
+
+    /// Clears this tab's local "active" display state — called by
+    /// `ShellViewModel.ResetSessionAsync` after the worker-side
+    /// `session/reset` call completes. Idempotent: resetting an already-
+    /// inactive session is a no-op, not an error.
+    member _.MarkSessionReset() =
+        if hasActiveSession then
+            hasActiveSession <- false
+            propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof self.HasActiveSession))
+            propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof self.SessionStateDisplay))
 
     /// Fires once, debounced 300-500ms per Section 8's analysis pipeline,
     /// after the last of a burst of `ApplyTextChanged` calls — the trigger

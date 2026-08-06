@@ -235,6 +235,44 @@ let ``handleEvaluate reuses a Persistent-mode session's bindings across two call
     finally
         SessionStore.reset sessionId
 
+let private sessionResetRequest (id: string) (sessionId: string) : WorkerRequestFrame =
+    { Id = id
+      Method = "session/reset"
+      Params =
+        JsonSerializer.SerializeToElement<SessionResetParams>({ SessionId = sessionId }, Serialization.options) }
+
+[<Fact>]
+let ``dispatch on session/reset acknowledges even when nothing is tracked for that SessionId`` () =
+    task {
+        let! response = Handlers.dispatch (sessionResetRequest "rst1" "never-started")
+
+        Assert.Equal("rst1", response.Id)
+        Assert.True(response.Result.IsSome)
+        Assert.True(response.Error.IsNone)
+    }
+
+[<Fact>]
+let ``session/reset actually drops a Persistent-mode session's bindings`` () =
+    task {
+        let sessionId = "sess-" + System.Guid.NewGuid().ToString("N")
+
+        try
+            let firstResponse = Handlers.handleEvaluate (persistentEvaluateRequest "rst2" "let x = 41" sessionId)
+            Assert.True(firstResponse.Result.IsSome)
+
+            let! resetResponse = Handlers.dispatch (sessionResetRequest "rst3" sessionId)
+            Assert.True(resetResponse.Result.IsSome)
+
+            let secondResponse = Handlers.handleEvaluate (persistentEvaluateRequest "rst4" "x + 1" sessionId)
+
+            let envelope =
+                JsonSerializer.Deserialize<ResultEnvelope>(secondResponse.Result.Value, Serialization.options)
+
+            Assert.Equal(ResultKind.Error, envelope.Kind)
+        finally
+            SessionStore.reset sessionId
+    }
+
 [<Fact>]
 let ``dispatch on analysis/check returns at least one diagnostic for a script with a type error`` () =
     task {

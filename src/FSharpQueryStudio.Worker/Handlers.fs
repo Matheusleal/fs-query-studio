@@ -156,6 +156,21 @@ module Handlers =
         | Choice2Of2 busy -> busy
         | Choice1Of2 workDir -> runEvaluate request workDir
 
+    /// `session/reset` — drops the tracked Persistent-mode session for
+    /// `SessionId`, if any (E.2). A no-op, not an error, when nothing was
+    /// tracked under that key: the caller can't distinguish "never
+    /// started" from "already reset" and shouldn't need to.
+    let handleSessionReset (request: WorkerRequestFrame) : WorkerResponseFrame =
+        let resetParams =
+            JsonSerializer.Deserialize<SessionResetParams>(request.Params, Serialization.options)
+
+        Log.Information("Resetting persistent session {SessionId}", resetParams.SessionId)
+        SessionStore.reset resetParams.SessionId
+
+        { Id = request.Id
+          Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
+          Error = None }
+
     /// Requests cooperative cancellation of whatever evaluation is
     /// currently running (a no-op if none is) and acknowledges immediately
     /// — see Section 9's two-step cancellation policy. The evaluate
@@ -255,6 +270,7 @@ module Handlers =
             | "worker/health" -> return handleHealth request
             | "execution/evaluate" -> return handleEvaluate request
             | "execution/cancel" -> return handleCancel request
+            | "session/reset" -> return handleSessionReset request
             | "analysis/check" -> return! handleAnalysisCheck request
             | "analysis/hover" -> return! handleAnalysisHover request
             | "results/page" -> return handleResultsPage request

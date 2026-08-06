@@ -34,11 +34,11 @@ let wireShell (gracePeriod: TimeSpan) (client: WorkerClient) (shell: ShellViewMo
     let currentRequestId = ref None
 
     shell.ExecuteAsync <-
-        Some(fun source ->
+        Some(fun evalParams ->
             task {
                 let id = Guid.NewGuid().ToString()
                 currentRequestId.Value <- Some id
-                let! result = ExecutionService.evaluateWithId client id source
+                let! result = ExecutionService.evaluateWithId client id evalParams
                 currentRequestId.Value <- None
                 return result
             })
