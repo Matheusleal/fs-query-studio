@@ -635,3 +635,19 @@ Asked how deep to take "validate on a second platform" before doing anything, si
 Confirmed both suites pass in a real `mcr.microsoft.com/dotnet/sdk:10.0` Linux container before touching CI at all (same move as D.8, which caught a real bug that way) — `Ui.Tests` 75/75, `Editor.Tests` 23/23, zero code changes needed on either side. Also confirmed `App` itself (`dotnet build`, no dedicated test project per Section 4's own exception) succeeds in the same container, though it isn't part of the test matrix.
 
 Added `tests/FSharpQueryStudio.Ui.Tests` and `tests/FSharpQueryStudio.Editor.Tests` to `ci.yml`'s Linux matrix, renamed the job from "Linux, non-UI" to "Linux" since that qualifier no longer applies, and rewrote the stale comment to state what's actually been verified versus what's explicitly still open (the real windowed WebKitGTK launch).
+
+## 2026-08-06 — E.10: Milestone E acceptance test
+
+`MilestoneEAcceptanceTests.fs` covers three of the synthesized criterion's four parts as genuine behavioral tests, reusing only mechanisms their own milestone tasks already built - same approach D.9's acceptance test took, not a fresh integration invented for this test alone. The fourth ("the UI runs on at least one non-Windows platform in CI") is E.9's Linux matrix change itself, verified against a real GitHub Actions run rather than a unit test.
+
+Two of the three tests were wrong on first pass, both for the same underlying reason: reusing this session's own recent work without re-deriving what it had actually proven.
+
+1. **Persistent-session-until-reset**, through a real worker (extended `TestHelpers.wireShell` to also wire `ResetSession`, matching the real `App` composition root — the only source change this task needed). First draft asserted `ResultKind.Scalar` on a bare `let x = 41`'s own result; failed with `Text` instead. A bare `let` produces no expression value — `EvaluationTests.fs` already characterizes this (Milestone A), the acceptance test just didn't carry that forward. Fixed to assert non-`Error` instead, which is what the step actually needs to prove.
+
+2. **Notebook cell-by-cell execution** — first draft sent each cell as its own real `execution/evaluate` request through `WorkerClient`, reasoning that the milestone acceptance test should exercise the real worker path. It failed with the second cell (`"x + 1"`) coming back `Error`: `Handlers.runEvaluate` only ever calls `SessionStore.getOrCreate` (E.3's whole-document revise-in-place policy, which requires each call's source to be a prefix-append of the last), never `SessionStore.appendFragment` (E.4's notebook policy) — there is no protocol/worker path that lets a client select cell-append mode. E.4's own scope was deliberately mechanism-only, proven in-process; this test's first draft quietly assumed a worker-level capability that was never built. Rewrote it to match `NotebookExecutionTests.fs`'s actual layer (`SessionStore.appendFragment` + `Evaluation.evaluate`, in-process) instead of inventing new worker wiring under an acceptance test's cover — extending `execution/evaluate` to support cell-append mode is real, undone scope for a future task, not something to smuggle in here.
+
+3. **Multi-file `.fsproj` analysis** passed on the first try: a real `Project.fsproj` on disk listing `A.fs`/`B.fs`, loaded via `FsProj.load`, checked via `AnalysisContext.buildForProject`, `B.fs`'s reference to `A.value` resolving with zero diagnostics purely from `.fsproj` compile order.
+
+Pushed after E.9's CI-matrix change (9 commits queued locally at that point — E.1 through E.9 had accumulated without a push) specifically to verify the new Linux `Ui.Tests`/`Editor.Tests` jobs for real, not just against local Docker.
+
+Full solution green locally: `Integration.Tests` 46 (+3, all of Milestone E's own accumulated total this session).

@@ -25,6 +25,7 @@
     <Compile Include="PublishedAppTests.fs" />
     <Compile Include="MilestoneDAcceptanceTests.fs" />
     <Compile Include="NotebookExecutionTests.fs" />
+    <Compile Include="MilestoneEAcceptanceTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
