@@ -13,6 +13,7 @@
     <Compile Include="ResultViewModelTests.fs" />
     <Compile Include="ResultGridColumnsTests.fs" />
     <Compile Include="ShellViewModelTests.fs" />
+    <Compile Include="CapabilityApprovalTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -122,6 +122,27 @@ type ShellViewModel(?scheduler: IDebounceScheduler) =
     /// `ExecuteAsync`.
     member val CopyResultToClipboard: (string -> Task<unit>) option = None with get, set
 
+    /// Section 13's `trust.json` metadata for the active workspace,
+    /// loaded by the composition root — a freshly-created workspace
+    /// defaults to locally-authored/unknown-trust with nothing requested,
+    /// so `RunAsync` never blocks on it until real trust data is wired in.
+    member val Trust: TrustMetadata =
+        { Origin = ScriptOrigin.Local
+          TrustState = TrustState.Unknown
+          RequestedCapabilities = []
+          ReviewedAt = None
+          ReviewedBy = None }
+        with get, set
+
+    /// Shows requested capabilities and blocks until the user approves
+    /// or denies — set by the composition root (D.3). Approving is
+    /// treated as "unblocked for this run"; `RunAsync` only re-prompts on
+    /// the next run if the caller resets `Trust.TrustState` itself. No
+    /// hook configured denies by default, the opposite of every other
+    /// no-op-when-unconfigured hook on this type, since silently running
+    /// an unapproved script would defeat the whole point of D.3.
+    member val RequestCapabilityApproval: (TrustMetadata -> bool) option = None with get, set
+
     /// Problems pane rows for the active document's current diagnostics —
     /// see Section 5. Recomputed on every access rather than cached/
     /// observable, since nothing binds to it yet.
@@ -129,15 +150,40 @@ type ShellViewModel(?scheduler: IDebounceScheduler) =
         this.ActiveDocument.Diagnostics
         |> List.map (fun d -> ProblemViewModel(this.ActiveDocument.Uri, d, this.SendToEditor))
 
+    /// Approves the current run against `Trust` — `Trusted` always
+    /// proceeds, `Blocked` never does, and anything else only prompts
+    /// (via `RequestCapabilityApproval`) when capabilities are actually
+    /// requested; a script requesting none has nothing to approve.
+    /// Approving updates `Trust.TrustState` to `Trusted` so the same
+    /// script doesn't re-prompt on its next run within this session.
+    member private this.TryApproveRun() : bool =
+        match this.Trust.TrustState with
+        | TrustState.Trusted -> true
+        | TrustState.Blocked -> false
+        | _ ->
+            if List.isEmpty this.Trust.RequestedCapabilities then
+                true
+            else
+                match this.RequestCapabilityApproval with
+                | None -> false
+                | Some approve ->
+                    let approved = approve this.Trust
+
+                    if approved then
+                        this.Trust <- { this.Trust with TrustState = TrustState.Trusted }
+
+                    approved
+
     member this.RunAsync() : Task<unit> =
         task {
             match this.ExecuteAsync with
             | None -> ()
             | Some execute ->
-                this.WorkerState.TryTransition(WorkerState.Running) |> ignore
-                let! envelope = execute this.ActiveDocument.Text
-                this.Result.Apply(envelope)
-                this.WorkerState.TryTransition(WorkerState.Ready) |> ignore
+                if this.TryApproveRun() then
+                    this.WorkerState.TryTransition(WorkerState.Running) |> ignore
+                    let! envelope = execute this.ActiveDocument.Text
+                    this.Result.Apply(envelope)
+                    this.WorkerState.TryTransition(WorkerState.Ready) |> ignore
         }
 
     /// Copies the active result to the clipboard — C.15. A no-op if
