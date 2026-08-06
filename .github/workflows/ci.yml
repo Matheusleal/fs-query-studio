@@ -28,3 +28,40 @@ jobs:
       # instead - this filter is an escape hatch, not a way to skip
       # everything else.
       - run: dotnet test FSharpQueryStudio.slnx --no-build --configuration Release --filter "Category!=RequiresDocker&Category!=RequiresPublish"
+
+  build-and-test-linux:
+    name: Build and test (Linux, non-UI)
+    runs-on: ubuntu-latest
+
+    # D.8: Section 14's "run analysis/execution/protocol tests on Windows
+    # plus future Linux/macOS CI agents as soon as feasible, even before
+    # the UI is officially shipped there." Ui/Editor/App stay Windows-only
+    # (WebView2), so this job targets only the non-UI test projects the
+    # task names - each run individually rather than through
+    # FSharpQueryStudio.slnx, since the solution also contains
+    # Ui.Tests/Editor.Tests/App and building those isn't this job's job.
+    # Docker-backed SQL Server/PostgreSQL tests are NOT excluded here:
+    # ubuntu-latest ships Docker with native Linux container support, so
+    # unlike the Windows job, RequiresDocker tests just work.
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - tests/FSharpQueryStudio.Protocol.Tests/FSharpQueryStudio.Protocol.Tests.fsproj
+          - tests/FSharpQueryStudio.Analysis.Tests/FSharpQueryStudio.Analysis.Tests.fsproj
+          - tests/FSharpQueryStudio.Execution.Tests/FSharpQueryStudio.Execution.Tests.fsproj
+          - tests/FSharpQueryStudio.Results.Tests/FSharpQueryStudio.Results.Tests.fsproj
+          - tests/FSharpQueryStudio.Connectors.Tests/FSharpQueryStudio.Connectors.Tests.fsproj
+          - tests/FSharpQueryStudio.Storage.Tests/FSharpQueryStudio.Storage.Tests.fsproj
+          - tests/FSharpQueryStudio.Security.Tests/FSharpQueryStudio.Security.Tests.fsproj
+          - tests/FSharpQueryStudio.Worker.Tests/FSharpQueryStudio.Worker.Tests.fsproj
+          - tests/FSharpQueryStudio.Integration.Tests/FSharpQueryStudio.Integration.Tests.fsproj
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - run: dotnet test "${{ matrix.project }}" --configuration Release --filter "Category!=RequiresPublish"

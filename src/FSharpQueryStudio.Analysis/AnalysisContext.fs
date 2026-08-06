@@ -28,8 +28,22 @@ module AnalysisContext =
         let scriptPath = Path.Combine(workingDirectory, "__analysis_context__.fsx")
         let sourceText = SourceText.ofString ""
 
+        // Explicit rather than FCS's own runtime auto-detection: found via
+        // D.8's Linux CI job that the default heuristic misdetects the
+        // .NET SDK reference-assembly layout inside a Linux container,
+        // making even `int` fail to resolve ("The type 'int' is not
+        // defined") instead of resolving against the running SDK's own
+        // reference assemblies. Confirmed fixed with these three flags
+        // set explicitly; unaffected on Windows (already the effective
+        // default there).
         let projectOptions, _diagnostics =
-            checker.GetProjectOptionsFromScript(scriptPath, sourceText)
+            checker.GetProjectOptionsFromScript(
+                scriptPath,
+                sourceText,
+                assumeDotNetFramework = false,
+                useSdkRefs = true,
+                useFsiAuxLib = false
+            )
             |> Async.RunSynchronously
 
         let references =
