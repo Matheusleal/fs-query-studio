@@ -134,6 +134,19 @@ let ``ResultPageRequest and ResultPage round-trip through JSON`` () =
     Assert.Equal("a", roundTrippedPage.Rows.[0].[0].ToString())
 
 [<Fact>]
+let ``ApprovedPackage round-trips through JSON`` () =
+    let original: ApprovedPackage =
+        { Name = "FSharp.Data"
+          Version = "6.3.0"
+          Source = "nuget.org"
+          ResolvedAssets = [ "FSharp.Data.dll"; "FSharp.Data.Http.dll" ] }
+
+    let json = JsonSerializer.Serialize(original, Serialization.options)
+    let roundTripped = JsonSerializer.Deserialize<ApprovedPackage>(json, Serialization.options)
+
+    Assert.Equal(original, roundTripped)
+
+[<Fact>]
 let ``deserializing a WorkerRequestFrame with an unknown extra field does not throw`` () =
     let json =
         """{"id":"x1","method":"worker/health","params":{},"futureField":"from-a-newer-client"}"""

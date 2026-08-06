@@ -6,6 +6,8 @@
 
   <ItemGroup>
     <Compile Include="Workspace.fs" />
+    <Compile Include="Packages.fs" />
+    <Compile Include="PackageApproval.fs" />
   </ItemGroup>
 
   <ItemGroup>

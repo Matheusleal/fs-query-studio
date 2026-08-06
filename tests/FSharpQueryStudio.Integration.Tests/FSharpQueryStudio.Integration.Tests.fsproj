@@ -20,6 +20,7 @@
     <Compile Include="SqlServerConnectorTests.fs" />
     <Compile Include="PostgreSqlConnectorTests.fs" />
     <Compile Include="ConnectionsRegressionTests.fs" />
+    <Compile Include="PackageApprovalTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -38,6 +39,7 @@
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Ui\FSharpQueryStudio.Ui.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Security\FSharpQueryStudio.Security.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors\FSharpQueryStudio.Connectors.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Storage\FSharpQueryStudio.Storage.fsproj" />
   </ItemGroup>
 
 </Project>
