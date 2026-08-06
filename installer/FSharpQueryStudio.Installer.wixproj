@@ -1,0 +1,17 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <Platform>x64</Platform>
+    <!-- Populated by publishing the App project self-contained win-x64
+         first (see PublishedAppTests.fs's automated equivalent for the
+         exact command); defaults to the conventional publish output
+         path so a local `dotnet build` here works right after that.
+         Resolved to an absolute, ".."-free path via GetFullPath - WiX's
+         file harvesting won't follow a literal ".." segment past the
+         project directory. -->
+    <PublishDir Condition="'$(PublishDir)' == ''">$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\src\FSharpQueryStudio.App\bin\Release\net10.0\win-x64\publish\'))</PublishDir>
+    <DefineConstants>PublishDir=$(PublishDir)</DefineConstants>
+  </PropertyGroup>
+
+</Project>

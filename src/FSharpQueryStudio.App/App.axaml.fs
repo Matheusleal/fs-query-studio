@@ -6,6 +6,7 @@ open Avalonia
 open Avalonia.Controls.ApplicationLifetimes
 open Avalonia.Input.Platform
 open Avalonia.Markup.Xaml
+open Serilog
 open FSharpQueryStudio.Ui
 
 type App() =
@@ -54,6 +55,13 @@ type App() =
 
             mainWindow.ShellViewModel.CopyResultToClipboard <-
                 Some(fun text -> task { do! mainWindow.Clipboard.SetTextAsync(text) })
+
+            // D.7's packaged-artifact test launches the real published exe
+            // as a black box - it has no way to assert on rendered window
+            // content, so this log line is the signal it waits on to know
+            // the shell actually reached a usable state rather than just
+            // "the process didn't crash yet".
+            mainWindow.Opened.Add(fun _ -> Log.Information("Host window ready"))
 
             desktop.MainWindow <- mainWindow
         | _ -> ()

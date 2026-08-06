@@ -1,0 +1,40 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <!-- UpgradeCode must never change across releases - it's what lets a
+       later MSI recognize and upgrade this one instead of installing
+       side by side. -->
+  <Package
+    Name="F# Query Studio"
+    Manufacturer="F# Query Studio"
+    Version="0.1.0"
+    UpgradeCode="D8886020-7D1E-4479-8D1A-44463ECA333B">
+
+    <MajorUpgrade DowngradeErrorMessage="A newer version of F# Query Studio is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="FSharpQueryStudio">
+        <Files Include="$(var.PublishDir)**" />
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="ApplicationShortcut" Guid="*">
+        <Shortcut
+          Id="ApplicationStartMenuShortcut"
+          Name="F# Query Studio"
+          Target="[INSTALLFOLDER]FSharpQueryStudio.App.exe"
+          WorkingDirectory="INSTALLFOLDER" />
+        <RemoveFolder Id="RemoveProgramMenuFolder" On="uninstall" />
+        <RegistryValue
+          Root="HKCU"
+          Key="Software\FSharpQueryStudio"
+          Name="installed"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+
+  </Package>
+</Wix>

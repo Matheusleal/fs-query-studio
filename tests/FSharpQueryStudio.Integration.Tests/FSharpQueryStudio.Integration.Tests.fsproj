@@ -22,6 +22,7 @@
     <Compile Include="ConnectionsRegressionTests.fs" />
     <Compile Include="PackageApprovalTests.fs" />
     <Compile Include="MilestoneCAcceptanceTests.fs" />
+    <Compile Include="PublishedAppTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
