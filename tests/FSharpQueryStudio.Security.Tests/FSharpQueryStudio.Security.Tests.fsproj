@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <Compile Include="Tests.fs" />
+    <Compile Include="OriginDetectionTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
