@@ -613,3 +613,13 @@ Third go at the same shape as B.8/B.9/E.6: `Analysis.SignatureHelp.signatureHelp
 Applied E.6's lesson before it could repeat: `AnalysisSignatureHelpParams`/`SignatureHelpRequestedPayload` share the same field names as their Hover/Definition counterparts, so every construction site got an explicit type annotation from the very first write, not added after a build error. Also added the App-level `AnalysisService.signatureHelp` alongside `hover`/`definition` for the same reason `definition` got one in E.6 — identical shape, no new design question, and touching this file's pattern once means matching it consistently rather than leaving `hover`/`definition` with App wiring and `signatureHelp` without.
 
 Full solution green: `Editor.Tests` 23 (+3), `Analysis.Tests` 38 (+3), `Worker.Tests` 24 (+2).
+
+## 2026-08-06 — E.8: rename/refactoring support
+
+Lighter than E.6/E.7: the task's own note names only `Analysis.Tests` (no `Editor.Tests` bridge contract this time) — no protocol/bridge/worker wiring belongs in this task, just the underlying capability. `Analysis.Rename.findReferences` does the same symbol lookup as `Hover`/`GoToDefinition`/`SignatureHelp`, then calls `FSharpCheckFileResults.GetUsesOfSymbolInFile` on the resolved symbol to get every reference within the checked scope — declaration included, not just the site clicked. Deliberately returns *locations* only, never rewritten text: `Analysis` stays read-only everywhere else in this project (Section 4), and applying edits at each returned range is a caller concern, not something worth breaking that separation for.
+
+`RenameEdit`/`findReferences` live in `Analysis` itself, not `Protocol` — no wire boundary needs crossing yet since nothing outside `Analysis` calls this in this task, unlike `DefinitionLocation`/`SignatureHelpInfo` which had to be protocol types the moment a worker RPC needed to carry them. Matches "don't build ahead of the current task": adding `Protocol`/`Worker` surface for a bridge that doesn't exist yet would be exactly that.
+
+The acceptance criterion ("updates every reference … not just the declaration") only has teeth against a symbol actually used more than once — `RenameTests.fs` uses `total` declared once and referenced twice, asserting `findReferences` returns 3 edits (declaration + both uses) whether clicked from the declaration or from either use site, plus a single-reference control case (declared, never used elsewhere) asserting exactly 1 edit, so the count itself is meaningful rather than always trivially 1.
+
+Full solution green: `Analysis.Tests` 42 (+4).

@@ -16,6 +16,7 @@
     <Compile Include="Hover.fs" />
     <Compile Include="GoToDefinition.fs" />
     <Compile Include="SignatureHelp.fs" />
+    <Compile Include="Rename.fs" />
     <Compile Include="Completions.fs" />
     <Compile Include="NotebookCells.fs" />
   </ItemGroup>

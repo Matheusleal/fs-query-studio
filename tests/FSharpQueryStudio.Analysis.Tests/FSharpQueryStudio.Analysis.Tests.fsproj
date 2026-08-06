@@ -17,6 +17,7 @@
     <Compile Include="HoverTests.fs" />
     <Compile Include="GoToDefinitionTests.fs" />
     <Compile Include="SignatureHelpTests.fs" />
+    <Compile Include="RenameTests.fs" />
     <Compile Include="CompletionsTests.fs" />
     <Compile Include="NotebookCellsTests.fs" />
   </ItemGroup>
