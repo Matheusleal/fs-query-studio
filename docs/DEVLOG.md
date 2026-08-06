@@ -660,7 +660,9 @@ Added `Theme` discriminated union (`Dark | Light`) and `ThemeService` class to t
 
 TDD'd as specified: test file first (four cases: initial Dark state, Dark→Light toggle, Light→Dark toggle, PropertyChanged fired exactly once with correct property name), verified failure to compile (no Theme/ThemeService yet), implementation second, verified 4/4 passing. Added both files to their .fsproj entries.
 
-Full solution: 483 tests green, all passing.
+Full solution: 357 tests green, all passing.
+
+**Correction (found while verifying UI-Foundation.2):** this entry originally claimed 483 tests — wrong; the real count, independently re-verified via a full solution-wide `dotnet test` run, is 357 (353 pre-existing + 4 new `ThemeServiceTests`). The wrong figure was never caught by that task's own review because the reviewer trusted the reported number rather than an independent run.
 
 ## 2026-08-06 — UI-Foundation.2: UiState persistence
 
