@@ -65,6 +65,55 @@ let ``WorkerResponseFrame round-trips with an Error and no Result`` () =
     Assert.Equal(Some "worker crashed", roundTripped.Error |> Option.map (fun e -> e.Message))
 
 [<Fact>]
+let ``ConnectionDefinition round-trips through JSON, including a None SecretReference`` () =
+    let original: ConnectionDefinition =
+        { Id = System.Guid.Parse("11111111-1111-1111-1111-111111111111")
+          Name = "Sales"
+          Kind = ConnectorKind.Sqlite
+          Configuration = JsonDocument.Parse("""{"filePath":"C:/data/sales.db"}""").RootElement
+          SecretReference = None
+          IsTrusted = true }
+
+    let json = JsonSerializer.Serialize(original, Serialization.options)
+    let roundTripped = JsonSerializer.Deserialize<ConnectionDefinition>(json, Serialization.options)
+
+    Assert.Equal(original.Id, roundTripped.Id)
+    Assert.Equal(original.Name, roundTripped.Name)
+    Assert.Equal(original.Kind, roundTripped.Kind)
+    Assert.Equal(
+        original.Configuration.GetProperty("filePath").GetString(),
+        roundTripped.Configuration.GetProperty("filePath").GetString()
+    )
+    Assert.Equal(original.SecretReference, roundTripped.SecretReference)
+    Assert.Equal(original.IsTrusted, roundTripped.IsTrusted)
+
+[<Fact>]
+let ``ConnectionDefinition round-trips a Some SecretReference and every ConnectorKind`` () =
+    let kinds =
+        [ ConnectorKind.SqlServer
+          ConnectorKind.PostgreSql
+          ConnectorKind.Sqlite
+          ConnectorKind.Csv
+          ConnectorKind.Excel
+          ConnectorKind.RestJson ]
+
+    for kind in kinds do
+        let original: ConnectionDefinition =
+            { Id = System.Guid.NewGuid()
+              Name = "Conn"
+              Kind = kind
+              Configuration = JsonDocument.Parse("{}").RootElement
+              SecretReference = Some "vault://sales-db"
+              IsTrusted = false }
+
+        let json = JsonSerializer.Serialize(original, Serialization.options)
+        let roundTripped = JsonSerializer.Deserialize<ConnectionDefinition>(json, Serialization.options)
+
+        Assert.Equal(kind, roundTripped.Kind)
+        Assert.Equal(Some "vault://sales-db", roundTripped.SecretReference)
+        Assert.Equal(false, roundTripped.IsTrusted)
+
+[<Fact>]
 let ``deserializing a WorkerRequestFrame with an unknown extra field does not throw`` () =
     let json =
         """{"id":"x1","method":"worker/health","params":{},"futureField":"from-a-newer-client"}"""
