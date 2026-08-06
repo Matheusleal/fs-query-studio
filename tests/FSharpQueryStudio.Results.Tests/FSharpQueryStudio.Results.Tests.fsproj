@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <Compile Include="PagingCursorTests.fs" />
+    <Compile Include="CsvExportTests.fs" />
     <Compile Include="Tests.fs" />
   </ItemGroup>
 
