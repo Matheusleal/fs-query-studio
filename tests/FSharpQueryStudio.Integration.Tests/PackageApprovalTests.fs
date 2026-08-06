@@ -36,7 +36,8 @@ let ``an unlisted package is rejected until it is approved in the real workspace
         { Name = "FSharp.Data"
           Version = "6.3.0"
           Source = "nuget.org"
-          ResolvedAssets = [ "FSharp.Data.dll" ] }
+          ResolvedAssets = [ "FSharp.Data.dll" ]
+          Hash = "" }
     |> ignore
 
     // Now the same script's reference is approved.
@@ -54,7 +55,8 @@ let ``approving a package changes the manifest fingerprint, invalidating any ses
         { Name = "FSharp.Data"
           Version = "6.3.0"
           Source = "nuget.org"
-          ResolvedAssets = [ "FSharp.Data.dll" ] }
+          ResolvedAssets = [ "FSharp.Data.dll" ]
+          Hash = "" }
     |> ignore
 
     let fingerprintAfter = PackageApproval.manifestFingerprint (Packages.readPackages dir)

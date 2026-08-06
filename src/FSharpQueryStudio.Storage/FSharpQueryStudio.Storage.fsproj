@@ -9,6 +9,7 @@
     <Compile Include="Packages.fs" />
     <Compile Include="Trust.fs" />
     <Compile Include="PackageApproval.fs" />
+    <Compile Include="PackageLock.fs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -8,6 +8,7 @@
     <Compile Include="Tests.fs" />
     <Compile Include="PackagesTests.fs" />
     <Compile Include="TrustTests.fs" />
+    <Compile Include="PackageLockTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

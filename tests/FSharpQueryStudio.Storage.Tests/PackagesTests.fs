@@ -15,7 +15,8 @@ let private samplePackage (name: string) (version: string) : ApprovedPackage =
     { Name = name
       Version = version
       Source = "nuget.org"
-      ResolvedAssets = [ $"{name}.dll" ] }
+      ResolvedAssets = [ $"{name}.dll" ]
+      Hash = "" }
 
 [<Fact>]
 let ``writePackages then readPackages round-trips an ApprovedPackage list`` () =

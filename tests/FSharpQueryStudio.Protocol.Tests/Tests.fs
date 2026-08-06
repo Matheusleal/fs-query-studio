@@ -139,7 +139,8 @@ let ``ApprovedPackage round-trips through JSON`` () =
         { Name = "FSharp.Data"
           Version = "6.3.0"
           Source = "nuget.org"
-          ResolvedAssets = [ "FSharp.Data.dll"; "FSharp.Data.Http.dll" ] }
+          ResolvedAssets = [ "FSharp.Data.dll"; "FSharp.Data.Http.dll" ]
+          Hash = "deadbeef" }
 
     let json = JsonSerializer.Serialize(original, Serialization.options)
     let roundTripped = JsonSerializer.Deserialize<ApprovedPackage>(json, Serialization.options)
