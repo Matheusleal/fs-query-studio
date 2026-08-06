@@ -3,10 +3,24 @@ namespace FSharpQueryStudio.Protocol
 /// `worker/health` result payload — see Section 7's method table.
 type HealthInfo = { Version: string; Capabilities: string list }
 
+/// Selects whether `execution/evaluate` uses a fresh session (`Isolated`,
+/// the Milestone A default) or reuses a session tracked worker-side by
+/// `EvaluateParams.SessionId` across calls (`Persistent`) — see the
+/// architecture doc's "Preparing for persistent sessions" table.
+/// `Persistent` without a `SessionId` falls back to an isolated session
+/// (logged as a warning) rather than failing the request.
+type SessionMode =
+    | Isolated
+    | Persistent
+
 /// `execution/evaluate` request payload — see Section 7's method table.
-/// Isolated by default (Section 9): every call gets a fresh session in a
-/// fresh working directory, there is no session identifier to reuse yet.
-type EvaluateParams = { Source: string }
+/// `Mode` defaults to `Isolated`: every call gets a fresh session in a
+/// fresh working directory. `SessionId` only matters for `Persistent`,
+/// where it keys the worker-side session to reuse or create.
+type EvaluateParams =
+    { Source: string
+      SessionId: string option
+      Mode: SessionMode }
 
 /// `analysis/check` request payload — see Section 7's method table.
 type AnalysisCheckParams =

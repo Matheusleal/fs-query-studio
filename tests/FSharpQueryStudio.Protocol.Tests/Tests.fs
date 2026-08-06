@@ -148,6 +148,24 @@ let ``ApprovedPackage round-trips through JSON`` () =
     Assert.Equal(original, roundTripped)
 
 [<Fact>]
+let ``EvaluateParams round-trips through JSON for both Isolated and Persistent modes`` () =
+    let isolated: EvaluateParams =
+        { Source = "1 + 1"; SessionId = None; Mode = Isolated }
+
+    let isolatedJson = JsonSerializer.Serialize(isolated, Serialization.options)
+    let roundTrippedIsolated = JsonSerializer.Deserialize<EvaluateParams>(isolatedJson, Serialization.options)
+    Assert.Equal(isolated, roundTrippedIsolated)
+
+    let persistent: EvaluateParams =
+        { Source = "x + 1"
+          SessionId = Some "sess-1"
+          Mode = Persistent }
+
+    let persistentJson = JsonSerializer.Serialize(persistent, Serialization.options)
+    let roundTrippedPersistent = JsonSerializer.Deserialize<EvaluateParams>(persistentJson, Serialization.options)
+    Assert.Equal(persistent, roundTrippedPersistent)
+
+[<Fact>]
 let ``deserializing a WorkerRequestFrame with an unknown extra field does not throw`` () =
     let json =
         """{"id":"x1","method":"worker/health","params":{},"futureField":"from-a-newer-client"}"""

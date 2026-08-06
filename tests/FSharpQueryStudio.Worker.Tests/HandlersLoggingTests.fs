@@ -43,7 +43,11 @@ let private scalarValue (evt: LogEvent) (propertyName: string) : obj =
 let private evaluateRequest (id: string) (source: string) : WorkerRequestFrame =
     { Id = id
       Method = "execution/evaluate"
-      Params = JsonSerializer.SerializeToElement<EvaluateParams>({ Source = source }, Serialization.options) }
+      Params =
+        JsonSerializer.SerializeToElement<EvaluateParams>(
+            { Source = source; SessionId = None; Mode = Isolated },
+            Serialization.options
+        ) }
 
 [<Fact>]
 let ``runEvaluate logs session creation and execution outcome, both carrying the request's CorrelationId`` () =

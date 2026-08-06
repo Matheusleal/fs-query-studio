@@ -84,8 +84,11 @@ module Handlers =
             Choice1Of2 workDir
 
     /// Isolated by default (Section 9): a fresh session in the reserved
-    /// working directory. An uncaught script exception becomes a
-    /// structured Error result (Section 11), never an unhandled crash —
+    /// working directory. Opt-in Persistent mode (Milestone E.1) instead
+    /// reuses/creates the `SessionId`-keyed session in `SessionStore`, so
+    /// `let` bindings from a prior evaluate under the same key are still
+    /// visible. An uncaught script exception becomes a structured Error
+    /// result (Section 11), never an unhandled crash —
     /// EvalInteractionNonThrowing already keeps it from propagating.
     let runEvaluate (request: WorkerRequestFrame) (workDir: string) : WorkerResponseFrame =
         try
@@ -93,8 +96,19 @@ module Handlers =
                 JsonSerializer.Deserialize<EvaluateParams>(request.Params, Serialization.options)
 
             let stopwatch = Stopwatch.StartNew()
-            Log.Information("Creating FSI session in {WorkingDirectory}", workDir)
-            let session = FsiSession.create workDir
+
+            let session =
+                match evalParams.Mode, evalParams.SessionId with
+                | Persistent, Some sessionId ->
+                    Log.Information("Reusing persistent FSI session {SessionId} in {WorkingDirectory}", sessionId, workDir)
+                    SessionStore.getOrCreate sessionId workDir
+                | Persistent, None ->
+                    Log.Warning("Persistent mode requested without a SessionId; falling back to an isolated session")
+                    FsiSession.create workDir
+                | Isolated, _ ->
+                    Log.Information("Creating FSI session in {WorkingDirectory}", workDir)
+                    FsiSession.create workDir
+
             let outcome = Evaluation.evaluate session evalParams.Source
             stopwatch.Stop()
 

@@ -49,7 +49,22 @@ let ``killing the worker process mid-request surfaces a crashed error, and the n
 let private evaluateRequest (id: string) (source: string) : WorkerRequestFrame =
     { Id = id
       Method = "execution/evaluate"
-      Params = JsonSerializer.SerializeToElement<EvaluateParams>({ Source = source }, Serialization.options) }
+      Params =
+        JsonSerializer.SerializeToElement<EvaluateParams>(
+            { Source = source; SessionId = None; Mode = Isolated },
+            Serialization.options
+        ) }
+
+let private persistentEvaluateRequest (id: string) (source: string) (sessionId: string) : WorkerRequestFrame =
+    { Id = id
+      Method = "execution/evaluate"
+      Params =
+        JsonSerializer.SerializeToElement<EvaluateParams>(
+            { Source = source
+              SessionId = Some sessionId
+              Mode = Persistent },
+            Serialization.options
+        ) }
 
 [<Fact>]
 let ``cancelling a cooperative script lets it stop early without killing the worker`` () =
@@ -81,6 +96,31 @@ let ``cancelling a cooperative script lets it stop early without killing the wor
         match client.CurrentProcess with
         | Some p -> Assert.False(p.HasExited, "a cooperative stop should not kill the worker")
         | None -> failwith "expected the worker to still be running"
+    }
+
+[<Fact>]
+let ``a persistent-mode session's bindings survive across two evaluate calls to a real worker`` () =
+    task {
+        let client = WorkerClient(workerDllPath ())
+        let sessionId = "sess-" + Guid.NewGuid().ToString("N")
+
+        let! firstResponse =
+            client.Send(persistentEvaluateRequest "pers-int-1" "let x = 41" sessionId)
+            |> withTimeout 30.0
+
+        Assert.True(firstResponse.Result.IsSome)
+
+        let! secondResponse =
+            client.Send(persistentEvaluateRequest "pers-int-2" "x + 1" sessionId)
+            |> withTimeout 30.0
+
+        Assert.True(secondResponse.Result.IsSome)
+
+        let envelope =
+            JsonSerializer.Deserialize<ResultEnvelope>(secondResponse.Result.Value, Serialization.options)
+
+        Assert.Equal(ResultKind.Scalar, envelope.Kind)
+        Assert.Equal(Some "42", envelope.DisplayText)
     }
 
 let private resultsPageRequest (id: string) (sessionId: string) (token: string) : WorkerRequestFrame =

@@ -137,6 +137,71 @@ i
             cleanupWorkingDirectory workDir
     }
 
+/// Paired with the isolated-mode case right below it: same assertion
+/// shape, opposite outcome, so a regression on either the new Persistent
+/// path or Milestone A's Isolated default shows up as a single failing
+/// test rather than a subtle difference in test setup.
+[<Fact>]
+let ``persistent mode: bindings survive across two sequential evaluations under the same session key`` () =
+    task {
+        let workDir = tempWorkingDirectory ()
+        let key = "persistent-" + System.Guid.NewGuid().ToString("N")
+
+        try
+            let first =
+                task {
+                    let session = SessionStore.getOrCreate key workDir
+                    return Evaluation.evaluate session "let x = 41"
+                }
+
+            let! firstOutcome = first |> withTimeout 60.0
+            Assert.True(firstOutcome.Exception.IsNone)
+
+            let second =
+                task {
+                    let session = SessionStore.getOrCreate key workDir
+                    return Evaluation.evaluate session "x + 1"
+                }
+
+            let! secondOutcome = second |> withTimeout 60.0
+
+            match secondOutcome.Value with
+            | Some fsiValue -> Assert.Equal(box 42, fsiValue.ReflectionValue)
+            | None -> failwith "expected a value, got none"
+        finally
+            SessionStore.reset key
+            cleanupWorkingDirectory workDir
+    }
+
+[<Fact>]
+let ``isolated mode: bindings do not survive across two fresh sessions`` () =
+    task {
+        let workDir = tempWorkingDirectory ()
+
+        try
+            let first =
+                task {
+                    let session = FsiSession.create workDir
+                    return Evaluation.evaluate session "let x = 41"
+                }
+
+            let! firstOutcome = first |> withTimeout 60.0
+            Assert.True(firstOutcome.Exception.IsNone)
+
+            let second =
+                task {
+                    let session = FsiSession.create workDir
+                    return Evaluation.evaluate session "x + 1"
+                }
+
+            let! secondOutcome = second |> withTimeout 60.0
+
+            Assert.True(secondOutcome.Exception.IsSome)
+            Assert.NotEmpty(secondOutcome.Diagnostics)
+        finally
+            cleanupWorkingDirectory workDir
+    }
+
 [<Fact>]
 let ``evaluate captures stderr-worthy diagnostics without throwing`` () =
     task {

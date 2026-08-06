@@ -4,6 +4,7 @@ open System.Text.Json
 open System.Threading.Tasks
 open Xunit
 open FSharpQueryStudio.Protocol
+open FSharpQueryStudio.Execution
 open FSharpQueryStudio.Worker
 
 let private emptyParamsRequest (id: string) (method_: string) : WorkerRequestFrame =
@@ -14,7 +15,22 @@ let private emptyParamsRequest (id: string) (method_: string) : WorkerRequestFra
 let private evaluateRequest (id: string) (source: string) : WorkerRequestFrame =
     { Id = id
       Method = "execution/evaluate"
-      Params = JsonSerializer.SerializeToElement<EvaluateParams>({ Source = source }, Serialization.options) }
+      Params =
+        JsonSerializer.SerializeToElement<EvaluateParams>(
+            { Source = source; SessionId = None; Mode = Isolated },
+            Serialization.options
+        ) }
+
+let private persistentEvaluateRequest (id: string) (source: string) (sessionId: string) : WorkerRequestFrame =
+    { Id = id
+      Method = "execution/evaluate"
+      Params =
+        JsonSerializer.SerializeToElement<EvaluateParams>(
+            { Source = source
+              SessionId = Some sessionId
+              Mode = Persistent },
+            Serialization.options
+        ) }
 
 let private analysisCheckRequest (id: string) (source: string) : WorkerRequestFrame =
     { Id = id
@@ -199,6 +215,25 @@ let ``a new evaluate invalidates a previous result's continuation token`` () =
         | Some err -> Assert.Equal("results/unknownToken", err.Code)
         | None -> failwith "expected an error"
     }
+
+[<Fact>]
+let ``handleEvaluate reuses a Persistent-mode session's bindings across two calls under the same SessionId`` () =
+    let sessionId = "sess-" + System.Guid.NewGuid().ToString("N")
+
+    try
+        let firstResponse = Handlers.handleEvaluate (persistentEvaluateRequest "pers1" "let x = 41" sessionId)
+        Assert.True(firstResponse.Result.IsSome)
+
+        let secondResponse = Handlers.handleEvaluate (persistentEvaluateRequest "pers2" "x + 1" sessionId)
+        Assert.True(secondResponse.Result.IsSome)
+
+        let envelope =
+            JsonSerializer.Deserialize<ResultEnvelope>(secondResponse.Result.Value, Serialization.options)
+
+        Assert.Equal(ResultKind.Scalar, envelope.Kind)
+        Assert.Equal(Some "42", envelope.DisplayText)
+    finally
+        SessionStore.reset sessionId
 
 [<Fact>]
 let ``dispatch on analysis/check returns at least one diagnostic for a script with a type error`` () =

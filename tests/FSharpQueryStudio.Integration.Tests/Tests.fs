@@ -57,7 +57,8 @@ let ``a throwing script returns a structured Error result and the worker survive
             // value restriction stops it before it runs (see the matching
             // characterization test in Execution.Tests) - annotate the type
             // so this actually exercises a runtime exception.
-            let evaluateParams = """{"source":"(failwith \"boom\" : int)"}"""
+            let evaluateParams =
+                """{"source":"(failwith \"boom\" : int)","sessionId":null,"mode":{"Case":"Isolated"}}"""
             let! errorResponse = roundTrip proc (request "it-2" "execution/evaluate" evaluateParams)
 
             match errorResponse with

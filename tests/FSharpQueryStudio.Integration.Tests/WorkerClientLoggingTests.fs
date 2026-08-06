@@ -75,7 +75,11 @@ let ``a worker process exiting unexpectedly logs a crash warning`` () =
 let private evaluateRequest (id: string) (source: string) : WorkerRequestFrame =
     { Id = id
       Method = "execution/evaluate"
-      Params = JsonSerializer.SerializeToElement<EvaluateParams>({ Source = source }, Serialization.options) }
+      Params =
+        JsonSerializer.SerializeToElement<EvaluateParams>(
+            { Source = source; SessionId = None; Mode = Isolated },
+            Serialization.options
+        ) }
 
 [<Fact>]
 let ``forcibly terminating a non-cooperative script during Cancel logs a forced-termination event`` () =

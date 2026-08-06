@@ -25,7 +25,11 @@ module ExecutionService =
             let request: WorkerRequestFrame =
                 { Id = requestId
                   Method = "execution/evaluate"
-                  Params = JsonSerializer.SerializeToElement<EvaluateParams>({ Source = source }, Serialization.options) }
+                  Params =
+                    JsonSerializer.SerializeToElement<EvaluateParams>(
+                        { Source = source; SessionId = None; Mode = Isolated },
+                        Serialization.options
+                    ) }
 
             let! response = client.Send(request)
 
