@@ -23,6 +23,7 @@
     <Compile Include="PackageApprovalTests.fs" />
     <Compile Include="MilestoneCAcceptanceTests.fs" />
     <Compile Include="PublishedAppTests.fs" />
+    <Compile Include="MilestoneDAcceptanceTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
