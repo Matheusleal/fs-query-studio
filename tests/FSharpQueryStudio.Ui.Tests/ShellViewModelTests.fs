@@ -215,6 +215,123 @@ let ``Navigate is a no-op when SendToEditor has not been configured`` () =
     (List.head vm.Problems).Navigate() // Must not throw.
 
 [<Fact>]
+let ``OpenDocument creates a second tab without disturbing the first's state`` () =
+    let vm = ShellViewModel()
+    vm.ActiveDocument.ApplyTextChanged(1, "1 + 1")
+    let firstDoc = vm.ActiveDocument
+
+    let secondDoc = vm.OpenDocument("untitled:Script2.fsx")
+
+    Assert.Equal<DocumentViewModel list>([ firstDoc; secondDoc ], vm.Documents)
+    Assert.Same(secondDoc, vm.ActiveDocument)
+    Assert.Equal(1, firstDoc.Version)
+    Assert.Equal("1 + 1", firstDoc.Text)
+    Assert.True(firstDoc.IsDirty)
+    Assert.Equal(0, secondDoc.Version)
+    Assert.False(secondDoc.IsDirty)
+
+[<Fact>]
+let ``OpenDocument reactivates an already-open tab instead of creating a duplicate`` () =
+    let vm = ShellViewModel()
+    let firstDoc = vm.ActiveDocument
+    let secondDoc = vm.OpenDocument("untitled:Script2.fsx")
+
+    let reopened = vm.OpenDocument(firstDoc.Uri)
+
+    Assert.Same(firstDoc, reopened)
+    Assert.Same(firstDoc, vm.ActiveDocument)
+    Assert.Equal<DocumentViewModel list>([ firstDoc; secondDoc ], vm.Documents)
+
+[<Fact>]
+let ``CloseDocument removes a clean tab without prompting`` () =
+    let vm = ShellViewModel()
+    let firstDoc = vm.ActiveDocument
+    let secondDoc = vm.OpenDocument("untitled:Script2.fsx")
+    let mutable promptInvoked = false
+    vm.ConfirmDiscardDirtyDocument <- Some(fun _ ->
+        promptInvoked <- true
+        true)
+
+    let closed = vm.CloseDocument(secondDoc.Uri)
+
+    Assert.True(closed)
+    Assert.False(promptInvoked)
+    Assert.Equal<DocumentViewModel list>([ firstDoc ], vm.Documents)
+
+[<Fact>]
+let ``CloseDocument prompts before discarding a dirty tab`` () =
+    let vm = ShellViewModel()
+    let firstDoc = vm.ActiveDocument
+    firstDoc.ApplyTextChanged(1, "unsaved")
+    let mutable promptedDoc = None
+    vm.ConfirmDiscardDirtyDocument <- Some(fun doc ->
+        promptedDoc <- Some doc
+        true)
+
+    let closed = vm.CloseDocument(firstDoc.Uri)
+
+    Assert.True(closed)
+    Assert.Equal(Some firstDoc, promptedDoc)
+    Assert.DoesNotContain(firstDoc, vm.Documents)
+
+[<Fact>]
+let ``CloseDocument keeps a dirty tab open when the prompt declines`` () =
+    let vm = ShellViewModel()
+    let firstDoc = vm.ActiveDocument
+    firstDoc.ApplyTextChanged(1, "unsaved")
+    vm.ConfirmDiscardDirtyDocument <- Some(fun _ -> false)
+
+    let closed = vm.CloseDocument(firstDoc.Uri)
+
+    Assert.False(closed)
+    Assert.Contains(firstDoc, vm.Documents)
+
+[<Fact>]
+let ``CloseDocument keeps a dirty tab open when no prompt handler is configured`` () =
+    let vm = ShellViewModel()
+    let firstDoc = vm.ActiveDocument
+    firstDoc.ApplyTextChanged(1, "unsaved")
+
+    let closed = vm.CloseDocument(firstDoc.Uri)
+
+    Assert.False(closed)
+    Assert.Contains(firstDoc, vm.Documents)
+
+[<Fact>]
+let ``closing the last remaining document leaves a fresh document active`` () =
+    let vm = ShellViewModel()
+    let firstDoc = vm.ActiveDocument
+
+    let closed = vm.CloseDocument(firstDoc.Uri)
+
+    Assert.True(closed)
+    Assert.Single(vm.Documents) |> ignore
+    Assert.NotSame(firstDoc, vm.ActiveDocument)
+    Assert.False(vm.ActiveDocument.IsDirty)
+
+[<Fact>]
+let ``a document opened via OpenDocument also gets debounced CheckAsync wiring`` () =
+    let scheduler = FakeDebounceScheduler()
+    let vm = ShellViewModel(scheduler)
+    let secondDoc = vm.OpenDocument("untitled:Script2.fsx")
+
+    let diagnostic: Diagnostic =
+        { Message = "type error"
+          Severity = DiagnosticSeverity.Error
+          StartLine = 0
+          StartColumn = 0
+          EndLine = 0
+          EndColumn = 3
+          Code = None }
+
+    vm.CheckAsync <- Some(fun (_version, _source) -> Task.FromResult([ diagnostic ]))
+
+    secondDoc.ApplyTextChanged(1, "bad")
+    scheduler.Advance(TimeSpan.FromMilliseconds(500.0))
+
+    Assert.Equal<Diagnostic list>([ diagnostic ], secondDoc.Diagnostics)
+
+[<Fact>]
 let ``a debounced text change calls CheckAsync and applies the result through the version guard`` () =
     let scheduler = FakeDebounceScheduler()
     let vm = ShellViewModel(scheduler)

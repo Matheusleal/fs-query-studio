@@ -4,34 +4,90 @@ open System.Threading.Tasks
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Editor
 
-/// Root view model — see Section 5. One `ActiveDocument` for the vertical
-/// slice's single editor tab; a workspace/multi-tab collection replaces
-/// this once Milestone C's script explorer lands. Global commands join
-/// alongside whatever task first needs them.
+/// Root view model — see Section 5. Owns the workspace's open document
+/// tabs and which one is active. Global commands join alongside whatever
+/// task first needs them.
 ///
-/// `scheduler` is forwarded straight to `ActiveDocument`, so tests can
-/// drive `CheckAsync`'s debounced trigger with a virtual clock the same
-/// way `DocumentViewModelTests` does directly.
+/// `scheduler` is forwarded to every `DocumentViewModel` this workspace
+/// creates (the initial tab and any later `OpenDocument` call), so tests
+/// can drive `CheckAsync`'s debounced trigger with a virtual clock the
+/// same way `DocumentViewModelTests` does directly.
 type ShellViewModel(?scheduler: IDebounceScheduler) =
-    let activeDocument = DocumentViewModel("untitled:Script1.fsx", ?scheduler = scheduler)
+    let documents = ResizeArray<DocumentViewModel>()
 
     let mutable checkAsync: ((int * string) -> Task<Diagnostic list>) option = None
+    let mutable activeDocument = Unchecked.defaultof<DocumentViewModel>
 
-    do
-        activeDocument.DebouncedTextChanged.Add(fun (version, source) ->
+    /// Wires a document's debounced text change to `checkAsync` — every
+    /// open tab gets its own analysis pipeline, not just the first one.
+    let wireDocument (doc: DocumentViewModel) =
+        doc.DebouncedTextChanged.Add(fun (version, source) ->
             match checkAsync with
             | None -> ()
             | Some check ->
                 (task {
                     let! diagnostics = check (version, source)
-                    activeDocument.ApplyAnalysisResult(version, diagnostics)
+                    doc.ApplyAnalysisResult(version, diagnostics)
                 }
                 :> Task)
                 |> ignore)
 
+    let createDocument (uri: string) =
+        let doc = DocumentViewModel(uri, ?scheduler = scheduler)
+        wireDocument doc
+        documents.Add(doc)
+        doc
+
+    do activeDocument <- createDocument "untitled:Script1.fsx"
+
     member val WorkerState = WorkerStateViewModel()
     member _.ActiveDocument = activeDocument
+    member _.Documents = documents |> List.ofSeq
     member val Result = ResultViewModel()
+
+    /// Prompts before discarding a dirty tab's unsaved changes — set by
+    /// the composition root to show a real confirmation dialog. `Close`
+    /// treats an unconfigured hook as "don't discard", the same
+    /// no-op-when-unconfigured rationale as `ExecuteAsync` below.
+    member val ConfirmDiscardDirtyDocument: (DocumentViewModel -> bool) option = None with get, set
+
+    /// Opens `uri` as the active tab. Activates the existing tab instead
+    /// of creating a duplicate if it's already open, leaving every other
+    /// open tab's state untouched either way.
+    member this.OpenDocument(uri: string) : DocumentViewModel =
+        let doc =
+            documents
+            |> Seq.tryFind (fun d -> d.Uri = uri)
+            |> Option.defaultWith (fun () -> createDocument uri)
+
+        activeDocument <- doc
+        doc
+
+    /// Closes the tab for `uri`, prompting via `ConfirmDiscardDirtyDocument`
+    /// first if it's dirty. Returns whether the tab was actually closed.
+    /// Closing the last remaining tab opens a fresh blank one in its
+    /// place, so `ActiveDocument` always has something to point at.
+    member this.CloseDocument(uri: string) : bool =
+        match documents |> Seq.tryFind (fun d -> d.Uri = uri) with
+        | None -> false
+        | Some doc ->
+            let canDiscard =
+                if not doc.IsDirty then
+                    true
+                else
+                    match this.ConfirmDiscardDirtyDocument with
+                    | None -> false
+                    | Some confirm -> confirm doc
+
+            if canDiscard then
+                documents.Remove(doc) |> ignore
+
+                if documents.Count = 0 then
+                    activeDocument <- createDocument "untitled:Script1.fsx"
+                elif System.Object.ReferenceEquals(activeDocument, doc) then
+                    activeDocument <- documents.[documents.Count - 1]
+
+            canDiscard
 
     /// The "host service" (Section 4's App responsibility) that actually
     /// runs a script and returns its projected result — set by the
