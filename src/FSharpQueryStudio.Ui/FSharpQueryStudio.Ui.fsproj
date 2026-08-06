@@ -13,6 +13,7 @@
     <Compile Include="ResultGridColumns.fs" />
     <Compile Include="ProblemViewModel.fs" />
     <Compile Include="ShellViewModel.fs" />
+    <Compile Include="ScriptDocument.fs" />
     <Compile Include="MainWindow.axaml.fs" />
   </ItemGroup>
 
