@@ -8,6 +8,7 @@
     <Compile Include="IConnector.fs" />
     <Compile Include="SqliteConnector.fs" />
     <Compile Include="SqlServerConnector.fs" />
+    <Compile Include="PostgreSqlConnector.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -17,6 +18,7 @@
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.2" />
+    <PackageReference Include="Npgsql" Version="10.0.3" />
   </ItemGroup>
 
   <ItemGroup>
