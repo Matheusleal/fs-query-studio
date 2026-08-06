@@ -15,6 +15,7 @@
     <Compile Include="MultiFileProjectTests.fs" />
     <Compile Include="DiagnosticMappingTests.fs" />
     <Compile Include="HoverTests.fs" />
+    <Compile Include="GoToDefinitionTests.fs" />
     <Compile Include="CompletionsTests.fs" />
     <Compile Include="NotebookCellsTests.fs" />
   </ItemGroup>

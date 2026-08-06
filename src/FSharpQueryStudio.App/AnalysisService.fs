@@ -48,11 +48,11 @@ module AnalysisService =
                   Method = "analysis/hover"
                   Params =
                     JsonSerializer.SerializeToElement<AnalysisHoverParams>(
-                        { DocumentUri = documentUri
-                          Version = version
-                          Source = source
-                          Line = line
-                          Column = column },
+                        ({ DocumentUri = documentUri
+                           Version = version
+                           Source = source
+                           Line = line
+                           Column = column }: AnalysisHoverParams),
                         Serialization.options
                     ) }
 
@@ -62,5 +62,38 @@ module AnalysisService =
             | Some resultJson ->
                 let result = JsonSerializer.Deserialize<AnalysisHoverResult>(resultJson, Serialization.options)
                 return result.Hover
+            | None -> return None
+        }
+
+    /// `analysis/definition` — Milestone E.6's go-to-definition. Same
+    /// shape/rationale as `hover` above.
+    let definition
+        (client: WorkerClient)
+        (documentUri: string)
+        (version: int)
+        (source: string)
+        (line: int)
+        (column: int)
+        : Task<DefinitionLocation option> =
+        task {
+            let request: WorkerRequestFrame =
+                { Id = Guid.NewGuid().ToString()
+                  Method = "analysis/definition"
+                  Params =
+                    JsonSerializer.SerializeToElement<AnalysisDefinitionParams>(
+                        ({ DocumentUri = documentUri
+                           Version = version
+                           Source = source
+                           Line = line
+                           Column = column }: AnalysisDefinitionParams),
+                        Serialization.options
+                    ) }
+
+            let! response = client.Send(request)
+
+            match response.Result with
+            | Some resultJson ->
+                let result = JsonSerializer.Deserialize<AnalysisDefinitionResult>(resultJson, Serialization.options)
+                return result.Location
             | None -> return None
         }

@@ -17,6 +17,10 @@ type HostNotification =
     /// pending `provideHover` promise this resolves. `None` means FCS
     /// found nothing to show, not an error.
     | HoverResolved of requestId: string * documentUri: string * hover: HoverInfo option
+    /// The answer to one `EditorRequest.GoToDefinitionRequested` — same
+    /// `requestId` correlation as `HoverResolved`. `None` means FCS found
+    /// no resolvable declaration, not an error.
+    | DefinitionResolved of requestId: string * documentUri: string * location: DefinitionLocation option
 
 type DiagnosticsUpdatedPayload =
     { DocumentUri: string
@@ -30,3 +34,7 @@ type CaretMovedPayload =
 type HoverResolvedPayload =
     { DocumentUri: string
       Hover: HoverInfo option }
+
+type DefinitionResolvedPayload =
+    { DocumentUri: string
+      Location: DefinitionLocation option }

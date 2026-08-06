@@ -17,6 +17,7 @@ module EditorBridge =
         | TextChanged _ -> "textChanged"
         | CompletionRequested _ -> "completionRequested"
         | HoverRequested _ -> "hoverRequested"
+        | GoToDefinitionRequested _ -> "goToDefinitionRequested"
         | ExecuteRequested _ -> "executeRequested"
         | CancelRequested -> "cancelRequested"
 
@@ -43,6 +44,14 @@ module EditorBridge =
                    Version = version
                    Line = line
                    Column = column }: HoverRequestedPayload),
+                Serialization.options
+            )
+        | GoToDefinitionRequested(uri, version, line, column) ->
+            JsonSerializer.SerializeToElement<GoToDefinitionRequestedPayload>(
+                ({ DocumentUri = uri
+                   Version = version
+                   Line = line
+                   Column = column }: GoToDefinitionRequestedPayload),
                 Serialization.options
             )
         | ExecuteRequested(uri, version, selection) ->
@@ -92,6 +101,15 @@ module EditorBridge =
                       Hover = hover },
                     Serialization.options
                 ) }
+        | DefinitionResolved(requestId, uri, location) ->
+            { Id = requestId
+              Kind = "definitionResolved"
+              Payload =
+                JsonSerializer.SerializeToElement<DefinitionResolvedPayload>(
+                    { DocumentUri = uri
+                      Location = location },
+                    Serialization.options
+                ) }
 
     let decode (envelope: EditorEnvelope) : Result<EditorRequest, BridgeError> =
         try
@@ -111,6 +129,11 @@ module EditorBridge =
                     JsonSerializer.Deserialize<HoverRequestedPayload>(envelope.Payload, Serialization.options)
 
                 Ok(HoverRequested(p.DocumentUri, p.Version, p.Line, p.Column))
+            | "goToDefinitionRequested" ->
+                let p =
+                    JsonSerializer.Deserialize<GoToDefinitionRequestedPayload>(envelope.Payload, Serialization.options)
+
+                Ok(GoToDefinitionRequested(p.DocumentUri, p.Version, p.Line, p.Column))
             | "executeRequested" ->
                 let p =
                     JsonSerializer.Deserialize<ExecuteRequestedPayload>(envelope.Payload, Serialization.options)

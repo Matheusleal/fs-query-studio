@@ -24,6 +24,10 @@ let ``HoverRequested round-trips through encode/decode`` () =
     roundTrips (HoverRequested("file:///a.fsx", 3, 10, 4))
 
 [<Fact>]
+let ``GoToDefinitionRequested round-trips through encode/decode`` () =
+    roundTrips (GoToDefinitionRequested("file:///a.fsx", 3, 10, 4))
+
+[<Fact>]
 let ``ExecuteRequested with a selection round-trips through encode/decode`` () =
     roundTrips (ExecuteRequested("file:///a.fsx", 3, Some "1 + 1"))
 

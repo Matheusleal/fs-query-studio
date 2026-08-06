@@ -52,6 +52,33 @@ type AnalysisHoverParams =
 
 type AnalysisHoverResult = { Hover: HoverInfo option }
 
+/// A resolved symbol declaration's location — Milestone E.6's go-to-
+/// definition. `FilePath` may point outside the requesting document
+/// (e.g. another file in an E.5 multi-file project); lines are 0-based,
+/// matching `Diagnostic`'s Monaco-facing convention.
+type DefinitionLocation =
+    { FilePath: string
+      StartLine: int
+      StartColumn: int
+      EndLine: int
+      EndColumn: int }
+
+/// `analysis/definition` request payload — see Section 7's method table.
+/// Same shape and rationale as `AnalysisHoverParams`: the worker is
+/// stateless across requests, so the source snapshot travels with every
+/// request rather than being cached worker-side.
+type AnalysisDefinitionParams =
+    { DocumentUri: string
+      Version: int
+      Source: string
+      Line: int
+      Column: int }
+
+/// `None` means FCS found no resolvable declaration at that position
+/// (e.g. a keyword, a syntax error, or whitespace) — a normal, successful
+/// `Result`, never an `Error`, same convention as `AnalysisHoverResult`.
+type AnalysisDefinitionResult = { Location: DefinitionLocation option }
+
 /// `session/reset` request payload — see Section 7's method table. Drops
 /// the worker-side Persistent-mode session tracked under `SessionId`, if
 /// any; a no-op if nothing was tracked (never started, already reset, or

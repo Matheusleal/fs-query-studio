@@ -63,3 +63,28 @@ let ``encoding a HoverResolved notification with no hover info carries None, not
 
     let payload = JsonSerializer.Deserialize<HoverResolvedPayload>(envelope.Payload, Serialization.options)
     Assert.Equal(None, payload.Hover)
+
+[<Fact>]
+let ``encoding a DefinitionResolved notification reuses the original request's Id and carries the location`` () =
+    let location: DefinitionLocation =
+        { FilePath = "file:///lib.fs"
+          StartLine = 2
+          StartColumn = 4
+          EndLine = 2
+          EndColumn = 9 }
+
+    let envelope =
+        EditorBridge.encodeNotification (DefinitionResolved("req-99", "file:///a.fsx", Some location))
+
+    Assert.Equal("req-99", envelope.Id)
+    Assert.Equal("definitionResolved", envelope.Kind)
+    let payload = JsonSerializer.Deserialize<DefinitionResolvedPayload>(envelope.Payload, Serialization.options)
+    Assert.Equal("file:///a.fsx", payload.DocumentUri)
+    Assert.Equal(Some location, payload.Location)
+
+[<Fact>]
+let ``encoding a DefinitionResolved notification with no location carries None, not an error`` () =
+    let envelope = EditorBridge.encodeNotification (DefinitionResolved("req-100", "file:///a.fsx", None))
+
+    let payload = JsonSerializer.Deserialize<DefinitionResolvedPayload>(envelope.Payload, Serialization.options)
+    Assert.Equal(None, payload.Location)

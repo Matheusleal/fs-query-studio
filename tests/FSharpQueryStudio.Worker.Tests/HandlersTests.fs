@@ -57,11 +57,24 @@ let private analysisHoverRequest (id: string) (source: string) (line: int) (colu
       Method = "analysis/hover"
       Params =
         JsonSerializer.SerializeToElement<AnalysisHoverParams>(
-            { DocumentUri = "file:///workspace/sales.fsx"
-              Version = 1
-              Source = source
-              Line = line
-              Column = column },
+            ({ DocumentUri = "file:///workspace/sales.fsx"
+               Version = 1
+               Source = source
+               Line = line
+               Column = column }: AnalysisHoverParams),
+            Serialization.options
+        ) }
+
+let private analysisDefinitionRequest (id: string) (source: string) (line: int) (column: int) : WorkerRequestFrame =
+    { Id = id
+      Method = "analysis/definition"
+      Params =
+        JsonSerializer.SerializeToElement<AnalysisDefinitionParams>(
+            ({ DocumentUri = "file:///workspace/sales.fsx"
+               Version = 1
+               Source = source
+               Line = line
+               Column = column }: AnalysisDefinitionParams),
             Serialization.options
         ) }
 
@@ -301,4 +314,35 @@ let ``dispatch on analysis/hover returns the display name and type for a local b
         | Some hover ->
             Assert.Equal("total", hover.DisplayName)
             Assert.Equal("int", hover.Type)
+    }
+
+[<Fact>]
+let ``dispatch on analysis/definition resolves a use site back to its own declaration`` () =
+    task {
+        let source = "let helper (x: int) : int = x + 1\n\nlet total = helper 41\n"
+        // "helper" ends at column 18 (0-based) on line 3: "let total = helper 41".
+        let! response = Handlers.dispatch (analysisDefinitionRequest "d1" source 3 18)
+
+        Assert.True(response.Result.IsSome)
+
+        let result =
+            JsonSerializer.Deserialize<AnalysisDefinitionResult>(response.Result.Value, Serialization.options)
+
+        match result.Location with
+        | None -> failwith "expected a definition location"
+        | Some location -> Assert.Equal(0, location.StartLine)
+    }
+
+[<Fact>]
+let ``dispatch on analysis/definition at a position with no resolvable symbol returns a Result with no location`` () =
+    task {
+        let source = "let helper (x: int) : int = x + 1\n\nlet total = helper 41\n"
+        let! response = Handlers.dispatch (analysisDefinitionRequest "d2" source 2 0)
+
+        Assert.True(response.Result.IsSome)
+
+        let result =
+            JsonSerializer.Deserialize<AnalysisDefinitionResult>(response.Result.Value, Serialization.options)
+
+        Assert.Equal(None, result.Location)
     }

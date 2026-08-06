@@ -239,6 +239,33 @@ module Handlers =
                   Error = None }
         }
 
+    /// Answers `analysis/definition` from the request's own source
+    /// snapshot, in a fresh analysis context per call — same stateless
+    /// shape as `handleAnalysisHover`. `Location = None` (nothing
+    /// resolvable at that position) is a normal, successful `Result`,
+    /// never an `Error`.
+    let handleAnalysisDefinition (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
+        task {
+            let definitionParams =
+                JsonSerializer.Deserialize<AnalysisDefinitionParams>(request.Params, Serialization.options)
+
+            let workDir =
+                Path.Combine(Path.GetTempPath(), "fqs-analysis-" + Guid.NewGuid().ToString("N"))
+
+            Directory.CreateDirectory(workDir) |> ignore
+            let context = AnalysisContext.build workDir
+
+            let! location =
+                GoToDefinition.findDefinition context definitionParams.Source definitionParams.Line definitionParams.Column
+
+            let result: AnalysisDefinitionResult = { Location = location }
+
+            return
+                { Id = request.Id
+                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                  Error = None }
+        }
+
     /// `results/page` — Section 7. An unknown or expired
     /// `ContinuationToken` (nothing currently open, or a token from a
     /// since-replaced evaluation) is a structured error, never a silent
@@ -277,6 +304,7 @@ module Handlers =
             | "session/reset" -> return handleSessionReset request
             | "analysis/check" -> return! handleAnalysisCheck request
             | "analysis/hover" -> return! handleAnalysisHover request
+            | "analysis/definition" -> return! handleAnalysisDefinition request
             | "results/page" -> return handleResultsPage request
             | unknown ->
                 return
