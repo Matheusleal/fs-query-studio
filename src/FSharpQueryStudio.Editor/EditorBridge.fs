@@ -128,6 +128,16 @@ module EditorBridge =
                       SignatureHelp = signatureHelp },
                     Serialization.options
                 ) }
+        | DocumentLoaded(uri, version, text) ->
+            { Id = Guid.NewGuid().ToString()
+              Kind = "documentLoaded"
+              Payload =
+                JsonSerializer.SerializeToElement<DocumentLoadedPayload>(
+                    { DocumentUri = uri
+                      Version = version
+                      Text = text },
+                    Serialization.options
+                ) }
 
     let decode (envelope: EditorEnvelope) : Result<EditorRequest, BridgeError> =
         try

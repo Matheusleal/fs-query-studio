@@ -26,6 +26,11 @@ type HostNotification =
     /// `None` means the symbol at that position isn't callable, or
     /// nothing resolved there at all — not an error.
     | SignatureHelpResolved of requestId: string * documentUri: string * signatureHelp: SignatureHelpInfo option
+    /// Swaps the shared Monaco instance's visible content to match the
+    /// Dock tab the user just switched to (`DockFactory.DocumentActivated`,
+    /// wired in Task 9) — `version` and `text` are that document's current
+    /// state, not a fresh edit.
+    | DocumentLoaded of uri: string * version: int * text: string
 
 type DiagnosticsUpdatedPayload =
     { DocumentUri: string
@@ -47,3 +52,8 @@ type DefinitionResolvedPayload =
 type SignatureHelpResolvedPayload =
     { DocumentUri: string
       SignatureHelp: SignatureHelpInfo option }
+
+type DocumentLoadedPayload =
+    { DocumentUri: string
+      Version: int
+      Text: string }

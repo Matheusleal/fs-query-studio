@@ -48,8 +48,12 @@
 
         var documentUri = "untitled:Script1.fsx";
         var currentVersion = 0;
+        var suppressChangeEvent = false;
 
         editor.onDidChangeModelContent(function () {
+          if (suppressChangeEvent) {
+            return;
+          }
           currentVersion += 1;
           postToHost("textChanged", {
             documentUri: documentUri,
@@ -161,6 +165,14 @@
                   monaco.editor.setModelMarkers(model, "fsharp", markers);
                 }
 
+                break;
+              }
+              case "documentLoaded": {
+                suppressChangeEvent = true;
+                documentUri = envelope.payload.documentUri;
+                currentVersion = envelope.payload.version;
+                editor.setValue(envelope.payload.text);
+                suppressChangeEvent = false;
                 break;
               }
               default:
