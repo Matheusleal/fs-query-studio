@@ -22,6 +22,10 @@
     <PackageReference Include="Avalonia.Controls.WebView" Version="12.0.1" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
+    <PackageReference Include="Dock.Avalonia" Version="12.1.0" />
+    <PackageReference Include="Dock.Model.Mvvm" Version="12.1.0" />
+    <PackageReference Include="Dock.Serializer.SystemTextJson" Version="12.1.0" />
+    <PackageReference Include="Material.Icons.Avalonia" Version="3.0.2" />
   </ItemGroup>
 
   <ItemGroup>

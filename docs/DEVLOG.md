@@ -671,3 +671,11 @@ Added `UiState` type to `Protocol` (`Theme: string`, `DockLayout: JsonElement op
 TDD'd as specified: test file first, four cases (no file returns default, write+read round-trips theme and layout blob, write+read round-trips None layout, malformed JSON returns default), verified failure to compile (UiState module doesn't exist yet), implementation second (Protocol type + Storage module + .fsproj entries), verified 4/4 UiState tests passing. Full test suite remains green: 361 tests across 12 test projects (Logging.Tests 11, Protocol.Tests 10, Security.Tests 10, Editor.Tests 23, Storage.Tests 29, Ui.Tests 79, Analysis.Tests 42, Execution.Tests 28, Results.Tests 20, Connectors.Tests 39, Worker.Tests 24, Integration.Tests 46).
 
 Full solution: 361 tests green, all passing.
+
+## 2026-08-06 — UI-Foundation.3: add Dock.Avalonia and Material.Icons.Avalonia packages
+
+Infra task, no code: added real NuGet `PackageReference`s that Tasks 5-12 build on top of. To `Ui` (where `MainWindow.axaml` lives): `Dock.Avalonia` 12.1.0 (carries `DockControl`), `Dock.Model.Mvvm` 12.1.0 (base for `DockFactory`/`ScriptDocument`), `Dock.Serializer.SystemTextJson` 12.1.0 (layout-persistence wiring, Task 12), `Material.Icons.Avalonia` 3.0.2 (toolbar icons). To `App` (where `App.axaml` registers the theme): `Dock.Avalonia.Themes.Fluent` 12.1.0.
+
+The brief flagged `Dock.Serializer.SystemTextJson` as a name to verify rather than assume, since a Newtonsoft-based serializer under a similar name was the likely trap. Ran `dotnet add ... package Dock.Serializer.SystemTextJson` directly and it resolved cleanly at 12.1.0 alongside the rest of the Dock.Avalonia 12.1.0 family (Dock.Model, Dock.Settings, Dock.Controls.*, etc. as transitive deps) — no substitution or `dotnet nuget search` needed, the id in the brief was correct as written.
+
+`dotnet build` on the full solution: succeeded, 0 warnings, 0 errors.
