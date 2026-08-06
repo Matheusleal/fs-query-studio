@@ -85,3 +85,57 @@ let ``reset drops the tracked session so the next getOrCreate starts fresh`` () 
     finally
         SessionStore.reset key
         cleanupWorkingDirectory workDir
+
+[<Fact>]
+let ``appendFragment creates a session on the first call for a key`` () =
+    let workDir = tempWorkingDirectory ()
+    let key = "store-" + System.Guid.NewGuid().ToString("N")
+
+    try
+        let session = SessionStore.appendFragment key workDir "let x = 1"
+        Assert.NotNull(session :> obj)
+    finally
+        SessionStore.reset key
+        cleanupWorkingDirectory workDir
+
+[<Fact>]
+let ``appendFragment reuses the same session for an unrelated fragment, unlike getOrCreate`` () =
+    let workDir = tempWorkingDirectory ()
+    let key = "store-" + System.Guid.NewGuid().ToString("N")
+
+    try
+        let first = SessionStore.appendFragment key workDir "let x = 1"
+        // Not a prefix-append of "let x = 1" - getOrCreate would invalidate
+        // on this; appendFragment must not, since it's a genuinely new cell.
+        let second = SessionStore.appendFragment key workDir "let y = 2"
+        Assert.Same(first, second)
+    finally
+        SessionStore.reset key
+        cleanupWorkingDirectory workDir
+
+[<Fact>]
+let ``appendFragment and getOrCreate share the same tracked session for a key`` () =
+    let workDir = tempWorkingDirectory ()
+    let key = "store-" + System.Guid.NewGuid().ToString("N")
+
+    try
+        let viaAppend = SessionStore.appendFragment key workDir "let x = 1"
+        let viaGetOrCreate = SessionStore.getOrCreate key workDir "let x = 1\nlet x = 1"
+        Assert.Same(viaAppend, viaGetOrCreate)
+    finally
+        SessionStore.reset key
+        cleanupWorkingDirectory workDir
+
+[<Fact>]
+let ``reset drops a session built up via appendFragment too`` () =
+    let workDir = tempWorkingDirectory ()
+    let key = "store-" + System.Guid.NewGuid().ToString("N")
+
+    try
+        let first = SessionStore.appendFragment key workDir "let x = 1"
+        SessionStore.reset key
+        let second = SessionStore.appendFragment key workDir "let x = 1"
+        Assert.NotSame(first, second)
+    finally
+        SessionStore.reset key
+        cleanupWorkingDirectory workDir

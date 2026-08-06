@@ -15,6 +15,7 @@
     <Compile Include="DiagnosticMapping.fs" />
     <Compile Include="Hover.fs" />
     <Compile Include="Completions.fs" />
+    <Compile Include="NotebookCells.fs" />
   </ItemGroup>
 
   <ItemGroup>
