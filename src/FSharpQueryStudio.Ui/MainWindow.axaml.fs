@@ -7,6 +7,7 @@ open Avalonia.Controls
 open Avalonia.Data
 open Avalonia.Interactivity
 open Avalonia.Markup.Xaml
+open Avalonia.Platform.Storage
 open Avalonia.Styling
 open Dock.Avalonia.Controls
 open FSharpQueryStudio.Protocol
@@ -143,6 +144,79 @@ type MainWindow() as this =
                 match themeService.Current with
                 | Dark -> ThemeVariant.Dark
                 | Light -> ThemeVariant.Light)
+
+        let openFsxFilter = FilePickerFileType("F# Script", Patterns = [ "*.fsx" ])
+
+        let newDocument () =
+            let uri = $"untitled:Script{shellViewModel.Documents.Length + 1}.fsx"
+            dockFactory.OpenDocument(uri)
+
+        // Loads the picked file's real text into the `DocumentViewModel`
+        // *before* handing the URI to `dockFactory.OpenDocument` — that
+        // call synchronously activates the new tab, which fires
+        // `DocumentActivated` (Task 9's wiring above) and pushes a
+        // `DocumentLoaded` bridge notification with whatever the
+        // document's `Text`/`Version` are *at that instant*. Populating
+        // the document first (via `shellViewModel.OpenDocument`, the same
+        // shell-only half `DockFactory.OpenDocument` calls internally —
+        // see its doc comment) means that notification carries the real
+        // file content instead of the empty string every freshly-created
+        // `DocumentViewModel` starts with.
+        let openDocument () =
+            task {
+                let options = FilePickerOpenOptions(AllowMultiple = false, FileTypeFilter = [ openFsxFilter ])
+                let! files = this.StorageProvider.OpenFilePickerAsync(options)
+
+                match files |> Seq.tryHead with
+                | None -> ()
+                | Some file ->
+                    let path = file.Path.LocalPath
+                    let text = File.ReadAllText(path)
+                    let doc = shellViewModel.OpenDocument(path)
+                    doc.ApplyTextChanged(doc.Version + 1, text)
+                    dockFactory.OpenDocument(path)
+            }
+            :> System.Threading.Tasks.Task
+
+        let saveActiveDocument () =
+            let doc = shellViewModel.ActiveDocument
+
+            if doc.Uri.StartsWith("untitled:") then
+                task {
+                    let options =
+                        FilePickerSaveOptions(FileTypeChoices = [ openFsxFilter ], SuggestedFileName = "Script1.fsx")
+
+                    let! file = this.StorageProvider.SaveFilePickerAsync(options)
+
+                    if not (isNull file) then
+                        File.WriteAllText(file.Path.LocalPath, doc.Text)
+                }
+                :> System.Threading.Tasks.Task
+            else
+                File.WriteAllText(doc.Uri, doc.Text)
+                System.Threading.Tasks.Task.CompletedTask
+
+        this.FindControl<MenuItem>("NewMenuItem").Click.Add(fun _ -> newDocument ())
+        this.FindControl<Button>("NewButton").Click.Add(fun _ -> newDocument ())
+
+        this.FindControl<MenuItem>("OpenMenuItem").Click.Add(fun _ -> openDocument () |> ignore)
+        this.FindControl<Button>("OpenButton").Click.Add(fun _ -> openDocument () |> ignore)
+
+        this.FindControl<MenuItem>("SaveMenuItem").Click.Add(fun _ -> saveActiveDocument () |> ignore)
+        this.FindControl<Button>("SaveButton").Click.Add(fun _ -> saveActiveDocument () |> ignore)
+
+        this.FindControl<MenuItem>("SaveAsMenuItem").Click.Add(fun _ ->
+            task {
+                let doc = shellViewModel.ActiveDocument
+                let options = FilePickerSaveOptions(FileTypeChoices = [ openFsxFilter ])
+                let! file = this.StorageProvider.SaveFilePickerAsync(options)
+
+                if not (isNull file) then
+                    File.WriteAllText(file.Path.LocalPath, doc.Text)
+            }
+            |> ignore)
+
+        this.FindControl<MenuItem>("ExitMenuItem").Click.Add(fun _ -> this.Close())
 
         this.Closed.Add(fun _ ->
             match assetHost with
