@@ -21,6 +21,7 @@
     <Compile Include="PostgreSqlConnectorTests.fs" />
     <Compile Include="ConnectionsRegressionTests.fs" />
     <Compile Include="PackageApprovalTests.fs" />
+    <Compile Include="MilestoneCAcceptanceTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -30,6 +31,7 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
     <PackageReference Include="Testcontainers.MsSql" Version="4.13.0" />
     <PackageReference Include="Testcontainers.PostgreSql" Version="4.13.0" />
+    <PackageReference Include="ClosedXML" Version="0.105.1" />
   </ItemGroup>
 
   <ItemGroup>
