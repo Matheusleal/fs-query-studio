@@ -12,6 +12,14 @@ open FSharpQueryStudio.Protocol
 /// what the caller actually enumerates.
 type ConnectorQueryResult = { Columns: string list; Rows: obj array seq }
 
+/// Implemented by every SQL-capable connector (SQLite/SQL Server/
+/// PostgreSQL) — lets `Connections.sql` and connector-call logging
+/// (C.17) reach any of them, or a test fake, through one interface
+/// instead of matching on each concrete connector type.
+type IQueryableConnector =
+    inherit IConnector
+    abstract ExecuteQuery: sql: string -> parameters: (string * obj) list -> ConnectorQueryResult
+
 /// SQLite connector — Section 10. `filePath` names a local `.db` file;
 /// SQLite creates it automatically on first connection if it doesn't
 /// exist yet.
@@ -117,3 +125,6 @@ type SqliteConnector(filePath: string) =
             }
 
         member this.DiscoverSchemaAsync(ct: CancellationToken) = this.DiscoverSchemaAsync(ct)
+
+    interface IQueryableConnector with
+        member this.ExecuteQuery (sql: string) (parameters: (string * obj) list) = this.ExecuteQuery sql parameters

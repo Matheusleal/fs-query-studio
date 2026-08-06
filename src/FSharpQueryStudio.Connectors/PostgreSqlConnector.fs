@@ -97,3 +97,6 @@ type PostgreSqlConnector(connectionString: string) =
             }
 
         member this.DiscoverSchemaAsync(ct: CancellationToken) = this.DiscoverSchemaAsync(ct)
+
+    interface IQueryableConnector with
+        member this.ExecuteQuery (sql: string) (parameters: (string * obj) list) = this.ExecuteQuery sql parameters

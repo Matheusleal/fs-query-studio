@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="AssemblyInfo.fs" />
     <Compile Include="Tests.fs" />
     <Compile Include="SqliteConnectorTests.fs" />
     <Compile Include="CsvConnectorTests.fs" />
@@ -12,6 +13,7 @@
     <Compile Include="RestConnectorTests.fs" />
     <Compile Include="ConnectionsTests.fs" />
     <Compile Include="CsvExportTests.fs" />
+    <Compile Include="ConnectorCallLoggingTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -20,6 +22,7 @@
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
     <PackageReference Include="ClosedXML" Version="0.105.1" />
+    <PackageReference Include="Serilog" Version="4.4.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />

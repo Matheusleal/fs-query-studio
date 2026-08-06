@@ -1,9 +1,12 @@
 namespace FSharpQueryStudio.Connectors
 
 open System
+open System.Diagnostics
 open System.Threading
 open System.Threading.Tasks
 open System.Text.Json
+open Serilog
+open FSharpQueryStudio.Protocol
 
 /// Resolves a named, already-configured connection to its live
 /// connector instance — Section 13's workspace connection registry,
@@ -43,15 +46,42 @@ module Connections =
     let private unsupported (name: string) (operation: string) (connector: IConnector) =
         failwith $"Connection '{name}' (kind {connector.Kind}) does not support {operation}."
 
+    /// Wraps `rows` so the row count and elapsed time (Section 15's
+    /// connector-call logging: kind, elapsed time, row count — never
+    /// parameter values) are logged once the caller finishes enumerating
+    /// them, not eagerly on the call itself. Eagerly counting would force
+    /// full materialization of what may be a reader-backed sequence,
+    /// defeating C.5/C.13's reader-based paging; a caller that never
+    /// fully drains `rows` (e.g. it truncates a huge result) simply never
+    /// triggers the log event, which is the correct tradeoff here.
+    let private logOnceDrained (kind: ConnectorKind) (stopwatch: Stopwatch) (rows: obj array seq) : obj array seq =
+        seq {
+            let mutable rowCount = 0
+
+            for row in rows do
+                rowCount <- rowCount + 1
+                yield row
+
+            stopwatch.Stop()
+
+            Log.Information(
+                "Connector call {Kind} returned {RowCount} rows in {ElapsedMs}ms",
+                kind,
+                rowCount,
+                stopwatch.ElapsedMilliseconds
+            )
+        }
+
     /// Runs a parameterized SQL query against a named SQLite/SQL Server/
     /// PostgreSQL connection. `parameters` are always bound through the
     /// underlying connector's own ADO.NET parameter API — never
-    /// concatenated into `sqlText`.
+    /// concatenated into `sqlText`, and never logged (Section 15).
     let sql (name: string) (sqlText: string) (parameters: (string * obj) list) : ConnectorQueryResult =
         match resolve name with
-        | :? SqliteConnector as c -> c.ExecuteQuery sqlText parameters
-        | :? SqlServerConnector as c -> c.ExecuteQuery sqlText parameters
-        | :? PostgreSqlConnector as c -> c.ExecuteQuery sqlText parameters
+        | :? IQueryableConnector as c ->
+            let stopwatch = Stopwatch.StartNew()
+            let result = c.ExecuteQuery sqlText parameters
+            { result with Rows = logOnceDrained c.Kind stopwatch result.Rows }
         | other -> unsupported name "Connections.sql" other
 
     /// Reads a named CSV connection's rows.
