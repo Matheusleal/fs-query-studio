@@ -7,6 +7,8 @@ open Avalonia.Controls
 open Avalonia.Data
 open Avalonia.Interactivity
 open Avalonia.Markup.Xaml
+open Avalonia.Styling
+open Dock.Avalonia.Controls
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Editor
 
@@ -16,12 +18,55 @@ type MainWindow() as this =
     let mutable assetHost: AssetHost.Host option = None
 
     let shellViewModel = ShellViewModel()
+    let themeService = ThemeService()
+
+    // The single shared Monaco editor and the single Results panel: both
+    // are built here rather than declared in `MainWindow.axaml`, because
+    // `DockFactory.CreateLayout` needs live control instances to assign to
+    // each dockable's `Context` (see `ScriptDocument`'s doc comment).
+    let webView = NativeWebView()
+    let resultsView = ResultsView(DataContext = shellViewModel)
+    let dockFactory = DockFactory(shellViewModel, webView, resultsView)
+
+    /// Host -> editor channel. The installed `Avalonia.Controls.WebView`
+    /// (12.0.1) `NativeWebView` exposes no `PostWebMessage*` method at all
+    /// — its only outbound member is `InvokeScript` — so an envelope is
+    /// delivered by dispatching a synthetic `message` event on
+    /// `window.chrome.webview`, which is exactly the object
+    /// `editor-host.html`'s listener is attached to. Failures are
+    /// swallowed: a message sent before the page finished loading must
+    /// never take the window down.
+    let postToEditor (envelope: EditorEnvelope) =
+        let json =
+            System.Text.Json.JsonSerializer.Serialize(envelope, Serialization.options)
+
+        // Serializing the JSON *again* yields a correctly escaped JS
+        // string literal to embed in the script below.
+        let literal = System.Text.Json.JsonSerializer.Serialize(json)
+
+        let script =
+            "if (window.chrome && window.chrome.webview) { window.chrome.webview.dispatchEvent(new MessageEvent('message', { data: "
+            + literal
+            + " })); }"
+
+        try
+            webView.InvokeScript(script) |> ignore
+        with _ ->
+            ()
 
     do
         AvaloniaXamlLoader.Load(this)
         this.DataContext <- shellViewModel
 
-        let webView = this.FindControl<NativeWebView>("MonacoWebView")
+        let dockControl = this.FindControl<DockControl>("MainDock")
+        let layout = dockFactory.CreateLayout()
+        // `InitLayout` wires every dockable's `Factory`/`Owner` and
+        // activates the default dockable — Dock.Avalonia's own init
+        // sequence requires it before the layout is handed to the control.
+        dockFactory.InitLayout(layout)
+        dockControl.Factory <- dockFactory
+        dockControl.Layout <- layout
+
         let assetsRoot = Path.Combine(AppContext.BaseDirectory, "EditorAssets")
         let host = AssetHost.start assetsRoot
         assetHost <- Some host
@@ -37,7 +82,19 @@ type MainWindow() as this =
             | Ok _otherRequest -> () // Wired as each lands in its own later task.
             | Result.Error _err -> ()) // Malformed message from the page - never crashes the host.
 
-        let resultsGrid = this.FindControl<DataGrid>("ResultsGrid")
+        // Gives `ProblemViewModel.Navigate` (the Problems tab's
+        // double-click) somewhere to send its caret-move envelope — the
+        // WebView is private to this window, so this is the only place
+        // that hook can be wired.
+        shellViewModel.SendToEditor <- Some postToEditor
+
+        // Pushes the newly active tab's text into the shared editor —
+        // see ScriptDocument/DockFactory's doc comments (Tasks 5-6) and
+        // the DocumentLoaded notification (Task 7).
+        dockFactory.DocumentActivated.Add(fun doc ->
+            postToEditor (EditorBridge.encodeNotification (DocumentLoaded(doc.Uri, doc.Version, doc.Text))))
+
+        let resultsGrid = resultsView.FindControl<DataGrid>("ResultsGrid")
 
         let rebuildResultColumns () =
             resultsGrid.Columns.Clear()
@@ -63,6 +120,25 @@ type MainWindow() as this =
         let resetSessionButton = this.FindControl<Button>("ResetSessionButton")
         resetSessionButton.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.ResetSessionAsync() |> ignore)
 
+        let runMenuItem = this.FindControl<MenuItem>("RunMenuItem")
+        runMenuItem.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.RunAsync() |> ignore)
+
+        let cancelMenuItem = this.FindControl<MenuItem>("CancelMenuItem")
+        cancelMenuItem.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.Cancel() |> ignore)
+
+        let resetSessionMenuItem = this.FindControl<MenuItem>("ResetSessionMenuItem")
+        resetSessionMenuItem.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.ResetSessionAsync() |> ignore)
+
+        let toggleThemeMenuItem = this.FindControl<MenuItem>("ToggleThemeMenuItem")
+
+        toggleThemeMenuItem.Click.Add(fun (_: RoutedEventArgs) ->
+            themeService.Toggle()
+
+            Avalonia.Application.Current.RequestedThemeVariant <-
+                match themeService.Current with
+                | Dark -> ThemeVariant.Dark
+                | Light -> ThemeVariant.Light)
+
         this.Closed.Add(fun _ ->
             match assetHost with
             | Some host -> (host :> IDisposable).Dispose()
@@ -72,6 +148,13 @@ type MainWindow() as this =
     /// hooks (`CheckAsync`, etc.) after construction, alongside
     /// `WireExecution` below.
     member _.ShellViewModel = shellViewModel
+
+    /// Exposed so `App.axaml.fs` can persist/restore the theme choice.
+    member _.ThemeService = themeService
+
+    /// Exposed so `App.axaml.fs` (and File > New/Open) can open documents
+    /// as real Dock tabs, and so layout persistence can reach the layout.
+    member _.DockFactory = dockFactory
 
     /// Composition root: wires `shellViewModel`'s `ExecuteAsync`/
     /// `CancelAsync`/`ResetSession` to a real worker process — set once,
