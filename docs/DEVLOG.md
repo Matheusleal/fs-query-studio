@@ -651,3 +651,13 @@ Two of the three tests were wrong on first pass, both for the same underlying re
 Pushed after E.9's CI-matrix change (9 commits queued locally at that point — E.1 through E.9 had accumulated without a push) specifically to verify the new Linux `Ui.Tests`/`Editor.Tests` jobs for real, not just against local Docker.
 
 Full solution green locally: `Integration.Tests` 46 (+3, all of Milestone E's own accumulated total this session).
+
+---
+
+## 2026-08-06 — UI-Foundation.1: ThemeService
+
+Added `Theme` discriminated union (`Dark | Light`) and `ThemeService` class to the `Ui` project: a plain state holder for the UI's current theme preference with INotifyPropertyChanged support. Starts in `Dark`, toggles between states, fires PropertyChanged once per Toggle on the `Current` property. No dependencies on other new code, no Avalonia-specific logic — pure state, with the composition root responsible for translating `Current` into a real `ThemeVariant` on `Application.Current` (that wiring is a later task).
+
+TDD'd as specified: test file first (four cases: initial Dark state, Dark→Light toggle, Light→Dark toggle, PropertyChanged fired exactly once with correct property name), verified failure to compile (no Theme/ThemeService yet), implementation second, verified 4/4 passing. Added both files to their .fsproj entries.
+
+Full solution: 483 tests green, all passing.
