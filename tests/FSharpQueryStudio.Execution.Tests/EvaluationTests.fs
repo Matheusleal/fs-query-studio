@@ -140,7 +140,12 @@ i
 /// Paired with the isolated-mode case right below it: same assertion
 /// shape, opposite outcome, so a regression on either the new Persistent
 /// path or Milestone A's Isolated default shows up as a single failing
-/// test rather than a subtle difference in test setup.
+/// test rather than a subtle difference in test setup. The second
+/// evaluation's source is the first's full text plus an appended line —
+/// E.3's invalidation rule (`SessionStore.invalidates`) requires a pure
+/// append to reuse the session, matching how `ShellViewModel.RunAsync`
+/// actually resends the whole growing document on every run rather than
+/// independent snippets.
 [<Fact>]
 let ``persistent mode: bindings survive across two sequential evaluations under the same session key`` () =
     task {
@@ -150,7 +155,7 @@ let ``persistent mode: bindings survive across two sequential evaluations under 
         try
             let first =
                 task {
-                    let session = SessionStore.getOrCreate key workDir
+                    let session = SessionStore.getOrCreate key workDir "let x = 41"
                     return Evaluation.evaluate session "let x = 41"
                 }
 
@@ -159,8 +164,8 @@ let ``persistent mode: bindings survive across two sequential evaluations under 
 
             let second =
                 task {
-                    let session = SessionStore.getOrCreate key workDir
-                    return Evaluation.evaluate session "x + 1"
+                    let session = SessionStore.getOrCreate key workDir "let x = 41\nx + 1"
+                    return Evaluation.evaluate session "let x = 41\nx + 1"
                 }
 
             let! secondOutcome = second |> withTimeout 60.0
@@ -168,6 +173,62 @@ let ``persistent mode: bindings survive across two sequential evaluations under 
             match secondOutcome.Value with
             | Some fsiValue -> Assert.Equal(box 42, fsiValue.ReflectionValue)
             | None -> failwith "expected a value, got none"
+        finally
+            SessionStore.reset key
+            cleanupWorkingDirectory workDir
+    }
+
+/// E.3's invalidation rule in action at the `SessionStore`/`Evaluation`
+/// integration level, not just as a pure `SessionStore.invalidates`
+/// check (see `SessionStoreTests.fs`): editing already-executed text (not
+/// a pure append) must actually drop the old session's bindings, not
+/// just log that it would. Proven in three rounds rather than two, since
+/// a two-round version can't tell "invalidated" apart from "reused" when
+/// the edited text alone is self-consistent either way: round 1 defines
+/// `y`; round 2's edit removes it (not an append of round 1 - the rule
+/// invalidates); round 3 appends a bare reference to `y` onto round 2's
+/// text. If invalidation actually happened, round 3 runs against the
+/// fresh session round 2 started, which never saw `y` - undefined. If a
+/// bug silently reused round 1's session instead, `y` would still resolve
+/// to 59, and this test would catch that regression.
+[<Fact>]
+let ``persistent mode: editing already-executed text invalidates the session, dropping its bindings`` () =
+    task {
+        let workDir = tempWorkingDirectory ()
+        let key = "persistent-" + System.Guid.NewGuid().ToString("N")
+
+        try
+            let round1 =
+                task {
+                    let session = SessionStore.getOrCreate key workDir "let x = 41\nlet y = 59"
+                    return Evaluation.evaluate session "let x = 41\nlet y = 59"
+                }
+
+            let! round1Outcome = round1 |> withTimeout 60.0
+            Assert.True(round1Outcome.Exception.IsNone)
+
+            // Not a pure append of round 1's text: the "let y = 59" line
+            // is gone, not merely followed by more text.
+            let round2 =
+                task {
+                    let session = SessionStore.getOrCreate key workDir "let x = 41"
+                    return Evaluation.evaluate session "let x = 41"
+                }
+
+            let! round2Outcome = round2 |> withTimeout 60.0
+            Assert.True(round2Outcome.Exception.IsNone)
+
+            // A pure append of round 2's (post-invalidation) text.
+            let round3 =
+                task {
+                    let session = SessionStore.getOrCreate key workDir "let x = 41\ny"
+                    return Evaluation.evaluate session "let x = 41\ny"
+                }
+
+            let! round3Outcome = round3 |> withTimeout 60.0
+
+            Assert.True(round3Outcome.Exception.IsSome, "expected 'y' to be undefined against the fresh, post-invalidation session")
+            Assert.NotEmpty(round3Outcome.Diagnostics)
         finally
             SessionStore.reset key
             cleanupWorkingDirectory workDir

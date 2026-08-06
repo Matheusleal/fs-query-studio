@@ -87,9 +87,13 @@ module Handlers =
     /// working directory. Opt-in Persistent mode (Milestone E.1) instead
     /// reuses/creates the `SessionId`-keyed session in `SessionStore`, so
     /// `let` bindings from a prior evaluate under the same key are still
-    /// visible. An uncaught script exception becomes a structured Error
-    /// result (Section 11), never an unhandled crash —
-    /// EvalInteractionNonThrowing already keeps it from propagating.
+    /// visible — unless E.3's invalidation rule kicks in first (this
+    /// request's source isn't a pure append of what the session last ran),
+    /// in which case `SessionStore.getOrCreate` transparently drops the
+    /// stale session and starts a fresh one under the same key. An
+    /// uncaught script exception becomes a structured Error result
+    /// (Section 11), never an unhandled crash — EvalInteractionNonThrowing
+    /// already keeps it from propagating.
     let runEvaluate (request: WorkerRequestFrame) (workDir: string) : WorkerResponseFrame =
         try
             let evalParams =
@@ -100,8 +104,8 @@ module Handlers =
             let session =
                 match evalParams.Mode, evalParams.SessionId with
                 | Persistent, Some sessionId ->
-                    Log.Information("Reusing persistent FSI session {SessionId} in {WorkingDirectory}", sessionId, workDir)
-                    SessionStore.getOrCreate sessionId workDir
+                    Log.Information("Evaluating persistent FSI session {SessionId} in {WorkingDirectory}", sessionId, workDir)
+                    SessionStore.getOrCreate sessionId workDir evalParams.Source
                 | Persistent, None ->
                     Log.Warning("Persistent mode requested without a SessionId; falling back to an isolated session")
                     FsiSession.create workDir

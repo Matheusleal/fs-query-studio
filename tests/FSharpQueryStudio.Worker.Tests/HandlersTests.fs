@@ -224,7 +224,10 @@ let ``handleEvaluate reuses a Persistent-mode session's bindings across two call
         let firstResponse = Handlers.handleEvaluate (persistentEvaluateRequest "pers1" "let x = 41" sessionId)
         Assert.True(firstResponse.Result.IsSome)
 
-        let secondResponse = Handlers.handleEvaluate (persistentEvaluateRequest "pers2" "x + 1" sessionId)
+        // A pure append of round 1's text - E.3's invalidation rule
+        // requires this to keep the session (and x's binding) alive.
+        let secondResponse =
+            Handlers.handleEvaluate (persistentEvaluateRequest "pers2" "let x = 41\nx + 1" sessionId)
         Assert.True(secondResponse.Result.IsSome)
 
         let envelope =

@@ -110,8 +110,10 @@ let ``a persistent-mode session's bindings survive across two evaluate calls to 
 
         Assert.True(firstResponse.Result.IsSome)
 
+        // A pure append of round 1's text - E.3's invalidation rule
+        // requires this to keep the session (and x's binding) alive.
         let! secondResponse =
-            client.Send(persistentEvaluateRequest "pers-int-2" "x + 1" sessionId)
+            client.Send(persistentEvaluateRequest "pers-int-2" "let x = 41\nx + 1" sessionId)
             |> withTimeout 30.0
 
         Assert.True(secondResponse.Result.IsSome)
