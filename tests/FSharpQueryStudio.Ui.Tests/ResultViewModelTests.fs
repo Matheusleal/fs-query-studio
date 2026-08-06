@@ -110,6 +110,34 @@ let ``Apply does not itself enumerate a slow/blocking Rows or Output sequence`` 
     Assert.Equal(1, pulls)
 
 [<Fact>]
+let ``ClipboardText for a Table result is tab-separated, header first, one line per row`` () =
+    let vm = ResultViewModel()
+
+    vm.Apply(
+        { envelope ResultKind.Table None with
+            Schema = [ { Name = "Name"; DisplayType = "string" }; { Name = "Age"; DisplayType = "int" } ]
+            Rows = [| [| box "Ada"; box 30 |]; [| box "Alan"; box 41 |] |] }
+    )
+
+    Assert.Equal("Name\tAge\nAda\t30\nAlan\t41", vm.ClipboardText)
+
+[<Fact>]
+let ``ClipboardText for a Scalar/Text/Error result is just the DisplayText`` () =
+    let vm = ResultViewModel()
+
+    vm.Apply(envelope ResultKind.Scalar (Some "42"))
+
+    Assert.Equal("42", vm.ClipboardText)
+
+[<Fact>]
+let ``ClipboardText is empty when there is no DisplayText`` () =
+    let vm = ResultViewModel()
+
+    vm.Apply(envelope ResultKind.NoValue None)
+
+    Assert.Equal("", vm.ClipboardText)
+
+[<Fact>]
 let ``PropertyChanged fires for Kind on Apply`` () =
     let vm = ResultViewModel()
     let mutable raisedNames: string list = []

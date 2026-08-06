@@ -41,6 +41,22 @@ type ResultViewModel() as self =
     member _.FormattedRows: string list =
         rows |> Array.map (fun row -> row |> Array.map string |> String.concat ", ") |> Array.toList
 
+    /// The current result as plain text for the OS clipboard — see C.15.
+    /// Tab-separated with a header row for `Table` (pastes cleanly into
+    /// a spreadsheet), otherwise just `DisplayText`.
+    member _.ClipboardText: string =
+        if kind = ResultKind.Table then
+            let cell (value: obj) = if isNull value then "" else string value
+
+            let header = schema |> List.map (fun c -> c.Name) |> String.concat "\t"
+
+            let dataLines =
+                rows |> Array.map (fun row -> row |> Array.map cell |> String.concat "\t") |> Array.toList
+
+            header :: dataLines |> String.concat "\n"
+        else
+            displayText |> Option.defaultValue ""
+
     member _.Apply(envelope: ResultEnvelope) =
         kind <- envelope.Kind
         displayText <- envelope.DisplayText

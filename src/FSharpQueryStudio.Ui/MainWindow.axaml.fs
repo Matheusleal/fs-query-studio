@@ -57,6 +57,9 @@ type MainWindow() as this =
         let cancelButton = this.FindControl<Button>("CancelButton")
         cancelButton.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.Cancel() |> ignore)
 
+        let copyResultButton = this.FindControl<Button>("CopyResultButton")
+        copyResultButton.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.CopyResultAsync() |> ignore)
+
         this.Closed.Add(fun _ ->
             match assetHost with
             | Some host -> (host :> IDisposable).Dispose()

@@ -30,6 +30,7 @@
         <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="4">
           <Button Name="RunButton" Content="Run (F5)" Margin="0,0,4,0" />
           <Button Name="CancelButton" Content="Cancel" Margin="0,0,8,0" />
+          <Button Name="CopyResultButton" Content="Copy Result" Margin="0,0,8,0" />
           <TextBlock Text="{Binding WorkerState.Current}" VerticalAlignment="Center" />
         </StackPanel>
 

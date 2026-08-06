@@ -117,6 +117,11 @@ type ShellViewModel(?scheduler: IDebounceScheduler) =
         with get () = checkAsync
         and set value = checkAsync <- value
 
+    /// The composition root's hook into the real OS clipboard — see
+    /// C.15. A no-op if never configured, same rationale as
+    /// `ExecuteAsync`.
+    member val CopyResultToClipboard: (string -> Task<unit>) option = None with get, set
+
     /// Problems pane rows for the active document's current diagnostics —
     /// see Section 5. Recomputed on every access rather than cached/
     /// observable, since nothing binds to it yet.
@@ -133,6 +138,16 @@ type ShellViewModel(?scheduler: IDebounceScheduler) =
                 let! envelope = execute this.ActiveDocument.Text
                 this.Result.Apply(envelope)
                 this.WorkerState.TryTransition(WorkerState.Ready) |> ignore
+        }
+
+    /// Copies the active result to the clipboard — C.15. A no-op if
+    /// `CopyResultToClipboard` was never configured, same rationale as
+    /// `RunAsync`/`ExecuteAsync`.
+    member this.CopyResultAsync() : Task<unit> =
+        task {
+            match this.CopyResultToClipboard with
+            | None -> ()
+            | Some copy -> do! copy this.Result.ClipboardText
         }
 
     /// A no-op unless the worker is actually `Running` — nothing to

@@ -332,6 +332,28 @@ let ``a document opened via OpenDocument also gets debounced CheckAsync wiring``
     Assert.Equal<Diagnostic list>([ diagnostic ], secondDoc.Diagnostics)
 
 [<Fact>]
+let ``CopyResultAsync sends the Result's ClipboardText through the configured hook`` () =
+    task {
+        let vm = ShellViewModel()
+        vm.Result.Apply(canned ResultKind.Scalar "2")
+        let mutable copied = None
+        vm.CopyResultToClipboard <- Some(fun text -> copied <- Some text; Task.FromResult(()))
+
+        do! vm.CopyResultAsync()
+
+        Assert.Equal(Some "2", copied)
+    }
+
+[<Fact>]
+let ``CopyResultAsync is a no-op when CopyResultToClipboard has not been configured`` () =
+    task {
+        let vm = ShellViewModel()
+        vm.Result.Apply(canned ResultKind.Scalar "2")
+
+        do! vm.CopyResultAsync() // Must not throw.
+    }
+
+[<Fact>]
 let ``a debounced text change calls CheckAsync and applies the result through the version guard`` () =
     let scheduler = FakeDebounceScheduler()
     let vm = ShellViewModel(scheduler)

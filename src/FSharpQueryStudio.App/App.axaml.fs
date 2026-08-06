@@ -4,6 +4,7 @@ open System
 open System.IO
 open Avalonia
 open Avalonia.Controls.ApplicationLifetimes
+open Avalonia.Input.Platform
 open Avalonia.Markup.Xaml
 open FSharpQueryStudio.Ui
 
@@ -50,6 +51,10 @@ type App() =
 
             mainWindow.WireExecution(executeAsync, cancelAsync)
             mainWindow.ShellViewModel.CheckAsync <- Some checkAsync
+
+            mainWindow.ShellViewModel.CopyResultToClipboard <-
+                Some(fun text -> task { do! mainWindow.Clipboard.SetTextAsync(text) })
+
             desktop.MainWindow <- mainWindow
         | _ -> ()
 
