@@ -439,3 +439,7 @@ One test per connector kind — SQLite, CSV, Excel, and REST self-contained; SQL
 Full solution: 248 tests, all green across every project including the Docker-backed SQL Server/PostgreSQL container tests (`Analysis.Tests` 17, `Connectors.Tests` 39, `Editor.Tests` 17, `Execution.Tests` 10, `Integration.Tests` 38, `Logging.Tests` 7, `Protocol.Tests` 9, `Results.Tests` 20, `Security.Tests` 5, `Storage.Tests` 12, `Ui.Tests` 57, `Worker.Tests` 17).
 
 **Milestone C acceptance criterion met:** each of the six supported data targets (SQLite, SQL Server, PostgreSQL, CSV, Excel, REST/JSON) can be configured, queried through its `Connections.*` F# helper with parameters always bound and never concatenated, and displayed/exported through the bounded, paged, virtualized pipeline built across C.1–C.17.
+
+## 2026-08-06 — D.1: `trust.json` read/write
+
+Added `ScriptOrigin`/`TrustState`/`TrustMetadata` to `Protocol` and `Trust.readTrust`/`writeTrust` to `Storage`, mirroring `Workspace`/`Packages`' shape (C.3/C.16) for Section 13's v1 schema: origin, trust state, requested capabilities, optional reviewed-at/reviewed-by. `readTrust` defaults to `Local`/`Unknown` with an empty capability list when `trust.json` doesn't exist yet, rather than throwing — a brand-new workspace has no trust decision made on it yet, same reasoning as `Workspace.readConnections`' empty-list default. This file is read/written/displayed only for v1, per the spec; no enforcement logic exists yet and none is planned before a later milestone.
