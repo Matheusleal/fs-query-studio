@@ -1,0 +1,28 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    name: Build and test (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - run: dotnet restore FSharpQueryStudio.slnx
+
+      - run: dotnet build FSharpQueryStudio.slnx --no-restore --configuration Release
+
+      # SQL Server/PostgreSQL connector tests use Testcontainers, which
+      # needs Linux Docker containers - not reliably available on
+      # GitHub-hosted Windows runners. They're excluded here and run
+      # locally instead; Category!=RequiresDocker is the escape hatch,
+      # not a way to skip everything else.
+      - run: dotnet test FSharpQueryStudio.slnx --no-build --configuration Release --filter "Category!=RequiresDocker"

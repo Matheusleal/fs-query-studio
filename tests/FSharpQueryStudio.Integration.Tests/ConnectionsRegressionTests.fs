@@ -12,6 +12,7 @@ type private SingleConnectionResolver(name: string, connector: IConnector) =
                 failwith $"No connection named '{requested}' is configured."
 
 [<Collection("SqlServer container")>]
+[<Trait("Category", "RequiresDocker")>]
 type ConnectionsSqlServerRegressionTests(fixture: SqlServerConnectorTests.MsSqlContainerFixture) =
 
     [<Fact>]
@@ -34,6 +35,7 @@ type ConnectionsSqlServerRegressionTests(fixture: SqlServerConnectorTests.MsSqlC
         Assert.Empty(result.Rows)
 
 [<Collection("PostgreSql container")>]
+[<Trait("Category", "RequiresDocker")>]
 type ConnectionsPostgreSqlRegressionTests(fixture: PostgreSqlConnectorTests.PostgreSqlContainerFixture) =
 
     [<Fact>]

@@ -23,6 +23,7 @@ type PostgreSqlCollection() =
     interface ICollectionFixture<PostgreSqlContainerFixture>
 
 [<Collection("PostgreSql container")>]
+[<Trait("Category", "RequiresDocker")>]
 type PostgreSqlConnectorTests(fixture: PostgreSqlContainerFixture) =
 
     let seedOrders () =

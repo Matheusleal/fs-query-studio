@@ -88,6 +88,7 @@ let ``SQLite is configured, queried through Connections.sql, and displayed/expor
             File.Delete path
 
 [<Collection("SqlServer container")>]
+[<Trait("Category", "RequiresDocker")>]
 type MilestoneCSqlServerTests(fixture: SqlServerConnectorTests.MsSqlContainerFixture) =
 
     [<Fact>]
@@ -113,6 +114,7 @@ type MilestoneCSqlServerTests(fixture: SqlServerConnectorTests.MsSqlContainerFix
         assertExported result.Columns rows |> ignore
 
 [<Collection("PostgreSql container")>]
+[<Trait("Category", "RequiresDocker")>]
 type MilestoneCPostgreSqlTests(fixture: PostgreSqlConnectorTests.PostgreSqlContainerFixture) =
 
     [<Fact>]

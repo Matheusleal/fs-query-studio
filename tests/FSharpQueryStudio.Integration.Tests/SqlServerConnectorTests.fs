@@ -25,6 +25,7 @@ type SqlServerCollection() =
     interface ICollectionFixture<MsSqlContainerFixture>
 
 [<Collection("SqlServer container")>]
+[<Trait("Category", "RequiresDocker")>]
 type SqlServerConnectorTests(fixture: MsSqlContainerFixture) =
 
     let seedOrders () =
