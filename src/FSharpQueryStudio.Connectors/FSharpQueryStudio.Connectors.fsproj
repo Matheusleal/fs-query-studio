@@ -10,6 +10,7 @@
     <Compile Include="SqlServerConnector.fs" />
     <Compile Include="PostgreSqlConnector.fs" />
     <Compile Include="CsvConnector.fs" />
+    <Compile Include="ExcelConnector.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -20,6 +21,7 @@
     <PackageReference Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.50.3" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="7.0.2" />
     <PackageReference Include="Npgsql" Version="10.0.3" />
+    <PackageReference Include="ClosedXML" Version="0.105.1" />
   </ItemGroup>
 
   <ItemGroup>
