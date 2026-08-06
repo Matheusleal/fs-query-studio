@@ -11,6 +11,7 @@
     <Compile Include="PostgreSqlConnector.fs" />
     <Compile Include="CsvConnector.fs" />
     <Compile Include="ExcelConnector.fs" />
+    <Compile Include="RestConnector.fs" />
   </ItemGroup>
 
   <ItemGroup>

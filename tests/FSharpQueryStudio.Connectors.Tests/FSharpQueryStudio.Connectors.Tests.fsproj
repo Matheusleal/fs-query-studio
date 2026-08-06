@@ -9,6 +9,7 @@
     <Compile Include="SqliteConnectorTests.fs" />
     <Compile Include="CsvConnectorTests.fs" />
     <Compile Include="ExcelConnectorTests.fs" />
+    <Compile Include="RestConnectorTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
