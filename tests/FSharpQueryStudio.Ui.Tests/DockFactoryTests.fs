@@ -62,3 +62,41 @@ let ``DocumentActivated fires the newly active document when SetActiveDockable s
 
     Assert.Equal(Some firstDoc.Document.Uri, activated |> Option.map (fun d -> d.Uri))
     Assert.Equal(firstDoc.Document.Uri, shell.ActiveDocument.Uri)
+
+[<Fact>]
+let ``HideDockable then RestoreDockable round-trips the Results tool back into ResultsDock`` () =
+    let shell = ShellViewModel()
+    let factory = DockFactory(shell, obj (), obj ())
+    let layout = factory.CreateLayout()
+    factory.InitLayout(layout)
+
+    let isVisible () =
+        factory.ResultsDock.VisibleDockables
+        |> Seq.exists (fun d -> System.Object.ReferenceEquals(d, factory.ResultsTool))
+
+    Assert.True(isVisible ())
+
+    (factory :> IFactory).HideDockable(factory.ResultsTool) |> ignore
+    Assert.False(isVisible ())
+
+    (factory :> IFactory).RestoreDockable(factory.ResultsTool) |> ignore
+    Assert.True(isVisible ())
+
+[<Fact>]
+let ``HideDockable then RestoreDockable round-trips the Workspace tool back into WorkspaceDock`` () =
+    let shell = ShellViewModel()
+    let factory = DockFactory(shell, obj (), obj ())
+    let layout = factory.CreateLayout()
+    factory.InitLayout(layout)
+
+    let isVisible () =
+        factory.WorkspaceDock.VisibleDockables
+        |> Seq.exists (fun d -> System.Object.ReferenceEquals(d, factory.WorkspaceTool))
+
+    Assert.True(isVisible ())
+
+    (factory :> IFactory).HideDockable(factory.WorkspaceTool) |> ignore
+    Assert.False(isVisible ())
+
+    (factory :> IFactory).RestoreDockable(factory.WorkspaceTool) |> ignore
+    Assert.True(isVisible ())

@@ -216,6 +216,33 @@ type MainWindow() as this =
             }
             |> ignore)
 
+        // `Dock.Model.Core.IFactory` (v12.1.0) has no `IsVisible`-style
+        // flag on `IDockable` — the real hide/show primitives are
+        // `HideDockable`/`RestoreDockable`, confirmed by a throwaway xunit
+        // probe (see `DockFactoryTests.fs`) that found `RestoreDockable`
+        // must be handed the *same* `IDockable` reference that was hidden:
+        // a fresh `RestoreDockable(id: string)` lookup after the hide left
+        // the pane hidden, because once removed the tool's `Owner` becomes
+        // the root dock and it drops out of its `ToolDock`'s
+        // `VisibleDockables` entirely — so `DockFactory.WorkspaceTool`/
+        // `ResultsTool` (added alongside `WorkspaceDock`/`ResultsDock`)
+        // exist to keep that reference alive across the round-trip.
+        let toggleToolVisibility (dock: Dock.Model.Core.IDock) (tool: Dock.Model.Core.IDockable) =
+            let isVisible =
+                dock.VisibleDockables
+                |> Seq.exists (fun d -> obj.ReferenceEquals(d, tool))
+
+            if isVisible then
+                (dockFactory :> Dock.Model.Core.IFactory).HideDockable(tool) |> ignore
+            else
+                (dockFactory :> Dock.Model.Core.IFactory).RestoreDockable(tool) |> ignore
+
+        this.FindControl<MenuItem>("ToggleWorkspaceMenuItem").Click.Add(fun _ ->
+            toggleToolVisibility dockFactory.WorkspaceDock dockFactory.WorkspaceTool)
+
+        this.FindControl<MenuItem>("ToggleResultsMenuItem").Click.Add(fun _ ->
+            toggleToolVisibility dockFactory.ResultsDock dockFactory.ResultsTool)
+
         this.FindControl<MenuItem>("ExitMenuItem").Click.Add(fun _ -> this.Close())
 
         this.Closed.Add(fun _ ->

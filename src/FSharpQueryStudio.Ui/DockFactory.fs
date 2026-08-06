@@ -29,6 +29,10 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
 
     let documentActivated = Event<DocumentViewModel>()
     let mutable documentDock: IDocumentDock = Unchecked.defaultof<_>
+    let mutable workspaceDock: IToolDock = Unchecked.defaultof<_>
+    let mutable resultsDock: IToolDock = Unchecked.defaultof<_>
+    let mutable workspaceTool: IDockable = Unchecked.defaultof<_>
+    let mutable resultsTool: IDockable = Unchecked.defaultof<_>
 
     /// The Dock-side half of `ShellViewModel.OpenDocument`'s dedupe —
     /// `ShellViewModel.Documents` carries no change notification Dock
@@ -55,14 +59,42 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
     /// return value.
     member _.DocumentDock = documentDock
 
+    /// The left-side tool pane hosting the "Workspace" `Tool` — exposed
+    /// (same rationale as `DocumentDock`) so `MainWindow`'s View menu
+    /// wiring (Task 11) and tests can find the `Tool` by reference rather
+    /// than re-deriving it from `CreateLayout`'s return value.
+    member _.WorkspaceDock = workspaceDock
+
+    /// The bottom tool pane hosting the "Results" `Tool` — see
+    /// `WorkspaceDock`'s doc comment.
+    member _.ResultsDock = resultsDock
+
+    /// The "Workspace" `Tool` dockable itself — exposed separately from
+    /// `WorkspaceDock` because `IFactory.HideDockable`/`RestoreDockable`
+    /// (the real installed v12.1.0 API for toggling a tool pane's
+    /// visibility — confirmed via a throwaway xunit probe, since neither
+    /// `IDockable` nor `IFactory` exposes a simpler `IsVisible`-style
+    /// flag) need the *same* `IDockable` reference across a hide/restore
+    /// round-trip: once hidden, the tool's `Owner` becomes the root dock
+    /// and it drops out of `WorkspaceDock.VisibleDockables` entirely, so
+    /// `RestoreDockable` only finds its way back to the original
+    /// `ToolDock` when handed the exact object that was hidden — a fresh
+    /// `RestoreDockable(id: string)` lookup after the hide does *not*
+    /// work (verified empirically: it left the pane hidden).
+    member _.WorkspaceTool = workspaceTool
+
+    /// The "Results" `Tool` dockable itself — see `WorkspaceTool`'s doc
+    /// comment.
+    member _.ResultsTool = resultsTool
+
     [<CLIEvent>]
     member _.DocumentActivated = documentActivated.Publish
 
     override this.CreateLayout() : IRootDock =
         let initialDoc = ScriptDocument(shell.ActiveDocument, shell, editorContent)
 
-        let workspaceTool = Tool(Id = "Workspace", Title = "Workspace", CanClose = false)
-        let resultsTool = Tool(Id = "Results", Title = "Results", CanClose = false, Context = resultsContent)
+        workspaceTool <- Tool(Id = "Workspace", Title = "Workspace", CanClose = false)
+        resultsTool <- Tool(Id = "Results", Title = "Results", CanClose = false, Context = resultsContent)
 
         documentDock <-
             DocumentDock(
@@ -73,7 +105,7 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
                 VisibleDockables = this.CreateList<IDockable>(initialDoc)
             )
 
-        let workspaceDock =
+        workspaceDock <-
             ToolDock(
                 Id = "WorkspacePane",
                 Alignment = Alignment.Left,
@@ -82,7 +114,7 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
                 VisibleDockables = this.CreateList<IDockable>(workspaceTool)
             )
 
-        let resultsDock =
+        resultsDock <-
             ToolDock(
                 Id = "ResultsPane",
                 Alignment = Alignment.Bottom,
