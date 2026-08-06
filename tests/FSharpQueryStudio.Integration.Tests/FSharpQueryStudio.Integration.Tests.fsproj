@@ -19,6 +19,7 @@
     <Compile Include="WindowsCredentialStoreTests.fs" />
     <Compile Include="SqlServerConnectorTests.fs" />
     <Compile Include="PostgreSqlConnectorTests.fs" />
+    <Compile Include="ConnectionsRegressionTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -10,6 +10,7 @@
     <Compile Include="CsvConnectorTests.fs" />
     <Compile Include="ExcelConnectorTests.fs" />
     <Compile Include="RestConnectorTests.fs" />
+    <Compile Include="ConnectionsTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -12,6 +12,7 @@
     <Compile Include="CsvConnector.fs" />
     <Compile Include="ExcelConnector.fs" />
     <Compile Include="RestConnector.fs" />
+    <Compile Include="Connections.fs" />
   </ItemGroup>
 
   <ItemGroup>
