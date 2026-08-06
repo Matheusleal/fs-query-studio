@@ -1,5 +1,6 @@
 namespace FSharpQueryStudio.Ui
 
+open System.ComponentModel
 open System.Threading.Tasks
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Editor
@@ -12,11 +13,12 @@ open FSharpQueryStudio.Editor
 /// creates (the initial tab and any later `OpenDocument` call), so tests
 /// can drive `CheckAsync`'s debounced trigger with a virtual clock the
 /// same way `DocumentViewModelTests` does directly.
-type ShellViewModel(?scheduler: IDebounceScheduler) =
+type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     let documents = ResizeArray<DocumentViewModel>()
 
     let mutable checkAsync: ((int * string) -> Task<Diagnostic list>) option = None
     let mutable activeDocument = Unchecked.defaultof<DocumentViewModel>
+    let propertyChanged = Event<PropertyChangedEventHandler, PropertyChangedEventArgs>()
 
     /// Wires a document's debounced text change to `checkAsync` — every
     /// open tab gets its own analysis pipeline, not just the first one.
@@ -40,6 +42,10 @@ type ShellViewModel(?scheduler: IDebounceScheduler) =
 
     do activeDocument <- createDocument "untitled:Script1.fsx"
 
+    interface INotifyPropertyChanged with
+        [<CLIEvent>]
+        member _.PropertyChanged = propertyChanged.Publish
+
     member val WorkerState = WorkerStateViewModel()
     member _.ActiveDocument = activeDocument
     member _.Documents = documents |> List.ofSeq
@@ -60,7 +66,10 @@ type ShellViewModel(?scheduler: IDebounceScheduler) =
             |> Seq.tryFind (fun d -> d.Uri = uri)
             |> Option.defaultWith (fun () -> createDocument uri)
 
-        activeDocument <- doc
+        if not (System.Object.ReferenceEquals(activeDocument, doc)) then
+            activeDocument <- doc
+            propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof this.ActiveDocument))
+
         doc
 
     /// Closes the tab for `uri`, prompting via `ConfirmDiscardDirtyDocument`
@@ -84,8 +93,10 @@ type ShellViewModel(?scheduler: IDebounceScheduler) =
 
                 if documents.Count = 0 then
                     activeDocument <- createDocument "untitled:Script1.fsx"
+                    propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof this.ActiveDocument))
                 elif System.Object.ReferenceEquals(activeDocument, doc) then
                     activeDocument <- documents.[documents.Count - 1]
+                    propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof this.ActiveDocument))
 
             canDiscard
 

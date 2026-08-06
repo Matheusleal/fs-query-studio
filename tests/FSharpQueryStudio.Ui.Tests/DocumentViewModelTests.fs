@@ -188,3 +188,13 @@ let ``a stale analysis response arriving after a newer one is discarded, not app
     vm.ApplyAnalysisResult(1, [ diagnostic "stale" ])
 
     Assert.Equal<Diagnostic list>(currentDiagnostics, vm.Diagnostics)
+
+[<Fact>]
+let ``PropertyChanged fires for IsDirty when ApplyTextChanged marks the document dirty`` () =
+    let doc = DocumentViewModel("untitled:Script1.fsx")
+    let mutable raisedFor: string option = None
+    (doc :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor <- Some args.PropertyName)
+
+    doc.ApplyTextChanged(1, "1 + 1")
+
+    Assert.Equal(Some "IsDirty", raisedFor)

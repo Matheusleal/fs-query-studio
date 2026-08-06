@@ -1,6 +1,7 @@
 module ShellViewModelTests
 
 open System
+open System.ComponentModel
 open System.Text.Json
 open System.Threading.Tasks
 open Xunit
@@ -476,3 +477,25 @@ let ``a debounced text change calls CheckAsync and applies the result through th
     Assert.Equal(1, receivedVersion)
     Assert.Equal("let x : int = \"oops\"", receivedSource)
     Assert.Equal<Diagnostic list>([ diagnostic ], vm.ActiveDocument.Diagnostics)
+
+[<Fact>]
+let ``PropertyChanged fires for ActiveDocument when OpenDocument switches to a different tab`` () =
+    let vm = ShellViewModel()
+    let firstUri = vm.ActiveDocument.Uri
+    let mutable raisedFor: string option = None
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor <- Some args.PropertyName)
+
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+
+    Assert.Equal(Some "ActiveDocument", raisedFor)
+    Assert.NotEqual<string>(firstUri, vm.ActiveDocument.Uri)
+
+[<Fact>]
+let ``PropertyChanged does not fire for ActiveDocument when OpenDocument re-opens the already-active tab`` () =
+    let vm = ShellViewModel()
+    let mutable raised = false
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun _ -> raised <- true)
+
+    vm.OpenDocument(vm.ActiveDocument.Uri) |> ignore
+
+    Assert.False(raised)
