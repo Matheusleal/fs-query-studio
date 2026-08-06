@@ -43,22 +43,22 @@
           <TabItem Header="Results">
             <Grid>
               <!--
-                Basic binding for A.16: DisplayText for Scalar/Text/Error,
-                a plain (non-virtualized) row list for Table. C.12
-                upgrades the Table branch to a virtualized DataGrid once
-                Milestone C's larger result sets make that necessary.
+                DisplayText for Scalar/Text/Error; a virtualized DataGrid
+                for Table (C.12) - Columns are rebuilt from Result.Schema
+                in code-behind (ResultGridColumns.build) since Avalonia's
+                DataGrid needs concrete columns, not a schema binding.
+                ItemsSource binds Result.Rows (obj array array) directly,
+                so the DataGrid virtualizes rows itself for large results.
               -->
               <TextBlock Text="{Binding Result.DisplayText}"
                          IsVisible="{Binding Result.IsScalarOrText}"
                          Margin="8"
                          TextWrapping="Wrap" />
-              <ItemsControl ItemsSource="{Binding Result.FormattedRows}" IsVisible="{Binding Result.IsTable}">
-                <ItemsControl.ItemTemplate>
-                  <DataTemplate>
-                    <TextBlock Text="{Binding}" Margin="8,2" />
-                  </DataTemplate>
-                </ItemsControl.ItemTemplate>
-              </ItemsControl>
+              <DataGrid Name="ResultsGrid"
+                        ItemsSource="{Binding Result.Rows}"
+                        IsVisible="{Binding Result.IsTable}"
+                        AutoGenerateColumns="False"
+                        IsReadOnly="True" />
             </Grid>
           </TabItem>
           <TabItem Header="Output">

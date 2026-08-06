@@ -9,6 +9,7 @@
     <Compile Include="Debouncer.fs" />
     <Compile Include="DocumentViewModel.fs" />
     <Compile Include="ResultViewModel.fs" />
+    <Compile Include="ResultGridColumns.fs" />
     <Compile Include="ProblemViewModel.fs" />
     <Compile Include="ShellViewModel.fs" />
     <Compile Include="MainWindow.axaml.fs" />
@@ -16,6 +17,7 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.1" />
+    <PackageReference Include="Avalonia.Controls.DataGrid" Version="12.1.1" />
     <PackageReference Include="Avalonia.Controls.WebView" Version="12.0.1" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />

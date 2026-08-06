@@ -11,6 +11,7 @@
     <Compile Include="WorkerStateViewModelTests.fs" />
     <Compile Include="DocumentViewModelTests.fs" />
     <Compile Include="ResultViewModelTests.fs" />
+    <Compile Include="ResultGridColumnsTests.fs" />
     <Compile Include="ShellViewModelTests.fs" />
   </ItemGroup>
 

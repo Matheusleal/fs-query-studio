@@ -1,8 +1,10 @@
 namespace FSharpQueryStudio.Ui
 
 open System
+open System.ComponentModel
 open System.IO
 open Avalonia.Controls
+open Avalonia.Data
 open Avalonia.Interactivity
 open Avalonia.Markup.Xaml
 open FSharpQueryStudio.Protocol
@@ -34,6 +36,20 @@ type MainWindow() as this =
                 shellViewModel.ActiveDocument.ApplyTextChanged(version, source)
             | Ok _otherRequest -> () // Wired as each lands in its own later task.
             | Result.Error _err -> ()) // Malformed message from the page - never crashes the host.
+
+        let resultsGrid = this.FindControl<DataGrid>("ResultsGrid")
+
+        let rebuildResultColumns () =
+            resultsGrid.Columns.Clear()
+
+            for column in ResultGridColumns.build shellViewModel.Result.Schema do
+                resultsGrid.Columns.Add(
+                    DataGridTextColumn(Header = column.Header, Binding = Binding(column.BindingPath))
+                )
+
+        (shellViewModel.Result :> INotifyPropertyChanged).PropertyChanged.Add(fun args ->
+            if args.PropertyName = "Schema" then
+                rebuildResultColumns ())
 
         let runButton = this.FindControl<Button>("RunButton")
         runButton.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.RunAsync() |> ignore)
