@@ -88,3 +88,31 @@ let ``encoding a DefinitionResolved notification with no location carries None, 
 
     let payload = JsonSerializer.Deserialize<DefinitionResolvedPayload>(envelope.Payload, Serialization.options)
     Assert.Equal(None, payload.Location)
+
+[<Fact>]
+let ``encoding a SignatureHelpResolved notification reuses the original request's Id and carries the signature`` () =
+    let signatureHelp: SignatureHelpInfo =
+        { DisplayName = "add"
+          Parameters = [ "x: int"; "y: int" ]
+          ReturnType = "int" }
+
+    let envelope =
+        EditorBridge.encodeNotification (SignatureHelpResolved("req-101", "file:///a.fsx", Some signatureHelp))
+
+    Assert.Equal("req-101", envelope.Id)
+    Assert.Equal("signatureHelpResolved", envelope.Kind)
+
+    let payload =
+        JsonSerializer.Deserialize<SignatureHelpResolvedPayload>(envelope.Payload, Serialization.options)
+
+    Assert.Equal("file:///a.fsx", payload.DocumentUri)
+    Assert.Equal(Some signatureHelp, payload.SignatureHelp)
+
+[<Fact>]
+let ``encoding a SignatureHelpResolved notification with no signature carries None, not an error`` () =
+    let envelope = EditorBridge.encodeNotification (SignatureHelpResolved("req-102", "file:///a.fsx", None))
+
+    let payload =
+        JsonSerializer.Deserialize<SignatureHelpResolvedPayload>(envelope.Payload, Serialization.options)
+
+    Assert.Equal(None, payload.SignatureHelp)

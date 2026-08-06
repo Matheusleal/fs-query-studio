@@ -21,6 +21,11 @@ type HostNotification =
     /// `requestId` correlation as `HoverResolved`. `None` means FCS found
     /// no resolvable declaration, not an error.
     | DefinitionResolved of requestId: string * documentUri: string * location: DefinitionLocation option
+    /// The answer to one `EditorRequest.SignatureHelpRequested` — same
+    /// `requestId` correlation as `HoverResolved`/`DefinitionResolved`.
+    /// `None` means the symbol at that position isn't callable, or
+    /// nothing resolved there at all — not an error.
+    | SignatureHelpResolved of requestId: string * documentUri: string * signatureHelp: SignatureHelpInfo option
 
 type DiagnosticsUpdatedPayload =
     { DocumentUri: string
@@ -38,3 +43,7 @@ type HoverResolvedPayload =
 type DefinitionResolvedPayload =
     { DocumentUri: string
       Location: DefinitionLocation option }
+
+type SignatureHelpResolvedPayload =
+    { DocumentUri: string
+      SignatureHelp: SignatureHelpInfo option }

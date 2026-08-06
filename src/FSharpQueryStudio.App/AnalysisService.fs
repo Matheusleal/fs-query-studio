@@ -97,3 +97,38 @@ module AnalysisService =
                 return result.Location
             | None -> return None
         }
+
+    /// `analysis/signatureHelp` — Milestone E.7. Same shape/rationale as
+    /// `hover`/`definition` above.
+    let signatureHelp
+        (client: WorkerClient)
+        (documentUri: string)
+        (version: int)
+        (source: string)
+        (line: int)
+        (column: int)
+        : Task<SignatureHelpInfo option> =
+        task {
+            let request: WorkerRequestFrame =
+                { Id = Guid.NewGuid().ToString()
+                  Method = "analysis/signatureHelp"
+                  Params =
+                    JsonSerializer.SerializeToElement<AnalysisSignatureHelpParams>(
+                        ({ DocumentUri = documentUri
+                           Version = version
+                           Source = source
+                           Line = line
+                           Column = column }: AnalysisSignatureHelpParams),
+                        Serialization.options
+                    ) }
+
+            let! response = client.Send(request)
+
+            match response.Result with
+            | Some resultJson ->
+                let result =
+                    JsonSerializer.Deserialize<AnalysisSignatureHelpResult>(resultJson, Serialization.options)
+
+                return result.SignatureHelp
+            | None -> return None
+        }

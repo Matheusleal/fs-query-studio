@@ -18,6 +18,7 @@ module EditorBridge =
         | CompletionRequested _ -> "completionRequested"
         | HoverRequested _ -> "hoverRequested"
         | GoToDefinitionRequested _ -> "goToDefinitionRequested"
+        | SignatureHelpRequested _ -> "signatureHelpRequested"
         | ExecuteRequested _ -> "executeRequested"
         | CancelRequested -> "cancelRequested"
 
@@ -52,6 +53,14 @@ module EditorBridge =
                    Version = version
                    Line = line
                    Column = column }: GoToDefinitionRequestedPayload),
+                Serialization.options
+            )
+        | SignatureHelpRequested(uri, version, line, column) ->
+            JsonSerializer.SerializeToElement<SignatureHelpRequestedPayload>(
+                ({ DocumentUri = uri
+                   Version = version
+                   Line = line
+                   Column = column }: SignatureHelpRequestedPayload),
                 Serialization.options
             )
         | ExecuteRequested(uri, version, selection) ->
@@ -110,6 +119,15 @@ module EditorBridge =
                       Location = location },
                     Serialization.options
                 ) }
+        | SignatureHelpResolved(requestId, uri, signatureHelp) ->
+            { Id = requestId
+              Kind = "signatureHelpResolved"
+              Payload =
+                JsonSerializer.SerializeToElement<SignatureHelpResolvedPayload>(
+                    { DocumentUri = uri
+                      SignatureHelp = signatureHelp },
+                    Serialization.options
+                ) }
 
     let decode (envelope: EditorEnvelope) : Result<EditorRequest, BridgeError> =
         try
@@ -134,6 +152,11 @@ module EditorBridge =
                     JsonSerializer.Deserialize<GoToDefinitionRequestedPayload>(envelope.Payload, Serialization.options)
 
                 Ok(GoToDefinitionRequested(p.DocumentUri, p.Version, p.Line, p.Column))
+            | "signatureHelpRequested" ->
+                let p =
+                    JsonSerializer.Deserialize<SignatureHelpRequestedPayload>(envelope.Payload, Serialization.options)
+
+                Ok(SignatureHelpRequested(p.DocumentUri, p.Version, p.Line, p.Column))
             | "executeRequested" ->
                 let p =
                     JsonSerializer.Deserialize<ExecuteRequestedPayload>(envelope.Payload, Serialization.options)

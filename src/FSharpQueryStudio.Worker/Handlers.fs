@@ -266,6 +266,38 @@ module Handlers =
                   Error = None }
         }
 
+    /// Answers `analysis/signatureHelp` from the request's own source
+    /// snapshot, in a fresh analysis context per call — same stateless
+    /// shape as `handleAnalysisHover`/`handleAnalysisDefinition`.
+    /// `SignatureHelp = None` (not a callable symbol, or nothing
+    /// resolvable there) is a normal, successful `Result`, never an
+    /// `Error`.
+    let handleAnalysisSignatureHelp (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
+        task {
+            let signatureHelpParams =
+                JsonSerializer.Deserialize<AnalysisSignatureHelpParams>(request.Params, Serialization.options)
+
+            let workDir =
+                Path.Combine(Path.GetTempPath(), "fqs-analysis-" + Guid.NewGuid().ToString("N"))
+
+            Directory.CreateDirectory(workDir) |> ignore
+            let context = AnalysisContext.build workDir
+
+            let! signatureHelp =
+                SignatureHelp.signatureHelp
+                    context
+                    signatureHelpParams.Source
+                    signatureHelpParams.Line
+                    signatureHelpParams.Column
+
+            let result: AnalysisSignatureHelpResult = { SignatureHelp = signatureHelp }
+
+            return
+                { Id = request.Id
+                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                  Error = None }
+        }
+
     /// `results/page` — Section 7. An unknown or expired
     /// `ContinuationToken` (nothing currently open, or a token from a
     /// since-replaced evaluation) is a structured error, never a silent
@@ -305,6 +337,7 @@ module Handlers =
             | "analysis/check" -> return! handleAnalysisCheck request
             | "analysis/hover" -> return! handleAnalysisHover request
             | "analysis/definition" -> return! handleAnalysisDefinition request
+            | "analysis/signatureHelp" -> return! handleAnalysisSignatureHelp request
             | "results/page" -> return handleResultsPage request
             | unknown ->
                 return

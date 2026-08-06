@@ -79,6 +79,32 @@ type AnalysisDefinitionParams =
 /// `Result`, never an `Error`, same convention as `AnalysisHoverResult`.
 type AnalysisDefinitionResult = { Location: DefinitionLocation option }
 
+/// A function/method's signature, broken into individually-displayable
+/// parameters — Milestone E.7's signature help. Resolved from the single
+/// symbol at the requested position (same click-on-the-identifier model
+/// as `AnalysisHoverParams`/`AnalysisDefinitionParams`), not from cursor
+/// position inside an argument list — no active-parameter-index tracking
+/// yet, unlike a full IDE's signature help popup.
+type SignatureHelpInfo =
+    { DisplayName: string
+      Parameters: string list
+      ReturnType: string }
+
+/// `analysis/signatureHelp` request payload — see Section 7's method
+/// table. Same shape and rationale as `AnalysisHoverParams`.
+type AnalysisSignatureHelpParams =
+    { DocumentUri: string
+      Version: int
+      Source: string
+      Line: int
+      Column: int }
+
+/// `None` means the symbol at that position isn't callable (not a
+/// function/method), or nothing resolved there at all — a normal,
+/// successful `Result`, never an `Error`, same convention as
+/// `AnalysisHoverResult`.
+type AnalysisSignatureHelpResult = { SignatureHelp: SignatureHelpInfo option }
+
 /// `session/reset` request payload — see Section 7's method table. Drops
 /// the worker-side Persistent-mode session tracked under `SessionId`, if
 /// any; a no-op if nothing was tracked (never started, already reset, or

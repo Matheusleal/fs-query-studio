@@ -28,6 +28,10 @@ let ``GoToDefinitionRequested round-trips through encode/decode`` () =
     roundTrips (GoToDefinitionRequested("file:///a.fsx", 3, 10, 4))
 
 [<Fact>]
+let ``SignatureHelpRequested round-trips through encode/decode`` () =
+    roundTrips (SignatureHelpRequested("file:///a.fsx", 3, 10, 4))
+
+[<Fact>]
 let ``ExecuteRequested with a selection round-trips through encode/decode`` () =
     roundTrips (ExecuteRequested("file:///a.fsx", 3, Some "1 + 1"))
 

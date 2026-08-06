@@ -78,6 +78,19 @@ let private analysisDefinitionRequest (id: string) (source: string) (line: int) 
             Serialization.options
         ) }
 
+let private analysisSignatureHelpRequest (id: string) (source: string) (line: int) (column: int) : WorkerRequestFrame =
+    { Id = id
+      Method = "analysis/signatureHelp"
+      Params =
+        JsonSerializer.SerializeToElement<AnalysisSignatureHelpParams>(
+            ({ DocumentUri = "file:///workspace/sales.fsx"
+               Version = 1
+               Source = source
+               Line = line
+               Column = column }: AnalysisSignatureHelpParams),
+            Serialization.options
+        ) }
+
 [<Fact>]
 let ``dispatch on worker/health returns a Result with no Error`` () =
     task {
@@ -345,4 +358,39 @@ let ``dispatch on analysis/definition at a position with no resolvable symbol re
             JsonSerializer.Deserialize<AnalysisDefinitionResult>(response.Result.Value, Serialization.options)
 
         Assert.Equal(None, result.Location)
+    }
+
+[<Fact>]
+let ``dispatch on analysis/signatureHelp returns the parameter and return types for a function`` () =
+    task {
+        let source = "let add (x: int) (y: int) : int = x + y\n"
+        // "add" ends at column 6 (0-based) on line 1.
+        let! response = Handlers.dispatch (analysisSignatureHelpRequest "s1" source 1 6)
+
+        Assert.True(response.Result.IsSome)
+
+        let result =
+            JsonSerializer.Deserialize<AnalysisSignatureHelpResult>(response.Result.Value, Serialization.options)
+
+        match result.SignatureHelp with
+        | None -> failwith "expected signature help"
+        | Some info ->
+            Assert.Equal("add", info.DisplayName)
+            Assert.Equal<string list>([ "x: int"; "y: int" ], info.Parameters)
+            Assert.Equal("int", info.ReturnType)
+    }
+
+[<Fact>]
+let ``dispatch on analysis/signatureHelp on a non-callable symbol returns a Result with no signature`` () =
+    task {
+        let source = "let total = 42\n"
+        // "total" ends at column 9 (0-based) on line 1.
+        let! response = Handlers.dispatch (analysisSignatureHelpRequest "s2" source 1 9)
+
+        Assert.True(response.Result.IsSome)
+
+        let result =
+            JsonSerializer.Deserialize<AnalysisSignatureHelpResult>(response.Result.Value, Serialization.options)
+
+        Assert.Equal(None, result.SignatureHelp)
     }
