@@ -10,6 +10,7 @@ Companion to [`fs-studio-plan.md`](./fs-studio-plan.md), which is the source of 
 - Each milestone ends with its **acceptance criterion**, taken verbatim from the architecture spec where one exists, or synthesized (marked as such) where the original roadmap didn't state one explicitly for that milestone.
 - No CI exists until Milestone D. Until then, `dotnet test` run locally, solution-wide, is the gate for every task.
 - Do not build ahead of the current task's milestone — e.g. don't wire persistent sessions (Milestone E) while still on Milestone A, even if it looks convenient. Isolation now, persistence later, is a deliberate design choice, not a placeholder.
+- **After every task, update [`DEVLOG.md`](./DEVLOG.md) before moving to the next task.** Write what was actually implemented and why — real decisions, bugs found, gotchas hit — not a restatement of the task row above. Skipping this is a mistake to avoid, not an optional step for "later": a milestone with commits but no matching devlog entries loses the reasoning behind the work.
 
 ---
 

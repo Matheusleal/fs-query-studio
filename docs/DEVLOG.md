@@ -355,3 +355,87 @@ Also had to bump the "squiggles" scenario's wait from the debounce window alone 
 Full solution: 138 tests, all green (`Worker.Tests` 14, `Ui.Tests` 42, `Integration.Tests` 16 — `MilestoneBAcceptanceTests.fs` new, 3 tests, run 3x to confirm no flake).
 
 **Milestone B acceptance criterion met:** invalid F# produces diagnostics with `Error` severity (squiggles, once rendered — B.6's manual-verify boundary), hovering a local symbol resolves its display name and type through a real worker round trip, and a stale analysis response is discarded rather than overwriting newer editor state, proven under a real (not simulated) request/response race enabled by backgrounding analysis requests.
+
+---
+
+## 2026-08-06 — C.1: multi-tab document management on `ShellViewModel`
+
+Added `Documents`/`OpenDocument`/`CloseDocument` to `ShellViewModel`, turning the single `ActiveDocument` slot from A.14 into a real workspace: opening a second script activates a new tab without touching the first's state, reopening an already-open URI reactivates it instead of duplicating a tab, and closing a dirty tab routes through a new `ConfirmDiscardDirtyDocument` hook (same optional-function no-op-when-unconfigured pattern as `ExecuteAsync`/`CancelAsync`) before discarding. Closing the last tab opens a fresh blank one rather than ever leaving `ActiveDocument` unset — every existing caller from Milestone A assumed exactly one always exists.
+
+## 2026-08-06 — C.2: `ConnectorKind`/`ConnectionDefinition` protocol types and `IConnector` abstraction
+
+Added `ConnectionDefinition` to `Protocol`: round-trips through JSON with a `JsonElement` configuration blob and, per Section 10, no credential material at all — only a `SecretReference` pointer, so the shape itself makes "never write a secret to disk" structural rather than a convention to remember later. `IConnector` stays deliberately thin (`Kind`, `TestConnectionAsync`, `DiscoverSchemaAsync`) — query and paging shapes are connector-specific and land with each concrete connector in C.5–C.10, not forced onto one shared interface prematurely.
+
+## 2026-08-06 — C.3: `connection/register` handler and `workspace.json` read/write
+
+Added `Workspace.readConnections`/`writeConnections` (round-trips a `ConnectionDefinition` list through a `workspace.json` file) and `registerConnection`, the `connection/register` handler itself — upsert by `Id`, then persist the full list. Since `ConnectionDefinition` (C.2) only ever carries a `SecretReference` pointer, the written JSON is safe by construction; no redaction step is needed because there's never a secret value in memory to redact at this layer.
+
+## 2026-08-06 — C.4: secret-reference abstraction over the OS credential store
+
+Added `ISecretStore` (`Save`/`TryRead`/`Delete`) to keep `SecretReference` resolution platform-neutral, `InMemorySecretStore` as the fake every unit suite drives, and `WindowsCredentialStore` — P/Invokes `advapi32`'s `CredWriteW`/`CredReadW`/`CredDeleteW` directly for the real Windows credential-manager backing store. Verified against the actual Windows Credential Manager in a `Integration.Tests` case gated by a custom `WindowsOnlyFactAttribute` (xUnit v2 has no built-in dynamic skip, so this had to be written by hand) so the suite stays green on non-Windows CI later. A `Storage.Tests` case proves a registered connection's credential lands in the secret store and never in `workspace.json`, closing the loop with C.3.
+
+## 2026-08-06 — C.5: SQLite connector
+
+Added `SqliteConnector`: `BindParameters` binds every value as a real `SqliteParameter` (unit-tested standalone, no database needed), `ExecuteQuery` reads through a live `SqliteDataReader` lazily per Section 10's reader-based paging rather than materializing the full result set, and `DiscoverSchemaAsync` walks `sqlite_master` plus `PRAGMA table_info` for schema discovery. Bumped the transitive `SQLitePCLRaw.lib.e_sqlite3` dependency past the version NU1903 flagged for `GHSA-2m69-gcr7-jv3q` — a real advisory, not a false positive to suppress.
+
+## 2026-08-06 — C.6: SQL Server connector
+
+`SqlServerConnector` mirrors C.5's shape over `Microsoft.Data.SqlClient`: bound parameters (never concatenated), reader-based lazy row paging, `INFORMATION_SCHEMA`-based schema discovery. Verified against a real containerized SQL Server via `Testcontainers.MsSql` (`ICollectionFixture`, one container shared across the file's tests) — deliberately never a shared/remote service, matching the dev plan's own call-out for this task.
+
+## 2026-08-06 — C.7: PostgreSQL connector
+
+`PostgreSqlConnector` mirrors the same shape again over `Npgsql`, schema discovery scoped to the `public` schema via `information_schema`. Verified against a real containerized PostgreSQL via `Testcontainers.PostgreSql`, same fixture-sharing pattern as C.6.
+
+## 2026-08-06 — C.8: CSV connector
+
+`CsvOptions` covers delimiter/encoding/header choices. Wrote a small RFC4180 streaming parser, `CsvParsing.readRecord`, rather than reaching for `StreamReader.ReadLine`: a quoted field's raw embedded newline isn't a record boundary, so line-based reading would silently corrupt any file with a quoted multi-line value. `ReadRows` streams rows lazily instead of loading the whole file, matching the reader-based-paging spirit of C.5–C.7 even though there's no database reader underneath. `CsvConversions` gives scripts `tryParseInt`/`Float`/`Bool`/`DateTime` over a cell's raw string. Covered with temp fixtures for quoted commas, embedded newlines, escaped `""` quotes, and a non-UTF8 (ISO-8859-1) encoding.
+
+## 2026-08-06 — C.9: Excel connector
+
+`ExcelConnector` (over ClosedXML) selects a target sheet by name or defaults to the first, applies header options the same way `CsvConnector` does, and bounds `ReadRows` to `maxRows` (default 500, matching `Results.Projection`'s preview limit from A.6) rather than materializing an entire worksheet. Cell values keep their natural .NET type (number/boolean/date/text) instead of flattening everything to display strings. `DiscoverSchemaAsync` reports every worksheet as its own table. Covered with a temp `.xlsx` fixture spanning multiple sheets and a header-less sheet.
+
+## 2026-08-06 — C.10: REST/JSON connector
+
+`RestConnector.SendAsync` builds a fully-configured `HttpRequestMessage` (method, query params merged onto the URL, headers, JSON body) and parses the response as `JsonElement`. `PaginateAsync` follows a caller-supplied `extractNextUrl` reader across pages until it returns `None`, since unlike the database/file connectors there's no standardized "next page" shape across arbitrary REST APIs to hardcode against. Schema discovery is intentionally empty for the same reason — no universal way to enumerate "tables" from an arbitrary API. Verified against an in-process `HttpListener` stub bound to loopback, never a real external endpoint. Completes all six first-day connectors (C.5–C.10).
+
+## 2026-08-06 — C.11: controlled script API surface (`Connections.sql`/`csv`/`excel`/`rest`)
+
+Added `Connections`, the only surface a `.fsx` script actually touches to reach a named configured connection — every function dispatches straight to the underlying connector's own bound-parameter API, so a script has no path to interpolate a value into command text through this API even if it tried; the injection-safety guarantee C.5–C.10 already built in at the connector level is now the *only* way a script can query anything. `IConnectionResolver` keeps the module decoupled from how the real registry gets built (`workspace.json` + secret store wiring lands with the composition root later, not here). Regression-tested with two classic SQL-injection payloads (`OR 1=1` and a statement-terminator) against all three SQL-capable connectors — SQLite locally, SQL Server and PostgreSQL against their containers — proving each is treated as literal parameter data, never executed. CSV/Excel/REST routing covered too, completing script-surface coverage across C.5–C.10.
+
+## 2026-08-06 — C.12: virtualized `DataGrid` binding for table results
+
+Replaced A.16's plain `FormattedRows` `ItemsControl` with a real Avalonia `DataGrid` bound directly to `Result.Rows`, which virtualizes rows itself for large result sets — the complexity A.16's own entry explicitly deferred to "once Milestone C's larger result sets make it worth it." `ResultGridColumns.build` is the UI-framework-agnostic piece: maps `ResultEnvelope.Schema` to header/indexed-binding pairs, kept pure and testable since Avalonia needs concrete columns built at runtime (no schema-driven column binding exists in XAML itself). `MainWindow`'s code-behind rebuilds `DataGrid.Columns` whenever `Result.Schema` changes.
+
+Needed `Avalonia.Controls.DataGrid` added to both `Ui` and `App` — `App`'s own AXAML compiler needs the direct package reference to resolve its `StyleInclude` even though `Ui` already pulls it in transitively. Also had to find the theme resource path by trial: it's `.../Themes/Fluent.xaml`, not `.axaml`, despite every other Avalonia resource in this codebase using `.axaml`.
+
+## 2026-08-06 — C.13: `results/page` end-to-end wiring
+
+Added `PagingCursor`, which wraps a live `IEnumerator` and peeks one item past every page so it can answer "is there more" without an extra round trip, while staying the *same* enumerator across calls — deliberately not `Seq.skip`, which restarts a sequence from scratch and would silently re-run a connector-backed query on every page. `Projection.projectWithCursor` hands the cursor out alongside the usual envelope only when a `Table` result gets truncated; the existing `project` (A.6) is unchanged and still drops the cursor, so every prior caller/test keeps working untouched.
+
+`Handlers` now issues a token and stashes the cursor whenever an evaluate truncates, and dispatches `results/page` against it — reusing Section 9's one-evaluation-at-a-time model, since a worker never has more than one open paging cursor at a time. A fresh evaluate clears any prior cursor, so its token stops resolving. An unknown or expired token returns a structured `results/unknownToken` error rather than silently re-running the script. Verified end-to-end against the real worker process: a 510-item sequence truncates at the 500-row preview limit, `results/page` returns the remaining 10, and a bogus token is rejected.
+
+## 2026-08-06 — C.14: CSV export as a worker-side streamed operation
+
+`CsvExport.write` enumerates its row source exactly once, writing one RFC4180-escaped CSV row per pull — never limited to whatever the UI's bounded 500-row preview (A.6/C.9) already fetched, and never requiring the full result to be materialized in memory first. Proved against both a plain in-memory sequence and a real `SqliteConnector` query result (reader-backed, streamed straight through, C.5) exceeding the preview-row limit, confirming the exported file always matches the full source data rather than just what the UI happened to render.
+
+## 2026-08-06 — C.15: copy-to-clipboard for projected results
+
+`ResultViewModel.ClipboardText` projects the current result as tab-separated text (header row first for `Table`, so it pastes cleanly into a spreadsheet) or just `DisplayText` otherwise. `ShellViewModel.CopyResultAsync` sends it through `CopyResultToClipboard`, the same optional-hook no-op-when-unconfigured pattern as `ExecuteAsync`/`CheckAsync`, keeping the view model constructible without a real Avalonia clipboard in tests. `App.axaml.fs` wires it to the window's real `IClipboard`; a "Copy Result" button drives it from the UI.
+
+## 2026-08-06 — C.16: `packages.json` manifest and `#r "nuget: ..."` approval workflow
+
+Added `Packages.readPackages`/`writePackages`/`approvePackage`, mirroring `Workspace`'s shape (C.3) for Section 12's approved-package manifest (name, version, source, resolved assets). `PackageApproval` is the policy layer on top, kept deliberately decoupled from FSI/evaluation entirely: `extractNugetReferences` reads `#r "nuget: ..."` directives straight out of script text and `findUnapproved` diffs them against the manifest, so an approval decision never risks triggering an actual package restore just to check it. `manifestFingerprint` hashes the approved set — any cached session keyed by an earlier fingerprint is stale the moment it changes, satisfying the "requires a session reset" requirement without needing Milestone E's real persistent-session feature to exist yet (every evaluate already gets a fresh session per Section 9, so the fingerprint check itself is what's being proven here).
+
+Verified end-to-end against a real workspace directory: an unlisted `FSharp.Data` reference is rejected, approving it through `Packages.approvePackage` clears the rejection, and the fingerprint changes across that approval.
+
+## 2026-08-06 — C.17: connector call logging — kind, elapsed time, row count, never parameters
+
+Added `IQueryableConnector`, unifying the three SQL-capable connectors (C.5–C.7) behind one interface — each already had its own public `ExecuteQuery`; this just lets `Connections.sql` (C.11), and now logging, reach any of them (or a test fake) without matching on concrete connector types. `Connections.sql` wraps the returned `Rows` in a lazy pass-through that tallies the count and logs kind/elapsed/rowCount only once the caller actually finishes enumerating them, never eagerly — eager counting would force full materialization of what may be a reader-backed sequence, defeating C.5/C.13's reader-based paging entirely just to log a count. Parameter values never touch a log property, verified against an in-memory Serilog sink with a fake connector and a fake "secret-shaped" parameter value that never appears in any captured event.
+
+## 2026-08-06 — C.18: Milestone C acceptance test
+
+One test per connector kind — SQLite, CSV, Excel, and REST self-contained; SQL Server and PostgreSQL reusing their existing container fixtures from C.6/C.7 — each configuring a real connector instance, querying it through its `Connections.*` helper (C.11, the only sanctioned script-facing API), binding the result into a `ResultViewModel` the way `MainWindow`'s `DataGrid` would (C.12), and exporting the full row set via `CsvExport` (C.14). This is the first test in the codebase to drive all six connectors through the identical script-facing path rather than each connector's own lower-level API — closing the loop between C.2's abstraction and C.5–C.10's concrete implementations under one assertion.
+
+Full solution: 248 tests, all green across every project including the Docker-backed SQL Server/PostgreSQL container tests (`Analysis.Tests` 17, `Connectors.Tests` 39, `Editor.Tests` 17, `Execution.Tests` 10, `Integration.Tests` 38, `Logging.Tests` 7, `Protocol.Tests` 9, `Results.Tests` 20, `Security.Tests` 5, `Storage.Tests` 12, `Ui.Tests` 57, `Worker.Tests` 17).
+
+**Milestone C acceptance criterion met:** each of the six supported data targets (SQLite, SQL Server, PostgreSQL, CSV, Excel, REST/JSON) can be configured, queried through its `Connections.*` F# helper with parameters always bound and never concatenated, and displayed/exported through the bounded, paged, virtualized pipeline built across C.1–C.17.
