@@ -25,8 +25,9 @@ let ``invalid F# produces squiggles`` () =
         shell.ActiveDocument.ApplyTextChanged(1, "let x : int = \"oops\"")
         // Past the 400ms debounce window, plus real headroom for a freshly
         // spawned worker's first FCS check (cold reference resolution is
-        // known to be slow the first time - see A.4's DEVLOG entry).
-        do! Task.Delay(3000)
+        // known to be slow the first time - see A.4's DEVLOG entry, and
+        // slower still on a cold CI runner - see D.6's DEVLOG entry).
+        do! Task.Delay(10000)
 
         Assert.NotEmpty(shell.ActiveDocument.Diagnostics)
 

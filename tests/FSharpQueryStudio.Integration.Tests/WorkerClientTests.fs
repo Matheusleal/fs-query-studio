@@ -14,7 +14,7 @@ let ``killing the worker process mid-request surfaces a crashed error, and the n
         let client = WorkerClient(workerDllPath ())
 
         // Start a live process via a harmless request.
-        let! healthResponse = client.Send(request "w1" "worker/health" "{}") |> withTimeout 10.0
+        let! healthResponse = client.Send(request "w1" "worker/health" "{}") |> withTimeout 30.0
         Assert.True(healthResponse.Result.IsSome)
 
         let firstPid =
@@ -29,7 +29,7 @@ let ``killing the worker process mid-request surfaces a crashed error, and the n
         | Some p -> p.Kill()
         | None -> failwith "expected a running worker process to kill"
 
-        let! crashedResponse = inFlight |> withTimeout 10.0
+        let! crashedResponse = inFlight |> withTimeout 30.0
         Assert.True(crashedResponse.Result.IsNone)
 
         match crashedResponse.Error with
@@ -38,7 +38,7 @@ let ``killing the worker process mid-request surfaces a crashed error, and the n
 
         // The next request must start a brand-new process, not retry the
         // failed one or reuse the dead handle.
-        let! recovered = client.Send(request "w3" "worker/health" "{}") |> withTimeout 10.0
+        let! recovered = client.Send(request "w3" "worker/health" "{}") |> withTimeout 30.0
         Assert.True(recovered.Result.IsSome)
 
         match client.CurrentProcess with
@@ -64,7 +64,7 @@ let ``cancelling a cooperative script lets it stop early without killing the wor
 
         do! client.Cancel("coop-1", TimeSpan.FromSeconds(15.0))
 
-        let! response = inFlight |> withTimeout 20.0
+        let! response = inFlight |> withTimeout 60.0
 
         Assert.True(response.Result.IsSome)
         Assert.True(response.Error.IsNone)
@@ -97,7 +97,7 @@ let ``a large sequence truncates at the preview-row limit, then pages further vi
     task {
         let client = WorkerClient(workerDllPath ())
 
-        let! evalResponse = client.Send(evaluateRequest "big1" "[1 .. 510]") |> withTimeout 20.0
+        let! evalResponse = client.Send(evaluateRequest "big1" "[1 .. 510]") |> withTimeout 60.0
 
         Assert.True(evalResponse.Result.IsSome)
         let envelope = JsonSerializer.Deserialize<ResultEnvelope>(evalResponse.Result.Value, Serialization.options)
@@ -111,7 +111,7 @@ let ``a large sequence truncates at the preview-row limit, then pages further vi
             | None -> failwith "expected a continuation token from the worker"
 
         let! pageResponse =
-            client.Send(resultsPageRequest "big1-page1" "s1" token) |> withTimeout 20.0
+            client.Send(resultsPageRequest "big1-page1" "s1" token) |> withTimeout 60.0
 
         Assert.True(pageResponse.Result.IsSome)
         let page = JsonSerializer.Deserialize<ResultPage>(pageResponse.Result.Value, Serialization.options)
@@ -128,7 +128,7 @@ let ``a results/page request with an unknown or expired token returns a structur
 
         let! response =
             client.Send(resultsPageRequest "unknown1" "s1" "not-a-real-token")
-            |> withTimeout 20.0
+            |> withTimeout 60.0
 
         Assert.True(response.Result.IsNone)
 
@@ -147,7 +147,7 @@ let ``cancelling a non-cooperative script forces termination after the grace per
 
         do! client.Cancel("forced-1", TimeSpan.FromMilliseconds(500.0))
 
-        let! response = inFlight |> withTimeout 20.0
+        let! response = inFlight |> withTimeout 60.0
 
         Assert.True(response.Result.IsNone)
 

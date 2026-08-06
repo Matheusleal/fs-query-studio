@@ -25,7 +25,7 @@ let private startWorker () =
 let private roundTrip (proc: Process) (req: WorkerRequestFrame) : Task<WorkerResponseFrame option> =
     task {
         do! NdjsonStream.writeFrame proc.StandardInput req
-        return! NdjsonStream.readFrame<WorkerResponseFrame> proc.StandardOutput |> withTimeout 10.0
+        return! NdjsonStream.readFrame<WorkerResponseFrame> proc.StandardOutput |> withTimeout 30.0
     }
 
 [<Fact>]

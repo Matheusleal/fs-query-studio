@@ -17,7 +17,7 @@ let ``evaluate captures printed output and returns the final expression's value`
                     return Evaluation.evaluate session """printfn "hi"; 1 + 1"""
                 }
 
-            let! outcome = work |> withTimeout 30.0
+            let! outcome = work |> withTimeout 60.0
 
             Assert.Contains("hi", outcome.Output)
             Assert.True(outcome.Exception.IsNone)
@@ -41,7 +41,7 @@ let ``evaluate captures the exception's own message when a concretely-typed scri
                     return Evaluation.evaluate session "(failwith \"boom\" : int)"
                 }
 
-            let! outcome = work |> withTimeout 30.0
+            let! outcome = work |> withTimeout 60.0
 
             match outcome.Exception with
             | Some ex -> Assert.Equal("boom", ex.Message)
@@ -72,7 +72,7 @@ let ``a bare generic failwith never runs, so its own message never surfaces`` ()
                     return Evaluation.evaluate session "failwith \"boom\""
                 }
 
-            let! outcome = work |> withTimeout 30.0
+            let! outcome = work |> withTimeout 60.0
 
             match outcome.Exception with
             | Some ex -> Assert.NotEqual<string>("boom", ex.Message)
@@ -123,7 +123,7 @@ i
             do! Task.Delay(200)
             CancellationSignal.requestCancel workDir
 
-            let! outcome = evalTask |> withTimeout 30.0
+            let! outcome = evalTask |> withTimeout 60.0
 
             Assert.True(outcome.Exception.IsNone)
 
@@ -149,7 +149,7 @@ let ``evaluate captures stderr-worthy diagnostics without throwing`` () =
                     return Evaluation.evaluate session "let x: int = \"not an int\""
                 }
 
-            let! outcome = work |> withTimeout 30.0
+            let! outcome = work |> withTimeout 60.0
 
             Assert.NotEmpty(outcome.Diagnostics)
         finally

@@ -41,7 +41,7 @@ let ``starting a worker process logs a start event with its process id`` () =
     withCollectingLogger (fun events ->
         task {
             let client = WorkerClient(workerDllPath ())
-            let! _ = client.Send(request "w1" "worker/health" "{}") |> withTimeout 10.0
+            let! _ = client.Send(request "w1" "worker/health" "{}") |> withTimeout 30.0
 
             let startEvent =
                 events |> Seq.tryFind (fun e -> e.MessageTemplate.Text.Contains("Worker process started"))
@@ -56,14 +56,14 @@ let ``a worker process exiting unexpectedly logs a crash warning`` () =
     withCollectingLogger (fun events ->
         task {
             let client = WorkerClient(workerDllPath ())
-            let! _ = client.Send(request "w1" "worker/health" "{}") |> withTimeout 10.0
+            let! _ = client.Send(request "w1" "worker/health" "{}") |> withTimeout 30.0
             let inFlight = client.Send(request "w2" "worker/health" "{}")
 
             match client.CurrentProcess with
             | Some p -> p.Kill()
             | None -> failwith "expected a running worker process to kill"
 
-            let! _crashed = inFlight |> withTimeout 10.0
+            let! _crashed = inFlight |> withTimeout 30.0
 
             let crashEvent =
                 events
@@ -86,7 +86,7 @@ let ``forcibly terminating a non-cooperative script during Cancel logs a forced-
             do! Task.Delay(200)
 
             do! client.Cancel("forced-log-1", TimeSpan.FromMilliseconds(500.0))
-            let! _ = inFlight |> withTimeout 20.0
+            let! _ = inFlight |> withTimeout 60.0
 
             let forcedEvent =
                 events

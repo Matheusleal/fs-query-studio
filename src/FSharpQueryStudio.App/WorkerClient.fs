@@ -4,6 +4,7 @@ open System
 open System.Collections.Concurrent
 open System.Diagnostics
 open System.Text.Json
+open System.Threading
 open System.Threading.Tasks
 open Serilog
 open FSharpQueryStudio.Protocol
@@ -24,6 +25,16 @@ open FSharpQueryStudio.Worker
 type WorkerClient(workerDllPath: string) =
     let mutable currentProcess: Process option = None
     let pending = ConcurrentDictionary<string, TaskCompletionSource<WorkerResponseFrame>>()
+
+    // `Cancel` sends its own execution/cancel request via `Send` while the
+    // original request's `Send` call may still be mid-write on the same
+    // process's StandardInput - StreamWriter doesn't support concurrent
+    // write operations on one instance, so without this, two overlapping
+    // `Send` calls throw "The stream is currently in use by a previous
+    // operation on the stream." This only serializes the write itself, not
+    // the full request/response round trip, so a slow response never blocks
+    // another request's write.
+    let writeLock = new SemaphoreSlim(1, 1)
 
     let crashedResponse (id: string) : WorkerResponseFrame =
         { Id = id
@@ -103,7 +114,14 @@ type WorkerClient(workerDllPath: string) =
             let proc = ensureProcess ()
             let tcs = TaskCompletionSource<WorkerResponseFrame>(TaskCreationOptions.RunContinuationsAsynchronously)
             pending.[request.Id] <- tcs
-            do! NdjsonStream.writeFrame proc.StandardInput request
+
+            do! writeLock.WaitAsync()
+
+            try
+                do! NdjsonStream.writeFrame proc.StandardInput request
+            finally
+                writeLock.Release() |> ignore
+
             return! tcs.Task
         }
 

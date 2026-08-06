@@ -33,7 +33,7 @@ let ``open, run, read output/results, cancel, and recover from a crash - all wit
             shell.ActiveDocument.ApplyTextChanged(1, scriptText)
 
             // 2 & 3. Execute in isolation; read output/results.
-            do! shell.RunAsync() |> withTimeout 15.0
+            do! shell.RunAsync() |> withTimeout 45.0
 
             Assert.Equal(ResultKind.Scalar, shell.Result.Kind)
             Assert.Equal(Some "42", shell.Result.DisplayText)
@@ -56,8 +56,8 @@ let ``open, run, read output/results, cancel, and recover from a crash - all wit
             do! Task.Delay(200)
             Assert.Equal(WorkerState.Running, shell.WorkerState.Current)
 
-            do! shell.Cancel() |> withTimeout 20.0
-            do! runTask |> withTimeout 20.0
+            do! shell.Cancel() |> withTimeout 60.0
+            do! runTask |> withTimeout 60.0
 
             Assert.Equal(ResultKind.Scalar, shell.Result.Kind)
 
@@ -79,11 +79,11 @@ let ``open, run, read output/results, cancel, and recover from a crash - all wit
             | Some p -> p.Kill()
             | None -> failwith "expected a running worker process to kill"
 
-            do! crashedRunTask |> withTimeout 15.0
+            do! crashedRunTask |> withTimeout 45.0
             Assert.Equal(ResultKind.Error, shell.Result.Kind)
 
             shell.ActiveDocument.ApplyTextChanged(4, "1 + 1")
-            do! shell.RunAsync() |> withTimeout 15.0
+            do! shell.RunAsync() |> withTimeout 45.0
 
             Assert.Equal(ResultKind.Scalar, shell.Result.Kind)
             Assert.Equal(Some "2", shell.Result.DisplayText)

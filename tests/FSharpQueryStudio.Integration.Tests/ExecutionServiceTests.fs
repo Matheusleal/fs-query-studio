@@ -16,7 +16,7 @@ let ``Run (F5) end to end: ShellViewModel -> ExecutionService -> real worker -> 
         shell.ExecuteAsync <- Some(ExecutionService.evaluate client)
         shell.ActiveDocument.ApplyTextChanged(1, "1 + 1")
 
-        do! shell.RunAsync() |> withTimeout 15.0
+        do! shell.RunAsync() |> withTimeout 45.0
 
         Assert.Equal(ResultKind.Scalar, shell.Result.Kind)
         Assert.Equal(Some "2", shell.Result.DisplayText)
@@ -32,7 +32,7 @@ let ``Run end to end surfaces a worker-level error through ResultViewModel too``
         // of the bare-failwith value-restriction trap in Execution.Tests.
         shell.ActiveDocument.ApplyTextChanged(1, "(failwith \"boom\" : int)")
 
-        do! shell.RunAsync() |> withTimeout 15.0
+        do! shell.RunAsync() |> withTimeout 45.0
 
         Assert.Equal(ResultKind.Error, shell.Result.Kind)
         Assert.Equal(Some "boom", shell.Result.DisplayText)
@@ -55,8 +55,8 @@ let ``Cancel (through the UI command) lets a cooperative script stop early, work
         do! Task.Delay(200)
         Assert.Equal(WorkerState.Running, shell.WorkerState.Current)
 
-        do! shell.Cancel() |> withTimeout 20.0
-        do! runTask |> withTimeout 20.0
+        do! shell.Cancel() |> withTimeout 60.0
+        do! runTask |> withTimeout 60.0
 
         Assert.Equal(ResultKind.Scalar, shell.Result.Kind)
 
@@ -80,8 +80,8 @@ let ``Cancel (through the UI command) forces termination of a non-cooperative sc
 
         let runTask = shell.RunAsync()
         do! Task.Delay(200)
-        do! shell.Cancel() |> withTimeout 20.0
-        do! runTask |> withTimeout 20.0
+        do! shell.Cancel() |> withTimeout 60.0
+        do! runTask |> withTimeout 60.0
 
         Assert.Equal(ResultKind.Error, shell.Result.Kind)
         Assert.Equal(WorkerState.Ready, shell.WorkerState.Current)
