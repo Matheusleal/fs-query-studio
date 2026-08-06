@@ -36,3 +36,17 @@ module Redaction =
                     if isSecretShaped kvp.Key kvp.Value then
                         let redacted = propertyFactory.CreateProperty(kvp.Key, RedactedPlaceholder)
                         logEvent.AddOrUpdateProperty(redacted)
+
+    /// D.4's defense-in-depth scan over already-written log text (e.g. a
+    /// diagnostic bundle's contents): a secret-shaped key assigned to
+    /// anything other than `RedactedPlaceholder` means `RedactingEnricher`
+    /// either missed it at write time or never ran. Deliberately excludes
+    /// the placeholder itself so scanning already-redacted output doesn't
+    /// flag its own redaction markers as a leak.
+    let private leakedSecretPattern =
+        Regex(
+            $@"(?i)\b(password|pwd|secret|token|authorization)\s*[:=]\s*(?!{Regex.Escape RedactedPlaceholder})\S+",
+            RegexOptions.Compiled
+        )
+
+    let containsLeakedSecret (text: string) : bool = leakedSecretPattern.IsMatch text

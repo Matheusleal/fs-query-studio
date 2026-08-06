@@ -8,6 +8,7 @@
     <Compile Include="Correlation.fs" />
     <Compile Include="Redaction.fs" />
     <Compile Include="LoggerSetup.fs" />
+    <Compile Include="DiagnosticBundle.fs" />
   </ItemGroup>
 
   <ItemGroup>
