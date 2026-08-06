@@ -57,3 +57,29 @@ module AnalysisContext =
           ScriptPath = scriptPath
           References = references
           ProjectOptions = projectOptions }
+
+    /// Builds an FCS project context spanning `files`, in the order
+    /// given — Milestone E.5's multi-file `.fsproj` support. `files`
+    /// should already be absolute paths in `.fsproj` compile order (see
+    /// `Storage.FsProj.resolvedFilePaths`); this module doesn't know
+    /// about `.fsproj` itself, only about the ordered file list one
+    /// produces — `Analysis` stays independent of `Storage`, the same
+    /// way every other sibling project here only shares `Protocol`.
+    /// Reuses `build`'s baseline reference resolution (D.8's explicit-
+    /// flags fix applies here too) rather than re-deriving it.
+    ///
+    /// `Context.ScriptPath` on the result is a throwaway identity, not
+    /// one of `files` — a caller checking a *specific* file in this
+    /// project must call FCS's own `ParseAndCheckFileInProject` with
+    /// that file's real path from `files`, not go through `Checker.
+    /// check` (which is hardwired to check `context.ScriptPath`).
+    let buildForProject (projectDirectory: string) (files: string list) : Context =
+        let baseline = build projectDirectory
+
+        let projectOptions =
+            { baseline.ProjectOptions with
+                ProjectFileName = Path.Combine(projectDirectory, "__analysis_project__.fsproj")
+                SourceFiles = files |> List.toArray
+                UseScriptResolutionRules = false }
+
+        { baseline with ProjectOptions = projectOptions }

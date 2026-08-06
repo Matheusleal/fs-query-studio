@@ -12,6 +12,7 @@
   <ItemGroup>
     <Compile Include="TestHelpers.fs" />
     <Compile Include="AnalysisContextTests.fs" />
+    <Compile Include="MultiFileProjectTests.fs" />
     <Compile Include="DiagnosticMappingTests.fs" />
     <Compile Include="HoverTests.fs" />
     <Compile Include="CompletionsTests.fs" />
