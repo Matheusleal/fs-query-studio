@@ -8,9 +8,29 @@ open FSharpQueryStudio.Editor
 /// slice's single editor tab; a workspace/multi-tab collection replaces
 /// this once Milestone C's script explorer lands. Global commands join
 /// alongside whatever task first needs them.
-type ShellViewModel() =
+///
+/// `scheduler` is forwarded straight to `ActiveDocument`, so tests can
+/// drive `CheckAsync`'s debounced trigger with a virtual clock the same
+/// way `DocumentViewModelTests` does directly.
+type ShellViewModel(?scheduler: IDebounceScheduler) =
+    let activeDocument = DocumentViewModel("untitled:Script1.fsx", ?scheduler = scheduler)
+
+    let mutable checkAsync: ((int * string) -> Task<Diagnostic list>) option = None
+
+    do
+        activeDocument.DebouncedTextChanged.Add(fun (version, source) ->
+            match checkAsync with
+            | None -> ()
+            | Some check ->
+                (task {
+                    let! diagnostics = check (version, source)
+                    activeDocument.ApplyAnalysisResult(version, diagnostics)
+                }
+                :> Task)
+                |> ignore)
+
     member val WorkerState = WorkerStateViewModel()
-    member val ActiveDocument = DocumentViewModel("untitled:Script1.fsx")
+    member _.ActiveDocument = activeDocument
     member val Result = ResultViewModel()
 
     /// The "host service" (Section 4's App responsibility) that actually
@@ -32,6 +52,14 @@ type ShellViewModel() =
     /// `ProblemViewModel` so its `Navigate` command has somewhere to send
     /// the caret-move message; a no-op there if this is never configured.
     member val SendToEditor: (EditorEnvelope -> unit) option = None with get, set
+
+    /// `analysis/check` — set by the composition root. Invoked whenever
+    /// `ActiveDocument.DebouncedTextChanged` fires (Section 8's debounced
+    /// analysis pipeline); a no-op if never configured, same rationale as
+    /// `ExecuteAsync`.
+    member _.CheckAsync
+        with get () = checkAsync
+        and set value = checkAsync <- value
 
     /// Problems pane rows for the active document's current diagnostics —
     /// see Section 5. Recomputed on every access rather than cached/

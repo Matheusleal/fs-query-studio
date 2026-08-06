@@ -334,3 +334,24 @@ That same spike surfaced a genuine FCS quirk, not a bug in this code: a bare tra
 Added `Completions.completeAtPosition`, alongside tier 1's `complete`, following `Hover.hover`'s same FCS-native-coordinate convention (this layer talks straight to FCS, no protocol-facing conversion here either).
 
 Full solution: 144 tests, all green (`Analysis.Tests` 17, up from 15).
+
+---
+
+## 2026-08-06 — B.12: Milestone B acceptance test — and closing the gap between B.1-B.11's pieces and a real end-to-end analysis pipeline
+
+Writing this test honestly required more than assembling already-built pieces — B.4 through B.9 built the debounce mechanism, the version guard, the bridge encoders, and the Problems pane, but nothing had ever actually *called* `analysis/check`/`analysis/hover` over the wire yet. Closed that gap first:
+
+- `Handlers.handleAnalysisHover` + `dispatch` wiring — the worker side of `analysis/hover` never existed; B.8/B.9 only built the FCS-facing `Hover.hover` function and the bridge's encode side. Added `Protocol.AnalysisHoverParams`/`AnalysisHoverResult`, TDD'd the same way B.2 TDD'd `analysis/check`'s handler.
+- `App.AnalysisService` (`check`/`hover`), mirroring `ExecutionService`'s shape — the "host service" layer between a UI call and the worker never existed for analysis, only for execution.
+- `ShellViewModel.CheckAsync` + a constructor-time subscription to `ActiveDocument.DebouncedTextChanged` that calls it and applies the result through `ApplyAnalysisResult` — the actual live wiring from "text changed" to "diagnostics appear," which no earlier task actually connected end to end. Required converting `ActiveDocument` from `member val` to a `let` binding (F# requires `let`/`do` bindings to precede all members in a type body, and the constructor's `do` block needs to reference it before any member declarations legally can).
+- Wired `CheckAsync` in `App.axaml.fs`'s composition root, and exposed `MainWindow.ShellViewModel` so it could reach it — same "close the gap while writing the acceptance test" precedent as A.19.
+
+**The stale-response race, specifically.** Backgrounded `analysis/check`/`analysis/hover` in `Program.fs`'s read loop (`Task.Run`, same shape as `execution/evaluate`'s existing backgrounding) — before this, the read loop processed every non-evaluate method fully synchronously, meaning two `analysis/check` requests sent back-to-back could *only* ever complete in send order; there was no way for a genuinely older response to arrive after a newer one, making B.5's guard untestable under real concurrency. Unlike `execution/evaluate`, no busy-slot reservation is needed here — each call builds its own isolated `AnalysisContext` in a fresh temp directory already, so concurrent analysis requests don't share mutable state the way `FsiSession` does.
+
+Chose not to chase literal wall-clock racing for the acceptance test itself, though: awaiting two concurrent requests and hoping the older one *happens* to resolve second would be exactly the kind of timing-dependent flake this codebase has avoided elsewhere. Instead the test deterministically controls response *processing* order — awaits and applies the newer (v2) response first, then awaits and applies the older (v1) response second — which is a faithful real request/response round trip through the same worker, "artificially delayed" in the sense the task names (the test chooses when to apply each response), not a mocked guard check like B.5's own unit test.
+
+Also had to bump the "squiggles" scenario's wait from the debounce window alone (400ms) to 3s — a freshly spawned worker's very first `analysis/check` pays FCS's cold reference-resolution cost on top of the debounce, the same first-call latency A.4's DEVLOG entry already flagged for `FsiSession`.
+
+Full solution: 138 tests, all green (`Worker.Tests` 14, `Ui.Tests` 42, `Integration.Tests` 16 — `MilestoneBAcceptanceTests.fs` new, 3 tests, run 3x to confirm no flake).
+
+**Milestone B acceptance criterion met:** invalid F# produces diagnostics with `Error` severity (squiggles, once rendered — B.6's manual-verify boundary), hovering a local symbol resolves its display name and type through a real worker round trip, and a stale analysis response is discarded rather than overwriting newer editor state, proven under a real (not simulated) request/response race enabled by backgrounding analysis requests.

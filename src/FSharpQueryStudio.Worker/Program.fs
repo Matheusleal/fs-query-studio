@@ -55,6 +55,25 @@ let rec private loop (stdin: TextReader) (stdout: TextWriter) =
                 |> ignore
 
                 do! loop stdin stdout
+        | Some request when request.Method = "analysis/check" || request.Method = "analysis/hover" ->
+            // Backgrounded like execution/evaluate, but for a different
+            // reason: analysis requests are stateless (a fresh
+            // AnalysisContext per call, no shared mutable state like
+            // FsiSession's), so several can run concurrently and complete
+            // out of order without corrupting anything - which is exactly
+            // what lets a genuinely stale response arrive after a newer
+            // one, for the host's version guard (Section 7) to discard.
+            Task.Run(fun () ->
+                (task {
+                    use _ = Correlation.pushCorrelationId request.Id
+                    Log.Debug("Handling request {Method}", request.Method)
+                    let! response = Handlers.dispatch request
+                    do! writeResponse stdout response
+                })
+                :> Task)
+            |> ignore
+
+            do! loop stdin stdout
         | Some request ->
             use _ = Correlation.pushCorrelationId request.Id
             Log.Debug("Handling request {Method}", request.Method)

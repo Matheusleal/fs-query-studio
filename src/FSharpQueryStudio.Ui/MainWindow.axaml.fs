@@ -46,6 +46,11 @@ type MainWindow() as this =
             | Some host -> (host :> IDisposable).Dispose()
             | None -> ())
 
+    /// Exposed so the composition root (`App.axaml.fs`) can wire further
+    /// hooks (`CheckAsync`, etc.) after construction, alongside
+    /// `WireExecution` below.
+    member _.ShellViewModel = shellViewModel
+
     /// Composition root: wires `shellViewModel`'s `ExecuteAsync`/`CancelAsync`
     /// to a real worker process — set once, from `App.axaml.fs`. Kept out of
     /// the constructor so headless/`Ui.Tests` construction of `MainWindow`

@@ -11,6 +11,7 @@
   <ItemGroup>
     <Compile Include="WorkerClient.fs" />
     <Compile Include="ExecutionService.fs" />
+    <Compile Include="AnalysisService.fs" />
     <Compile Include="App.axaml.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

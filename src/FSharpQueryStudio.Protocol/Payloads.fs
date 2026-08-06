@@ -24,3 +24,16 @@ type HoverInfo =
       Type: string
       Signature: string option
       XmlDoc: string option }
+
+/// `analysis/hover` request payload — see Section 7's method table. Like
+/// `analysis/check`, the worker is stateless across requests, so the
+/// source snapshot travels with every request rather than being cached
+/// worker-side.
+type AnalysisHoverParams =
+    { DocumentUri: string
+      Version: int
+      Source: string
+      Line: int
+      Column: int }
+
+type AnalysisHoverResult = { Hover: HoverInfo option }

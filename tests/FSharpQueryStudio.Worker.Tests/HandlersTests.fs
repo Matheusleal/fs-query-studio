@@ -27,6 +27,19 @@ let private analysisCheckRequest (id: string) (source: string) : WorkerRequestFr
             Serialization.options
         ) }
 
+let private analysisHoverRequest (id: string) (source: string) (line: int) (column: int) : WorkerRequestFrame =
+    { Id = id
+      Method = "analysis/hover"
+      Params =
+        JsonSerializer.SerializeToElement<AnalysisHoverParams>(
+            { DocumentUri = "file:///workspace/sales.fsx"
+              Version = 1
+              Source = source
+              Line = line
+              Column = column },
+            Serialization.options
+        ) }
+
 [<Fact>]
 let ``dispatch on worker/health returns a Result with no Error`` () =
     task {
@@ -130,4 +143,20 @@ let ``dispatch on analysis/check returns at least one diagnostic for a script wi
         let result = JsonSerializer.Deserialize<AnalysisCheckResult>(response.Result.Value, Serialization.options)
 
         Assert.NotEmpty(result.Diagnostics)
+    }
+
+[<Fact>]
+let ``dispatch on analysis/hover returns the display name and type for a local binding`` () =
+    task {
+        // "total" ends at column 9 (0-based) on line 1: "let total = 42".
+        let! response = Handlers.handleAnalysisHover (analysisHoverRequest "h1" "let total = 42" 1 9)
+
+        Assert.True(response.Result.IsSome)
+        let result = JsonSerializer.Deserialize<AnalysisHoverResult>(response.Result.Value, Serialization.options)
+
+        match result.Hover with
+        | None -> failwith "expected hover info"
+        | Some hover ->
+            Assert.Equal("total", hover.DisplayName)
+            Assert.Equal("int", hover.Type)
     }

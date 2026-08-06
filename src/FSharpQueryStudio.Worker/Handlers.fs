@@ -162,6 +162,30 @@ module Handlers =
                   Error = None }
         }
 
+    /// Answers `analysis/hover` from the request's own source snapshot, in
+    /// a fresh analysis context per call — same stateless shape as
+    /// `handleAnalysisCheck`. `Hover = None` (nothing at that position) is
+    /// a normal, successful `Result`, never an `Error`.
+    let handleAnalysisHover (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
+        task {
+            let hoverParams =
+                JsonSerializer.Deserialize<AnalysisHoverParams>(request.Params, Serialization.options)
+
+            let workDir =
+                Path.Combine(Path.GetTempPath(), "fqs-analysis-" + Guid.NewGuid().ToString("N"))
+
+            Directory.CreateDirectory(workDir) |> ignore
+            let context = AnalysisContext.build workDir
+            let! hover = Hover.hover context hoverParams.Source hoverParams.Line hoverParams.Column
+
+            let result: AnalysisHoverResult = { Hover = hover }
+
+            return
+                { Id = request.Id
+                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                  Error = None }
+        }
+
     let dispatch (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
             match request.Method with
@@ -169,6 +193,7 @@ module Handlers =
             | "execution/evaluate" -> return handleEvaluate request
             | "execution/cancel" -> return handleCancel request
             | "analysis/check" -> return! handleAnalysisCheck request
+            | "analysis/hover" -> return! handleAnalysisHover request
             | unknown ->
                 return
                     { Id = request.Id

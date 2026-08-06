@@ -45,7 +45,11 @@ type App() =
                     | None -> ()
                 }
 
+            let checkAsync (version: int, source: string) =
+                AnalysisService.check client mainWindow.ShellViewModel.ActiveDocument.Uri version source
+
             mainWindow.WireExecution(executeAsync, cancelAsync)
+            mainWindow.ShellViewModel.CheckAsync <- Some checkAsync
             desktop.MainWindow <- mainWindow
         | _ -> ()
 

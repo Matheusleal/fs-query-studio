@@ -15,6 +15,7 @@
     <Compile Include="WorkerClientLoggingTests.fs" />
     <Compile Include="ExecutionServiceTests.fs" />
     <Compile Include="MilestoneAAcceptanceTests.fs" />
+    <Compile Include="MilestoneBAcceptanceTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

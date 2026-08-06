@@ -1,10 +1,12 @@
 module ShellViewModelTests
 
+open System
 open System.Text.Json
 open System.Threading.Tasks
 open Xunit
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Ui
+open FSharpQueryStudio.Ui.Tests
 
 [<Fact>]
 let ``exposes a WorkerState starting in the Starting state`` () =
@@ -211,3 +213,33 @@ let ``Navigate is a no-op when SendToEditor has not been configured`` () =
     vm.ActiveDocument.ApplyAnalysisResult(1, [ diagnostic ])
 
     (List.head vm.Problems).Navigate() // Must not throw.
+
+[<Fact>]
+let ``a debounced text change calls CheckAsync and applies the result through the version guard`` () =
+    let scheduler = FakeDebounceScheduler()
+    let vm = ShellViewModel(scheduler)
+
+    let diagnostic: Diagnostic =
+        { Message = "type error"
+          Severity = DiagnosticSeverity.Error
+          StartLine = 0
+          StartColumn = 14
+          EndLine = 0
+          EndColumn = 20
+          Code = None }
+
+    let mutable receivedVersion = 0
+    let mutable receivedSource = ""
+
+    vm.CheckAsync <-
+        Some(fun (version, source) ->
+            receivedVersion <- version
+            receivedSource <- source
+            Task.FromResult([ diagnostic ]))
+
+    vm.ActiveDocument.ApplyTextChanged(1, "let x : int = \"oops\"")
+    scheduler.Advance(TimeSpan.FromMilliseconds(500.0))
+
+    Assert.Equal(1, receivedVersion)
+    Assert.Equal("let x : int = \"oops\"", receivedSource)
+    Assert.Equal<Diagnostic list>([ diagnostic ], vm.ActiveDocument.Diagnostics)
