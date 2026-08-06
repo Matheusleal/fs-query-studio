@@ -9,6 +9,7 @@
     <Compile Include="SqliteConnector.fs" />
     <Compile Include="SqlServerConnector.fs" />
     <Compile Include="PostgreSqlConnector.fs" />
+    <Compile Include="CsvConnector.fs" />
   </ItemGroup>
 
   <ItemGroup>
