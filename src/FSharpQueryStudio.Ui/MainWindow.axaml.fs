@@ -29,6 +29,12 @@ type MainWindow() as this =
     let resultsView = ResultsView(DataContext = shellViewModel)
     let dockFactory = DockFactory(shellViewModel, webView, resultsView)
 
+    // Captured here (not a local `let` inside the `do` block) so
+    // `RestoreLayout`/`MainDockLayout` below — used by `App.axaml.fs` for
+    // layout persistence (Task 12) — can reach the real `DockControl`
+    // after construction.
+    let mutable dockControl: DockControl = Unchecked.defaultof<_>
+
     /// Host -> editor channel. The installed `Avalonia.Controls.WebView`
     /// (12.0.1) `NativeWebView` exposes no `PostWebMessage*` method at all
     /// — its only outbound member is `InvokeScript` — so an envelope is
@@ -64,7 +70,7 @@ type MainWindow() as this =
         AvaloniaXamlLoader.Load(this)
         this.DataContext <- shellViewModel
 
-        let dockControl = this.FindControl<DockControl>("MainDock")
+        dockControl <- this.FindControl<DockControl>("MainDock")
         let layout = dockFactory.CreateLayout()
         // `InitLayout` wires every dockable's `Factory`/`Owner` and
         // activates the default dockable — Dock.Avalonia's own init
@@ -261,6 +267,19 @@ type MainWindow() as this =
     /// Exposed so `App.axaml.fs` (and File > New/Open) can open documents
     /// as real Dock tabs, and so layout persistence can reach the layout.
     member _.DockFactory = dockFactory
+
+    /// The live root layout currently assigned to the real `DockControl` —
+    /// read by `App.axaml.fs` on `Closing` to serialize the current
+    /// arrangement (Task 12).
+    member _.MainDockLayout = dockControl.Layout
+
+    /// Assigns a previously-serialized layout (already run through
+    /// `dockFactory.InitLayout`) back onto the real `DockControl` — used
+    /// by `App.axaml.fs` at startup to restore a saved arrangement (Task
+    /// 12). Kept as a separate member rather than exposing `dockControl`
+    /// itself, matching how `DockFactory`/`ThemeService` are exposed as
+    /// narrow surfaces rather than raw fields.
+    member _.RestoreLayout(root: Dock.Model.Controls.IRootDock) = dockControl.Layout <- root
 
     /// Composition root: wires `shellViewModel`'s `ExecuteAsync`/
     /// `CancelAsync`/`ResetSession` to a real worker process — set once,

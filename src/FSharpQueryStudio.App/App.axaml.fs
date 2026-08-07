@@ -6,6 +6,9 @@ open Avalonia
 open Avalonia.Controls.ApplicationLifetimes
 open Avalonia.Input.Platform
 open Avalonia.Markup.Xaml
+open Avalonia.Styling
+open Dock.Model.Controls
+open Dock.Serializer.SystemTextJson
 open Serilog
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Ui
@@ -18,7 +21,28 @@ type App() =
     override this.OnFrameworkInitializationCompleted() =
         match this.ApplicationLifetime with
         | :? IClassicDesktopStyleApplicationLifetime as desktop ->
+            // UI-Foundation.12: load the persisted theme/layout choice
+            // before building the window, so the saved theme can be
+            // applied to a freshly-constructed `MainWindow` (which always
+            // starts Dark) rather than flashing the default theme first.
+            let appDataDir =
+                Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "FSharpQueryStudio"
+                )
+
+            let uiState = FSharpQueryStudio.Storage.UiState.read appDataDir
+
+            let startupTheme =
+                match uiState.Theme with
+                | "Light" -> Theme.Light
+                | _ -> Theme.Dark
+
             let mainWindow = MainWindow()
+
+            if startupTheme = Theme.Light then
+                mainWindow.ThemeService.Toggle()
+                this.RequestedThemeVariant <- ThemeVariant.Light
 
             // Composition root (Section 4's App responsibility): the one
             // place a real WorkerClient gets constructed and wired into
@@ -65,6 +89,51 @@ type App() =
             // the shell actually reached a usable state rather than just
             // "the process didn't crash yet".
             mainWindow.Opened.Add(fun _ -> Log.Information("Host window ready"))
+
+            // UI-Foundation.12: restore a saved dock layout on top of the
+            // default one `MainWindow`'s constructor already built. A
+            // missing `DockLayout` (fresh install) or a corrupt/
+            // incompatible one (older app version, hand-edited file) must
+            // never block startup - the `try`/`with` falls back to the
+            // default layout that's already in place either way.
+            match uiState.DockLayout with
+            | None -> ()
+            | Some layoutJson ->
+                try
+                    let json = layoutJson.GetRawText()
+                    let restored = DockSerializer().Deserialize<IRootDock>(json)
+
+                    match restored with
+                    | null -> ()
+                    | restored ->
+                        mainWindow.DockFactory.InitLayout(restored)
+                        mainWindow.RestoreLayout(restored)
+                with ex ->
+                    Log.Warning(ex, "Failed to restore saved dock layout; using the default layout")
+
+            // UI-Foundation.12: persist both the current theme and dock
+            // layout on close, so the next launch can restore them via
+            // `uiState` above. Layout serialization failure (e.g. a
+            // future incompatible Dock.Avalonia upgrade) must not stop
+            // the window from closing or lose the theme choice, so it's
+            // isolated in its own `try`/`with` and downgrades to `None`
+            // rather than propagating.
+            mainWindow.Closing.Add(fun _ ->
+                let layoutJson =
+                    try
+                        let serializer = DockSerializer()
+                        let json = serializer.Serialize(mainWindow.MainDockLayout)
+                        Some(System.Text.Json.JsonDocument.Parse(json).RootElement)
+                    with ex ->
+                        Log.Warning(ex, "Failed to serialize dock layout for persistence")
+                        None
+
+                let theme =
+                    match mainWindow.ThemeService.Current with
+                    | Theme.Light -> "Light"
+                    | Theme.Dark -> "Dark"
+
+                FSharpQueryStudio.Storage.UiState.write appDataDir { Theme = theme; DockLayout = layoutJson })
 
             desktop.MainWindow <- mainWindow
         | _ -> ()
