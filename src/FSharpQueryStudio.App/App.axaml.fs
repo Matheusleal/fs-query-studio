@@ -8,6 +8,7 @@ open Avalonia.Input.Platform
 open Avalonia.Markup.Xaml
 open Avalonia.Styling
 open Dock.Model.Controls
+open Dock.Model.Core
 open Serilog
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Ui
@@ -37,8 +38,19 @@ type App() =
             // `DockSerializer()` can't be used as-is: it throws on any
             // real dock tree (a genuine reference-cycle bug in the
             // installed v12.1.0 package, reproduced empirically, not
-            // merely suspected).
-            let layoutSerializer = LayoutSerializer.create ()
+            // merely suspected). `create()` itself reaches into an
+            // `internal` type of that package via reflection - wrapped in
+            // its own `try`/`with` (rather than relying on the two guarded
+            // call sites below) so a future package upgrade that
+            // renames/removes that type disables layout persistence for
+            // the session instead of taking the whole app down before a
+            // window ever opens.
+            let layoutSerializer =
+                try
+                    Some(LayoutSerializer.create ())
+                with ex ->
+                    Log.Warning(ex, "Failed to build the dock layout serializer; layout persistence disabled for this session")
+                    None
 
             let startupTheme =
                 match uiState.Theme with
@@ -99,32 +111,59 @@ type App() =
 
             // UI-Foundation.12: restore a saved dock layout on top of the
             // default one `MainWindow`'s constructor already built. A
-            // missing `DockLayout` (fresh install) or a corrupt/
-            // incompatible one (older app version, hand-edited file) must
-            // never block startup - the `try`/`with` falls back to the
-            // default layout that's already in place either way.
-            match uiState.DockLayout with
-            | None -> ()
-            | Some layoutJson ->
+            // missing `DockLayout` (fresh install), a missing serializer
+            // (see above), or a corrupt/incompatible saved layout (older
+            // app version, hand-edited file) must never block startup -
+            // the `try`/`with` falls back to the default layout that's
+            // already in place either way.
+            match uiState.DockLayout, layoutSerializer with
+            | None, _
+            | _, None -> ()
+            | Some layoutJson, Some serializer ->
                 try
                     let json = layoutJson.GetRawText()
-                    let restored = layoutSerializer.Deserialize<IRootDock>(json)
+                    let restored = serializer.Deserialize<IRootDock>(json)
 
                     match restored with
                     | null -> ()
                     | restored ->
+                        // The same nested-Serialize-per-list-boundary
+                        // defect that motivated LayoutSerializer.create's
+                        // Owner strip also duplicates
+                        // ActiveDockable/DefaultDockable/FocusedDockable
+                        // instead of referencing the real
+                        // VisibleDockables entry - repair that BEFORE
+                        // InitLayout, or InitLayout would wire Owner/
+                        // Factory onto the orphaned duplicate branch
+                        // instead of the one actually reachable from the
+                        // tree.
+                        LayoutSerializer.normalize (restored :> IDockable)
                         mainWindow.DockFactory.InitLayout(restored)
-                        // Document tabs never survive the JSON round-trip
-                        // (see `DockFactory.SerializeLayout`'s doc
-                        // comment) - graft the live `DocumentDock` (the
-                        // real, still-open tab(s)) back into the restored
-                        // structural tree before it becomes visible, then
-                        // re-run InitLayout so the grafted node's
-                        // Owner/Factory point into its new restored
-                        // parent correctly.
-                        mainWindow.DockFactory.RestoreDocumentTabs(restored) |> ignore
-                        mainWindow.DockFactory.InitLayout(restored)
-                        mainWindow.RestoreLayout(restored)
+
+                        // Document tabs and tool-pane live content
+                        // (WebView/ResultsView) never survive the JSON
+                        // round-trip (see DockFactory.SerializeLayout's
+                        // and RestoreToolPanes' doc comments) - graft the
+                        // live objects back into the restored structural
+                        // tree before it becomes visible. Either grafting
+                        // failing (a saved layout missing an expected
+                        // Id - e.g. from an older, incompatible version)
+                        // is treated the same as any other restore
+                        // failure: fall back to the default layout rather
+                        // than show a broken partial restore.
+                        let documentsRestored = mainWindow.DockFactory.RestoreDocumentTabs(restored)
+                        let toolPanesRestored = mainWindow.DockFactory.RestoreToolPanes(restored)
+
+                        if documentsRestored && toolPanesRestored then
+                            // Re-run InitLayout so the grafted nodes'
+                            // Owner/Factory point into their new restored
+                            // parents correctly.
+                            mainWindow.DockFactory.InitLayout(restored)
+                            mainWindow.RestoreLayout(restored)
+                        else
+                            Log.Warning(
+                                "Saved dock layout was missing an expected pane; using the default layout instead"
+                            )
                 with ex ->
                     Log.Warning(ex, "Failed to restore saved dock layout; using the default layout")
 
@@ -137,14 +176,15 @@ type App() =
             // rather than propagating.
             mainWindow.Closing.Add(fun _ ->
                 let layoutJson =
-                    try
-                        let json =
-                            mainWindow.DockFactory.SerializeLayout(layoutSerializer, mainWindow.MainDockLayout)
-
-                        Some(System.Text.Json.JsonDocument.Parse(json).RootElement)
-                    with ex ->
-                        Log.Warning(ex, "Failed to serialize dock layout for persistence")
-                        None
+                    match layoutSerializer with
+                    | None -> None
+                    | Some serializer ->
+                        try
+                            let json = mainWindow.DockFactory.SerializeLayout(serializer, mainWindow.MainDockLayout)
+                            Some(System.Text.Json.JsonDocument.Parse(json).RootElement)
+                        with ex ->
+                            Log.Warning(ex, "Failed to serialize dock layout for persistence")
+                            None
 
                 let theme =
                     match mainWindow.ThemeService.Current with

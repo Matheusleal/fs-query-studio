@@ -2,6 +2,7 @@ namespace FSharpQueryStudio.Ui
 
 open System
 open System.Text.Json.Serialization.Metadata
+open Dock.Model.Core
 open Dock.Serializer.SystemTextJson
 
 /// Builds the `DockSerializer` layout persistence (`App.axaml.fs`, Task
@@ -67,3 +68,64 @@ module LayoutSerializer =
                     prop.Get <- null)
 
         DockSerializer(resolver :> IJsonTypeInfoResolver)
+
+    /// The same nested-`Serialize`-per-list-boundary defect behind the
+    /// cycle above (see the module doc comment) has a second symptom:
+    /// `ActiveDockable`/`DefaultDockable`/`FocusedDockable` are written
+    /// *inline* within their owning `IDock`'s own serialize call (so
+    /// `Preserve` correctly tags the first occurrence there), but that
+    /// same instance also gets written a second time - as an unrelated,
+    /// full duplicate copy, not a `$ref` - when its owner's
+    /// `VisibleDockables` list is written moments later via the nested
+    /// per-item nested call `JsonConverterList<T>.Write` makes. After
+    /// deserialize, `dock.ActiveDockable` and `dock.VisibleDockables.[i]`
+    /// that are supposed to be the *same* dockable are two structurally
+    /// identical but reference-distinct objects - confirmed empirically
+    /// (`root.ActiveDockable` fails a reference-equality check against
+    /// `root.VisibleDockables.[0]` after a real round-trip, and the same
+    /// failure recurs at every `IDock` level, not just the root). A
+    /// fresh, non-restored layout never has this duplication.
+    ///
+    /// Repairs it by walking the tree and, for each `IDock`, replacing
+    /// `ActiveDockable`/`DefaultDockable`/`FocusedDockable` with the
+    /// matching entry from that same dock's own `VisibleDockables` list
+    /// whenever it isn't already one of them by reference. Matching is
+    /// done *locally* per container (by `Id` when the duplicate's `Id` is
+    /// non-null and found among the children, falling back to "the only
+    /// child" when there's exactly one) rather than via a single
+    /// tree-wide `Id`-keyed map: several containers in a typical layout
+    /// (this app's `ProportionalDock` rows/columns, for instance) never
+    /// get an `Id` assigned at all, so a global map keyed by `Id` would
+    /// silently collide different anonymous nodes onto the same key.
+    /// Call this on a freshly deserialized tree before `InitLayout`.
+    let normalize (root: IDockable) : unit =
+        let resolveDuplicate (dock: IDock) (current: IDockable) : IDockable option =
+            if isNull (box current) then
+                None
+            elif dock.VisibleDockables |> Seq.exists (fun d -> obj.ReferenceEquals(d, current)) then
+                None // already one of this dock's own children - not a duplicate
+            else
+                match
+                    dock.VisibleDockables
+                    |> Seq.tryFind (fun d -> not (isNull current.Id) && d.Id = current.Id)
+                with
+                | Some byId -> Some byId
+                | None -> if dock.VisibleDockables.Count = 1 then Some dock.VisibleDockables.[0] else None
+
+        let repoint (dock: IDock) (get: unit -> IDockable) (set: IDockable -> unit) =
+            match resolveDuplicate dock (get ()) with
+            | Some canonical -> set canonical
+            | None -> ()
+
+        let rec walk (node: IDockable) =
+            match node with
+            | :? IDock as dock ->
+                repoint dock (fun () -> dock.ActiveDockable) (fun v -> dock.ActiveDockable <- v)
+                repoint dock (fun () -> dock.DefaultDockable) (fun v -> dock.DefaultDockable <- v)
+                repoint dock (fun () -> dock.FocusedDockable) (fun v -> dock.FocusedDockable <- v)
+
+                for child in dock.VisibleDockables do
+                    walk child
+            | _ -> ()
+
+        walk root

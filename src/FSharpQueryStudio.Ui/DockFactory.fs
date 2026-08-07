@@ -162,6 +162,21 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
             documentDock.VisibleDockables.Add(scriptDoc)
             this.SetActiveDockable(scriptDoc) |> ignore
 
+    /// Finds the first `IDockable` in `root`'s tree (searched via
+    /// `VisibleDockables`, the containment relationship, not `Owner`)
+    /// whose `Id` equals `id`. Shared by every restore-time graft below.
+    static member private FindById(id: string, root: IDockable) : IDockable option =
+        let rec walk (node: IDockable) : IDockable option =
+            if node.Id = id then
+                Some node
+            else
+                match node with
+                | :? IDock as dock when not (isNull (box dock.VisibleDockables)) ->
+                    dock.VisibleDockables |> Seq.tryPick walk
+                | _ -> None
+
+        walk root
+
     /// Serializes `root` for persistence (Task 12), working around the
     /// installed serializer's inability to round-trip document tabs:
     /// `ScriptDocument` has only a 3-argument constructor (it needs a
@@ -177,6 +192,14 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
     /// one `Serialize` call and restored immediately after, live tabs
     /// completely unaffected. `RestoreDocumentTabs` below is the other
     /// half of this round-trip.
+    ///
+    /// Restoring `documentDock.ActiveDockable` in the `finally` re-fires
+    /// `ActiveDockableChanged` -> `DocumentActivated` -> a
+    /// `DocumentLoaded` bridge push into the WebView, on every window
+    /// close. Harmless today only because `postToEditor` (in
+    /// `MainWindow.axaml.fs`) already swallows a closing/closed WebView
+    /// throwing - if that guard ever moves, this call site would need
+    /// its own.
     member _.SerializeLayout(serializer: DockSerializer, root: IDock) : string =
         let originalVisible = documentDock.VisibleDockables
         let originalActive = documentDock.ActiveDockable
@@ -197,18 +220,64 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
     /// which (unlike `Owner`) is a plain `[DataMember]` string and does
     /// round-trip — and replaces it with the live `documentDock`
     /// instance, so the restored layout shows the real, still-open
-    /// tab(s) instead of an empty document pane. Returns `false` (a
-    /// no-op, not an error) if `root` doesn't contain a node with
+    /// tab(s) instead of an empty document pane. The placeholder's own
+    /// `Proportion` (correctly restored - only its tab *content* was
+    /// excluded from the wire) is copied onto the live `documentDock`
+    /// first, so grafting the live object back doesn't silently discard
+    /// the document pane's last-saved size. Returns `false` (a no-op,
+    /// not an error) if `root` doesn't contain a node with
     /// `documentDock`'s `Id` at all.
     member _.RestoreDocumentTabs(root: IDockable) : bool =
-        let rec walk (node: IDockable) : bool =
-            match node with
-            | :? IDock as dock when not (isNull (box dock.VisibleDockables)) ->
-                match dock.VisibleDockables |> Seq.tryFindIndex (fun d -> d.Id = documentDock.Id) with
-                | Some i ->
-                    dock.VisibleDockables.[i] <- (documentDock :> IDockable)
-                    true
-                | None -> dock.VisibleDockables |> Seq.exists walk
-            | _ -> false
+        match DockFactory.FindById(documentDock.Id, root) with
+        | None -> false
+        | Some placeholder ->
+            documentDock.Proportion <- placeholder.Proportion
 
-        walk root
+            let rec replace (node: IDockable) : bool =
+                match node with
+                | :? IDock as dock when not (isNull (box dock.VisibleDockables)) ->
+                    match dock.VisibleDockables |> Seq.tryFindIndex (fun d -> d.Id = documentDock.Id) with
+                    | Some i ->
+                        dock.VisibleDockables.[i] <- (documentDock :> IDockable)
+                        true
+                    | None -> dock.VisibleDockables |> Seq.exists replace
+                | _ -> false
+
+            replace root
+
+    /// The tool-pane counterpart of `RestoreDocumentTabs`: `resultsTool`'s
+    /// `Context` (the real `ResultsView` control) is `[IgnoreDataMember]`
+    /// for the same reason `ScriptDocument.Context` is, so it always
+    /// deserializes as `null` - and, separate from that, this
+    /// `DockFactory`'s own cached `workspaceDock`/`resultsDock`/
+    /// `workspaceTool`/`resultsTool` fields still point at the pre-restore
+    /// objects that (after this call site swaps `dockControl.Layout` to
+    /// the restored tree) are no longer actually in the tree at all -
+    /// `MainWindow`'s View-menu hide/show toggles (Task 11) read those
+    /// fields, so leaving them stale would make the toggles silent
+    /// no-ops post-restore.
+    ///
+    /// Unlike `RestoreDocumentTabs`, this does *not* graft the live
+    /// `ToolDock` objects wholesale - the restored `ToolDock`/`Tool`
+    /// nodes correctly carry the persisted `Proportion`/`Alignment` (that
+    /// survives the round-trip cleanly, unlike document content), so
+    /// overwriting them with the pre-restore live objects would throw
+    /// that away. Instead this finds the restored nodes by `Id`, repairs
+    /// just `resultsTool`'s `Context`, and repoints the cached fields at
+    /// the restored instances. Returns `false` (a no-op) if either tool
+    /// pane isn't found in `root` at all.
+    member _.RestoreToolPanes(root: IDockable) : bool =
+        match
+            DockFactory.FindById(workspaceDock.Id, root),
+            DockFactory.FindById(resultsDock.Id, root),
+            DockFactory.FindById(workspaceTool.Id, root),
+            DockFactory.FindById(resultsTool.Id, root)
+        with
+        | Some(:? IToolDock as rw), Some(:? IToolDock as rr), Some rwt, Some rrt ->
+            rrt.Context <- resultsContent
+            workspaceDock <- rw
+            resultsDock <- rr
+            workspaceTool <- rwt
+            resultsTool <- rrt
+            true
+        | _ -> false
