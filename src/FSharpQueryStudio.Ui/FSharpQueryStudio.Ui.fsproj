@@ -15,6 +15,7 @@
     <Compile Include="ShellViewModel.fs" />
     <Compile Include="ScriptDocument.fs" />
     <Compile Include="DockFactory.fs" />
+    <Compile Include="LayoutSerializer.fs" />
     <Compile Include="ResultsView.axaml.fs" />
     <Compile Include="MainWindow.axaml.fs" />
   </ItemGroup>

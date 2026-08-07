@@ -8,7 +8,6 @@ open Avalonia.Input.Platform
 open Avalonia.Markup.Xaml
 open Avalonia.Styling
 open Dock.Model.Controls
-open Dock.Serializer.SystemTextJson
 open Serilog
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Ui
@@ -32,6 +31,14 @@ type App() =
                 )
 
             let uiState = FSharpQueryStudio.Storage.UiState.read appDataDir
+
+            // Built once, used for both directions below. See
+            // `LayoutSerializer`'s doc comment for why a plain
+            // `DockSerializer()` can't be used as-is: it throws on any
+            // real dock tree (a genuine reference-cycle bug in the
+            // installed v12.1.0 package, reproduced empirically, not
+            // merely suspected).
+            let layoutSerializer = LayoutSerializer.create ()
 
             let startupTheme =
                 match uiState.Theme with
@@ -101,11 +108,21 @@ type App() =
             | Some layoutJson ->
                 try
                     let json = layoutJson.GetRawText()
-                    let restored = DockSerializer().Deserialize<IRootDock>(json)
+                    let restored = layoutSerializer.Deserialize<IRootDock>(json)
 
                     match restored with
                     | null -> ()
                     | restored ->
+                        mainWindow.DockFactory.InitLayout(restored)
+                        // Document tabs never survive the JSON round-trip
+                        // (see `DockFactory.SerializeLayout`'s doc
+                        // comment) - graft the live `DocumentDock` (the
+                        // real, still-open tab(s)) back into the restored
+                        // structural tree before it becomes visible, then
+                        // re-run InitLayout so the grafted node's
+                        // Owner/Factory point into its new restored
+                        // parent correctly.
+                        mainWindow.DockFactory.RestoreDocumentTabs(restored) |> ignore
                         mainWindow.DockFactory.InitLayout(restored)
                         mainWindow.RestoreLayout(restored)
                 with ex ->
@@ -121,8 +138,9 @@ type App() =
             mainWindow.Closing.Add(fun _ ->
                 let layoutJson =
                     try
-                        let serializer = DockSerializer()
-                        let json = serializer.Serialize(mainWindow.MainDockLayout)
+                        let json =
+                            mainWindow.DockFactory.SerializeLayout(layoutSerializer, mainWindow.MainDockLayout)
+
                         Some(System.Text.Json.JsonDocument.Parse(json).RootElement)
                     with ex ->
                         Log.Warning(ex, "Failed to serialize dock layout for persistence")

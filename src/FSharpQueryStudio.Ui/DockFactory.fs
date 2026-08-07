@@ -1,9 +1,11 @@
 namespace FSharpQueryStudio.Ui
 
+open System.Collections.Generic
 open Dock.Model.Core
 open Dock.Model.Controls
 open Dock.Model.Mvvm
 open Dock.Model.Mvvm.Controls
+open Dock.Serializer.SystemTextJson
 
 /// Builds and owns the VS-shaped default dock layout (Section 5's
 /// workspace/document/results panes) and keeps it in sync with
@@ -159,3 +161,54 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
             let scriptDoc = ScriptDocument(doc, shell, editorContent)
             documentDock.VisibleDockables.Add(scriptDoc)
             this.SetActiveDockable(scriptDoc) |> ignore
+
+    /// Serializes `root` for persistence (Task 12), working around the
+    /// installed serializer's inability to round-trip document tabs:
+    /// `ScriptDocument` has only a 3-argument constructor (it needs a
+    /// live `DocumentViewModel`/`ShellViewModel`/editor control), so
+    /// System.Text.Json can never deserialize one back — confirmed
+    /// empirically (`InvalidOperationException` on the deserialization
+    /// constructor, "must bind to an object property or field"). Tab
+    /// *content* was never going to survive a restart anyway, the same
+    /// reason `ScriptDocument.Context` (the shared WebView) is already
+    /// `[IgnoreDataMember]` — what should survive is the structural
+    /// layout around it (pane sizes/alignment/visibility). So
+    /// `documentDock`'s tab content is emptied for the duration of this
+    /// one `Serialize` call and restored immediately after, live tabs
+    /// completely unaffected. `RestoreDocumentTabs` below is the other
+    /// half of this round-trip.
+    member _.SerializeLayout(serializer: DockSerializer, root: IDock) : string =
+        let originalVisible = documentDock.VisibleDockables
+        let originalActive = documentDock.ActiveDockable
+        let originalDefault = documentDock.DefaultDockable
+
+        try
+            documentDock.VisibleDockables <- ResizeArray<IDockable>() :> IList<IDockable>
+            documentDock.ActiveDockable <- Unchecked.defaultof<IDockable>
+            documentDock.DefaultDockable <- Unchecked.defaultof<IDockable>
+            serializer.Serialize<IDock>(root)
+        finally
+            documentDock.VisibleDockables <- originalVisible
+            documentDock.ActiveDockable <- originalActive
+            documentDock.DefaultDockable <- originalDefault
+
+    /// The other half of `SerializeLayout`: finds the empty `documentDock`
+    /// placeholder inside a freshly restored tree — matched by `Id`,
+    /// which (unlike `Owner`) is a plain `[DataMember]` string and does
+    /// round-trip — and replaces it with the live `documentDock`
+    /// instance, so the restored layout shows the real, still-open
+    /// tab(s) instead of an empty document pane. Returns `false` (a
+    /// no-op, not an error) if `root` doesn't contain a node with
+    /// `documentDock`'s `Id` at all.
+    member _.RestoreDocumentTabs(root: IDockable) : bool =
+        let rec walk (node: IDockable) : bool =
+            match node with
+            | :? IDock as dock when not (isNull (box dock.VisibleDockables)) ->
+                match dock.VisibleDockables |> Seq.tryFindIndex (fun d -> d.Id = documentDock.Id) with
+                | Some i ->
+                    dock.VisibleDockables.[i] <- (documentDock :> IDockable)
+                    true
+                | None -> dock.VisibleDockables |> Seq.exists walk
+            | _ -> false
+
+        walk root
