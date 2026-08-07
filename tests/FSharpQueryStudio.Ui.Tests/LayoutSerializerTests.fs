@@ -208,3 +208,68 @@ let ``Full restore sequence leaves ActiveDockable reachable from VisibleDockable
     | _ -> Assert.Fail("expected to find the restored DocumentDock")
 
     Assert.Same(liveResultsContent, factory.ResultsTool.Context)
+
+[<Fact>]
+let ``A hidden tool pane still round-trips - CanRestore and RestoreToolPanes both find it`` () =
+    // IFactory.HideDockable moves a tool out of VisibleDockables into
+    // IRootDock.HiddenDockables - a FindById that only searched
+    // VisibleDockables (the original round-3 bug) would treat this as
+    // "missing" on every subsequent restore, discarding the ENTIRE saved
+    // layout, not just the hidden pane's own state.
+    let _, factory, layout = rebuild ()
+    (factory :> IFactory).HideDockable(factory.WorkspaceTool) |> ignore
+
+    let isHiddenBeforeSave =
+        not (factory.WorkspaceDock.VisibleDockables |> Seq.exists (fun d -> obj.ReferenceEquals(d, factory.WorkspaceTool)))
+
+    Assert.True(isHiddenBeforeSave) // sanity: HideDockable really did move it out
+
+    let serializer = LayoutSerializer.create ()
+    let json = factory.SerializeLayout(serializer, layout :> IDock)
+    let restored = serializer.Deserialize<IRootDock>(json)
+    LayoutSerializer.normalize (restored :> IDockable)
+    factory.InitLayout(restored)
+
+    Assert.True(factory.CanRestore(restored :> IDockable))
+
+    let documentsOk = factory.RestoreDocumentTabs(restored :> IDockable)
+    let toolPanesOk = factory.RestoreToolPanes(restored :> IDockable)
+
+    Assert.True(documentsOk)
+    Assert.True(toolPanesOk)
+
+[<Fact>]
+let ``CanRestore false leaves DockFactory's cached fields and documentDock.Proportion untouched`` () =
+    // Reproduces the ordering bug directly: if RestoreDocumentTabs/
+    // RestoreToolPanes ran unconditionally before checking whether the
+    // OTHER one succeeded, a saved layout missing just one pane's Id
+    // (an old/hand-edited ui-state.json - simulated here by renaming
+    // "Documents" in the saved JSON) would still mutate DockFactory's
+    // live state for the pane it DID find, even though the restore as a
+    // whole gets rejected and the default layout stays on screen.
+    // CanRestore, checked before either mutating call, must prevent that
+    // entirely.
+    let _, factory, layout = rebuild ()
+    let preRestoreResultsDock = factory.ResultsDock
+    let preRestoreWorkspaceDock = factory.WorkspaceDock
+    let preRestoreResultsToolContext = factory.ResultsTool.Context
+    let preRestoreDocumentProportion = factory.DocumentDock.Proportion
+
+    let serializer = LayoutSerializer.create ()
+    let json = factory.SerializeLayout(serializer, layout :> IDock)
+    let corruptedJson = json.Replace("\"Documents\"", "\"DocumentsOld\"")
+
+    let restored = serializer.Deserialize<IRootDock>(corruptedJson)
+    LayoutSerializer.normalize (restored :> IDockable)
+    factory.InitLayout(restored)
+
+    Assert.False(factory.CanRestore(restored :> IDockable))
+
+    // The real assertion: DockFactory's live state is exactly as it was
+    // before any restore attempt - RestoreDocumentTabs/RestoreToolPanes
+    // were never called at all, because App.axaml.fs's real flow (and
+    // this test, mirroring it) gates them on CanRestore first.
+    Assert.Same(preRestoreResultsDock, factory.ResultsDock)
+    Assert.Same(preRestoreWorkspaceDock, factory.WorkspaceDock)
+    Assert.Same(preRestoreResultsToolContext, factory.ResultsTool.Context)
+    Assert.Equal(preRestoreDocumentProportion, factory.DocumentDock.Proportion)

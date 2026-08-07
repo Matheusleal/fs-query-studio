@@ -145,21 +145,46 @@ type App() =
                         // round-trip (see DockFactory.SerializeLayout's
                         // and RestoreToolPanes' doc comments) - graft the
                         // live objects back into the restored structural
-                        // tree before it becomes visible. Either grafting
-                        // failing (a saved layout missing an expected
-                        // Id - e.g. from an older, incompatible version)
-                        // is treated the same as any other restore
-                        // failure: fall back to the default layout rather
-                        // than show a broken partial restore.
-                        let documentsRestored = mainWindow.DockFactory.RestoreDocumentTabs(restored)
-                        let toolPanesRestored = mainWindow.DockFactory.RestoreToolPanes(restored)
+                        // tree before it becomes visible.
+                        //
+                        // CanRestore is checked FIRST, as a pure dry run,
+                        // before calling either mutating graft. Both
+                        // RestoreDocumentTabs/RestoreToolPanes mutate live
+                        // DockFactory state the moment they find their
+                        // pane (RestoreToolPanes repoints DockFactory's
+                        // cached tool-pane fields; RestoreDocumentTabs
+                        // writes documentDock.Proportion) - calling either
+                        // one unconditionally and only deciding afterward
+                        // whether to use the result would, on a saved
+                        // layout missing just one of the two panes (an
+                        // old/hand-edited ui-state.json), leave
+                        // DockFactory's live state pointing partway into
+                        // the tree this `else` branch is about to reject -
+                        // reproducing the exact "View-menu toggle is a
+                        // silent no-op" symptom RestoreToolPanes exists to
+                        // fix, just reached by a different path. Gating on
+                        // CanRestore first means a rejected restore never
+                        // mutates anything at all.
+                        if mainWindow.DockFactory.CanRestore(restored) then
+                            let documentsRestored = mainWindow.DockFactory.RestoreDocumentTabs(restored)
+                            let toolPanesRestored = mainWindow.DockFactory.RestoreToolPanes(restored)
 
-                        if documentsRestored && toolPanesRestored then
-                            // Re-run InitLayout so the grafted nodes'
-                            // Owner/Factory point into their new restored
-                            // parents correctly.
-                            mainWindow.DockFactory.InitLayout(restored)
-                            mainWindow.RestoreLayout(restored)
+                            if documentsRestored && toolPanesRestored then
+                                // Re-run InitLayout so the grafted nodes'
+                                // Owner/Factory point into their new
+                                // restored parents correctly.
+                                mainWindow.DockFactory.InitLayout(restored)
+                                mainWindow.RestoreLayout(restored)
+                            else
+                                // Shouldn't happen - CanRestore already
+                                // confirmed both panes are present - but
+                                // logged rather than assumed, in case a
+                                // future change makes CanRestore and the
+                                // two graft methods disagree about what
+                                // "found" means.
+                                Log.Warning(
+                                    "Saved dock layout passed CanRestore but a graft still failed; using the default layout instead"
+                                )
                         else
                             Log.Warning(
                                 "Saved dock layout was missing an expected pane; using the default layout instead"

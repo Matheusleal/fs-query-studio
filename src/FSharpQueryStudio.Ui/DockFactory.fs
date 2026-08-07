@@ -162,17 +162,35 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
             documentDock.VisibleDockables.Add(scriptDoc)
             this.SetActiveDockable(scriptDoc) |> ignore
 
+    /// Every `IDockable` list a node might keep children in — not just
+    /// `VisibleDockables`. `IFactory.HideDockable` (Task 11's View-menu
+    /// toggle) moves a tool out of `VisibleDockables` into
+    /// `IRootDock.HiddenDockables`, and that list round-trips through
+    /// JSON correctly (confirmed empirically) - a `FindById` that only
+    /// looked at `VisibleDockables` would never find a hidden pane on
+    /// restore. The four `*PinnedDockables` lists are included for the
+    /// same reason (a pinned/auto-hide dockable lives there, not in
+    /// `VisibleDockables`, on the real `Dock.Avalonia` pinning gesture),
+    /// even though nothing in this app currently pins anything.
+    static member private ChildLists(dock: IDock) : IList<IDockable> list =
+        [ dock.VisibleDockables ]
+        @ (match dock with
+           | :? IRootDock as r ->
+               [ r.HiddenDockables; r.LeftPinnedDockables; r.RightPinnedDockables; r.TopPinnedDockables; r.BottomPinnedDockables ]
+           | _ -> [])
+        |> List.filter (fun l -> not (isNull (box l)))
+
     /// Finds the first `IDockable` in `root`'s tree (searched via
-    /// `VisibleDockables`, the containment relationship, not `Owner`)
-    /// whose `Id` equals `id`. Shared by every restore-time graft below.
+    /// `ChildLists`, the containment relationship, not `Owner`) whose
+    /// `Id` equals `id`. Shared by every restore-time graft below.
     static member private FindById(id: string, root: IDockable) : IDockable option =
         let rec walk (node: IDockable) : IDockable option =
             if node.Id = id then
                 Some node
             else
                 match node with
-                | :? IDock as dock when not (isNull (box dock.VisibleDockables)) ->
-                    dock.VisibleDockables |> Seq.tryPick walk
+                | :? IDock as dock ->
+                    DockFactory.ChildLists(dock) |> List.tryPick (fun l -> l |> Seq.tryPick walk)
                 | _ -> None
 
         walk root
@@ -215,6 +233,25 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
             documentDock.ActiveDockable <- originalActive
             documentDock.DefaultDockable <- originalDefault
 
+    /// Dry-run check for whether `root` contains every pane
+    /// `RestoreDocumentTabs`/`RestoreToolPanes` need — the document dock
+    /// and both tool docks/tools, searched the same way `FindById`
+    /// searches (so a hidden pane still counts as present). Mutates
+    /// nothing. Callers MUST check this before calling either mutating
+    /// method: both graft/repoint live state as they run (splicing the
+    /// live `documentDock` in, repointing `DockFactory`'s cached
+    /// tool-pane fields), and if the restore as a whole is going to be
+    /// rejected because just one of the two panes is missing (an
+    /// old/hand-edited `ui-state.json`, for instance), running the
+    /// mutating half that *did* find its pane first would leave
+    /// `DockFactory`'s live state pointing partway into a tree that's
+    /// about to be discarded in favor of the default layout — the same
+    /// "View-menu toggle is a silent no-op" symptom `RestoreToolPanes`
+    /// exists to fix, just reached a different way.
+    member _.CanRestore(root: IDockable) : bool =
+        [ documentDock.Id; workspaceDock.Id; resultsDock.Id; workspaceTool.Id; resultsTool.Id ]
+        |> List.forall (fun id -> (DockFactory.FindById(id, root)).IsSome)
+
     /// The other half of `SerializeLayout`: finds the empty `documentDock`
     /// placeholder inside a freshly restored tree — matched by `Id`,
     /// which (unlike `Owner`) is a plain `[DataMember]` string and does
@@ -226,7 +263,12 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
     /// first, so grafting the live object back doesn't silently discard
     /// the document pane's last-saved size. Returns `false` (a no-op,
     /// not an error) if `root` doesn't contain a node with
-    /// `documentDock`'s `Id` at all.
+    /// `documentDock`'s `Id` at all — but this still mutates
+    /// `documentDock.Proportion` even on that path if a same-named node
+    /// merely can't be spliced in (can't currently happen given
+    /// `FindById`/`replace` search identically, but callers should still
+    /// gate this on `CanRestore(root)` first, same as `RestoreToolPanes`,
+    /// rather than rely on that invariant holding forever).
     member _.RestoreDocumentTabs(root: IDockable) : bool =
         match DockFactory.FindById(documentDock.Id, root) with
         | None -> false
@@ -235,12 +277,12 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
 
             let rec replace (node: IDockable) : bool =
                 match node with
-                | :? IDock as dock when not (isNull (box dock.VisibleDockables)) ->
+                | :? IDock as dock ->
                     match dock.VisibleDockables |> Seq.tryFindIndex (fun d -> d.Id = documentDock.Id) with
                     | Some i ->
                         dock.VisibleDockables.[i] <- (documentDock :> IDockable)
                         true
-                    | None -> dock.VisibleDockables |> Seq.exists replace
+                    | None -> DockFactory.ChildLists(dock) |> List.exists (Seq.exists replace)
                 | _ -> false
 
             replace root
@@ -262,10 +304,18 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
     /// nodes correctly carry the persisted `Proportion`/`Alignment` (that
     /// survives the round-trip cleanly, unlike document content), so
     /// overwriting them with the pre-restore live objects would throw
-    /// that away. Instead this finds the restored nodes by `Id`, repairs
-    /// just `resultsTool`'s `Context`, and repoints the cached fields at
-    /// the restored instances. Returns `false` (a no-op) if either tool
-    /// pane isn't found in `root` at all.
+    /// that away. Instead this finds the restored nodes by `Id` (via
+    /// `FindById`, which also searches `HiddenDockables` - a pane hidden
+    /// through Task 11's View-menu toggle before closing is still found
+    /// here, not treated as missing), repairs just `resultsTool`'s
+    /// `Context`, and repoints the cached fields at the restored
+    /// instances. Returns `false` (a no-op, no fields repointed) if
+    /// either tool pane isn't found in `root` at all. Callers MUST check
+    /// `CanRestore(root)` before calling this (see its doc comment) -
+    /// this mutates `DockFactory`'s live cached fields the moment it
+    /// finds a match, with no way to undo that if a *sibling* restore
+    /// step (`RestoreDocumentTabs`) then fails and the whole restore gets
+    /// rejected.
     member _.RestoreToolPanes(root: IDockable) : bool =
         match
             DockFactory.FindById(workspaceDock.Id, root),

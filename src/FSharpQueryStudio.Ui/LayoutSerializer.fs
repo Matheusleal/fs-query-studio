@@ -3,6 +3,7 @@ namespace FSharpQueryStudio.Ui
 open System
 open System.Text.Json.Serialization.Metadata
 open Dock.Model.Core
+open Dock.Model.Controls
 open Dock.Serializer.SystemTextJson
 
 /// Builds the `DockSerializer` layout persistence (`App.axaml.fs`, Task
@@ -98,9 +99,32 @@ module LayoutSerializer =
     /// get an `Id` assigned at all, so a global map keyed by `Id` would
     /// silently collide different anonymous nodes onto the same key.
     /// Call this on a freshly deserialized tree before `InitLayout`.
+    ///
+    /// The tree walk itself descends through `HiddenDockables` and the
+    /// four `*PinnedDockables` lists too, not just `VisibleDockables` -
+    /// matching `DockFactory.FindById`'s reach, so a `ToolDock` nested
+    /// inside a hidden or pinned branch still gets normalized. `current`/
+    /// `dock.VisibleDockables` are both null-checked: an `IDock` with no
+    /// `VisibleDockables` at all is reachable from a hand-edited or
+    /// truncated `ui-state.json` (App.axaml.fs's `try`/`with` around the
+    /// whole restore already turns that into "fall back to the default
+    /// layout" rather than a crash, but this guard keeps `normalize`
+    /// itself well-behaved instead of relying solely on that outer net).
     let normalize (root: IDockable) : unit =
+        let childLists (dock: IDock) : System.Collections.Generic.IList<IDockable> list =
+            [ dock.VisibleDockables ]
+            @ (match dock with
+               | :? IRootDock as r ->
+                   [ r.HiddenDockables
+                     r.LeftPinnedDockables
+                     r.RightPinnedDockables
+                     r.TopPinnedDockables
+                     r.BottomPinnedDockables ]
+               | _ -> [])
+            |> List.filter (fun l -> not (isNull (box l)))
+
         let resolveDuplicate (dock: IDock) (current: IDockable) : IDockable option =
-            if isNull (box current) then
+            if isNull (box current) || isNull (box dock.VisibleDockables) then
                 None
             elif dock.VisibleDockables |> Seq.exists (fun d -> obj.ReferenceEquals(d, current)) then
                 None // already one of this dock's own children - not a duplicate
@@ -124,8 +148,9 @@ module LayoutSerializer =
                 repoint dock (fun () -> dock.DefaultDockable) (fun v -> dock.DefaultDockable <- v)
                 repoint dock (fun () -> dock.FocusedDockable) (fun v -> dock.FocusedDockable <- v)
 
-                for child in dock.VisibleDockables do
-                    walk child
+                for l in childLists dock do
+                    for child in l do
+                        walk child
             | _ -> ()
 
         walk root
