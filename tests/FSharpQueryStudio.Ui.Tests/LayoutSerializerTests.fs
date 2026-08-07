@@ -238,6 +238,91 @@ let ``A hidden tool pane still round-trips - CanRestore and RestoreToolPanes bot
     Assert.True(documentsOk)
     Assert.True(toolPanesOk)
 
+/// Is `target` still reachable from `root` through *any* child list a node
+/// can hold dockables in - `VisibleDockables`, `HiddenDockables` or the four
+/// pinned lists? (The test-side mirror of `DockFactory.ChildLists`; the
+/// module-level `find` above deliberately only walks `VisibleDockables`.)
+let private reachableAnywhere (target: IDockable) (root: IDockable) : bool =
+    let childLists (dock: IDock) =
+        [ dock.VisibleDockables ]
+        @ (match dock with
+           | :? IRootDock as r ->
+               [ r.HiddenDockables
+                 r.LeftPinnedDockables
+                 r.RightPinnedDockables
+                 r.TopPinnedDockables
+                 r.BottomPinnedDockables ]
+           | _ -> [])
+        |> List.filter (fun l -> not (isNull (box l)))
+
+    let rec walk (node: IDockable) =
+        if obj.ReferenceEquals(node, target) then
+            true
+        else
+            match node with
+            | :? IDock as dock -> childLists dock |> List.exists (Seq.exists walk)
+            | _ -> false
+
+    walk root
+
+/// Mirrors `MainWindow`'s View-menu toggle exactly (see
+/// `toggleToolVisibility` there): visibility is a reference-identity check
+/// against the `ToolDock`'s own `VisibleDockables`, and the un-hide side
+/// calls `IFactory.RestoreDockable` with that same reference.
+let private toggleToolVisibility (factory: DockFactory) (dock: IDock) (tool: IDockable) =
+    let isVisible = dock.VisibleDockables |> Seq.exists (fun d -> obj.ReferenceEquals(d, tool))
+
+    if isVisible then
+        (factory :> IFactory).HideDockable(tool) |> ignore
+    else
+        (factory :> IFactory).RestoreDockable(tool) |> ignore
+
+[<Fact>]
+let ``A tool pane hidden at save time can actually be un-hidden again after a restore`` () =
+    // `IFactory.RestoreDockable` puts a hidden dockable back by reading
+    // `IDockable.OriginalOwner` - which is NOT part of the serialized wire
+    // format, so a restored hidden tool comes back with it null. Without
+    // `RestoreToolPanes` re-establishing it, the View-menu un-hide is
+    // destructive: `RestoreDockable` removes the tool from
+    // `HiddenDockables` and puts it nowhere, making the pane unreachable
+    // from anywhere in the tree for the rest of the session (and the next
+    // save then writes a layout missing the tool entirely, which the launch
+    // after that rejects wholesale via `CanRestore`).
+    let _, factory, layout = rebuild ()
+    (factory :> IFactory).HideDockable(factory.WorkspaceTool) |> ignore
+
+    let serializer = LayoutSerializer.create ()
+    let json = factory.SerializeLayout(serializer, layout :> IDock)
+    let restored, documentsOk, toolPanesOk = restoreLayout factory serializer json
+
+    Assert.True(documentsOk)
+    Assert.True(toolPanesOk)
+
+    // It restored as hidden (round 3's fix) - not visible in its ToolDock,
+    // but still present in the root's HiddenDockables.
+    Assert.DoesNotContain(factory.WorkspaceDock.VisibleDockables, fun d -> obj.ReferenceEquals(d, factory.WorkspaceTool))
+    Assert.Contains(restored.HiddenDockables, fun d -> obj.ReferenceEquals(d, factory.WorkspaceTool))
+
+    // The actual regression: OriginalOwner must point at the *restored*
+    // WorkspacePane, so RestoreDockable knows where to put the tool back.
+    Assert.Same(factory.WorkspaceDock :> IDockable, factory.WorkspaceTool.OriginalOwner)
+    // Set unconditionally, so the pane that was *visible* at save time is
+    // equally un-hideable if the user hides it later this session.
+    Assert.Same(factory.ResultsDock :> IDockable, factory.ResultsTool.OriginalOwner)
+
+    // Drive the real un-hide path (same call MainWindow's View menu makes).
+    toggleToolVisibility factory factory.WorkspaceDock factory.WorkspaceTool
+
+    Assert.Contains(factory.WorkspaceDock.VisibleDockables, fun d -> obj.ReferenceEquals(d, factory.WorkspaceTool))
+    Assert.DoesNotContain(restored.HiddenDockables, fun d -> obj.ReferenceEquals(d, factory.WorkspaceTool))
+
+    // ...and toggling a second time hides it again rather than losing it,
+    // so the pane is still reachable from the tree either way.
+    toggleToolVisibility factory factory.WorkspaceDock factory.WorkspaceTool
+
+    Assert.Contains(restored.HiddenDockables, fun d -> obj.ReferenceEquals(d, factory.WorkspaceTool))
+    Assert.True(reachableAnywhere factory.WorkspaceTool (restored :> IDockable))
+
 [<Fact>]
 let ``CanRestore false leaves DockFactory's cached fields and documentDock.Proportion untouched`` () =
     // Reproduces the ordering bug directly: if RestoreDocumentTabs/

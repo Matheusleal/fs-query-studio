@@ -278,7 +278,20 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
             let rec replace (node: IDockable) : bool =
                 match node with
                 | :? IDock as dock ->
-                    match dock.VisibleDockables |> Seq.tryFindIndex (fun d -> d.Id = documentDock.Id) with
+                    // Null-guarded for the same reason `ChildLists` and
+                    // `LayoutSerializer.normalize` are: only a hand-edited/
+                    // truncated `ui-state.json` can produce a `null` list
+                    // here (the real serializer always emits `[]`), and
+                    // `App.axaml.fs`'s try/with would catch the resulting
+                    // `ArgumentNullException` - but this walk shouldn't be
+                    // the one place that relies on that outer net.
+                    let index =
+                        if isNull (box dock.VisibleDockables) then
+                            None
+                        else
+                            dock.VisibleDockables |> Seq.tryFindIndex (fun d -> d.Id = documentDock.Id)
+
+                    match index with
                     | Some i ->
                         dock.VisibleDockables.[i] <- (documentDock :> IDockable)
                         true
@@ -316,6 +329,21 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
     /// finds a match, with no way to undo that if a *sibling* restore
     /// step (`RestoreDocumentTabs`) then fails and the whole restore gets
     /// rejected.
+    ///
+    /// This also re-establishes each restored tool's `OriginalOwner`.
+    /// `IFactory.RestoreDockable` (the un-hide half of Task 11's View-menu
+    /// toggle) reads `OriginalOwner` to know which `ToolDock` to put a
+    /// hidden dockable back into - but `OriginalOwner` is not part of the
+    /// serialized wire format, so a pane that was hidden at save time
+    /// comes back with it `null`, and `RestoreDockable` then removes the
+    /// tool from `IRootDock.HiddenDockables` and puts it nowhere at all:
+    /// unreachable from anywhere in the tree for the rest of the session
+    /// (verified empirically - the pane never reappears, and the next save
+    /// writes a layout missing that tool entirely, which the launch after
+    /// that rejects wholesale via `CanRestore`, discarding all persisted
+    /// layout state). Setting it unconditionally is safe: for a pane that
+    /// was *visible* at save time, `HideDockable` overwrites it on the next
+    /// hide anyway.
     member _.RestoreToolPanes(root: IDockable) : bool =
         match
             DockFactory.FindById(workspaceDock.Id, root),
@@ -325,6 +353,8 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
         with
         | Some(:? IToolDock as rw), Some(:? IToolDock as rr), Some rwt, Some rrt ->
             rrt.Context <- resultsContent
+            rwt.OriginalOwner <- (rw :> IDockable)
+            rrt.OriginalOwner <- (rr :> IDockable)
             workspaceDock <- rw
             resultsDock <- rr
             workspaceTool <- rwt
