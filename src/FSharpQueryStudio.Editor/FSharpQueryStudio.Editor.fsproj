@@ -17,6 +17,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- `AssetHost` logs its real bound port on start and any unexpected
+         accept-loop failure, matching the `Log.Information`/`Log.Warning`
+         convention already used directly (not via `ILogger<T>`) in
+         `Worker`/`Ui`/`App`. Same 4.4.0 pin as every other project here. -->
+    <PackageReference Include="Serilog" Version="4.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
   </ItemGroup>
 

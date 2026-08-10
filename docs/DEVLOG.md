@@ -950,3 +950,17 @@ Build/test: `dotnet build` clean across all 24 projects, 0 warnings, 0 errors. `
 
 Files changed: `src/FSharpQueryStudio.Ui/ScriptDocument.fs`, `src/FSharpQueryStudio.Ui/ContentTool.fs` (new), `src/FSharpQueryStudio.Ui/DockFactory.fs`, `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`, `src/FSharpQueryStudio.Ui/FSharpQueryStudio.Ui.fsproj`, `tests/FSharpQueryStudio.Ui.Tests/ScriptDocumentTests.fs`, `tests/FSharpQueryStudio.Ui.Tests/DockFactoryTests.fs`, `tests/FSharpQueryStudio.Ui.Tests/LayoutSerializerTests.fs`, `docs/DEVLOG.md`.
 
+## 2026-08-10 — Diagnostics: `AssetHost` never logged its own port or an accept-loop death
+
+User report: `http://127.0.0.1:PORT/` unreachable in a browser while the app was running, suspecting the Monaco asset host wasn't actually running. Investigated directly rather than guessing: built and launched the real app, read the (until now, nonexistent) startup log for the bound port, and `curl`'d it live while the process was still up.
+
+**Findings, empirical, not inferred.** `GET /editor-host.html` → `HTTP 200` with real content; `GET /` → `HTTP 404` (correct — the loopback server only serves known files under `EditorAssets`, by design since A.11). The asset host works exactly as intended. The far more likely explanation for the report: `AssetHost.start` picks a fresh OS-assigned ephemeral port on every single launch, and — until this entry — logged nothing about which port that was. Whatever address the user tried was almost certainly captured from a prior run; once that process exits, nothing is listening on that port anymore, and there was no way to tell "stale port" from "the listener is actually broken" after the fact.
+
+**Fix — pure observability, no behavior change.** `AssetHost.start` now logs `Asset host listening at {BaseUri}` (`Log.Information`) the moment the real listener starts. `acceptLoop`'s catch clause previously handled exactly two exception types (`ObjectDisposedException`/`HttpListenerException`, both normal shutdown signals) and let anything else silently end the loop with zero trace — any other exception now gets `Log.Warning`'d before the loop still stops the same way it always did. Needed adding `Serilog` as a direct dependency of `FSharpQueryStudio.Editor` (it had none before), matching the same direct-`Log.*`-call convention already used in `Worker`/`Ui`/`App` rather than routing through `ILogger<T>`.
+
+**Also surfaced while reading the log, unrelated to this report but worth recording:** the user's last two real launches (before this session's rebuilds) both logged `Saved dock layout passed CanRestore but a graft still failed; using the default layout instead`. Expected, not a new bug — their `ui-state.json` was written by a build from before the `IDocumentContent`/`ContentTool`/shared-`NativeWebView` fixes landed, so the saved object graph no longer matches what the current `DockFactory` builds. `CanRestore`'s whole job (Task 12) is exactly this: reject an incompatible saved layout and fall back to the default rather than corrupt anything. Confirmed safe, not investigated further.
+
+Build/test: `dotnet build` clean, 0 warnings, 0 errors, full solution (25 projects, `Editor` gaining its first `Serilog` reference). `dotnet test`: `Editor.Tests` 24/24 unchanged. Full solution: same 12 pre-existing Testcontainers/Docker-unavailable failures as every prior round.
+
+Files changed: `src/FSharpQueryStudio.Editor/AssetHost.fs`, `src/FSharpQueryStudio.Editor/FSharpQueryStudio.Editor.fsproj`, `docs/DEVLOG.md`.
+
