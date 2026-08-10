@@ -9,10 +9,11 @@
         Height="900"
         Background="{DynamicResource WindowBackgroundBrush}">
   <!--
-    The docking shell (Section 5): a Dock.Avalonia DockControl whose
-    Factory/Layout are assigned in code-behind, since DockFactory needs
-    live control instances (the shared Monaco NativeWebView and the
-    ResultsView) to hang off each dockable's Context.
+    Fixed shell layout (Workspace | Editor / Results), not Dock.Avalonia -
+    a real StackOverflowException traced to Dock.Avalonia itself made the
+    dockable shell unusable; see docs/DEVLOG.md. `TabStripPanel` is
+    rebuilt imperatively in code-behind (`rebuildTabs`) since there's no
+    Dock to own the open-document list anymore.
   -->
   <DockPanel>
     <Menu DockPanel.Dock="Top" Background="{DynamicResource ChromeBackgroundBrush}">
@@ -77,10 +78,6 @@
       </StackPanel>
     </Border>
 
-    <!-- TEMP DIAGNOSTIC: Dock.Avalonia's DockControl swapped for a fixed
-         Grid, to test whether the docking library itself is the source
-         of the StackOverflowException under investigation (see
-         docs/DEVLOG.md). Not the final layout. -->
     <Grid Name="FixedShellGrid" ColumnDefinitions="220,4,*">
       <Border Grid.Column="0"
               Name="WorkspacePanel"
@@ -95,10 +92,19 @@
 
       <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
 
-      <Grid Grid.Column="2" RowDefinitions="*,4,220">
-        <ContentControl Name="EditorHost" Grid.Row="0" />
-        <GridSplitter Grid.Row="1" ResizeDirection="Rows" />
-        <ContentControl Name="ResultsHost" Grid.Row="2" />
+      <Grid Grid.Column="2" RowDefinitions="Auto,*,4,220">
+        <Border Grid.Row="0"
+                Name="TabStripBorder"
+                Background="{DynamicResource ChromeBackgroundBrush}"
+                BorderBrush="{DynamicResource BorderBrush}"
+                BorderThickness="0,0,0,1">
+          <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+            <StackPanel Name="TabStripPanel" Orientation="Horizontal" />
+          </ScrollViewer>
+        </Border>
+        <ContentControl Name="EditorHost" Grid.Row="1" />
+        <GridSplitter Grid.Row="2" ResizeDirection="Rows" />
+        <ContentControl Name="ResultsHost" Grid.Row="3" />
       </Grid>
     </Grid>
   </DockPanel>

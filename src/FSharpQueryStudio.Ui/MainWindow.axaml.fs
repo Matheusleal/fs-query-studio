@@ -136,6 +136,14 @@ type MainWindow() as this =
         let resultsHostControl = this.FindControl<ContentControl>("ResultsHost")
         resultsHostControl.Content <- resultsView
 
+        // TEMP DIAGNOSTIC: while NativeWebView renders nothing (see
+        // docs/DEVLOG.md), this proves whether tab switching itself
+        // works — the window title is never occluded by anything
+        // (unlike a label placed inside the editor area, which a native
+        // child HWND always paints over regardless of Avalonia z-order —
+        // confirmed the hard way by trying that first).
+        this.Title <- $"F# Query Studio — {shellViewModel.ActiveDocument.Uri}"
+
         // TEMP DIAGNOSTIC: assigning `Content` here, during the
         // constructor (before the window is ever shown), is suspected of
         // being too early for `NativeWebView`'s native adapter — deferred
@@ -243,14 +251,113 @@ type MainWindow() as this =
         // no prompt, no message, the tab just refused to close.
         shellViewModel.ConfirmDiscardDirtyDocument <- Some confirmDiscardDirty
 
-        // TEMP DIAGNOSTIC: no Dock, no tabs — `ActiveDocument` changing
-        // (via `OpenDocument`, File > New/Open) is the one signal this
-        // fixed layout has for "push this document into the editor",
-        // replacing `DockFactory.DocumentActivated`.
+        // No Dock, so no `DocumentDock` to own the open-tab strip —
+        // rebuilt by hand from `shellViewModel.Documents` (a plain
+        // snapshot, not an observable collection) every time the set of
+        // open documents, which one is active, or a document's dirty
+        // flag could have changed. `wiredDirtyDocs` guards against
+        // re-subscribing to the same long-lived `DocumentViewModel`'s
+        // `PropertyChanged` on every rebuild — the documents outlive
+        // individual rebuilds, so re-adding a handler each time would
+        // leak a growing pile of duplicate subscriptions instead of
+        // just refreshing the strip once per real dirty-flag change.
+        let tabStripPanel = this.FindControl<StackPanel>("TabStripPanel")
+        let wiredDirtyDocs = System.Collections.Generic.HashSet<DocumentViewModel>(HashIdentity.Reference)
+
+        // Resource lookups happen inside `rebuildTabs` itself, not once
+        // up front: `FindResource` can only resolve theme-dictionary
+        // keys once the window has an `ActualThemeVariant` (i.e. after
+        // `Opened` — see the deferred first call below), and re-reading
+        // them on every rebuild is what makes the tab strip's colors
+        // follow the View > Toggle Theme command instead of freezing at
+        // whichever theme was active on the very first rebuild.
+        let rec rebuildTabs () =
+            // The plain `FindResource(key)` overload only searches
+            // top-level `Resources`, not `ResourceDictionary.
+            // ThemeDictionaries` (where `App.axaml` actually keeps
+            // these, keyed "Dark"/"Light") — confirmed the hard way, via
+            // an `UnsetValueType` cast crash. The `ThemeVariant` overload
+            // is what `{DynamicResource ...}` uses under the hood
+            // everywhere else in this window's XAML.
+            let findBrush (key: string) : IBrush =
+                this.FindResource(this.ActualThemeVariant, key) :?> IBrush
+
+            let activeTabBrush = findBrush "WindowBackgroundBrush"
+            let inactiveTabBrush = findBrush "ChromeBackgroundBrush"
+            let tabBorderBrush = findBrush "BorderBrush"
+            let tabTextBrush = findBrush "PrimaryTextBrush"
+
+            tabStripPanel.Children.Clear()
+
+            for doc in shellViewModel.Documents do
+                if wiredDirtyDocs.Add(doc) then
+                    (doc :> INotifyPropertyChanged)
+                        .PropertyChanged.Add(fun args ->
+                            if args.PropertyName = nameof doc.IsDirty then
+                                rebuildTabs ())
+
+                let uri = doc.Uri
+                let isActive = obj.ReferenceEquals(doc, shellViewModel.ActiveDocument)
+
+                let displayName =
+                    match uri.LastIndexOfAny([| '/'; '\\' |]) with
+                    | -1 -> uri
+                    | i -> uri.Substring(i + 1)
+
+                let label =
+                    TextBlock(
+                        Text = displayName + (if doc.IsDirty then " *" else ""),
+                        Foreground = tabTextBrush,
+                        VerticalAlignment = VerticalAlignment.Center
+                    )
+
+                let closeButton =
+                    Button(
+                        Content = "x",
+                        Padding = Thickness(4.0, 0.0),
+                        Background = Brushes.Transparent,
+                        BorderThickness = Thickness(0.0),
+                        Foreground = tabTextBrush
+                    )
+
+                closeButton.Click.Add(fun args ->
+                    args.Handled <- true
+                    shellViewModel.CloseDocument(uri) |> ignore
+                    rebuildTabs ())
+
+                let content = StackPanel(Orientation = Orientation.Horizontal, Spacing = 6.0)
+                content.Children.Add(label)
+                content.Children.Add(closeButton)
+
+                let tab =
+                    Border(
+                        Background = (if isActive then activeTabBrush else inactiveTabBrush),
+                        BorderBrush = tabBorderBrush,
+                        BorderThickness = Thickness(0.0, 0.0, 1.0, 0.0),
+                        Padding = Thickness(10.0, 6.0),
+                        Cursor = new Cursor(StandardCursorType.Hand),
+                        Child = content
+                    )
+
+                tab.PointerPressed.Add(fun _ ->
+                    if not (obj.ReferenceEquals(doc, shellViewModel.ActiveDocument)) then
+                        shellViewModel.OpenDocument(uri) |> ignore)
+
+                tabStripPanel.Children.Add(tab)
+
+        this.Opened.Add(fun _ -> rebuildTabs ())
+
+        // `ActiveDocument` changing (via `OpenDocument`, File > New/Open,
+        // or a tab close that switches the active tab) is the one signal
+        // this fixed layout has for "push this document into the
+        // editor" — replacing `DockFactory.DocumentActivated` — and also
+        // the moment the tab strip's highlight needs to move.
         (shellViewModel :> INotifyPropertyChanged)
             .PropertyChanged.Add(fun args ->
                 if args.PropertyName = nameof shellViewModel.ActiveDocument then
                     let doc = shellViewModel.ActiveDocument
+                    rebuildTabs ()
+                    this.Title <- $"F# Query Studio — {doc.Uri}"
 
                     postToEditor
                         webView
