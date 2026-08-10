@@ -30,6 +30,10 @@
     <PackageReference Include="Dock.Model.Mvvm" Version="12.1.0" />
     <PackageReference Include="Dock.Serializer.SystemTextJson" Version="12.1.0" />
     <PackageReference Include="Material.Icons.Avalonia" Version="3.0.2" />
+    <!-- `MainWindow`'s save handlers log a warning when a write to disk
+         fails, matching the `Log.Warning(ex, ...)` convention already used
+         in `App`/`Worker`. Same 4.4.0 pin as every other project here. -->
+    <PackageReference Include="Serilog" Version="4.4.0" />
   </ItemGroup>
 
   <ItemGroup>

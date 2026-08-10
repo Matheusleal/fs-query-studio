@@ -33,7 +33,11 @@
       </MenuItem>
       <MenuItem Header="_Connections" IsEnabled="False" />
       <MenuItem Header="_Run">
-        <MenuItem Header="_Run (F5)" Name="RunMenuItem" />
+        <!-- InputGesture only *renders* "F5" beside the item; the binding
+             that actually handles the key is added to Window.KeyBindings in
+             the code-behind, since these commands are wired as Click
+             handlers rather than ICommands. -->
+        <MenuItem Header="_Run" Name="RunMenuItem" InputGesture="F5" />
         <MenuItem Header="_Cancel" Name="CancelMenuItem" />
         <MenuItem Header="_Reset Session" Name="ResetSessionMenuItem" />
       </MenuItem>

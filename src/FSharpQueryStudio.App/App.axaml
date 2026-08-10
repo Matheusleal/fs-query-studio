@@ -1,5 +1,6 @@
 <Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:materialIcons="clr-namespace:Material.Icons.Avalonia;assembly=Material.Icons.Avalonia"
              x:Class="FSharpQueryStudio.App.App"
              RequestedThemeVariant="Dark">
   <Application.Resources>
@@ -14,5 +15,15 @@
     <FluentTheme />
     <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml" />
     <StyleInclude Source="avares://Dock.Avalonia.Themes.Fluent/DockFluentTheme.axaml" />
+    <!--
+      Material.Icons.Avalonia ships `MaterialIcon`'s control theme inside a
+      `Styles` subclass (`Material.Icons.Avalonia.MaterialIconStyles`,
+      confirmed by reflection over the installed 3.0.2 assembly - it derives
+      from `Avalonia.Styling.Styles`, which is what makes it legal here).
+      Without this line the seven `<mi:MaterialIcon>` toolbar buttons in
+      `MainWindow.axaml` construct fine but render as blank boxes, because
+      nothing supplies their template.
+    -->
+    <materialIcons:MaterialIconStyles />
   </Application.Styles>
 </Application>

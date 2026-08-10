@@ -197,19 +197,28 @@ type App() =
             // `uiState` above. Layout serialization failure (e.g. a
             // future incompatible Dock.Avalonia upgrade) must not stop
             // the window from closing or lose the theme choice, so it's
-            // isolated in its own `try`/`with` and downgrades to `None`
-            // rather than propagating.
+            // isolated in its own `try`/`with`.
+            //
+            // Both failure paths fall back to `uiState.DockLayout` - the
+            // layout that was loaded at startup - rather than to `None`.
+            // Writing `None` would overwrite a perfectly good saved layout
+            // with nothing on the first close after a transient serialize
+            // failure, silently destroying the user's arrangement; keeping
+            // the previous blob means the worst case is a stale layout
+            // (the one they launched with) instead of no layout at all.
+            // Note `uiState` is captured by this closure from the enclosing
+            // scope, so it still holds the startup value here.
             mainWindow.Closing.Add(fun _ ->
                 let layoutJson =
                     match layoutSerializer with
-                    | None -> None
+                    | None -> uiState.DockLayout
                     | Some serializer ->
                         try
                             let json = mainWindow.DockFactory.SerializeLayout(serializer, mainWindow.MainDockLayout)
                             Some(System.Text.Json.JsonDocument.Parse(json).RootElement)
                         with ex ->
-                            Log.Warning(ex, "Failed to serialize dock layout for persistence")
-                            None
+                            Log.Warning(ex, "Failed to serialize dock layout for persistence; keeping the previously saved layout")
+                            uiState.DockLayout
 
                 let theme =
                     match mainWindow.ThemeService.Current with
