@@ -158,7 +158,13 @@ type DockFactory(shell: ShellViewModel, createEditorControl: unit -> obj, result
         let initialDoc = ScriptDocument(shell.ActiveDocument, shell, createEditorControl ())
 
         workspaceTool <- Tool(Id = "Workspace", Title = "Workspace", CanClose = false)
-        resultsTool <- Tool(Id = "Results", Title = "Results", CanClose = false, Context = resultsContent)
+
+        // `ContentTool`, not a plain `Tool` — see its doc comment. A bare
+        // `Tool` with `Context` set (what this used to be) matches none
+        // of Dock's own default content templates, so the Results pane
+        // rendered as empty background for the same reason the document
+        // pane did.
+        resultsTool <- ContentTool(Id = "Results", Title = "Results", CanClose = false, Content = resultsContent)
 
         documentDock <-
             DocumentDock(
@@ -409,10 +415,16 @@ type DockFactory(shell: ShellViewModel, createEditorControl: unit -> obj, result
             DockFactory.FindById(workspaceTool.Id, root),
             DockFactory.FindById(resultsTool.Id, root)
         with
-        | Some(:? IToolDock as rw), Some(:? IToolDock as rr), Some rwt, Some rrt ->
-            rrt.Context <- resultsContent
+        // `rrt` must come back as a real `ContentTool` — Dock's
+        // polymorphic serializer preserves the concrete type via its
+        // `$type` discriminator, so a genuine round-trip always matches
+        // here; a hand-edited `ui-state.json` that doesn't is exactly
+        // the "restore rejected, fall back to the default layout" case
+        // this whole match is already built to degrade into.
+        | Some(:? IToolDock as rw), Some(:? IToolDock as rr), Some rwt, Some(:? ContentTool as rrt) ->
+            rrt.Content <- resultsContent
             rwt.OriginalOwner <- (rw :> IDockable)
-            rrt.OriginalOwner <- (rr :> IDockable)
+            (rrt :> IDockable).OriginalOwner <- (rr :> IDockable)
             workspaceDock <- rw
             resultsDock <- rr
             workspaceTool <- rwt

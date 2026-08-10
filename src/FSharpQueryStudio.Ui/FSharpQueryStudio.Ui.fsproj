@@ -14,6 +14,7 @@
     <Compile Include="ProblemViewModel.fs" />
     <Compile Include="ShellViewModel.fs" />
     <Compile Include="ScriptDocument.fs" />
+    <Compile Include="ContentTool.fs" />
     <Compile Include="DockFactory.fs" />
     <Compile Include="LayoutSerializer.fs" />
     <Compile Include="ResultsView.axaml.fs" />

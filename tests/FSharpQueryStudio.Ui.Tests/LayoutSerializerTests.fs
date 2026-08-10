@@ -33,6 +33,15 @@ let private rebuild () =
     factory.InitLayout(layout)
     shell, factory, layout
 
+/// `ResultsTool` content lives in `ContentTool.Content`, not
+/// `IDockable.Context` — see `ContentTool`'s doc comment. `null` for
+/// anything that isn't a `ContentTool` (e.g. the restored tree's own
+/// tool node before `RestoreToolPanes` has grafted the live one in).
+let private resultsContentOf (tool: IDockable) : obj =
+    match tool with
+    | :? ContentTool as ct -> ct.Content
+    | _ -> null
+
 let rec private find (id: string) (node: IDockable) : IDockable option =
     if node.Id = id then
         Some node
@@ -126,9 +135,9 @@ let ``RestoreDocumentTabs grafts the live DocumentDock back, restoring the real 
     | other -> Assert.Fail($"expected a ScriptDocument, got {other.GetType().FullName}")
 
 [<Fact>]
-let ``RestoreToolPanes repairs ResultsTool.Context and repoints DockFactory's cached fields`` () =
+let ``RestoreToolPanes repairs ResultsTool.Content and repoints DockFactory's cached fields`` () =
     let _, factory, layout = rebuild ()
-    let liveResultsContent = factory.ResultsTool.Context
+    let liveResultsContent = resultsContentOf factory.ResultsTool
     let preRestoreResultsDock = factory.ResultsDock
     Assert.NotNull(liveResultsContent) // sanity: CreateLayout really did set it
 
@@ -138,7 +147,7 @@ let ``RestoreToolPanes repairs ResultsTool.Context and repoints DockFactory's ca
     LayoutSerializer.normalize (restored :> IDockable)
     factory.InitLayout(restored)
 
-    // Before the graft: the *restored* tree's own Results tool has Context
+    // Before the graft: the *restored* tree's own Results tool has Content
     // null (IgnoreDataMember, never on the wire) - it's a distinct object
     // from factory.ResultsTool at this point, since RestoreToolPanes
     // hasn't repointed the cached field yet.
@@ -148,13 +157,13 @@ let ``RestoreToolPanes repairs ResultsTool.Context and repoints DockFactory's ca
         | _ -> failwith "expected to find the restored ResultsPane"
 
     match find factory.ResultsTool.Id (restored :> IDockable) with
-    | Some restoredResultsToolBeforeGraft -> Assert.Null(restoredResultsToolBeforeGraft.Context)
+    | Some restoredResultsToolBeforeGraft -> Assert.Null(resultsContentOf restoredResultsToolBeforeGraft)
     | None -> Assert.Fail("expected to find the restored Results tool")
 
     let ok = factory.RestoreToolPanes(restored :> IDockable)
 
     Assert.True(ok)
-    Assert.Same(liveResultsContent, factory.ResultsTool.Context)
+    Assert.Same(liveResultsContent, resultsContentOf factory.ResultsTool)
     // DockFactory's cached ResultsDock now points at the *restored*
     // instance (proven by reference, not by value - Proportion alone
     // wouldn't distinguish "repointed" from "coincidentally already
@@ -180,7 +189,7 @@ let ``RestoreToolPanes returns false without mutating state when a pane Id is mi
 let ``Full restore sequence leaves ActiveDockable reachable from VisibleDockables and shows the real tab and Results content`` () =
     let shell, factory, layout = rebuild ()
     let originalUri = shell.ActiveDocument.Uri
-    let liveResultsContent = factory.ResultsTool.Context
+    let liveResultsContent = resultsContentOf factory.ResultsTool
 
     let serializer = LayoutSerializer.create ()
     let json = factory.SerializeLayout(serializer, layout :> IDock)
@@ -207,7 +216,7 @@ let ``Full restore sequence leaves ActiveDockable reachable from VisibleDockable
         | other -> Assert.Fail($"expected the restored DocumentDock's ActiveDockable to be a ScriptDocument, got {other}")
     | _ -> Assert.Fail("expected to find the restored DocumentDock")
 
-    Assert.Same(liveResultsContent, factory.ResultsTool.Context)
+    Assert.Same(liveResultsContent, resultsContentOf factory.ResultsTool)
 
 [<Fact>]
 let ``A hidden tool pane still round-trips - CanRestore and RestoreToolPanes both find it`` () =
@@ -337,7 +346,7 @@ let ``CanRestore false leaves DockFactory's cached fields and documentDock.Propo
     let _, factory, layout = rebuild ()
     let preRestoreResultsDock = factory.ResultsDock
     let preRestoreWorkspaceDock = factory.WorkspaceDock
-    let preRestoreResultsToolContext = factory.ResultsTool.Context
+    let preRestoreResultsToolContent = resultsContentOf factory.ResultsTool
     let preRestoreDocumentProportion = factory.DocumentDock.Proportion
 
     let serializer = LayoutSerializer.create ()
@@ -356,5 +365,5 @@ let ``CanRestore false leaves DockFactory's cached fields and documentDock.Propo
     // this test, mirroring it) gates them on CanRestore first.
     Assert.Same(preRestoreResultsDock, factory.ResultsDock)
     Assert.Same(preRestoreWorkspaceDock, factory.WorkspaceDock)
-    Assert.Same(preRestoreResultsToolContext, factory.ResultsTool.Context)
+    Assert.Same(preRestoreResultsToolContent, resultsContentOf factory.ResultsTool)
     Assert.Equal(preRestoreDocumentProportion, factory.DocumentDock.Proportion)

@@ -60,12 +60,20 @@ let ``Id and Title follow the document's Uri when a saved untitled tab is retagg
     Assert.Equal(@"C:\scripts\real.fsx", scriptDoc.Title)
 
 [<Fact>]
-let ``Context is the shared editor control instance passed to the constructor`` () =
+let ``EditorControl is this tab's own editor control instance passed to the constructor`` () =
     let shell = ShellViewModel()
     let editorControl = obj ()
     let scriptDoc = ScriptDocument(shell.ActiveDocument, shell, editorControl)
 
-    Assert.Same(editorControl, scriptDoc.Context)
+    Assert.Same(editorControl, scriptDoc.EditorControl)
+
+[<Fact>]
+let ``IDocumentContent.Content is the same editor control instance EditorControl returns`` () =
+    let shell = ShellViewModel()
+    let editorControl = obj ()
+    let scriptDoc = ScriptDocument(shell.ActiveDocument, shell, editorControl)
+
+    Assert.Same(editorControl, (scriptDoc :> Dock.Model.Controls.IDocumentContent).Content)
 
 [<Fact>]
 let ``OnClose returns ShellViewModel.CloseDocument's result and does not open the confirm hook when the document is clean`` () =

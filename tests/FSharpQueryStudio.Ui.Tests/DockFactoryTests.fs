@@ -197,8 +197,8 @@ let ``the tab created for a replacement document can itself be closed again`` ()
 // moment a second tab existed - Dock builds a distinct `ContentControl`
 // per dockable, and an Avalonia `Control` can only ever be parented under
 // one of them at a time. `DockFactory` now calls `createEditorControl`
-// fresh for every tab it creates, so each `ScriptDocument.Context` is its
-// own, never-shared object.
+// fresh for every tab it creates, so each `ScriptDocument.EditorControl`
+// is its own, never-shared object.
 
 [<Fact>]
 let ``every open document tab gets its own editor control instance, never shared`` () =
@@ -216,10 +216,10 @@ let ``every open document tab gets its own editor control instance, never shared
     factory.OpenDocument("untitled:Script2.fsx")
     factory.OpenDocument("untitled:Script3.fsx")
 
-    let contexts = scriptDocuments factory |> List.map (fun sd -> sd.Context)
+    let editorControls = scriptDocuments factory |> List.map (fun sd -> sd.EditorControl)
     Assert.Equal(3, created)
-    Assert.Equal<int list>([ 1; 2; 3 ], contexts |> List.map (fun c -> c :?> int) |> List.sort)
-    Assert.Equal(3, contexts |> List.distinct |> List.length)
+    Assert.Equal<int list>([ 1; 2; 3 ], editorControls |> List.map (fun c -> c :?> int) |> List.sort)
+    Assert.Equal(3, editorControls |> List.distinct |> List.length)
 
 [<Fact>]
 let ``HideDockable then RestoreDockable round-trips the Results tool back into ResultsDock`` () =
