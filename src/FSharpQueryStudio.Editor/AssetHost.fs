@@ -60,7 +60,7 @@ module AssetHost =
         task {
             context.Response.Headers.Add(
                 "Content-Security-Policy",
-                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'"
+                "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; worker-src 'self' blob:"
             )
 
             match resolveAsset assetsRoot context.Request.Url.AbsolutePath with

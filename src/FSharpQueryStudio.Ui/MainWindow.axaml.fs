@@ -92,10 +92,9 @@ type MainWindow() as this =
         let host = AssetHost.start assetsRoot
         assetHost <- Some host
 
-        // TEMP DIAGNOSTIC: single fixed `NativeWebView`, wired the same
-        // way `DockFactory.createEditorControl` used to build one per
-        // tab — just one instance now, since `FixedShellGrid` has one
-        // editor slot instead of a `DocumentDock`.
+        // A single fixed `NativeWebView` — there's one editor slot in
+        // `FixedShellGrid`, not a `DocumentDock`, so unlike the old
+        // Dock-based shell nothing needs one instance per tab anymore.
         webView <- NativeWebView()
         webView.Source <- Uri(host.BaseUri, "editor-host.html")
 
@@ -109,46 +108,32 @@ type MainWindow() as this =
             | Ok _otherRequest -> () // Wired as each lands in its own later task.
             | Result.Error _err -> ()) // Malformed message from the page - never crashes the host.
 
-        // TEMP DIAGNOSTIC: logging the native adapter's own lifecycle
-        // events, to see whether/when `NativeWebView` actually creates
-        // its platform adapter for this instance.
-        webView.AdapterCreated.Add(fun _ ->
-            Log.Information(
-                "NativeWebView.AdapterCreated Bounds={Bounds} IsVisible={IsVisible} IsEffectivelyVisible={EffVisible}",
-                webView.Bounds,
-                webView.IsVisible,
-                webView.IsEffectivelyVisible
-            ))
-
+        // Logs the native adapter's lifecycle and navigation outcome —
+        // cheap, and the only signal (short of opening WebView2's own
+        // DevTools) that Monaco actually loaded rather than silently
+        // failing, the way it did while CSP blocked every inline
+        // <script> in editor-host.html (script-src needs 'unsafe-inline'
+        // for inline blocks - 'self' alone only covers external script
+        // files reached via src="..."; see docs/DEVLOG.md).
+        webView.AdapterCreated.Add(fun _ -> Log.Information("NativeWebView.AdapterCreated"))
         webView.AdapterDestroyed.Add(fun _ -> Log.Information("NativeWebView.AdapterDestroyed"))
-        webView.NavigationStarted.Add(fun args ->
-            Log.Information("NativeWebView.NavigationStarted {Uri}", args.Request))
 
         webView.NavigationCompleted.Add(fun args ->
-            Log.Information(
-                "NativeWebView.NavigationCompleted IsSuccess={IsSuccess} Request={Request} Bounds={Bounds}",
-                args.IsSuccess,
-                args.Request,
-                webView.Bounds
-            ))
+            if not args.IsSuccess then
+                Log.Warning("NativeWebView navigation to {Request} failed", args.Request))
 
         let editorHost = this.FindControl<ContentControl>("EditorHost")
         let resultsHostControl = this.FindControl<ContentControl>("ResultsHost")
         resultsHostControl.Content <- resultsView
 
-        // TEMP DIAGNOSTIC: while NativeWebView renders nothing (see
-        // docs/DEVLOG.md), this proves whether tab switching itself
-        // works — the window title is never occluded by anything
-        // (unlike a label placed inside the editor area, which a native
-        // child HWND always paints over regardless of Avalonia z-order —
-        // confirmed the hard way by trying that first).
+        // Mirrors the active tab's Uri into the window title, the same
+        // way most editors do — also doubled as this feature's own
+        // verification signal while `NativeWebView` still rendered
+        // nothing: unlike a label placed inside the editor area (which a
+        // native child HWND always paints over, regardless of Avalonia
+        // z-order), the title bar is never occluded by anything.
         this.Title <- $"F# Query Studio — {shellViewModel.ActiveDocument.Uri}"
 
-        // TEMP DIAGNOSTIC: assigning `Content` here, during the
-        // constructor (before the window is ever shown), is suspected of
-        // being too early for `NativeWebView`'s native adapter — deferred
-        // to `Opened` instead, a documented workaround for this class of
-        // Avalonia native-control-host timing issue.
         this.Opened.Add(fun _ -> editorHost.Content <- webView)
 
         // Gives `ProblemViewModel.Navigate` (the Problems tab's
