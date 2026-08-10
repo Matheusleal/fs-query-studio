@@ -986,3 +986,26 @@ Build/test: `dotnet build` clean, 0 warnings, 0 errors. `dotnet test`: `Ui.Tests
 
 Files changed: `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs` (comment only — the diagnostic edits were reverted), `docs/DEVLOG.md`.
 
+## 2026-08-10 — UNRESOLVED (continued): dock nesting ruled out too — the crash is timing-dependent, not structural
+
+**Status: still blocked.** Tested the one variable the previous entry left open: whether `DockFactory.CreateLayout()`'s nested `ProportionalDock`/`ToolDock` structure was the trigger. It is not — the crash happens even in the simplest possible layout, which changes the shape of the problem significantly.
+
+**Method:** temporarily edited `CreateLayout()` (never committed) through four variants, rebuilding and relaunching the real app in the background with a bounded timeout after each, then reading the captured console output:
+1. `RootDock` → `DocumentDock` directly, no `ProportionalDock`/`ToolDock`/splitter at all.
+2. Single-level `ProportionalDock` (`documentDock` + splitter + `resultsDock`), no outer horizontal wrap, no `workspaceDock`.
+3. Full original two-level nesting (horizontal outer, vertical inner, both `ToolDock`s with their real `Alignment`/`Proportion`), reconstructed to match the committed code exactly.
+
+**First pass (15s launches): all three looked clean** — no crash, real `NativeWebView` and `ResultsView` content, asset host up, "Host window ready" logged. This looked like it confirmed the nesting hypothesis. It didn't — the run just wasn't long enough.
+
+**Second pass (40–45s launches) contradicted the first:** variant 3 (full nesting) crashed at ~15–20s in with the same `LayoutManager.Arrange` self-recursion as before. Re-running **variant 1 (the minimal, non-nested layout)** for longer crashed too — same stack shape, real content. A follow-up run with wall-clock timestamps bracketing the process (`date +%s.%N` before/after) measured the *same minimal layout* crashing at ~14s in one run, after having survived a full clean 15s run moments earlier with no code change in between.
+
+**Conclusion: the `ProportionalDock`/`ToolDock` nesting is not the cause.** The crash is present in the simplest possible layout (`RootDock` → `DocumentDock`, one tab, real content) exactly as much as in the full nested one. It is **timing-dependent and non-deterministic** — anywhere from ~14s to beyond 40s after launch, not tied to a fixed delay, a specific frame count, or the dock structure. This rules out every hypothesis tested so far (content type, hosting control, Dock's default templates vs. a custom one, and now the layout nesting) without finding the actual trigger.
+
+**Searched upstream again** (`gh search issues` against `AvaloniaUI/Avalonia`) for a matching `StackOverflowException`/`LayoutManager.Arrange` recursion report — nothing found. [wieslawsoltes/Dock#1102](https://github.com/wieslawsoltes/Dock/issues/1102) (noted in the previous entry) remains the closest related-but-not-identical report.
+
+**Not yet tested — real candidates given the timing signature:** something that fires once, asynchronously, a variable number of seconds after launch, and triggers exactly one `Arrange` call that recurses into itself rather than converging. No app-code timer/animation was found (grepped `src/` for `DispatcherTimer`/`Task.Delay`/`Transitions`/`Animation` — only an unrelated `Task.Delay` grace-period in `WorkerClient.fs` and the Monaco vendor JS matched). That points away from application code and toward either: Dock.Avalonia's own internal behavior (drag-preview adorner, focus/pointer tracking) firing once after some idle delay, or a native-HWND resize feedback loop from `NativeWebView` finishing its (variable-latency) async page load and reporting a size back to Avalonia's layout system — plausible since the delay varies run-to-run the way network/JS-parse latency would, though the earlier "crashes even with `NativeWebView` fully removed" result argues against this being *required* for the crash (a TextBlock-only run doesn't have async load latency at all, so if that variant's delay was also non-deterministic for a different reason, the two results aren't necessarily in conflict — this wasn't re-verified with timestamps this round).
+
+**Code state:** `DockFactory.fs` reverted byte-for-byte to the committed (`418e73b`) full-nesting version — confirmed via `git diff` (no output) after the last revert. `dotnet build` clean, 0 warnings/errors. `Ui.Tests`: 137/137 passing, unchanged. The app still crashes in this state.
+
+Files changed: `docs/DEVLOG.md` only (all diagnostic `DockFactory.fs` edits were temporary and reverted before this commit).
+
