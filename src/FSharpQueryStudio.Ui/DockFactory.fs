@@ -9,12 +9,17 @@ open Dock.Serializer.SystemTextJson
 
 /// Builds and owns the VS-shaped default dock layout (Section 5's
 /// workspace/document/results panes) and keeps it in sync with
-/// `ShellViewModel`'s canonical document list. `editorContent` is the
-/// single shared Monaco `NativeWebView` control (see `ScriptDocument`'s
-/// doc comment); `resultsContent` is the existing Results/Output/
-/// Problems/Schema view, built by the caller (`MainWindow`) — `Ui` has
-/// no other Avalonia-control dependency anywhere, and this keeps it
-/// that way (both arrive as `obj`).
+/// `ShellViewModel`'s canonical document list. `createEditorControl`
+/// builds a fresh Monaco `NativeWebView` control per document tab (see
+/// `ScriptDocument`'s doc comment for why one *per tab*, not shared —
+/// Avalonia rejects the same `Control` instance being parented under two
+/// `ContentControl`s at once, which a shared instance hits the moment a
+/// second tab exists); `resultsContent` is the existing Results/Output/
+/// Problems/Schema view — safe to share, since exactly one "Results" tool
+/// ever exists. Both `createEditorControl`'s return value and
+/// `resultsContent` arrive as `obj`, built by the caller (`MainWindow`) —
+/// `Ui` has no other Avalonia-control dependency anywhere, and this keeps
+/// it that way.
 ///
 /// The real installed `Dock.Model`/`Dock.Model.Mvvm` (v12.1.0) place
 /// `IRootDock`/`IDocumentDock` in `Dock.Model.Controls` (not
@@ -26,10 +31,10 @@ open Dock.Serializer.SystemTextJson
 /// interfaces only) — confirmed via reflection over the built
 /// `Dock.Model.dll`/`Dock.Model.Mvvm.dll`. The opens above already
 /// reflect that.
-type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj) as self =
+type DockFactory(shell: ShellViewModel, createEditorControl: unit -> obj, resultsContent: obj) as self =
     inherit Factory()
 
-    let documentActivated = Event<DocumentViewModel>()
+    let documentActivated = Event<ScriptDocument>()
     let mutable documentDock: IDocumentDock = Unchecked.defaultof<_>
     let mutable workspaceDock: IToolDock = Unchecked.defaultof<_>
     let mutable resultsDock: IToolDock = Unchecked.defaultof<_>
@@ -65,7 +70,7 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
     /// thing, which is why the one tab `CreateLayout` builds was always
     /// closeable and this never showed up before now.
     let addTab (document: DocumentViewModel) : ScriptDocument =
-        let scriptDoc = ScriptDocument(document, shell, editorContent)
+        let scriptDoc = ScriptDocument(document, shell, createEditorControl ())
         self.AddDockable(documentDock, scriptDoc)
         self.SetActiveDockable(scriptDoc) |> ignore
         scriptDoc
@@ -75,7 +80,7 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
             match args.Dockable with
             | :? ScriptDocument as sd ->
                 shell.OpenDocument(sd.Document.Uri) |> ignore
-                documentActivated.Trigger(sd.Document)
+                documentActivated.Trigger(sd)
             | _ -> ())
 
         // `ShellViewModel.CloseDocument` guarantees `ActiveDocument` always
@@ -140,11 +145,17 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
     /// comment.
     member _.ResultsTool = resultsTool
 
+    /// Fires the newly active tab's `ScriptDocument` — not just its
+    /// `DocumentViewModel` — whenever the active dockable changes,
+    /// because the caller (`MainWindow`) needs to reach that specific
+    /// tab's own `Context` (its dedicated `NativeWebView`) to push the
+    /// `DocumentLoaded` notification into the right control, not
+    /// whichever one used to be shared.
     [<CLIEvent>]
     member _.DocumentActivated = documentActivated.Publish
 
     override this.CreateLayout() : IRootDock =
-        let initialDoc = ScriptDocument(shell.ActiveDocument, shell, editorContent)
+        let initialDoc = ScriptDocument(shell.ActiveDocument, shell, createEditorControl ())
 
         workspaceTool <- Tool(Id = "Workspace", Title = "Workspace", CanClose = false)
         resultsTool <- Tool(Id = "Results", Title = "Results", CanClose = false, Context = resultsContent)

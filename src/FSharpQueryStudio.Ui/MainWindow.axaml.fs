@@ -43,30 +43,33 @@ type MainWindow() as this =
     let shellViewModel = ShellViewModel()
     let themeService = ThemeService()
 
-    // The single shared Monaco editor and the single Results panel: both
-    // are built here rather than declared in `MainWindow.axaml`, because
-    // `DockFactory.CreateLayout` needs live control instances to assign to
-    // each dockable's `Context` (see `ScriptDocument`'s doc comment).
-    let webView = NativeWebView()
+    // The Results panel: one instance, shared, because exactly one
+    // "Results" tool ever exists — nothing to reparent-conflict with.
     let resultsView = ResultsView(DataContext = shellViewModel)
-    let dockFactory = DockFactory(shellViewModel, webView, resultsView)
 
-    // Captured here (not a local `let` inside the `do` block) so
-    // `RestoreLayout`/`MainDockLayout` below — used by `App.axaml.fs` for
-    // layout persistence (Task 12) — can reach the real `DockControl`
-    // after construction.
+    // `dockFactory`/`dockControl` are assigned inside the `do` block, not
+    // constructed here directly: `dockFactory` needs `createEditorControl`
+    // (below), which itself needs the asset host's `BaseUri`, and starting
+    // that host is a `do`-block side effect. Captured as fields (not local
+    // `do`-block `let`s) so `RestoreLayout`/`MainDockLayout`/`DockFactory`
+    // below — used by `App.axaml.fs` for layout persistence and document
+    // opening — can reach them after construction.
+    let mutable dockFactory: DockFactory = Unchecked.defaultof<_>
     let mutable dockControl: DockControl = Unchecked.defaultof<_>
 
-    /// Host -> editor channel. The installed `Avalonia.Controls.WebView`
-    /// (12.0.1) `NativeWebView` exposes no `PostWebMessage*` method at all
-    /// — its only outbound member is `InvokeScript` — so an envelope is
-    /// delivered by dispatching a synthetic `message` event on
-    /// `window.chrome.webview`, which is exactly the object
-    /// `editor-host.html`'s listener is attached to. Failures are
-    /// swallowed — both a synchronous throw and a faulted task, since
-    /// `InvokeScript` can fail either way — because a message sent before
-    /// the page finished loading must never take the window down.
-    let postToEditor (envelope: EditorEnvelope) =
+    /// Host -> editor channel for one specific tab's `NativeWebView` (each
+    /// open script tab has its own — see `ScriptDocument`'s doc comment
+    /// for why a single shared instance doesn't work). The installed
+    /// `Avalonia.Controls.WebView` (12.0.1) `NativeWebView` exposes no
+    /// `PostWebMessage*` method at all — its only outbound member is
+    /// `InvokeScript` — so an envelope is delivered by dispatching a
+    /// synthetic `message` event on `window.chrome.webview`, which is
+    /// exactly the object `editor-host.html`'s listener is attached to.
+    /// Failures are swallowed — both a synchronous throw and a faulted
+    /// task, since `InvokeScript` can fail either way — because a message
+    /// sent before the page finished loading must never take the window
+    /// down.
+    let postToEditor (webView: NativeWebView) (envelope: EditorEnvelope) =
         let json =
             System.Text.Json.JsonSerializer.Serialize(envelope, Serialization.options)
 
@@ -91,6 +94,45 @@ type MainWindow() as this =
     do
         AvaloniaXamlLoader.Load(this)
         this.DataContext <- shellViewModel
+
+        let assetsRoot = Path.Combine(AppContext.BaseDirectory, "EditorAssets")
+        let host = AssetHost.start assetsRoot
+        assetHost <- Some host
+
+        // Builds one fresh, fully-wired `NativeWebView` per document tab.
+        // A single shared instance was tried first (Task 5-9) and threw
+        // `InvalidOperationException: ... already has a visual parent ...`
+        // the instant a second tab existed: Dock builds a distinct
+        // `ContentControl` per dockable via the `DataTemplate`s below, and
+        // an Avalonia `Control` can only ever be parented under one of
+        // them at a time. One instance per tab means there's never a
+        // second claimant.
+        let createEditorControl () : obj =
+            let wv = NativeWebView()
+            wv.Source <- Uri(host.BaseUri, "editor-host.html")
+
+            wv.WebMessageReceived.Add(fun args ->
+                let envelope =
+                    System.Text.Json.JsonSerializer.Deserialize<EditorEnvelope>(args.Body, Serialization.options)
+
+                match EditorBridge.decode envelope with
+                // Routed by the URI the message carries, not by whichever
+                // tab happens to be active by the time it arrives — see
+                // `ShellViewModel.RouteTextChanged`'s doc comment. Still
+                // correct now that every tab has its own `NativeWebView`:
+                // each one only ever reports its own document's URI, but
+                // routing by URI rather than assuming "this webview's
+                // message must be for its own tab" costs nothing and
+                // stays correct even if that assumption ever stops
+                // holding.
+                | Ok(TextChanged(documentUri, version, source)) ->
+                    shellViewModel.RouteTextChanged(documentUri, version, source)
+                | Ok _otherRequest -> () // Wired as each lands in its own later task.
+                | Result.Error _err -> ()) // Malformed message from the page - never crashes the host.
+
+            wv :> obj
+
+        dockFactory <- DockFactory(shellViewModel, createEditorControl, resultsView)
 
         dockControl <- this.FindControl<DockControl>("MainDock")
 
@@ -124,31 +166,18 @@ type MainWindow() as this =
         dockControl.Factory <- dockFactory
         dockControl.Layout <- layout
 
-        let assetsRoot = Path.Combine(AppContext.BaseDirectory, "EditorAssets")
-        let host = AssetHost.start assetsRoot
-        assetHost <- Some host
-        webView.Source <- Uri(host.BaseUri, "editor-host.html")
-
-        webView.WebMessageReceived.Add(fun args ->
-            let envelope =
-                System.Text.Json.JsonSerializer.Deserialize<EditorEnvelope>(args.Body, Serialization.options)
-
-            match EditorBridge.decode envelope with
-            // Routed by the URI the message carries, not by whichever tab
-            // happens to be active by the time it arrives — see
-            // `ShellViewModel.RouteTextChanged`'s doc comment for the
-            // cross-tab corruption that applying it to `ActiveDocument`
-            // caused once more than one tab could be open.
-            | Ok(TextChanged(documentUri, version, source)) ->
-                shellViewModel.RouteTextChanged(documentUri, version, source)
-            | Ok _otherRequest -> () // Wired as each lands in its own later task.
-            | Result.Error _err -> ()) // Malformed message from the page - never crashes the host.
-
         // Gives `ProblemViewModel.Navigate` (the Problems tab's
-        // double-click) somewhere to send its caret-move envelope — the
-        // WebView is private to this window, so this is the only place
-        // that hook can be wired.
-        shellViewModel.SendToEditor <- Some postToEditor
+        // double-click) and `ShellViewModel.MarkDocumentSaved` (the
+        // post-save editor re-key) somewhere to send an envelope —
+        // resolved to whichever tab is active *at send time*, since both
+        // callers only ever act on the active document and each tab now
+        // owns its own `NativeWebView` rather than there being one to
+        // reach directly.
+        shellViewModel.SendToEditor <-
+            Some(fun envelope ->
+                match dockFactory.DocumentDock.ActiveDockable with
+                | :? ScriptDocument as sd -> postToEditor (sd.Context :?> NativeWebView) envelope
+                | _ -> ())
 
         // Avalonia ships no message-box control, so this *is* the whole
         // confirmation dialog: a small owned `Window` with two buttons.
@@ -241,11 +270,22 @@ type MainWindow() as this =
         // no prompt, no message, the tab just refused to close.
         shellViewModel.ConfirmDiscardDirtyDocument <- Some confirmDiscardDirty
 
-        // Pushes the newly active tab's text into the shared editor —
-        // see ScriptDocument/DockFactory's doc comments (Tasks 5-6) and
-        // the DocumentLoaded notification (Task 7).
-        dockFactory.DocumentActivated.Add(fun doc ->
-            postToEditor (EditorBridge.encodeNotification (DocumentLoaded(doc.Uri, doc.Version, doc.Text))))
+        // Pushes a tab's text into its own dedicated editor — see
+        // ScriptDocument/DockFactory's doc comments (Tasks 5-6) and the
+        // DocumentLoaded notification (Task 7). Fires on every activation
+        // (not just a freshly created tab's first one), which does mean
+        // switching back to an already-open tab reloads its Monaco model
+        // and loses that tab's undo stack/cursor position rather than
+        // resuming where it was left — a real UX cost, flagged by the
+        // final branch review as a follow-up (worth revisiting once
+        // per-tab `NativeWebView`s make "only push once, on first
+        // activation" straightforward) but not the crash this fixes.
+        dockFactory.DocumentActivated.Add(fun scriptDoc ->
+            postToEditor
+                (scriptDoc.Context :?> NativeWebView)
+                (EditorBridge.encodeNotification (
+                    DocumentLoaded(scriptDoc.Document.Uri, scriptDoc.Document.Version, scriptDoc.Document.Text)
+                )))
 
         let resultsGrid = resultsView.FindControl<DataGrid>("ResultsGrid")
 

@@ -4,10 +4,14 @@ open System.ComponentModel
 open Dock.Model.Mvvm.Controls
 
 /// Wraps one `DocumentViewModel` as a Dock.Avalonia document tab. `Context`
-/// is always the same shared Monaco `NativeWebView` instance — see the
-/// UI-Foundation spec's rationale for one editor control reused across
-/// every open script tab, with the active tab's text pushed into it via
-/// a `DocumentLoaded` bridge notification (`DockFactory` raises that).
+/// holds this tab's own Monaco `NativeWebView` instance — one per open
+/// script tab, not shared (a single shared instance was tried first and
+/// threw `InvalidOperationException: ... already has a visual parent ...`
+/// the moment a second tab existed, since Dock builds a distinct
+/// `ContentControl` per dockable and an Avalonia `Control` can only ever
+/// have one visual parent at a time). Each tab's `NativeWebView` gets its
+/// content set once, right after `DockFactory` raises `DocumentActivated`
+/// for it, via a `DocumentLoaded` bridge notification.
 ///
 /// `OnClose` routes entirely through `ShellViewModel.CloseDocument` so
 /// the existing dirty-tab confirmation flow

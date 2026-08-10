@@ -14,7 +14,7 @@ let private scriptDocuments (factory: DockFactory) : ScriptDocument list =
 [<Fact>]
 let ``CreateLayout produces one ScriptDocument for the shell's initial ActiveDocument`` () =
     let shell = ShellViewModel()
-    let factory = DockFactory(shell, obj (), obj ())
+    let factory = DockFactory(shell, (fun () -> obj ()), obj ())
     let layout = factory.CreateLayout()
     factory.InitLayout(layout)
 
@@ -25,7 +25,7 @@ let ``CreateLayout produces one ScriptDocument for the shell's initial ActiveDoc
 [<Fact>]
 let ``OpenDocument on a new uri adds a second ScriptDocument and updates ShellViewModel.Documents`` () =
     let shell = ShellViewModel()
-    let factory = DockFactory(shell, obj (), obj ())
+    let factory = DockFactory(shell, (fun () -> obj ()), obj ())
     let layout = factory.CreateLayout()
     factory.InitLayout(layout)
 
@@ -37,7 +37,7 @@ let ``OpenDocument on a new uri adds a second ScriptDocument and updates ShellVi
 [<Fact>]
 let ``OpenDocument on an already-open uri does not duplicate the tab`` () =
     let shell = ShellViewModel()
-    let factory = DockFactory(shell, obj (), obj ())
+    let factory = DockFactory(shell, (fun () -> obj ()), obj ())
     let layout = factory.CreateLayout()
     factory.InitLayout(layout)
 
@@ -49,18 +49,18 @@ let ``OpenDocument on an already-open uri does not duplicate the tab`` () =
 [<Fact>]
 let ``DocumentActivated fires the newly active document when SetActiveDockable switches tabs`` () =
     let shell = ShellViewModel()
-    let factory = DockFactory(shell, obj (), obj ())
+    let factory = DockFactory(shell, (fun () -> obj ()), obj ())
     let layout = factory.CreateLayout()
     factory.InitLayout(layout)
     factory.OpenDocument("untitled:Script2.fsx")
 
     let firstDoc = (scriptDocuments factory).Head
-    let mutable activated: DocumentViewModel option = None
-    factory.DocumentActivated.Add(fun doc -> activated <- Some doc)
+    let mutable activated: ScriptDocument option = None
+    factory.DocumentActivated.Add(fun sd -> activated <- Some sd)
 
     factory.SetActiveDockable(firstDoc) |> ignore
 
-    Assert.Equal(Some firstDoc.Document.Uri, activated |> Option.map (fun d -> d.Uri))
+    Assert.Equal(Some firstDoc.Document.Uri, activated |> Option.map (fun sd -> sd.Document.Uri))
     Assert.Equal(firstDoc.Document.Uri, shell.ActiveDocument.Uri)
 
 // A tab added straight to `VisibleDockables` keeps a null `Owner`, and
@@ -73,7 +73,7 @@ let ``DocumentActivated fires the newly active document when SetActiveDockable s
 [<Fact>]
 let ``a tab opened via OpenDocument is wired with an Owner and a Factory`` () =
     let shell = ShellViewModel()
-    let factory = DockFactory(shell, obj (), obj ())
+    let factory = DockFactory(shell, (fun () -> obj ()), obj ())
     let layout = factory.CreateLayout()
     factory.InitLayout(layout)
 
@@ -87,7 +87,7 @@ let ``a tab opened via OpenDocument is wired with an Owner and a Factory`` () =
 [<Fact>]
 let ``a tab opened via OpenDocument can actually be closed again`` () =
     let shell = ShellViewModel()
-    let factory = DockFactory(shell, obj (), obj ())
+    let factory = DockFactory(shell, (fun () -> obj ()), obj ())
     let layout = factory.CreateLayout()
     factory.InitLayout(layout)
     factory.OpenDocument("untitled:Script2.fsx")
@@ -110,7 +110,7 @@ let ``a tab opened via OpenDocument can actually be closed again`` () =
 [<Fact>]
 let ``closing the last document tab leaves a tab for the shell's replacement document`` () =
     let shell = ShellViewModel()
-    let factory = DockFactory(shell, obj (), obj ())
+    let factory = DockFactory(shell, (fun () -> obj ()), obj ())
     let layout = factory.CreateLayout()
     factory.InitLayout(layout)
 
@@ -127,7 +127,7 @@ let ``closing the last document tab leaves a tab for the shell's replacement doc
 [<Fact>]
 let ``the document area is never left without a tab for the active document`` () =
     let shell = ShellViewModel()
-    let factory = DockFactory(shell, obj (), obj ())
+    let factory = DockFactory(shell, (fun () -> obj ()), obj ())
     let layout = factory.CreateLayout()
     factory.InitLayout(layout)
     factory.OpenDocument("untitled:Script2.fsx")
@@ -146,7 +146,7 @@ let ``the document area is never left without a tab for the active document`` ()
 [<Fact>]
 let ``closing a non-last document tab does not fabricate a replacement tab`` () =
     let shell = ShellViewModel()
-    let factory = DockFactory(shell, obj (), obj ())
+    let factory = DockFactory(shell, (fun () -> obj ()), obj ())
     let layout = factory.CreateLayout()
     factory.InitLayout(layout)
     factory.OpenDocument("untitled:Script2.fsx")
@@ -161,7 +161,7 @@ let ``closing a non-last document tab does not fabricate a replacement tab`` () 
 [<Fact>]
 let ``a declined close on a dirty last tab keeps the original tab and adds nothing`` () =
     let shell = ShellViewModel()
-    let factory = DockFactory(shell, obj (), obj ())
+    let factory = DockFactory(shell, (fun () -> obj ()), obj ())
     let layout = factory.CreateLayout()
     factory.InitLayout(layout)
     shell.ActiveDocument.ApplyTextChanged(1, "unsaved")
@@ -180,7 +180,7 @@ let ``a declined close on a dirty last tab keeps the original tab and adds nothi
 [<Fact>]
 let ``the tab created for a replacement document can itself be closed again`` () =
     let shell = ShellViewModel()
-    let factory = DockFactory(shell, obj (), obj ())
+    let factory = DockFactory(shell, (fun () -> obj ()), obj ())
     let layout = factory.CreateLayout()
     factory.InitLayout(layout)
 
@@ -192,10 +192,39 @@ let ``the tab created for a replacement document can itself be closed again`` ()
     Assert.Single(scriptDocuments factory) |> ignore
     Assert.Same(shell.ActiveDocument, (scriptDocuments factory).Head.Document)
 
+// A single shared `NativeWebView` was tried first (Task 5-9) and threw
+// `InvalidOperationException: ... already has a visual parent ...` the
+// moment a second tab existed - Dock builds a distinct `ContentControl`
+// per dockable, and an Avalonia `Control` can only ever be parented under
+// one of them at a time. `DockFactory` now calls `createEditorControl`
+// fresh for every tab it creates, so each `ScriptDocument.Context` is its
+// own, never-shared object.
+
+[<Fact>]
+let ``every open document tab gets its own editor control instance, never shared`` () =
+    let shell = ShellViewModel()
+    let mutable created = 0
+
+    let createEditorControl () =
+        created <- created + 1
+        box created
+
+    let factory = DockFactory(shell, createEditorControl, obj ())
+    let layout = factory.CreateLayout()
+    factory.InitLayout(layout)
+
+    factory.OpenDocument("untitled:Script2.fsx")
+    factory.OpenDocument("untitled:Script3.fsx")
+
+    let contexts = scriptDocuments factory |> List.map (fun sd -> sd.Context)
+    Assert.Equal(3, created)
+    Assert.Equal<int list>([ 1; 2; 3 ], contexts |> List.map (fun c -> c :?> int) |> List.sort)
+    Assert.Equal(3, contexts |> List.distinct |> List.length)
+
 [<Fact>]
 let ``HideDockable then RestoreDockable round-trips the Results tool back into ResultsDock`` () =
     let shell = ShellViewModel()
-    let factory = DockFactory(shell, obj (), obj ())
+    let factory = DockFactory(shell, (fun () -> obj ()), obj ())
     let layout = factory.CreateLayout()
     factory.InitLayout(layout)
 
@@ -214,7 +243,7 @@ let ``HideDockable then RestoreDockable round-trips the Results tool back into R
 [<Fact>]
 let ``HideDockable then RestoreDockable round-trips the Workspace tool back into WorkspaceDock`` () =
     let shell = ShellViewModel()
-    let factory = DockFactory(shell, obj (), obj ())
+    let factory = DockFactory(shell, (fun () -> obj ()), obj ())
     let layout = factory.CreateLayout()
     factory.InitLayout(layout)
 

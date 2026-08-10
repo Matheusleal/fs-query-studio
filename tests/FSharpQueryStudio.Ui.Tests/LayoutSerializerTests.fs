@@ -28,7 +28,7 @@ open FSharpQueryStudio.Ui
 
 let private rebuild () =
     let shell = ShellViewModel()
-    let factory = DockFactory(shell, obj (), obj ())
+    let factory = DockFactory(shell, (fun () -> obj ()), obj ())
     let layout = factory.CreateLayout()
     factory.InitLayout(layout)
     shell, factory, layout
