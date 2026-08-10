@@ -14,7 +14,6 @@ open Avalonia.Media
 open Avalonia.Platform.Storage
 open Avalonia.Styling
 open Avalonia.Threading
-open Dock.Avalonia.Controls
 open Serilog
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Editor
@@ -46,19 +45,14 @@ type MainWindow() as this =
     // "Results" tool ever exists — nothing to reparent-conflict with.
     let resultsView = ResultsView(DataContext = shellViewModel)
 
-    // `dockFactory`/`dockControl` are assigned inside the `do` block, not
-    // constructed here directly: `dockFactory` needs `createEditorControl`
-    // (below), which itself needs the asset host's `BaseUri`, and starting
-    // that host is a `do`-block side effect. Captured as fields (not local
-    // `do`-block `let`s) so `RestoreLayout`/`MainDockLayout`/`DockFactory`
-    // below — used by `App.axaml.fs` for layout persistence and document
-    // opening — can reach them after construction.
-    let mutable dockFactory: DockFactory = Unchecked.defaultof<_>
-    let mutable dockControl: DockControl = Unchecked.defaultof<_>
+    // TEMP DIAGNOSTIC: Dock.Avalonia removed for this test — see
+    // MainWindow.axaml's `FixedShellGrid` comment and docs/DEVLOG.md.
+    // `webView` is the single, fixed-position editor control (was one
+    // per tab via `DockFactory.createEditorControl`; this test has only
+    // one editor slot, no tabs).
+    let mutable webView: NativeWebView = Unchecked.defaultof<_>
 
-    /// Host -> editor channel for one specific tab's `NativeWebView` (each
-    /// open script tab has its own — see `ScriptDocument`'s doc comment
-    /// for why a single shared instance doesn't work). The installed
+    /// Host -> editor channel for the fixed editor control. The installed
     /// `Avalonia.Controls.WebView` (12.0.1) `NativeWebView` exposes no
     /// `PostWebMessage*` method at all — its only outbound member is
     /// `InvokeScript` — so an envelope is delivered by dispatching a
@@ -98,64 +92,56 @@ type MainWindow() as this =
         let host = AssetHost.start assetsRoot
         assetHost <- Some host
 
-        // Builds one fresh, fully-wired `NativeWebView` per document tab.
-        // A single shared instance was tried first (Task 5-9) and threw
-        // `InvalidOperationException: ... already has a visual parent ...`
-        // the instant a second tab existed: Dock builds a distinct
-        // content-hosting control per dockable, and an Avalonia `Control`
-        // can only ever be parented under one of them at a time. One
-        // instance per tab means there's never a second claimant.
-        let createEditorControl () : obj =
-            let wv = NativeWebView()
-            wv.Source <- Uri(host.BaseUri, "editor-host.html")
+        // TEMP DIAGNOSTIC: single fixed `NativeWebView`, wired the same
+        // way `DockFactory.createEditorControl` used to build one per
+        // tab — just one instance now, since `FixedShellGrid` has one
+        // editor slot instead of a `DocumentDock`.
+        webView <- NativeWebView()
+        webView.Source <- Uri(host.BaseUri, "editor-host.html")
 
-            wv.WebMessageReceived.Add(fun args ->
-                let envelope =
-                    System.Text.Json.JsonSerializer.Deserialize<EditorEnvelope>(args.Body, Serialization.options)
+        webView.WebMessageReceived.Add(fun args ->
+            let envelope =
+                System.Text.Json.JsonSerializer.Deserialize<EditorEnvelope>(args.Body, Serialization.options)
 
-                match EditorBridge.decode envelope with
-                // Routed by the URI the message carries, not by whichever
-                // tab happens to be active by the time it arrives — see
-                // `ShellViewModel.RouteTextChanged`'s doc comment. Still
-                // correct now that every tab has its own `NativeWebView`:
-                // each one only ever reports its own document's URI, but
-                // routing by URI rather than assuming "this webview's
-                // message must be for its own tab" costs nothing and
-                // stays correct even if that assumption ever stops
-                // holding.
-                | Ok(TextChanged(documentUri, version, source)) ->
-                    shellViewModel.RouteTextChanged(documentUri, version, source)
-                | Ok _otherRequest -> () // Wired as each lands in its own later task.
-                | Result.Error _err -> ()) // Malformed message from the page - never crashes the host.
+            match EditorBridge.decode envelope with
+            | Ok(TextChanged(documentUri, version, source)) ->
+                shellViewModel.RouteTextChanged(documentUri, version, source)
+            | Ok _otherRequest -> () // Wired as each lands in its own later task.
+            | Result.Error _err -> ()) // Malformed message from the page - never crashes the host.
 
-            wv :> obj
+        // TEMP DIAGNOSTIC: logging the native adapter's own lifecycle
+        // events, to see whether/when `NativeWebView` actually creates
+        // its platform adapter for this instance.
+        webView.AdapterCreated.Add(fun _ ->
+            Log.Information(
+                "NativeWebView.AdapterCreated Bounds={Bounds} IsVisible={IsVisible} IsEffectivelyVisible={EffVisible}",
+                webView.Bounds,
+                webView.IsVisible,
+                webView.IsEffectivelyVisible
+            ))
 
-        dockFactory <- DockFactory(shellViewModel, createEditorControl, resultsView)
+        webView.AdapterDestroyed.Add(fun _ -> Log.Information("NativeWebView.AdapterDestroyed"))
+        webView.NavigationStarted.Add(fun args ->
+            Log.Information("NativeWebView.NavigationStarted {Uri}", args.Request))
 
-        dockControl <- this.FindControl<DockControl>("MainDock")
+        webView.NavigationCompleted.Add(fun args ->
+            Log.Information(
+                "NativeWebView.NavigationCompleted IsSuccess={IsSuccess} Request={Request} Bounds={Bounds}",
+                args.IsSuccess,
+                args.Request,
+                webView.Bounds
+            ))
 
-        // KNOWN ISSUE, not yet resolved: hosting any real content inside
-        // this layout — confirmed by direct experiment to be unrelated to
-        // `NativeWebView`, `ResultsView`, or which control renders the
-        // content (`Dock.Avalonia.Controls.DocumentContentControl`/
-        // `ToolContentControl` vs. a plain `ContentControl` registered
-        // via a custom `FuncDataTemplate` — both crash identically) —
-        // sends Avalonia's layout system into unbounded self-recursion
-        // (`LayoutManager.Arrange` calling itself thousands of times, a
-        // real `StackOverflowException`) the moment a tab/tool pane is
-        // actually laid out. Relying on `AutoCreateDataTemplates` here
-        // (matching `IDocumentContent`/`IToolContent`, which
-        // `ScriptDocument`/`ContentTool` correctly implement) since it's
-        // no worse than the custom-template attempt and is the
-        // architecturally correct approach regardless — see docs/DEVLOG.md
-        // for the full investigation.
-        let layout = dockFactory.CreateLayout()
-        // `InitLayout` wires every dockable's `Factory`/`Owner` and
-        // activates the default dockable — Dock.Avalonia's own init
-        // sequence requires it before the layout is handed to the control.
-        dockFactory.InitLayout(layout)
-        dockControl.Factory <- dockFactory
-        dockControl.Layout <- layout
+        let editorHost = this.FindControl<ContentControl>("EditorHost")
+        let resultsHostControl = this.FindControl<ContentControl>("ResultsHost")
+        resultsHostControl.Content <- resultsView
+
+        // TEMP DIAGNOSTIC: assigning `Content` here, during the
+        // constructor (before the window is ever shown), is suspected of
+        // being too early for `NativeWebView`'s native adapter — deferred
+        // to `Opened` instead, a documented workaround for this class of
+        // Avalonia native-control-host timing issue.
+        this.Opened.Add(fun _ -> editorHost.Content <- webView)
 
         // Gives `ProblemViewModel.Navigate` (the Problems tab's
         // double-click) and `ShellViewModel.MarkDocumentSaved` (the
@@ -164,11 +150,7 @@ type MainWindow() as this =
         // callers only ever act on the active document and each tab now
         // owns its own `NativeWebView` rather than there being one to
         // reach directly.
-        shellViewModel.SendToEditor <-
-            Some(fun envelope ->
-                match dockFactory.DocumentDock.ActiveDockable with
-                | :? ScriptDocument as sd -> postToEditor (sd.EditorControl :?> NativeWebView) envelope
-                | _ -> ())
+        shellViewModel.SendToEditor <- Some(fun envelope -> postToEditor webView envelope)
 
         // Avalonia ships no message-box control, so this *is* the whole
         // confirmation dialog: a small owned `Window` with two buttons.
@@ -261,22 +243,30 @@ type MainWindow() as this =
         // no prompt, no message, the tab just refused to close.
         shellViewModel.ConfirmDiscardDirtyDocument <- Some confirmDiscardDirty
 
-        // Pushes a tab's text into its own dedicated editor — see
-        // ScriptDocument/DockFactory's doc comments (Tasks 5-6) and the
-        // DocumentLoaded notification (Task 7). Fires on every activation
-        // (not just a freshly created tab's first one), which does mean
-        // switching back to an already-open tab reloads its Monaco model
-        // and loses that tab's undo stack/cursor position rather than
-        // resuming where it was left — a real UX cost, flagged by the
-        // final branch review as a follow-up (worth revisiting once
-        // per-tab `NativeWebView`s make "only push once, on first
-        // activation" straightforward) but not the crash this fixes.
-        dockFactory.DocumentActivated.Add(fun scriptDoc ->
-            postToEditor
-                (scriptDoc.EditorControl :?> NativeWebView)
-                (EditorBridge.encodeNotification (
-                    DocumentLoaded(scriptDoc.Document.Uri, scriptDoc.Document.Version, scriptDoc.Document.Text)
-                )))
+        // TEMP DIAGNOSTIC: no Dock, no tabs — `ActiveDocument` changing
+        // (via `OpenDocument`, File > New/Open) is the one signal this
+        // fixed layout has for "push this document into the editor",
+        // replacing `DockFactory.DocumentActivated`.
+        (shellViewModel :> INotifyPropertyChanged)
+            .PropertyChanged.Add(fun args ->
+                if args.PropertyName = nameof shellViewModel.ActiveDocument then
+                    let doc = shellViewModel.ActiveDocument
+
+                    postToEditor
+                        webView
+                        (EditorBridge.encodeNotification (DocumentLoaded(doc.Uri, doc.Version, doc.Text))))
+
+        // Initial push for the workspace's very first document — nothing
+        // else fires an `ActiveDocument` change for it.
+        postToEditor
+            webView
+            (EditorBridge.encodeNotification (
+                DocumentLoaded(
+                    shellViewModel.ActiveDocument.Uri,
+                    shellViewModel.ActiveDocument.Version,
+                    shellViewModel.ActiveDocument.Text
+                )
+            ))
 
         let resultsGrid = resultsView.FindControl<DataGrid>("ResultsGrid")
 
@@ -340,19 +330,8 @@ type MainWindow() as this =
         // see its doc comment for the collision that made File > New a
         // silent no-op after a tab had been closed.
         let newDocument () =
-            dockFactory.OpenDocument(shellViewModel.NextUntitledUri())
+            shellViewModel.OpenDocument(shellViewModel.NextUntitledUri()) |> ignore
 
-        // Loads the picked file's real text into the `DocumentViewModel`
-        // *before* handing the URI to `dockFactory.OpenDocument` — that
-        // call synchronously activates the new tab, which fires
-        // `DocumentActivated` (Task 9's wiring above) and pushes a
-        // `DocumentLoaded` bridge notification with whatever the
-        // document's `Text`/`Version` are *at that instant*. Populating
-        // the document first (via `shellViewModel.OpenDocument`, the same
-        // shell-only half `DockFactory.OpenDocument` calls internally —
-        // see its doc comment) means that notification carries the real
-        // file content instead of the empty string every freshly-created
-        // `DocumentViewModel` starts with.
         let openDocument () =
             task {
                 let options = FilePickerOpenOptions(AllowMultiple = false, FileTypeFilter = [ openFsxFilter ])
@@ -365,7 +344,16 @@ type MainWindow() as this =
                     let text = File.ReadAllText(path)
                     let doc = shellViewModel.OpenDocument(path)
                     doc.ApplyTextChanged(doc.Version + 1, text)
-                    dockFactory.OpenDocument(path)
+
+                    // TEMP DIAGNOSTIC: the `ActiveDocument` PropertyChanged
+                    // push above already fired once, before `text` landed
+                    // (activation happens on `OpenDocument`, content is
+                    // applied after) — push again now with the real
+                    // content so the fixed editor slot shows the opened
+                    // file, not an empty buffer.
+                    postToEditor
+                        webView
+                        (EditorBridge.encodeNotification (DocumentLoaded(doc.Uri, doc.Version, doc.Text)))
             }
             :> System.Threading.Tasks.Task
 
@@ -444,32 +432,16 @@ type MainWindow() as this =
             }
             |> ignore)
 
-        // `Dock.Model.Core.IFactory` (v12.1.0) has no `IsVisible`-style
-        // flag on `IDockable` — the real hide/show primitives are
-        // `HideDockable`/`RestoreDockable`, confirmed by a throwaway xunit
-        // probe (see `DockFactoryTests.fs`) that found `RestoreDockable`
-        // must be handed the *same* `IDockable` reference that was hidden:
-        // a fresh `RestoreDockable(id: string)` lookup after the hide left
-        // the pane hidden, because once removed the tool's `Owner` becomes
-        // the root dock and it drops out of its `ToolDock`'s
-        // `VisibleDockables` entirely — so `DockFactory.WorkspaceTool`/
-        // `ResultsTool` (added alongside `WorkspaceDock`/`ResultsDock`)
-        // exist to keep that reference alive across the round-trip.
-        let toggleToolVisibility (dock: Dock.Model.Core.IDock) (tool: Dock.Model.Core.IDockable) =
-            let isVisible =
-                dock.VisibleDockables
-                |> Seq.exists (fun d -> obj.ReferenceEquals(d, tool))
-
-            if isVisible then
-                (dockFactory :> Dock.Model.Core.IFactory).HideDockable(tool) |> ignore
-            else
-                (dockFactory :> Dock.Model.Core.IFactory).RestoreDockable(tool) |> ignore
+        // TEMP DIAGNOSTIC: no Dock, so no `HideDockable`/`RestoreDockable`
+        // — the fixed panels just toggle `IsVisible` directly.
+        let workspacePanel = this.FindControl<Border>("WorkspacePanel")
+        let resultsHostToggle = this.FindControl<ContentControl>("ResultsHost")
 
         this.FindControl<MenuItem>("ToggleWorkspaceMenuItem").Click.Add(fun _ ->
-            toggleToolVisibility dockFactory.WorkspaceDock dockFactory.WorkspaceTool)
+            workspacePanel.IsVisible <- not workspacePanel.IsVisible)
 
         this.FindControl<MenuItem>("ToggleResultsMenuItem").Click.Add(fun _ ->
-            toggleToolVisibility dockFactory.ResultsDock dockFactory.ResultsTool)
+            resultsHostToggle.IsVisible <- not resultsHostToggle.IsVisible)
 
         this.FindControl<MenuItem>("ExitMenuItem").Click.Add(fun _ -> this.Close())
 
@@ -486,22 +458,10 @@ type MainWindow() as this =
     /// Exposed so `App.axaml.fs` can persist/restore the theme choice.
     member _.ThemeService = themeService
 
-    /// Exposed so `App.axaml.fs` (and File > New/Open) can open documents
-    /// as real Dock tabs, and so layout persistence can reach the layout.
-    member _.DockFactory = dockFactory
-
-    /// The live root layout currently assigned to the real `DockControl` —
-    /// read by `App.axaml.fs` on `Closing` to serialize the current
-    /// arrangement (Task 12).
-    member _.MainDockLayout = dockControl.Layout
-
-    /// Assigns a previously-serialized layout (already run through
-    /// `dockFactory.InitLayout`) back onto the real `DockControl` — used
-    /// by `App.axaml.fs` at startup to restore a saved arrangement (Task
-    /// 12). Kept as a separate member rather than exposing `dockControl`
-    /// itself, matching how `DockFactory`/`ThemeService` are exposed as
-    /// narrow surfaces rather than raw fields.
-    member _.RestoreLayout(root: Dock.Model.Controls.IRootDock) = dockControl.Layout <- root
+    // TEMP DIAGNOSTIC: `DockFactory`/`MainDockLayout`/`RestoreLayout`
+    // removed along with `DockControl` — see `FixedShellGrid`'s comment.
+    // `App.axaml.fs`'s layout persistence block is disabled for this test
+    // rather than reaching for these.
 
     /// Composition root: wires `shellViewModel`'s `ExecuteAsync`/
     /// `CancelAsync`/`ResetSession` to a real worker process — set once,

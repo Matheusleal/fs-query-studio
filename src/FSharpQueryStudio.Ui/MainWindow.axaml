@@ -77,6 +77,29 @@
       </StackPanel>
     </Border>
 
-    <dock:DockControl Name="MainDock" />
+    <!-- TEMP DIAGNOSTIC: Dock.Avalonia's DockControl swapped for a fixed
+         Grid, to test whether the docking library itself is the source
+         of the StackOverflowException under investigation (see
+         docs/DEVLOG.md). Not the final layout. -->
+    <Grid Name="FixedShellGrid" ColumnDefinitions="220,4,*">
+      <Border Grid.Column="0"
+              Name="WorkspacePanel"
+              Background="{DynamicResource ChromeBackgroundBrush}"
+              BorderBrush="{DynamicResource PrimaryTextBrush}"
+              BorderThickness="0,0,1,0">
+        <TextBlock Text="Workspace (fixed test panel)"
+                   Margin="8"
+                   TextWrapping="Wrap"
+                   Foreground="{DynamicResource PrimaryTextBrush}" />
+      </Border>
+
+      <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
+
+      <Grid Grid.Column="2" RowDefinitions="*,4,220">
+        <ContentControl Name="EditorHost" Grid.Row="0" />
+        <GridSplitter Grid.Row="1" ResizeDirection="Rows" />
+        <ContentControl Name="ResultsHost" Grid.Row="2" />
+      </Grid>
+    </Grid>
   </DockPanel>
 </Window>
