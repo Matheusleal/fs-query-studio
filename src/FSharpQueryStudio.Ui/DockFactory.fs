@@ -48,12 +48,63 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
             | _ -> None)
         |> Seq.tryFind (fun sd -> sd.Document.Uri = uri)
 
+    /// Adds `document` as a new Dock tab and activates it. Shared by
+    /// `OpenDocument` and the last-tab-closed repair below; both need the
+    /// same steps, and neither may go through `shell.OpenDocument` again
+    /// (the caller has already done the shell-side half).
+    ///
+    /// `AddDockable` rather than `documentDock.VisibleDockables.Add`: the
+    /// raw list insert leaves the new tab's `Owner`/`Factory` null, and a
+    /// dockable with no `Owner` can never be closed again — `CloseDockable`
+    /// resolves the dock to remove it from *through* `Owner`, so it just
+    /// silently does nothing. Verified empirically against the installed
+    /// v12.1.0: a tab added the raw way reports `Owner = null`, and
+    /// clicking its close button (or calling `CloseDockable` directly)
+    /// leaves it in place. `AddDockable` runs `InitDockable` for us, which
+    /// is what wires both fields. `InitLayout` happens to do the same
+    /// thing, which is why the one tab `CreateLayout` builds was always
+    /// closeable and this never showed up before now.
+    let addTab (document: DocumentViewModel) : ScriptDocument =
+        let scriptDoc = ScriptDocument(document, shell, editorContent)
+        self.AddDockable(documentDock, scriptDoc)
+        self.SetActiveDockable(scriptDoc) |> ignore
+        scriptDoc
+
     do
         self.ActiveDockableChanged.Add(fun args ->
             match args.Dockable with
             | :? ScriptDocument as sd ->
                 shell.OpenDocument(sd.Document.Uri) |> ignore
                 documentActivated.Trigger(sd.Document)
+            | _ -> ())
+
+        // `ShellViewModel.CloseDocument` guarantees `ActiveDocument` always
+        // points at *something*: closing the last remaining tab replaces the
+        // document list with a fresh `untitled:Script1.fsx` rather than
+        // leaving the shell with no active document at all. Dock knows
+        // nothing about that replacement, though — it just removed the tab
+        // the user clicked — so without this the document area goes visually
+        // empty while `ActiveDocument` points at a document with no tab, and
+        // Run would silently execute that invisible document.
+        //
+        // `DockableClosed` (not `DockableClosing`) is the right hook:
+        // verified empirically against the installed v12.1.0 that it fires
+        // *after* the dockable has been removed from `VisibleDockables` and
+        // after `ScriptDocument.OnClose` has already run
+        // `shell.CloseDocument` — so both the "no tabs left" test and
+        // `shell.ActiveDocument` are already settled by the time this runs.
+        // It also only fires when the close actually went through: a dirty
+        // tab whose `OnClose` returned false never reaches here (also
+        // verified empirically), so a declined close can't spawn a tab.
+        self.DockableClosed.Add(fun args ->
+            match args.Dockable with
+            | :? ScriptDocument ->
+                let anyTabsLeft =
+                    documentDock.VisibleDockables
+                    |> Seq.exists (fun d -> d :? ScriptDocument)
+
+                if not anyTabsLeft then
+                    addTab shell.ActiveDocument |> ignore
             | _ -> ())
 
     /// The Dock tab strip for open scripts — exposed so tests can assert
@@ -156,11 +207,7 @@ type DockFactory(shell: ShellViewModel, editorContent: obj, resultsContent: obj)
     member this.OpenDocument(uri: string) : unit =
         match findScriptDocument uri with
         | Some existing -> this.SetActiveDockable(existing) |> ignore
-        | None ->
-            let doc = shell.OpenDocument(uri)
-            let scriptDoc = ScriptDocument(doc, shell, editorContent)
-            documentDock.VisibleDockables.Add(scriptDoc)
-            this.SetActiveDockable(scriptDoc) |> ignore
+        | None -> addTab (shell.OpenDocument(uri)) |> ignore
 
     /// Every `IDockable` list a node might keep children in — not just
     /// `VisibleDockables`. `IFactory.HideDockable` (Task 11's View-menu

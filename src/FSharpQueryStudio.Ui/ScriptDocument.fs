@@ -34,6 +34,16 @@ type ScriptDocument(document: DocumentViewModel, shell: ShellViewModel, editorCo
 
         (document :> INotifyPropertyChanged).PropertyChanged.Add(fun args ->
             if args.PropertyName = nameof document.IsDirty then
+                updateTitle ()
+            // `DocumentViewModel.MarkSaved` retags an `untitled:` document
+            // to its real path once it's been written to disk. `Id` was
+            // snapshotted from `Uri` at construction, and
+            // `DockFactory.OpenDocument`'s dedupe compares
+            // `sd.Document.Uri` against the *live* value — so leaving `Id`
+            // stale would make a re-open of the saved path miss this tab
+            // and duplicate it. Re-key both here.
+            elif args.PropertyName = nameof document.Uri then
+                this.Id <- document.Uri
                 updateTitle ())
 
     member _.Document = document

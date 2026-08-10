@@ -92,6 +92,37 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
 
         doc
 
+    /// Routes a bridge `textChanged` message to the document it actually
+    /// names, ignoring one for a URI no longer open.
+    ///
+    /// Deliberately *not* applied to `ActiveDocument`: while there was one
+    /// tab those were the same document, but with several open they aren't.
+    /// Type in tab A and immediately click tab B, and an in-flight
+    /// `textChanged` for A can land after the switch — applying it to
+    /// whichever tab is active *now* would write A's text into B.
+    /// `DocumentViewModel.ApplyTextChanged`'s `newVersion > version` guard
+    /// is no defence there, because that counter is per-document and B's
+    /// was just reset by the `documentLoaded` push the activation itself
+    /// triggered.
+    member _.RouteTextChanged(documentUri: string, version: int, source: string) : unit =
+        documents
+        |> Seq.tryFind (fun d -> d.Uri = documentUri)
+        |> Option.iter (fun d -> d.ApplyTextChanged(version, source))
+
+    /// The first `untitled:ScriptN.fsx` (probing upward from 1) that no
+    /// open tab is already using — what File > New names its document.
+    ///
+    /// Probing rather than counting matters: `Documents.Length + 1` collides
+    /// as soon as a tab has been closed. Open three, close the second, and
+    /// `Length + 1` is `Script3`, which is still open — the caller's
+    /// open-or-activate dedupe would then quietly re-activate that existing
+    /// tab, making File > New look like it did nothing.
+    member _.NextUntitledUri() : string =
+        let inUse = documents |> Seq.map (fun d -> d.Uri) |> Set.ofSeq
+
+        Seq.initInfinite (fun i -> $"untitled:Script{i + 1}.fsx")
+        |> Seq.find (fun uri -> not (inUse.Contains uri))
+
     /// Closes the tab for `uri`, prompting via `ConfirmDiscardDirtyDocument`
     /// first if it's dirty. Returns whether the tab was actually closed.
     /// Closing the last remaining tab opens a fresh blank one in its

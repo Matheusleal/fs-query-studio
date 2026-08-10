@@ -404,6 +404,78 @@ let ``closing the last remaining document leaves a fresh document active`` () =
     Assert.NotSame(firstDoc, vm.ActiveDocument)
     Assert.False(vm.ActiveDocument.IsDirty)
 
+// A bridge `textChanged` names the document it came from. Applying it to
+// `ActiveDocument` instead was harmless while there was only ever one tab;
+// with several open, an edit still in flight when the user switches tabs
+// would land on the wrong document.
+
+[<Fact>]
+let ``RouteTextChanged applies the change to the document the message names`` () =
+    let vm = ShellViewModel()
+    let firstDoc = vm.ActiveDocument
+    let secondDoc = vm.OpenDocument("untitled:Script2.fsx")
+
+    vm.RouteTextChanged(firstDoc.Uri, 1, "typed into the first tab")
+
+    Assert.Equal("typed into the first tab", firstDoc.Text)
+    Assert.Equal("", secondDoc.Text)
+
+[<Fact>]
+let ``RouteTextChanged does not touch the active tab when the message names a background one`` () =
+    let vm = ShellViewModel()
+    let backgroundDoc = vm.ActiveDocument
+    let activeDoc = vm.OpenDocument("untitled:Script2.fsx")
+
+    // The exact race the URI routing exists for: an edit for the tab the
+    // user just left arrives after the switch. The active tab's version
+    // counter is its own, so a plain `newVersion > version` guard would
+    // happily accept this into the wrong document.
+    Assert.Same(activeDoc, vm.ActiveDocument)
+    vm.RouteTextChanged(backgroundDoc.Uri, 1, "belongs to the background tab")
+
+    Assert.Equal("belongs to the background tab", backgroundDoc.Text)
+    Assert.Equal("", activeDoc.Text)
+    Assert.False(activeDoc.IsDirty)
+
+[<Fact>]
+let ``RouteTextChanged drops a message for a uri that is not open`` () =
+    let vm = ShellViewModel()
+    let onlyDoc = vm.ActiveDocument
+
+    vm.RouteTextChanged("untitled:ClosedWhileTyping.fsx", 1, "orphaned") // Must not throw.
+
+    Assert.Equal("", onlyDoc.Text)
+
+[<Fact>]
+let ``NextUntitledUri starts at Script2 when only the initial Script1 is open`` () =
+    let vm = ShellViewModel()
+
+    Assert.Equal("untitled:Script2.fsx", vm.NextUntitledUri())
+
+[<Fact>]
+let ``NextUntitledUri fills a gap left by a closed tab instead of colliding with a live one`` () =
+    let vm = ShellViewModel()
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+    vm.OpenDocument("untitled:Script3.fsx") |> ignore
+
+    // Three open, close the middle one: a `Documents.Length + 1` scheme
+    // would now propose `Script3`, which is still open - and the caller's
+    // open-or-activate dedupe would silently re-activate it rather than
+    // creating anything.
+    Assert.True(vm.CloseDocument("untitled:Script2.fsx"))
+
+    Assert.Equal("untitled:Script2.fsx", vm.NextUntitledUri())
+
+[<Fact>]
+let ``NextUntitledUri never proposes a uri that is already open`` () =
+    let vm = ShellViewModel()
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+    vm.OpenDocument("untitled:Script3.fsx") |> ignore
+
+    let proposed = vm.NextUntitledUri()
+
+    Assert.DoesNotContain(proposed, vm.Documents |> List.map (fun d -> d.Uri))
+
 [<Fact>]
 let ``a document opened via OpenDocument also gets debounced CheckAsync wiring`` () =
     let scheduler = FakeDebounceScheduler()

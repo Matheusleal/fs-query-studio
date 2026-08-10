@@ -10,6 +10,9 @@ open FSharpQueryStudio.Protocol
 /// `scheduler` defaults to a real timer; tests inject a fake/virtual one
 /// to drive `DebouncedTextChanged` deterministically.
 type DocumentViewModel(uri: string, ?scheduler: IDebounceScheduler) as self =
+    // Mutable because `MarkSaved` can retag an `untitled:` document to the
+    // real path it was just written to — see its doc comment.
+    let mutable currentUri = uri
     let mutable text = ""
     let mutable version = 0
     let mutable isDirty = false
@@ -26,7 +29,7 @@ type DocumentViewModel(uri: string, ?scheduler: IDebounceScheduler) as self =
         [<CLIEvent>]
         member _.PropertyChanged = propertyChanged.Publish
 
-    member _.Uri = uri
+    member _.Uri = currentUri
     member _.Text = text
     member _.Version = version
     member _.IsDirty = isDirty
@@ -101,6 +104,35 @@ type DocumentViewModel(uri: string, ?scheduler: IDebounceScheduler) as self =
             propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof self.Text))
             propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof self.IsDirty))
             debouncer.Notify(fun () -> debouncedTextChanged.Trigger(version, text))
+
+    /// Marks this document clean after a *successful* write to disk, and
+    /// — when `newUri` is `Some` — retags `Uri` to the path it was
+    /// actually written to. Called by `MainWindow`'s save handlers.
+    ///
+    /// The retag is what makes "save an `untitled:` tab through the file
+    /// picker, then hit Save again" write straight through instead of
+    /// re-prompting forever: `Uri` is the only thing the save handler
+    /// distinguishes a scratch tab from a file-backed one by. `Uri` also
+    /// doubles as this tab's Persistent-mode `SessionId` and as
+    /// `ScriptDocument`'s `Id`/`Title`, so both `Uri` and `IsDirty` raise
+    /// `PropertyChanged` — `ScriptDocument` listens for the former to
+    /// re-key its Dock tab.
+    ///
+    /// Pass `None` for a document that already had a real path (a plain
+    /// re-save): there's nothing to retag, only the dirty flag to clear.
+    /// This deliberately does *not* touch `Version` — the version counter
+    /// tracks edits for the analysis pipeline's stale-response guard, and
+    /// saving is not an edit.
+    member _.MarkSaved(newUri: string option) =
+        match newUri with
+        | Some path when path <> currentUri ->
+            currentUri <- path
+            propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof self.Uri))
+        | _ -> ()
+
+        if isDirty then
+            isDirty <- false
+            propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof self.IsDirty))
 
     /// Applies an `analysis/check` response only if its version exactly
     /// matches the current document version — Section 7's stale-response
