@@ -348,13 +348,17 @@ type MainWindow() as this =
                         // Retagging the Uri is what stops the *next* Save on
                         // this tab from re-prompting: `untitled:` is the only
                         // thing this handler distinguishes a scratch tab by.
+                        // Routed through `MarkDocumentSaved` (rather than
+                        // `doc.MarkSaved` directly) so the retag also re-keys
+                        // Monaco's own `documentUri` — see that member's doc
+                        // comment for the edits silently dropped otherwise.
                         if tryWriteFile path doc.Text then
-                            doc.MarkSaved(Some path)
+                            shellViewModel.MarkDocumentSaved(doc, Some path)
                 }
                 :> System.Threading.Tasks.Task
             else
                 if tryWriteFile doc.Uri doc.Text then
-                    doc.MarkSaved(None)
+                    shellViewModel.MarkDocumentSaved(doc, None)
 
                 System.Threading.Tasks.Task.CompletedTask
 
@@ -377,9 +381,11 @@ type MainWindow() as this =
                     let path = file.Path.LocalPath
 
                     // Save As retags even a document that already had a real
-                    // path — after "Save As", the tab edits the new file.
+                    // path — after "Save As", the tab edits the new file, so
+                    // the editor page has to be re-keyed onto the new URI
+                    // too (`MarkDocumentSaved` does that when it changed).
                     if tryWriteFile path doc.Text then
-                        doc.MarkSaved(Some path)
+                        shellViewModel.MarkDocumentSaved(doc, Some path)
             }
             |> ignore)
 

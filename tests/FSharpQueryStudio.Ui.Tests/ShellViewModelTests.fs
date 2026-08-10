@@ -446,6 +446,108 @@ let ``RouteTextChanged drops a message for a uri that is not open`` () =
 
     Assert.Equal("", onlyDoc.Text)
 
+// Saving an `untitled:` tab retags its `Uri`, but the editor page keeps its
+// own copy of that URI and stamps every `textChanged` with it. Since
+// `RouteTextChanged` above matches strictly on the URI, a retag the page
+// never hears about turns every later keystroke into an unroutable message.
+
+[<Fact>]
+let ``MarkDocumentSaved re-keys the editor page when the save retagged the document uri`` () =
+    let vm = ShellViewModel()
+    let doc = vm.ActiveDocument
+    doc.ApplyTextChanged(1, "let x = 1")
+
+    let sent = ResizeArray<EditorEnvelope>()
+    vm.SendToEditor <- Some(fun envelope -> sent.Add envelope)
+
+    vm.MarkDocumentSaved(doc, Some "C:/scripts/saved.fsx")
+
+    Assert.Equal("C:/scripts/saved.fsx", doc.Uri)
+    Assert.False(doc.IsDirty)
+    Assert.Equal(1, sent.Count)
+    Assert.Equal("documentLoaded", sent.[0].Kind)
+
+    let payload =
+        JsonSerializer.Deserialize<DocumentLoadedPayload>(sent.[0].Payload, Serialization.options)
+
+    Assert.Equal("C:/scripts/saved.fsx", payload.DocumentUri)
+    Assert.Equal(1, payload.Version)
+    Assert.Equal("let x = 1", payload.Text)
+
+[<Fact>]
+let ``edits typed after saving an untitled tab still reach the document`` () =
+    // The whole point of the push: the page re-keys onto the saved path, so
+    // the next keystroke is stamped with a URI `RouteTextChanged` can find.
+    // Without it the message carried `untitled:Script1.fsx`, matched nothing,
+    // and the edit vanished - the following Save then wrote the pre-save text.
+    let vm = ShellViewModel()
+    let doc = vm.ActiveDocument
+    doc.ApplyTextChanged(1, "before the save")
+
+    let mutable pageUri = doc.Uri
+
+    vm.SendToEditor <-
+        Some(fun envelope ->
+            if envelope.Kind = "documentLoaded" then
+                pageUri <-
+                    JsonSerializer
+                        .Deserialize<DocumentLoadedPayload>(envelope.Payload, Serialization.options)
+                        .DocumentUri)
+
+    vm.MarkDocumentSaved(doc, Some "C:/scripts/saved.fsx")
+    vm.RouteTextChanged(pageUri, 2, "typed after the save")
+
+    Assert.Equal("typed after the save", doc.Text)
+    Assert.True(doc.IsDirty)
+
+[<Fact>]
+let ``MarkDocumentSaved does not re-push when the save left the uri unchanged`` () =
+    // `documentLoaded` calls Monaco's `setValue`, which throws away the undo
+    // stack - so an ordinary re-save of a file-backed tab must stay silent.
+    let vm = ShellViewModel()
+    let doc = vm.OpenDocument("C:/scripts/saved.fsx")
+    doc.ApplyTextChanged(1, "let x = 1")
+
+    let sent = ResizeArray<EditorEnvelope>()
+    vm.SendToEditor <- Some(fun envelope -> sent.Add envelope)
+
+    vm.MarkDocumentSaved(doc, None)
+    vm.MarkDocumentSaved(doc, Some "C:/scripts/saved.fsx")
+
+    Assert.False(doc.IsDirty)
+    Assert.Empty(sent)
+
+[<Fact>]
+let ``MarkDocumentSaved does not re-key the editor page for a tab that is no longer active`` () =
+    // The save handlers await a file picker, so the user can switch tabs
+    // before the write lands. Re-keying then would point the page at a
+    // document it isn't showing and overwrite the visible tab's text.
+    let vm = ShellViewModel()
+    let saved = vm.ActiveDocument
+    saved.ApplyTextChanged(1, "belongs to the first tab")
+    let other = vm.OpenDocument("untitled:Script2.fsx")
+    Assert.Same(other, vm.ActiveDocument)
+
+    let sent = ResizeArray<EditorEnvelope>()
+    vm.SendToEditor <- Some(fun envelope -> sent.Add envelope)
+
+    vm.MarkDocumentSaved(saved, Some "C:/scripts/saved.fsx")
+
+    Assert.Equal("C:/scripts/saved.fsx", saved.Uri)
+    Assert.False(saved.IsDirty)
+    Assert.Empty(sent)
+
+[<Fact>]
+let ``MarkDocumentSaved still marks the document clean with no editor hook configured`` () =
+    let vm = ShellViewModel()
+    let doc = vm.ActiveDocument
+    doc.ApplyTextChanged(1, "let x = 1")
+
+    vm.MarkDocumentSaved(doc, Some "C:/scripts/saved.fsx") // Must not throw.
+
+    Assert.Equal("C:/scripts/saved.fsx", doc.Uri)
+    Assert.False(doc.IsDirty)
+
 [<Fact>]
 let ``NextUntitledUri starts at Script2 when only the initial Script1 is open`` () =
     let vm = ShellViewModel()

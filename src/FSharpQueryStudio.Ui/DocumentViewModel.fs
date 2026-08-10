@@ -107,7 +107,10 @@ type DocumentViewModel(uri: string, ?scheduler: IDebounceScheduler) as self =
 
     /// Marks this document clean after a *successful* write to disk, and
     /// — when `newUri` is `Some` — retags `Uri` to the path it was
-    /// actually written to. Called by `MainWindow`'s save handlers.
+    /// actually written to. Reached from `MainWindow`'s save handlers via
+    /// `ShellViewModel.MarkDocumentSaved`, which wraps this call so a retag
+    /// also re-keys the editor page's own URI tracking; prefer that wrapper
+    /// over calling this directly from a save path.
     ///
     /// The retag is what makes "save an `untitled:` tab through the file
     /// picker, then hit Save again" write straight through instead of

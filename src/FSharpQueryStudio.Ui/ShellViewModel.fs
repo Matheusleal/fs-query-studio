@@ -109,6 +109,42 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
         |> Seq.tryFind (fun d -> d.Uri = documentUri)
         |> Option.iter (fun d -> d.ApplyTextChanged(version, source))
 
+    /// Marks `doc` clean after a *successful* write to disk (delegating to
+    /// `DocumentViewModel.MarkSaved`) and — when that actually retagged the
+    /// document's `Uri` — re-keys the editor page onto the new URI with a
+    /// `DocumentLoaded` push. Called by `MainWindow`'s save handlers, which
+    /// wire `SendToEditor` to the real WebView.
+    ///
+    /// That push is not cosmetic. `editor-host.html` stamps every outgoing
+    /// `textChanged` with a `documentUri` variable it updates *only* on an
+    /// incoming `documentLoaded`, and `RouteTextChanged` above routes
+    /// strictly by that URI. Saving an `untitled:` tab through the picker
+    /// retags the document host-side, but nothing else tells the page — so
+    /// without this every keystroke after that first save still carries the
+    /// dead pre-save URI, matches no open document, and is dropped in
+    /// silence: the next Save writes the pre-save text, and the tab never
+    /// even re-marks dirty to hint that anything was lost.
+    ///
+    /// Pushed only when the URI actually changed, and only while `doc` is
+    /// still the active tab. Both guards matter: `documentLoaded` calls
+    /// Monaco's `setValue`, which discards the editor's undo stack, so
+    /// re-pushing on an ordinary same-path re-save would cost the user
+    /// their undo history for no gain — and the save handlers `await` a
+    /// file picker, so the user can switch tabs before the write lands.
+    /// Pushing then would re-key the page onto a document it isn't showing
+    /// *and* overwrite the visible tab's text with the saved one's. The
+    /// background case needs no push anyway: switching back to that tab
+    /// raises `DockFactory.DocumentActivated`, which pushes the (by then
+    /// retagged) URI itself.
+    member this.MarkDocumentSaved(doc: DocumentViewModel, newUri: string option) : unit =
+        let previousUri = doc.Uri
+        doc.MarkSaved(newUri)
+
+        if doc.Uri <> previousUri && System.Object.ReferenceEquals(activeDocument, doc) then
+            match this.SendToEditor with
+            | None -> ()
+            | Some send -> send (EditorBridge.encodeNotification (DocumentLoaded(doc.Uri, doc.Version, doc.Text)))
+
     /// The first `untitled:ScriptN.fsx` (probing upward from 1) that no
     /// open tab is already using — what File > New names its document.
     ///
