@@ -143,8 +143,8 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     /// Pushing then would re-key the page onto a document it isn't showing
     /// *and* overwrite the visible tab's text with the saved one's. The
     /// background case needs no push anyway: switching back to that tab
-    /// raises `DockFactory.DocumentActivated`, which pushes the (by then
-    /// retagged) URI itself.
+    /// changes `ActiveDocument`, which pushes the (by then retagged) URI
+    /// itself.
     member this.MarkDocumentSaved(doc: DocumentViewModel, newUri: string option) : unit =
         let previousUri = doc.Uri
         doc.MarkSaved(newUri)

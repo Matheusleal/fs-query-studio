@@ -124,10 +124,10 @@ type DocumentViewModel(uri: string, ?scheduler: IDebounceScheduler, ?initialText
     /// picker, then hit Save again" write straight through instead of
     /// re-prompting forever: `Uri` is the only thing the save handler
     /// distinguishes a scratch tab from a file-backed one by. `Uri` also
-    /// doubles as this tab's Persistent-mode `SessionId` and as
-    /// `ScriptDocument`'s `Id`/`Title`, so both `Uri` and `IsDirty` raise
-    /// `PropertyChanged` — `ScriptDocument` listens for the former to
-    /// re-key its Dock tab.
+    /// doubles as this tab's Persistent-mode `SessionId` and as the tab
+    /// strip's label, so both `Uri` and `IsDirty` raise `PropertyChanged`
+    /// — `MainWindow`'s `rebuildTabs` listens for both to keep the strip
+    /// and its dirty marker (`*`) in sync.
     ///
     /// Pass `None` for a document that already had a real path (a plain
     /// re-save): there's nothing to retag, only the dirty flag to clear.

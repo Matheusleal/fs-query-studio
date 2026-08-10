@@ -27,10 +27,14 @@ type HostNotification =
     /// nothing resolved there at all — not an error.
     | SignatureHelpResolved of requestId: string * documentUri: string * signatureHelp: SignatureHelpInfo option
     /// Swaps the shared Monaco instance's visible content to match the
-    /// Dock tab the user just switched to (`DockFactory.DocumentActivated`,
-    /// wired in Task 9) — `version` and `text` are that document's current
-    /// state, not a fresh edit.
+    /// tab the user just switched to — `version` and `text` are that
+    /// document's current state, not a fresh edit.
     | DocumentLoaded of uri: string * version: int * text: string
+    /// Follows the app's Dark/Light choice (View > Toggle Theme, or the
+    /// theme restored at startup) — `theme` is a real Monaco theme name
+    /// ("vs-dark"/"vs"), not the app's own `Theme` union, so `Editor`
+    /// stays the one place that knows Monaco's naming.
+    | ThemeChanged of theme: string
 
 type DiagnosticsUpdatedPayload =
     { DocumentUri: string
@@ -57,3 +61,5 @@ type DocumentLoadedPayload =
     { DocumentUri: string
       Version: int
       Text: string }
+
+type ThemeChangedPayload = { Theme: string }

@@ -40,10 +40,18 @@
         // the editor surface exists now.
         monaco.languages.register({ id: "fsharp" });
 
+        // Set synchronously from the host's own Uri (?theme=vs-dark/vs)
+        // rather than waiting for a themeChanged message: the message
+        // channel isn't guaranteed to be ready this early (see
+        // documentLoaded's own doc comment on `MainWindow`'s host side),
+        // but this URL query string is available immediately, no race.
+        var initialTheme = new URLSearchParams(location.search).get("theme") || "vs-dark";
+
         var editor = monaco.editor.create(document.getElementById("editor"), {
           value: "",
           language: "fsharp",
-          automaticLayout: true
+          automaticLayout: true,
+          theme: initialTheme
         });
 
         var documentUri = "untitled:Script1.fsx";
@@ -173,6 +181,10 @@
                 currentVersion = envelope.payload.version;
                 editor.setValue(envelope.payload.text);
                 suppressChangeEvent = false;
+                break;
+              }
+              case "themeChanged": {
+                monaco.editor.setTheme(envelope.payload.theme);
                 break;
               }
               default:

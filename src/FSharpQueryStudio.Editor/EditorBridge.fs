@@ -138,6 +138,11 @@ module EditorBridge =
                       Text = text },
                     Serialization.options
                 ) }
+        | ThemeChanged theme ->
+            { Id = Guid.NewGuid().ToString()
+              Kind = "themeChanged"
+              Payload =
+                JsonSerializer.SerializeToElement<ThemeChangedPayload>({ Theme = theme }, Serialization.options) }
 
     let decode (envelope: EditorEnvelope) : Result<EditorRequest, BridgeError> =
         try

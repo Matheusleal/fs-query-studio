@@ -14,7 +14,6 @@
   <Application.Styles>
     <FluentTheme />
     <StyleInclude Source="avares://Avalonia.Controls.DataGrid/Themes/Fluent.xaml" />
-    <StyleInclude Source="avares://Dock.Avalonia.Themes.Fluent/DockFluentTheme.axaml" />
     <!--
       Material.Icons.Avalonia ships `MaterialIcon`'s control theme inside a
       `Styles` subclass (`Material.Icons.Avalonia.MaterialIconStyles`,

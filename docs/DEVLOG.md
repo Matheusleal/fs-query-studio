@@ -1084,3 +1084,27 @@ From there, instrumented `editor-host.html` directly: a visible `<div id="status
 
 Files changed: `src/FSharpQueryStudio.Editor/AssetHost.fs`, `src/FSharpQueryStudio.Editor/EditorAssets/editor-host.html`, `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`, `docs/DEVLOG.md`.
 
+## 2026-08-11 — Feature: Monaco follows the app's theme, live
+
+Added a `ThemeChanged` `HostNotification` (`theme: string`, a real Monaco theme name — "vs-dark"/"vs" — not this app's own `Theme` union, so `Editor` stays the one place that knows Monaco's naming) alongside a `themeChanged` case in `editor-host.html`'s message switch (`monaco.editor.setTheme(...)`).
+
+Two different paths feed it, because the same synchronous-push-too-early race noted in the last entry (the new-script seed landing before Monaco's listener is registered) rules out using the live message channel for the *initial* theme:
+- **Initial theme:** encoded into `webView.Source`'s own query string (`editor-host.html?theme=vs-dark`), read synchronously by an inline script before `monaco.editor.create` runs — no race, since it's page-load data rather than a postMessage.
+- **Live updates:** `ThemeService`'s `PropertyChanged` (already raised by `Toggle()`) triggers a `postToEditor` push — by the time a user can reach View > Toggle Theme, Monaco has certainly finished loading.
+
+Caught one real ordering bug while wiring the initial path: `webView.Source` was being set inside `MainWindow`'s constructor, using `themeService.Current` at that point — always `Theme.Dark`, the just-constructed default. `App.axaml.fs`'s startup theme restore (`mainWindow.ThemeService.Toggle()`, applied when the persisted choice is Light) runs *after* the constructor returns, so a Light-mode user would always get a `vs-dark` initial editor. Fixed by moving `Source`'s assignment into the same `this.Opened` handler that already assigns `Content` — by then `App.axaml.fs`'s synchronous startup sequence has run.
+
+Verified visually: launched with the (default) Dark theme — Monaco came up with a dark background and visible syntax highlighting on the first frame, rather than the default light "vs" theme Monaco falls back to when no theme is given.
+
+Files changed: `src/FSharpQueryStudio.Protocol/HostNotification.fs`, `src/FSharpQueryStudio.Editor/EditorBridge.fs`, `src/FSharpQueryStudio.Editor/EditorAssets/editor-host.html`, `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`.
+
+## 2026-08-11 — Cleanup: Dock.Avalonia removed entirely, not just unused
+
+`DockFactory.fs`, `ScriptDocument.fs`, `ContentTool.fs`, `LayoutSerializer.fs` (and their `Ui.Tests` counterparts) had sat unused-but-present since the fixed layout replaced the dockable shell — kept at the time in case the upstream `StackOverflowException` got fixed and Dock came back. At the user's direction, deleted outright instead: the four source files, the three test files, the `Dock.Avalonia`/`Dock.Model.Mvvm`/`Dock.Serializer.SystemTextJson`/`Dock.Avalonia.Themes.Fluent` package references (`FSharpQueryStudio.Ui.fsproj`/`FSharpQueryStudio.App.fsproj`), the `DockFluentTheme.axaml` `StyleInclude` and unused `xmlns:dock` (`App.axaml`/`MainWindow.axaml`), and every remaining prose comment across the codebase that referenced Dock/`DockFactory`/`ScriptDocument`/dockable tabs as live context rather than settled history (`ShellViewModel.fs`, `DocumentViewModel.fs`, `ResultsView.axaml.fs`, `UiState.fs`, `HostNotification.fs`, `MainWindow.axaml.fs`, `App.axaml.fs`) — rewritten to describe what the code does now, not what it used to do or why it changed. `UiState.DockLayout` itself (the persisted-state schema field) is kept as an inert passthrough, not renamed — an actual wire-format field, out of scope here, and harmless to carry forward unused.
+
+Also renamed the `WorkspacePanel`'s placeholder text from "Workspace (fixed test panel)" to "Workspace" — a debug label that had leaked into a user-visible string.
+
+`Ui.Tests`: 137 → 104 (the 33 removed were exactly the deleted `DockFactoryTests.fs`/`ScriptDocumentTests.fs`/`LayoutSerializerTests.fs`, nothing else lost). Ran every test project in the repo as a final check: all green except 12 pre-existing `RequiresDocker`-tagged `Integration.Tests` failures (`DockerUnavailableException` — Docker Desktop isn't running in this environment), unrelated to anything touched this session.
+
+Files changed: `src/FSharpQueryStudio.Ui/FSharpQueryStudio.Ui.fsproj` (+ 4 file deletions), `src/FSharpQueryStudio.App/FSharpQueryStudio.App.fsproj`, `src/FSharpQueryStudio.App/App.axaml`, `src/FSharpQueryStudio.Ui/MainWindow.axaml`, `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`, `src/FSharpQueryStudio.Ui/ShellViewModel.fs`, `src/FSharpQueryStudio.Ui/DocumentViewModel.fs`, `src/FSharpQueryStudio.Ui/ResultsView.axaml.fs`, `src/FSharpQueryStudio.Protocol/UiState.fs`, `src/FSharpQueryStudio.App/App.axaml.fs`, `tests/FSharpQueryStudio.Ui.Tests/FSharpQueryStudio.Ui.Tests.fsproj` (+ 3 file deletions).
+

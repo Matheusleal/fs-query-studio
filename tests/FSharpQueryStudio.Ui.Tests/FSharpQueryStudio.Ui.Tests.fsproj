@@ -14,9 +14,6 @@
     <Compile Include="ResultViewModelTests.fs" />
     <Compile Include="ResultGridColumnsTests.fs" />
     <Compile Include="ShellViewModelTests.fs" />
-    <Compile Include="ScriptDocumentTests.fs" />
-    <Compile Include="DockFactoryTests.fs" />
-    <Compile Include="LayoutSerializerTests.fs" />
     <Compile Include="CapabilityApprovalTests.fs" />
   </ItemGroup>
 

@@ -1,6 +1,5 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:dock="using:Dock.Avalonia.Controls"
         xmlns:mi="using:Material.Icons.Avalonia"
         x:Class="FSharpQueryStudio.Ui.MainWindow"
         x:CompileBindings="False"
@@ -9,11 +8,8 @@
         Height="900"
         Background="{DynamicResource WindowBackgroundBrush}">
   <!--
-    Fixed shell layout (Workspace | Editor / Results), not Dock.Avalonia -
-    a real StackOverflowException traced to Dock.Avalonia itself made the
-    dockable shell unusable; see docs/DEVLOG.md. `TabStripPanel` is
-    rebuilt imperatively in code-behind (`rebuildTabs`) since there's no
-    Dock to own the open-document list anymore.
+    Fixed shell layout: Workspace | Editor / Results, with a hand-rolled
+    tab strip (`TabStripPanel`, rebuilt in code-behind by `rebuildTabs`).
   -->
   <DockPanel>
     <Menu DockPanel.Dock="Top" Background="{DynamicResource ChromeBackgroundBrush}">
@@ -84,7 +80,9 @@
               Background="{DynamicResource ChromeBackgroundBrush}"
               BorderBrush="{DynamicResource PrimaryTextBrush}"
               BorderThickness="0,0,1,0">
-        <TextBlock Text="Workspace (fixed test panel)"
+        <!-- File tree not built yet (UI-Workspace, future sub-project) -
+             placeholder text, not the pane itself. -->
+        <TextBlock Text="Workspace"
                    Margin="8"
                    TextWrapping="Wrap"
                    Foreground="{DynamicResource PrimaryTextBrush}" />

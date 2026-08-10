@@ -41,15 +41,13 @@ type MainWindow() as this =
     let shellViewModel = ShellViewModel()
     let themeService = ThemeService()
 
-    // The Results panel: one instance, shared, because exactly one
-    // "Results" tool ever exists — nothing to reparent-conflict with.
+    // The Results panel: one shared instance, since exactly one Results
+    // pane ever exists in `FixedShellGrid`.
     let resultsView = ResultsView(DataContext = shellViewModel)
 
-    // TEMP DIAGNOSTIC: Dock.Avalonia removed for this test — see
-    // MainWindow.axaml's `FixedShellGrid` comment and docs/DEVLOG.md.
-    // `webView` is the single, fixed-position editor control (was one
-    // per tab via `DockFactory.createEditorControl`; this test has only
-    // one editor slot, no tabs).
+    // The single, fixed-position editor control — `FixedShellGrid` has
+    // one editor slot; open documents are tracked as a hand-rolled tab
+    // strip (`rebuildTabs` below), not separate editor instances.
     let mutable webView: NativeWebView = Unchecked.defaultof<_>
 
     /// Host -> editor channel for the fixed editor control. The installed
@@ -92,11 +90,19 @@ type MainWindow() as this =
         let host = AssetHost.start assetsRoot
         assetHost <- Some host
 
-        // A single fixed `NativeWebView` — there's one editor slot in
-        // `FixedShellGrid`, not a `DocumentDock`, so unlike the old
-        // Dock-based shell nothing needs one instance per tab anymore.
+        // Monaco's own theme names, not this app's `Theme` union —
+        // shared by the initial `?theme=` query string below (read
+        // synchronously by editor-host.html, before its message channel
+        // can be trusted to be ready) and the live `ThemeChanged` push
+        // wired further down.
+        let monacoTheme (theme: Theme) =
+            match theme with
+            | Dark -> "vs-dark"
+            | Light -> "vs"
+
+        // A single fixed `NativeWebView` — `FixedShellGrid` has one
+        // editor slot, shared by every open tab.
         webView <- NativeWebView()
-        webView.Source <- Uri(host.BaseUri, "editor-host.html")
 
         webView.WebMessageReceived.Add(fun args ->
             let envelope =
@@ -134,25 +140,42 @@ type MainWindow() as this =
         // z-order), the title bar is never occluded by anything.
         this.Title <- $"F# Query Studio — {shellViewModel.ActiveDocument.Uri}"
 
-        this.Opened.Add(fun _ -> editorHost.Content <- webView)
+        // `Source` is set here rather than at construction time: read
+        // eagerly, `themeService.Current` would still be the
+        // just-constructed default (`Theme.Dark`), not the persisted
+        // choice `App.axaml.fs`'s startup restore applies via
+        // `ThemeService.Toggle()` right after this constructor returns
+        // but before the window actually opens.
+        this.Opened.Add(fun _ ->
+            webView.Source <- Uri(host.BaseUri, $"editor-host.html?theme={monacoTheme themeService.Current}")
+            editorHost.Content <- webView)
+
+        // Mirrors every later `ThemeService.Current` change (View >
+        // Toggle Theme) into Monaco. Not the same code path as the
+        // initial `?theme=` query string above — Monaco itself resolves
+        // that one before this handler could ever fire, and this
+        // handler covers everything after the page has already loaded.
+        (themeService :> INotifyPropertyChanged)
+            .PropertyChanged.Add(fun args ->
+                if args.PropertyName = nameof themeService.Current then
+                    postToEditor
+                        webView
+                        (EditorBridge.encodeNotification (ThemeChanged(monacoTheme themeService.Current))))
 
         // Gives `ProblemViewModel.Navigate` (the Problems tab's
         // double-click) and `ShellViewModel.MarkDocumentSaved` (the
-        // post-save editor re-key) somewhere to send an envelope —
-        // resolved to whichever tab is active *at send time*, since both
-        // callers only ever act on the active document and each tab now
-        // owns its own `NativeWebView` rather than there being one to
-        // reach directly.
+        // post-save editor re-key) somewhere to send an envelope — the
+        // single shared `webView` always shows the active document.
         shellViewModel.SendToEditor <- Some(fun envelope -> postToEditor webView envelope)
 
         // Avalonia ships no message-box control, so this *is* the whole
         // confirmation dialog: a small owned `Window` with two buttons.
         //
-        // The contract is synchronous — Dock calls `ScriptDocument.OnClose()`
-        // and needs a `bool` back before it decides whether to remove the
-        // tab — while `ShowDialog` is asynchronous, and blocking the UI
-        // thread on its task would deadlock. Pumping a nested dispatcher
-        // frame (`DispatcherFrame` + `Dispatcher.PushFrame`, both confirmed
+        // The contract is synchronous — `CloseDocument` needs a `bool`
+        // back before it decides whether to remove the tab — while
+        // `ShowDialog` is asynchronous, and blocking the UI thread on its
+        // task would deadlock. Pumping a nested dispatcher frame
+        // (`DispatcherFrame` + `Dispatcher.PushFrame`, both confirmed
         // present in the installed Avalonia 12.1.1 by reflection over
         // `Avalonia.Base`) is the supported way to hold a UI-thread caller
         // while still servicing the dialog's own input.
@@ -236,8 +259,8 @@ type MainWindow() as this =
         // no prompt, no message, the tab just refused to close.
         shellViewModel.ConfirmDiscardDirtyDocument <- Some confirmDiscardDirty
 
-        // No Dock, so no `DocumentDock` to own the open-tab strip —
-        // rebuilt by hand from `shellViewModel.Documents` (a plain
+        // The open-tab strip, rebuilt by hand from
+        // `shellViewModel.Documents` (a plain
         // snapshot, not an observable collection) every time the set of
         // open documents, which one is active, or a document's dirty
         // flag could have changed. `wiredDirtyDocs` guards against
@@ -333,10 +356,9 @@ type MainWindow() as this =
         this.Opened.Add(fun _ -> rebuildTabs ())
 
         // `ActiveDocument` changing (via `OpenDocument`, File > New/Open,
-        // or a tab close that switches the active tab) is the one signal
-        // this fixed layout has for "push this document into the
-        // editor" — replacing `DockFactory.DocumentActivated` — and also
-        // the moment the tab strip's highlight needs to move.
+        // or a tab close that switches the active tab) is the signal to
+        // push the newly-active document into the editor and move the
+        // tab strip's highlight.
         (shellViewModel :> INotifyPropertyChanged)
             .PropertyChanged.Add(fun args ->
                 if args.PropertyName = nameof shellViewModel.ActiveDocument then
@@ -437,10 +459,10 @@ type MainWindow() as this =
                     let doc = shellViewModel.OpenDocument(path)
                     doc.ApplyTextChanged(doc.Version + 1, text)
 
-                    // TEMP DIAGNOSTIC: the `ActiveDocument` PropertyChanged
-                    // push above already fired once, before `text` landed
-                    // (activation happens on `OpenDocument`, content is
-                    // applied after) — push again now with the real
+                    // The `ActiveDocument` PropertyChanged handler already
+                    // pushed once, before `text` landed (activation
+                    // happens on `OpenDocument`, content is applied after)
+                    // — push again now with the real
                     // content so the fixed editor slot shows the opened
                     // file, not an empty buffer.
                     postToEditor
@@ -524,8 +546,6 @@ type MainWindow() as this =
             }
             |> ignore)
 
-        // TEMP DIAGNOSTIC: no Dock, so no `HideDockable`/`RestoreDockable`
-        // — the fixed panels just toggle `IsVisible` directly.
         let workspacePanel = this.FindControl<Border>("WorkspacePanel")
         let resultsHostToggle = this.FindControl<ContentControl>("ResultsHost")
 
@@ -549,11 +569,6 @@ type MainWindow() as this =
 
     /// Exposed so `App.axaml.fs` can persist/restore the theme choice.
     member _.ThemeService = themeService
-
-    // TEMP DIAGNOSTIC: `DockFactory`/`MainDockLayout`/`RestoreLayout`
-    // removed along with `DockControl` — see `FixedShellGrid`'s comment.
-    // `App.axaml.fs`'s layout persistence block is disabled for this test
-    // rather than reaching for these.
 
     /// Composition root: wires `shellViewModel`'s `ExecuteAsync`/
     /// `CancelAsync`/`ResetSession` to a real worker process — set once,

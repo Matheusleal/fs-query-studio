@@ -88,12 +88,10 @@ type App() =
             // "the process didn't crash yet".
             mainWindow.Opened.Add(fun _ -> Log.Information("Host window ready"))
 
-            // TEMP DIAGNOSTIC: Dock layout restore/persist disabled along
-            // with Dock.Avalonia itself — see MainWindow.axaml's
-            // `FixedShellGrid` comment and docs/DEVLOG.md. Theme
-            // persistence only; `uiState.DockLayout` is passed through
-            // unchanged so a real saved layout isn't destroyed by this
-            // test.
+            // Persists the theme choice on close. `uiState.DockLayout` is
+            // passed through unchanged — this fixed shell has no layout
+            // of its own to save, but an older saved value is left alone
+            // rather than cleared.
             mainWindow.Closing.Add(fun _ ->
                 let theme =
                     match mainWindow.ThemeService.Current with
