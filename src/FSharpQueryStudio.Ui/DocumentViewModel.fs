@@ -9,11 +9,19 @@ open FSharpQueryStudio.Protocol
 ///
 /// `scheduler` defaults to a real timer; tests inject a fake/virtual one
 /// to drive `DebouncedTextChanged` deterministically.
-type DocumentViewModel(uri: string, ?scheduler: IDebounceScheduler) as self =
+///
+/// `initialText`, when given, seeds `Text` directly — bypassing
+/// `ApplyTextChanged` — so a freshly created document can start with
+/// starter content (see `ShellViewModel.createDocument`) without being
+/// marked dirty for text nobody actually typed. `Version` stays `0`,
+/// matching the page's own `currentVersion` on a fresh Monaco load, so
+/// the guard in `ApplyTextChanged` still accepts the user's first real
+/// edit normally.
+type DocumentViewModel(uri: string, ?scheduler: IDebounceScheduler, ?initialText: string) as self =
     // Mutable because `MarkSaved` can retag an `untitled:` document to the
     // real path it was just written to — see its doc comment.
     let mutable currentUri = uri
-    let mutable text = ""
+    let mutable text = defaultArg initialText ""
     let mutable version = 0
     let mutable isDirty = false
     let mutable diagnostics: Diagnostic list = []

@@ -53,8 +53,17 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
                 then
                     raiseProblemsChanged ())
 
+    /// Starter content for every freshly created document — including
+    /// the workspace's very first tab, not just later `File > New`
+    /// documents — so a document with real, visibly-syntax-highlighted
+    /// text is on screen the moment a tab opens, rather than an empty
+    /// buffer indistinguishable from the editor having failed to render
+    /// at all.
+    let newScriptSeed =
+        "// New F# script — write your code below\nprintfn \"Hello from F# Query Studio!\"\n"
+
     let createDocument (uri: string) =
-        let doc = DocumentViewModel(uri, ?scheduler = scheduler)
+        let doc = DocumentViewModel(uri, ?scheduler = scheduler, initialText = newScriptSeed)
         wireDocument doc
         documents.Add(doc)
         doc

@@ -415,10 +415,11 @@ let ``RouteTextChanged applies the change to the document the message names`` ()
     let firstDoc = vm.ActiveDocument
     let secondDoc = vm.OpenDocument("untitled:Script2.fsx")
 
+    let untouchedSeedText = secondDoc.Text
     vm.RouteTextChanged(firstDoc.Uri, 1, "typed into the first tab")
 
     Assert.Equal("typed into the first tab", firstDoc.Text)
-    Assert.Equal("", secondDoc.Text)
+    Assert.Equal(untouchedSeedText, secondDoc.Text)
 
 [<Fact>]
 let ``RouteTextChanged does not touch the active tab when the message names a background one`` () =
@@ -431,20 +432,22 @@ let ``RouteTextChanged does not touch the active tab when the message names a ba
     // counter is its own, so a plain `newVersion > version` guard would
     // happily accept this into the wrong document.
     Assert.Same(activeDoc, vm.ActiveDocument)
+    let untouchedSeedText = activeDoc.Text
     vm.RouteTextChanged(backgroundDoc.Uri, 1, "belongs to the background tab")
 
     Assert.Equal("belongs to the background tab", backgroundDoc.Text)
-    Assert.Equal("", activeDoc.Text)
+    Assert.Equal(untouchedSeedText, activeDoc.Text)
     Assert.False(activeDoc.IsDirty)
 
 [<Fact>]
 let ``RouteTextChanged drops a message for a uri that is not open`` () =
     let vm = ShellViewModel()
     let onlyDoc = vm.ActiveDocument
+    let untouchedSeedText = onlyDoc.Text
 
     vm.RouteTextChanged("untitled:ClosedWhileTyping.fsx", 1, "orphaned") // Must not throw.
 
-    Assert.Equal("", onlyDoc.Text)
+    Assert.Equal(untouchedSeedText, onlyDoc.Text)
 
 // Saving an `untitled:` tab retags its `Uri`, but the editor page keeps its
 // own copy of that URI and stamps every `textChanged` with it. Since

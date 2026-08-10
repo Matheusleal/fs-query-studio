@@ -5,6 +5,7 @@ open System.ComponentModel
 open System.IO
 open Avalonia
 open Avalonia.Controls
+open Avalonia.Controls.Templates
 open Avalonia.Data
 open Avalonia.Input
 open Avalonia.Interactivity
@@ -92,6 +93,29 @@ type MainWindow() as this =
         this.DataContext <- shellViewModel
 
         dockControl <- this.FindControl<DockControl>("MainDock")
+
+        // `Dock.Model.Mvvm.Controls.Document`/`Tool` have no `Content`
+        // property to host a Control directly (confirmed via reflection
+        // during Task 5/6 — only `Context: obj` exists); Dock resolves a
+        // dockable's on-screen content through an `IDataTemplate` lookup
+        // keyed by the dockable's own type instead. Without one, Dock's
+        // `AutoCreateDataTemplates` default doesn't know `Context` holds
+        // an already-built `NativeWebView`/`ResultsView` and the document/
+        // results panes render as empty background — the editor was never
+        // failing to receive keystrokes, it was never on screen to
+        // receive them. Registered before `Layout` is assigned so the
+        // very first document/tool resolve against it immediately, and
+        // added ahead of whatever `AutoCreateDataTemplates` supplies so
+        // these are the first (and only) match Avalonia's template
+        // lookup finds for either type.
+        dockControl.DataTemplates.Add(
+            FuncDataTemplate<Dock.Model.Mvvm.Controls.Document>(fun doc _ ->
+                ContentControl(Content = doc.Context) :> Control))
+
+        dockControl.DataTemplates.Add(
+            FuncDataTemplate<Dock.Model.Mvvm.Controls.Tool>(fun tool _ ->
+                ContentControl(Content = tool.Context) :> Control))
+
         let layout = dockFactory.CreateLayout()
         // `InitLayout` wires every dockable's `Factory`/`Owner` and
         // activates the default dockable — Dock.Avalonia's own init
