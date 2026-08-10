@@ -102,10 +102,9 @@ type MainWindow() as this =
         // A single shared instance was tried first (Task 5-9) and threw
         // `InvalidOperationException: ... already has a visual parent ...`
         // the instant a second tab existed: Dock builds a distinct
-        // `ContentControl` per dockable via the `DataTemplate`s below, and
-        // an Avalonia `Control` can only ever be parented under one of
-        // them at a time. One instance per tab means there's never a
-        // second claimant.
+        // content-hosting control per dockable, and an Avalonia `Control`
+        // can only ever be parented under one of them at a time. One
+        // instance per tab means there's never a second claimant.
         let createEditorControl () : obj =
             let wv = NativeWebView()
             wv.Source <- Uri(host.BaseUri, "editor-host.html")
@@ -135,21 +134,21 @@ type MainWindow() as this =
 
         dockControl <- this.FindControl<DockControl>("MainDock")
 
-        // No manual `DataTemplate` registration needed here — Dock's own
-        // `AutoCreateDataTemplates` (on by default, confirmed via
-        // reflection on the installed `DockControl`) already supplies a
-        // default template for anything implementing
-        // `Dock.Model.Controls.IDocumentContent`/`IToolContent`, which is
-        // exactly what `ScriptDocument`/`ContentTool` now implement. An
-        // earlier version of this file registered a hand-rolled
-        // `FuncDataTemplate<Document>`/`<Tool>` here instead, targeting
-        // `Context` — that never matched what Dock's real
-        // `DocumentContentControl`/`ToolContentControl` machinery
-        // actually looks for (confirmed empirically by calling
-        // `Dock.Avalonia.Internal.DockDataTemplateHelper.
-        // CreateDefaultDataTemplates` directly), which is why the
-        // document/results panes rendered as empty background even after
-        // that fix.
+        // KNOWN ISSUE, not yet resolved: hosting any real content inside
+        // this layout — confirmed by direct experiment to be unrelated to
+        // `NativeWebView`, `ResultsView`, or which control renders the
+        // content (`Dock.Avalonia.Controls.DocumentContentControl`/
+        // `ToolContentControl` vs. a plain `ContentControl` registered
+        // via a custom `FuncDataTemplate` — both crash identically) —
+        // sends Avalonia's layout system into unbounded self-recursion
+        // (`LayoutManager.Arrange` calling itself thousands of times, a
+        // real `StackOverflowException`) the moment a tab/tool pane is
+        // actually laid out. Relying on `AutoCreateDataTemplates` here
+        // (matching `IDocumentContent`/`IToolContent`, which
+        // `ScriptDocument`/`ContentTool` correctly implement) since it's
+        // no worse than the custom-template attempt and is the
+        // architecturally correct approach regardless — see docs/DEVLOG.md
+        // for the full investigation.
         let layout = dockFactory.CreateLayout()
         // `InitLayout` wires every dockable's `Factory`/`Owner` and
         // activates the default dockable — Dock.Avalonia's own init

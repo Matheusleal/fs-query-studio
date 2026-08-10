@@ -964,3 +964,25 @@ Build/test: `dotnet build` clean, 0 warnings, 0 errors, full solution (25 projec
 
 Files changed: `src/FSharpQueryStudio.Editor/AssetHost.fs`, `src/FSharpQueryStudio.Editor/FSharpQueryStudio.Editor.fsproj`, `docs/DEVLOG.md`.
 
+## 2026-08-10 — UNRESOLVED: real content in the dock layout crashes the app with a StackOverflowException
+
+**Status: blocked, not fixed.** After the `IDocumentContent`/`ContentTool` fix (previous entry) made the document/results panes render for the first time, the user reported a new, severe symptom: the app throws a fatal `StackOverflowException` a few seconds after launch. This entry documents everything ruled out so far, so the next attempt doesn't repeat this investigation from scratch.
+
+**The crash is real and reproducible.** `StackOverflowException` is uncatchable in .NET — nothing in the app's own Serilog output can show it, and it never reached Windows Event Log either (checked directly; the only recent fatal-crash event in Event Viewer belonged to an unrelated process). Reproduced directly instead: launched the built app with a bounded timeout and captured raw console output. Every crash shows the identical shape — `Avalonia.Layout.LayoutManager.Arrange(Layoutable)` calling itself thousands of times (7000+), then unwinding through `ExecuteArrangePass` → `ExecuteLayoutPass` → `MediaContext.Render` → the normal dispatcher/message loop. This is Avalonia's own layout system in unbounded self-recursion, not anything in this project's application code throwing.
+
+**Ruled out, each via a real rebuild-and-relaunch test, not reasoning alone:**
+- **Not `NativeWebView`.** Swapped `createEditorControl`'s return value for a plain `TextBlock` — identical crash, identical stack shape.
+- **Not `ResultsView`/`DataGrid`.** Additionally swapped `resultsView` for a plain `TextBlock` (both controls stubbed at once) — identical crash.
+- **Not Dock's own `DocumentContentControl`/`ToolContentControl`.** Registered a custom `FuncDataTemplate<ScriptDocument>`/`<ContentTool>` producing a plain `ContentControl` instead, bypassing Dock's default `IDocumentContent`/`IToolContent`-driven templates entirely (confirmed via the same `DockDataTemplateHelper.CreateDefaultDataTemplates` reflection from the previous entry that these two are what `AutoCreateDataTemplates` actually builds) — identical crash, real `NativeWebView`/`ResultsView` content, same `LayoutManager.Arrange` recursion.
+- **Not the asset host / browser interaction the user described.** The crash reproduces with a bounded, non-interactive launch — no browser involved, no request ever reaches `AssetHost`. The "address unreachable" report from the previous entry and this crash are two separate, unrelated symptoms that happened to be reported together.
+
+**What's left, not yet tested:** the surrounding `ProportionalDock`/`DocumentDock`/`ToolDock` nesting `DockFactory.CreateLayout()` builds (horizontal outer split, vertical inner split, `Proportion` values 0.2/0.3, `IsCollapsable = false` on several nodes) is the one variable never isolated — every test so far changed *what* renders inside a pane, never the dock structure itself. A minimal single-pane layout (just `DocumentDock`, no workspace/results panes, no nesting) with real content would either implicate the nesting specifically or rule it out too.
+
+**Also checked and ruled out as an easy fix:** `Avalonia.Controls.WebView` is pinned at 12.0.1 against the rest of Avalonia's 12.1.1/Dock's 12.1.0 — a real version gap, but no 12.1.x release of that package exists yet on NuGet, and the `NativeWebView`-removed test above crashes identically anyway, so this isn't the cause. Found one related, still-open, unfixed upstream report — [wieslawsoltes/Dock#1102](https://github.com/wieslawsoltes/Dock/issues/1102), "InvalidOperationException when using ContentControl inside DocumentDock" — describing Dock 12.x's content-hosting as fragile in ways Dock 11.x wasn't (no comments, no fix). No existing upstream issue matches this specific StackOverflow/Arrange-recursion shape; worth filing one if this remains unresolved, since it may be new information for that project.
+
+**Current code state:** left relying on `AutoCreateDataTemplates`/`IDocumentContent`/`IToolContent` (the architecturally correct approach from the previous entry, not disproven, just insufficient on its own) rather than the custom-`ContentControl` mitigation, since the latter didn't help and added complexity for no benefit. The app still crashes in this state — this entry does not claim a fix, only documents the elimination work done so far.
+
+Build/test: `dotnet build` clean, 0 warnings, 0 errors. `dotnet test`: `Ui.Tests` 137/137 unchanged (this investigation touched only `MainWindow.axaml.fs`'s content-template wiring, reverted to its pre-investigation state; no production behavior changed by this entry beyond the DataTemplate registration attempt, which is not in the final diff).
+
+Files changed: `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs` (comment only — the diagnostic edits were reverted), `docs/DEVLOG.md`.
+
