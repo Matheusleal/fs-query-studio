@@ -13,6 +13,8 @@ open FSharpQueryStudio.Execution
 open FSharpQueryStudio.Results
 open FSharpQueryStudio.Analysis
 open FSharpQueryStudio.Storage
+open FSharpQueryStudio.Connectors
+open FSharpQueryStudio.Security
 
 /// Method dispatch for incoming WorkerRequestFrames — see Section 7's
 /// method table.
@@ -129,6 +131,9 @@ module Handlers =
                 | Isolated, _ ->
                     Log.Information("Creating FSI session in {WorkingDirectory}", workDir)
                     FsiSession.create workDir
+
+            let connections = Workspace.readConnections (workspaceDir ())
+            Connections.configure (WorkspaceConnectionResolver(connections, WindowsCredentialStore()))
 
             let outcome = Evaluation.evaluate session evalParams.Source
             stopwatch.Stop()

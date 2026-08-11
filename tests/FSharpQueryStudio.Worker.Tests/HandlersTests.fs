@@ -456,3 +456,68 @@ let ``dispatch on connection/register replacing an existing connection keeps onl
             if Directory.Exists tempDir then
                 Directory.Delete(tempDir, true)
     }
+
+[<Fact>]
+let ``execution/evaluate resolves Connections.sql against a connection registered via connection/register`` () =
+    task {
+        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let dbPath = Path.Combine(tempDir, "orders.db")
+        Handlers.setWorkspaceDirForTests (Some tempDir)
+
+        try
+            Directory.CreateDirectory tempDir |> ignore
+
+            use connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}")
+            connection.Open()
+            use createCmd = connection.CreateCommand()
+            createCmd.CommandText <- "create table Orders (Id integer primary key, Total real)"
+            createCmd.ExecuteNonQuery() |> ignore
+            use insertCmd = connection.CreateCommand()
+            insertCmd.CommandText <- "insert into Orders (Id, Total) values (1, 100.0)"
+            insertCmd.ExecuteNonQuery() |> ignore
+            connection.Close()
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
+            let registerRequest =
+                registerConnectionRequest
+                    "reg1"
+                    { Id = Guid.NewGuid()
+                      Name = "Sales"
+                      Kind = Sqlite
+                      Configuration =
+                        JsonSerializer.SerializeToElement({| FilePath = dbPath |}, Serialization.options)
+                      SecretReference = None
+                      IsTrusted = false }
+
+            let! _ = Handlers.dispatch registerRequest
+
+            let connectorsAssemblyPath = typeof<FSharpQueryStudio.Connectors.IConnectionResolver>.Assembly.Location
+            let escapedPath = connectorsAssemblyPath.Replace("\\", "\\\\")
+            let evaluateRequest = evaluateRequest "eval1" $"""#r "{escapedPath}"
+open FSharpQueryStudio.Connectors
+Connections.sql "Sales" "select Total from Orders" [] |> fun r -> r.Rows |> Seq.toArray"""
+            let! evalResponse = Handlers.dispatch evaluateRequest
+
+            Assert.True(evalResponse.Error.IsNone)
+            let result = JsonSerializer.Deserialize<ResultEnvelope>(evalResponse.Result.Value, Serialization.options)
+            if result.Kind = ResultKind.Error then
+                failwith $"Script failed with error: {result.DisplayText}"
+            Assert.Equal(ResultKind.Table, result.Kind)
+            Assert.Single(result.Rows) |> ignore
+            let firstRow = result.Rows.[0]
+            let firstCell = firstRow.[0]
+            match firstCell with
+            | :? JsonElement as je when je.ValueKind = JsonValueKind.Array ->
+                Assert.Single(je.EnumerateArray() |> Seq.toList) |> ignore
+                let value = je.[0].GetDouble()
+                Assert.Equal(100.0, value)
+            | :? float as f ->
+                Assert.Equal(100.0, f)
+            | _ -> failwith $"Unexpected cell type: {firstCell.GetType()}"
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
+            if Directory.Exists tempDir then
+                Directory.Delete(tempDir, true)
+    }

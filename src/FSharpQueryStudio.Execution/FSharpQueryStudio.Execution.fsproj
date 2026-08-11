@@ -20,4 +20,8 @@
     <PackageReference Include="FSharp.Compiler.Service" Version="43.12.204" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\FSharpQueryStudio.Connectors\FSharpQueryStudio.Connectors.fsproj" />
+  </ItemGroup>
+
 </Project>

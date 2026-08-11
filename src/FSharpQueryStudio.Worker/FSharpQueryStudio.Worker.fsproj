@@ -24,6 +24,8 @@
     <ProjectReference Include="..\FSharpQueryStudio.Results\FSharpQueryStudio.Results.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Analysis\FSharpQueryStudio.Analysis.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Storage\FSharpQueryStudio.Storage.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Connectors\FSharpQueryStudio.Connectors.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Security\FSharpQueryStudio.Security.fsproj" />
   </ItemGroup>
 
 </Project>
