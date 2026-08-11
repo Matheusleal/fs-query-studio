@@ -181,13 +181,24 @@
           provideRenameEdits: function (model, position, newName) {
             return new Promise(function (resolve) {
               var id = crypto.randomUUID();
-              pendingRenameResolvers[id] = resolve;
+              pendingRenameResolvers[id] = { resolve: resolve, model: model };
+
+              // Monaco hands F2 the raw caret position, which for a normal
+              // rename lands somewhere inside the word, not at its end -
+              // but findReferences (via FCS's GetSymbolUseAtLocation)
+              // requires the column at the word's *end*, the same
+              // convention proved out by the Worker test's corrected
+              // column. getWordAtPosition finds that end column, same API
+              // family the completion provider above already uses
+              // (getWordUntilPosition).
+              var word = model.getWordAtPosition(position);
+              var column = (word ? word.endColumn : position.column) - 1;
 
               postToHostWithId(id, "renameRequested", {
                 documentUri: documentUri,
                 version: currentVersion,
                 line: position.lineNumber,
-                column: position.column - 1,
+                column: column,
                 newName: newName
               });
             });
@@ -335,17 +346,17 @@
                 break;
               }
               case "renameResolved": {
-                var resolveRename = pendingRenameResolvers[envelope.id];
+                var pendingRename = pendingRenameResolvers[envelope.id];
 
-                if (resolveRename) {
+                if (pendingRename) {
                   delete pendingRenameResolvers[envelope.id];
                   var edits = envelope.payload.edits;
 
                   if (edits) {
-                    resolveRename({
+                    pendingRename.resolve({
                       edits: edits.map(function (e) {
                         return {
-                          resource: editor.getModel().uri,
+                          resource: pendingRename.model.uri,
                           textEdit: {
                             range: {
                               startLineNumber: e.startLine + 1,
@@ -359,7 +370,7 @@
                       })
                     });
                   } else {
-                    resolveRename({ edits: [] });
+                    pendingRename.resolve({ edits: [] });
                   }
                 }
 

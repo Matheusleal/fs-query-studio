@@ -851,12 +851,16 @@ let ``RenameAsync is settable and reachable as a plain hook, no-op when unconfig
         let vm = ShellViewModel()
         Assert.Equal(None, vm.RenameAsync)
 
+        let mutable received = None
+
         vm.RenameAsync <-
-            Some(fun (_uri, _version, _source, _line, _column) ->
+            Some(fun (uri, version, source, line, column) ->
+                received <- Some(uri, version, source, line, column)
                 Task.FromResult(Some [ { StartLine = 0; StartColumn = 4; EndLine = 0; EndColumn = 5 } ]))
 
         let! result = vm.RenameAsync.Value ("untitled:Script1.fsx", 1, "let x = 1", 1, 4)
 
+        Assert.Equal(Some("untitled:Script1.fsx", 1, "let x = 1", 1, 4), received)
         Assert.Equal(1, result.Value.Length)
     }
 
