@@ -1128,3 +1128,11 @@ Two compile-time issues surfaced writing this, both anticipated as possible and 
 
 Files changed: `src/FSharpQueryStudio.Ui/MainWindow.axaml`, `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`.
 
+## 2026-08-11 — Feature: WorkspacePanel lists registered connections
+
+Replaced the placeholder `<TextBlock Text="Workspace" .../>` in `MainWindow.axaml`'s `WorkspacePanel` `Border` with a `DockPanel` containing a titled header and a `ListBox` bound to `ShellViewModel.Connections`. Each item renders via `DataTemplate` as a two-column stack (connector kind, connection name), completing the Connections UI plan's end-to-end flow from menu registration (Task 7) to live visibility of what's been registered. No new view-model behavior needed — `ShellViewModel.Connections: ConnectionDefinition list` (Task 5, already merged) provides the data, and this task is purely presentational XAML binding.
+
+Verified via `dotnet build` (clean, 0 warnings/errors) and full solution `dotnet test` (34 passed, 12 failed — the 12 failures are the pre-existing `RequiresDocker` SQL Server/PostgreSQL testcontainer tests, Docker not running in this environment). List rendering itself isn't visually verifiable in this environment (no display), same limitation as every prior XAML task — deferred to acceptance testing in deployment.
+
+Files changed: `src/FSharpQueryStudio.Ui/MainWindow.axaml`.
+
