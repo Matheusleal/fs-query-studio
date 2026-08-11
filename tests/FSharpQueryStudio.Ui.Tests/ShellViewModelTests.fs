@@ -976,3 +976,97 @@ let ``PropertyChanged fires for Connections after a successful RemoveConnection`
 
         Assert.Contains("Connections", raisedFor)
     }
+
+[<Fact>]
+let ``a freshly-constructed ShellViewModel has no workspace items`` () =
+    let vm = ShellViewModel()
+    Assert.Empty(vm.WorkspaceItems)
+
+[<Fact>]
+let ``SeedConnections populates WorkspaceItems with one entry per connection, mirroring Id and Name`` () =
+    let vm = ShellViewModel()
+    let connection = testConnection "Sales"
+
+    vm.SeedConnections([ connection ])
+
+    Assert.Equal(1, vm.WorkspaceItems.Length)
+    Assert.Equal(connection.Id, vm.WorkspaceItems.[0].Id)
+    Assert.Equal("Sales", vm.WorkspaceItems.[0].Name)
+
+[<Fact>]
+let ``SeedConnections again with the same Id reuses the existing WorkspaceConnectionViewModel instance`` () =
+    let vm = ShellViewModel()
+    let connection = testConnection "Sales"
+
+    vm.SeedConnections([ connection ])
+    let first = vm.WorkspaceItems.[0]
+
+    vm.SeedConnections([ connection ])
+    let second = vm.WorkspaceItems.[0]
+
+    Assert.Same(first, second)
+
+[<Fact>]
+let ``RegisterConnection adds a new WorkspaceConnectionViewModel for the newly registered connection`` () =
+    task {
+        let vm = ShellViewModel()
+        let connection = testConnection "Sales"
+        vm.RegisterConnectionAsync <- Some(fun (def, _secret) -> Task.FromResult([ def ]))
+
+        do! vm.RegisterConnection connection None
+
+        Assert.Equal(1, vm.WorkspaceItems.Length)
+        Assert.Equal(connection.Id, vm.WorkspaceItems.[0].Id)
+    }
+
+[<Fact>]
+let ``RemoveConnection drops the removed connection's WorkspaceConnectionViewModel`` () =
+    task {
+        let vm = ShellViewModel()
+        let connection = testConnection "Sales"
+        vm.SeedConnections([ connection ])
+        vm.RemoveConnectionAsync <- Some(fun _def -> Task.FromResult([]))
+
+        do! vm.RemoveConnection connection
+
+        Assert.Empty(vm.WorkspaceItems)
+    }
+
+[<Fact>]
+let ``PropertyChanged fires for WorkspaceItems after SeedConnections`` () =
+    let vm = ShellViewModel()
+    let connection = testConnection "Sales"
+    let raisedFor = ResizeArray<string>()
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    vm.SeedConnections([ connection ])
+
+    Assert.Contains("WorkspaceItems", raisedFor)
+
+[<Fact>]
+let ``LoadConnectionSchemaAsync is settable and reachable as a plain hook, no-op when unconfigured`` () =
+    let vm = ShellViewModel()
+    Assert.True(vm.LoadConnectionSchemaAsync.IsNone)
+
+[<Fact>]
+let ``a WorkspaceConnectionViewModel built by SeedConnections loads schema through the configured LoadConnectionSchemaAsync hook`` () =
+    task {
+        let vm = ShellViewModel()
+        let connection = testConnection "Sales"
+        let mutable receivedId = None
+
+        let tables: SchemaTable list =
+            [ { Name = "Orders"
+                Columns = [ ({ Name = "Id"; DataType = "integer" }: SchemaColumn) ] } ]
+
+        vm.LoadConnectionSchemaAsync <-
+            Some(fun id ->
+                receivedId <- Some id
+                Task.FromResult(Ok tables))
+
+        vm.SeedConnections([ connection ])
+        do! vm.WorkspaceItems.[0].LoadSchemaAsync()
+
+        Assert.Equal(Some connection.Id, receivedId)
+        Assert.Equal<string list>([ "Orders" ], vm.WorkspaceItems.[0].Tables |> List.map (fun t -> t.Name))
+    }

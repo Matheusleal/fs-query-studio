@@ -12,6 +12,7 @@
     <Compile Include="ResultViewModel.fs" />
     <Compile Include="ResultGridColumns.fs" />
     <Compile Include="ProblemViewModel.fs" />
+    <Compile Include="WorkspaceConnectionViewModel.fs" />
     <Compile Include="ShellViewModel.fs" />
     <Compile Include="ResultsView.axaml.fs" />
     <Compile Include="MainWindow.axaml.fs" />

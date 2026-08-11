@@ -16,6 +16,8 @@ open FSharpQueryStudio.Editor
 type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     let documents = ResizeArray<DocumentViewModel>()
     let mutable connections: ConnectionDefinition list = []
+    let mutable workspaceItems: WorkspaceConnectionViewModel list = []
+    let mutable loadConnectionSchemaAsync: (System.Guid -> Task<Result<SchemaTable list, string>>) option = None
 
     let mutable checkAsync: ((int * string) -> Task<Diagnostic list>) option = None
     let mutable activeDocument = Unchecked.defaultof<DocumentViewModel>
@@ -35,6 +37,36 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     /// here by hand.
     let raiseConnectionsChanged () =
         propertyChanged.Trigger(self, PropertyChangedEventArgs("Connections"))
+
+    /// `WorkspaceItems` mirrors `Connections` as real navigation objects
+    /// (Connection -> Tables -> Columns) — see `WorkspaceConnectionViewModel`.
+    /// Reused by Id across refreshes so an already-expanded/loaded
+    /// connection's `WorkspaceConnectionViewModel` survives a
+    /// register/remove elsewhere in the list, rather than being thrown
+    /// away and rebuilt (which would silently re-collapse it and discard
+    /// its cached schema).
+    let raiseWorkspaceItemsChanged () =
+        propertyChanged.Trigger(self, PropertyChangedEventArgs("WorkspaceItems"))
+
+    let syncWorkspaceItems () =
+        let loadSchema (id: System.Guid) =
+            match loadConnectionSchemaAsync with
+            | Some load -> load id
+            | None -> Task.FromResult(Ok [])
+
+        let existingById =
+            workspaceItems |> List.map (fun item -> item.Id, item) |> dict
+
+        workspaceItems <-
+            connections
+            |> List.map (fun definition ->
+                match existingById.TryGetValue definition.Id with
+                | true, existing ->
+                    existing.UpdateDefinition definition
+                    existing
+                | false, _ -> WorkspaceConnectionViewModel(definition, loadSchema))
+
+        raiseWorkspaceItemsChanged ()
 
     /// Wires a document's debounced text change to `checkAsync` — every
     /// open tab gets its own analysis pipeline, not just the first one —
@@ -298,6 +330,7 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
                 let! updated = register (definition, secret)
                 connections <- updated
                 raiseConnectionsChanged ()
+                syncWorkspaceItems ()
         }
 
     /// The composition root's hook into `connection/remove` — set
@@ -320,6 +353,7 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
                 let! updated = remove definition
                 connections <- updated
                 raiseConnectionsChanged ()
+                syncWorkspaceItems ()
         }
 
     /// Seeds `Connections` at startup from whatever's already in
@@ -334,6 +368,21 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     member _.SeedConnections(initial: ConnectionDefinition list) =
         connections <- initial
         raiseConnectionsChanged ()
+        syncWorkspaceItems ()
+
+    /// Real object navigation (Connection -> Tables -> Columns) over
+    /// `Connections` — see `WorkspaceConnectionViewModel`. Kept in sync
+    /// with `Connections` at every point that already raises
+    /// `raiseConnectionsChanged`.
+    member _.WorkspaceItems = workspaceItems
+
+    /// The composition root's hook into `connection/schema` — see
+    /// `ConnectionService.schema`. `syncWorkspaceItems`'s `loadSchema`
+    /// closure reads this by name at call time, so it's safe to set
+    /// after `WorkspaceConnectionViewModel`s already exist.
+    member _.LoadConnectionSchemaAsync
+        with get () = loadConnectionSchemaAsync
+        and set value = loadConnectionSchemaAsync <- value
 
     /// Section 13's `trust.json` metadata for the active workspace,
     /// loaded by the composition root — a freshly-created workspace
