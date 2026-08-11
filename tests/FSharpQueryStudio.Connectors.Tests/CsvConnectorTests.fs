@@ -26,6 +26,23 @@ let ``ReadRows parses a header row and each data row as columns/rows`` () =
     Assert.Equal<obj list>([ box "2"; box "Inventory"; box "50.0" ], rows.[1] |> Array.toList)
 
 [<Fact>]
+let ``ReadRows's Rows sequence can be enumerated more than once`` () =
+    // A caller that materializes `Rows` (e.g. `Seq.toArray`) and then hands
+    // the same `ConnectorQueryResult` to something else that also reads
+    // `Rows` (e.g. `Results.table`) must see the same data twice, not a
+    // "closed TextReader" failure from a stream handle only good for one
+    // pass.
+    let path = tempCsvFile Encoding.UTF8 "Id,Name\n1,Ada\n2,Alan\n"
+    let connector = CsvConnector(path)
+    let result = connector.ReadRows()
+
+    let firstPass = result.Rows |> Seq.toArray
+    let secondPass = result.Rows |> Seq.toArray
+
+    Assert.Equal(2, firstPass.Length)
+    Assert.Equal<obj array array>(firstPass, secondPass)
+
+[<Fact>]
 let ``ReadRows keeps a quoted field's comma inside a single field, not splitting it`` () =
     let path = tempCsvFile Encoding.UTF8 "Id,Description\n1,\"Sales, EMEA\"\n"
     let connector = CsvConnector(path)

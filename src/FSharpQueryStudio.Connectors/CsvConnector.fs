@@ -107,31 +107,39 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
 
     member _.Options = options
 
-    /// Streams rows as a lazy sequence that owns the underlying file
-    /// handle until fully enumerated or disposed — Section 10's
-    /// streaming-read requirement. Columns come from the header row when
-    /// `options.HasHeader`, else synthesized as `Column1`, `Column2`, ...
-    /// with the first record treated as data.
+    /// Streams rows as a lazy sequence — Section 10's streaming-read
+    /// requirement. `Rows` is genuinely re-enumerable: each enumeration
+    /// opens its own file handle from scratch (disposed when that
+    /// enumeration ends or is abandoned), rather than sharing one handle
+    /// across every `GetEnumerator()` call — a caller that materializes
+    /// `Rows` once (e.g. `Seq.toArray`) and then hands the same
+    /// `ConnectorQueryResult` to something else that also reads `Rows`
+    /// (e.g. `Results.table`) must see the same data again, not a
+    /// "closed TextReader" failure from a stream only ever good for one
+    /// pass. Columns come from the header row when `options.HasHeader`,
+    /// else synthesized as `Column1`, `Column2`, ... with the first
+    /// record treated as data — peeked once, eagerly, via its own
+    /// throwaway reader closed before this method returns.
     member _.ReadRows() : ConnectorQueryResult =
-        let streamReader = new StreamReader(filePath, options.Encoding)
-        let firstRecord = CsvParsing.readRecord streamReader options.Delimiter
+        let columns =
+            use headerReader = new StreamReader(filePath, options.Encoding)
 
-        let columns, firstDataRecord =
-            match firstRecord with
-            | None -> [], None
+            match CsvParsing.readRecord headerReader options.Delimiter with
+            | None -> []
             | Some record ->
                 if options.HasHeader then
-                    record, None
+                    record
                 else
-                    [ for i in 1 .. record.Length -> $"Column{i}" ], Some record
+                    [ for i in 1 .. record.Length -> $"Column{i}" ]
 
         let rows =
             seq {
-                use streamReader = streamReader
+                use streamReader = new StreamReader(filePath, options.Encoding)
+                let first = CsvParsing.readRecord streamReader options.Delimiter
 
-                match firstDataRecord with
-                | Some record -> yield record |> List.map box |> Array.ofList
-                | None -> ()
+                match first, options.HasHeader with
+                | Some record, false -> yield record |> List.map box |> Array.ofList
+                | _ -> () // Some when HasHeader (the header itself) or None (empty file) - nothing to yield yet.
 
                 let mutable more = true
 
