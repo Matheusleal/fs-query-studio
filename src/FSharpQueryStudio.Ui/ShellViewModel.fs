@@ -273,12 +273,16 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
 
     /// Seeds `Connections` at startup from whatever's already in
     /// `workspace.json` — distinct from `RegisterConnection`, which is
-    /// for adding one new connection through the configured hook and
-    /// raises `PropertyChanged` for a UI that's already bound and
-    /// showing something. `SeedConnections` is a plain assignment: it
-    /// runs once, before `MainWindow` is even shown, so there's nothing
-    /// bound yet to notify.
-    member _.SeedConnections(initial: ConnectionDefinition list) = connections <- initial
+    /// for adding one new connection through the configured hook.
+    /// Raises `PropertyChanged` the same as every other place `Connections`
+    /// changes: `MainWindow`'s constructor sets `DataContext` (activating
+    /// every `{Binding ...}` in the XAML, including `WorkspacePanel`'s
+    /// `ItemsSource="{Binding Connections}"`) *before* the composition root
+    /// calls `SeedConnections`, so by the time this runs the binding is
+    /// already live and needs the same nudge `RegisterConnection` gives it.
+    member _.SeedConnections(initial: ConnectionDefinition list) =
+        connections <- initial
+        raiseConnectionsChanged ()
 
     /// Section 13's `trust.json` metadata for the active workspace,
     /// loaded by the composition root — a freshly-created workspace

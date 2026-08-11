@@ -1114,6 +1114,60 @@ Flagged by the user while reviewing the shell: the bottom panel's `Results`/`Out
 
 **Not fixed yet** — recorded here as a real, user-identified gap for a follow-up task. The fix shape: move `Result`/`Output`/`Schema` (and whatever else `RunAsync`/`ExecutionService` currently write onto the shared `ResultViewModel`) onto `DocumentViewModel` instead, one instance per open tab, and have `ResultsView`'s bindings follow `ActiveDocument.Result` the same way `Problems` already follows `ActiveDocument.Diagnostics` — including the DataGrid column-rebuild wiring in `MainWindow.axaml.fs`, which currently rebuilds once for the single shared `Result.Schema` and would need to react to the active tab changing too.
 
+## 2026-08-11 — Feature: `WorkspaceConnectionResolver` builds live connectors from registered connections
+
+Added `WorkspaceConnectionResolver` (`src/FSharpQueryStudio.Connectors/WorkspaceConnectionResolver.fs`), implementing `IConnectionResolver`: given a connection's name, looks it up among the registered `ConnectionDefinition`s and builds the matching live connector — `Sqlite`/`Csv`/`Excel` from a file path, `SqlServer`/`PostgreSql` from a connection string with a new `ConnectionStringSecrets.resolve` helper substituting any `{password}` token from the `ISecretStore`, `RestJson` from a URL — or a clear error when the name isn't registered.
+
+TDD: 9 tests (`WorkspaceConnectionResolverTests.fs`) written first, confirmed failing to compile (`WorkspaceConnectionResolver`/`ConnectionStringSecrets` not defined), then made to pass. One deviation from the brief's suggested file order: `WorkspaceConnectionResolver.fs` had to compile *after* `Connections.fs`, not before, since it implements `IConnectionResolver`, defined there — the brief's suggested ordering would have been a forward reference.
+
+Verified via the focused suite (9/9 passed) and the full `FSharpQueryStudio.Connectors.Tests` project (48/48 passed, no regressions).
+
+Files changed: `src/FSharpQueryStudio.Connectors/WorkspaceConnectionResolver.fs` (new), `src/FSharpQueryStudio.Connectors/FSharpQueryStudio.Connectors.fsproj`, `tests/FSharpQueryStudio.Connectors.Tests/WorkspaceConnectionResolverTests.fs` (new), `tests/FSharpQueryStudio.Connectors.Tests/FSharpQueryStudio.Connectors.Tests.fsproj`.
+
+## 2026-08-11 — Feature: Worker handles `connection/register`, persisting to `workspace.json`
+
+Added a `connection/register` case to the Worker's request dispatch (`src/FSharpQueryStudio.Worker/Handlers.fs`): deserializes a `ConnectionDefinition` from the request params, persists it via `Workspace.registerConnection` (writing into `workspace.json` under `workspaceDir()`, which defaults to `%LOCALAPPDATA%\FSharpQueryStudio`), and returns the updated full connection list. Registering an existing connection's id replaces it in place rather than duplicating it. A `setWorkspaceDirForTests` test hook mirrors the existing `currentWorkDir` mutable-module-state pattern so tests can point the handler at a temp directory instead of the real app-data path.
+
+TDD: wrote the two tests first (persists a new connection; replacing an existing id keeps only one binding for it), confirmed the expected compile failures (`Storage`/`Workspace`/`setWorkspaceDirForTests` not defined), then implemented. Verified via the focused filter (2/2 passed) and the full `FSharpQueryStudio.Worker.Tests` project (26/26 passed, no regressions).
+
+Files changed: `src/FSharpQueryStudio.Worker/Handlers.fs`, `src/FSharpQueryStudio.Worker/FSharpQueryStudio.Worker.fsproj`, `tests/FSharpQueryStudio.Worker.Tests/HandlersTests.fs`, `tests/FSharpQueryStudio.Worker.Tests/FSharpQueryStudio.Worker.Tests.fsproj`.
+
+## 2026-08-11 — Feature: Worker resolves `Connections.*` against `workspace.json` before every evaluation, and FSI sessions actually reference it
+
+`runEvaluate` (`src/FSharpQueryStudio.Worker/Handlers.fs`) now reads the current `workspace.json` connections and calls `Connections.configure (WorkspaceConnectionResolver(connections, WindowsCredentialStore()))` immediately before every `Evaluation.evaluate` — a fresh resolver built from whatever's registered *right now*, not a stale one from session start, so `Connections.sql "Sales" ...` resolves against connections registered after the session began.
+
+The test written for this initially passed with the test script manually `#r`/`open`-ing `FSharpQueryStudio.Connectors` — but review caught that this masked a real gap: outside that test's own manual directives, an FSI session never referenced `Connections` at all. A plain user script calling `Connections.sql` the way the architecture spec's own example script does would hit a compile error, not run. The actual bug was in `FsiSession.create` (`src/FSharpQueryStudio.Execution/FsiSession.fs`), which built a completely bare session. Fixed by running a prologue interaction — `#r` the Connectors assembly (located via `typeof<IConnector>.Assembly.Location`, making the `Execution → Connectors` project reference load-bearing rather than incidental) and `open FSharpQueryStudio.Connectors` — before any user code runs, with the prologue's own FSI echo output cleared so it doesn't leak into `outcome.Output`. The test was then rewritten to drop the manual `#r`/`open` and call `Connections.sql` directly, proving the fix rather than working around the gap.
+
+TDD: RED confirmed the failure mode changed correctly — before the fix, `Connections.sql` failed to *compile* in FSI; with `FsiSession.create`'s prologue in place but `Connections.configure` still commented out, it compiled and instead raised "Connections has not been configured for this session," proving FSI now resolves the identifier. GREEN then enabled `Connections.configure` and got back a real `Scalar` result. Verified via the full `FSharpQueryStudio.Worker.Tests` (27/27 passed) and `FSharpQueryStudio.Execution.Tests` (28/28 passed, no regressions from the `FsiSession` change).
+
+Files changed: `src/FSharpQueryStudio.Worker/Handlers.fs`, `src/FSharpQueryStudio.Worker/FSharpQueryStudio.Worker.fsproj`, `src/FSharpQueryStudio.Execution/FSharpQueryStudio.Execution.fsproj`, `src/FSharpQueryStudio.Execution/FsiSession.fs`, `tests/FSharpQueryStudio.Worker.Tests/HandlersTests.fs`.
+
+## 2026-08-11 — Feature: `App.ConnectionService` saves a secret then registers the connection via the worker
+
+Added `ConnectionService.register` (`src/FSharpQueryStudio.App/ConnectionService.fs`), following the same composition-root-service shape as `ExecutionService`/`AnalysisService`: takes a `WorkerClient`, an `ISecretStore`, a `ConnectionDefinition`, and an optional plaintext secret, saves the secret to the OS credential store first — only when both a `SecretReference` and a secret are actually present — then sends the connection definition, which by that point carries only the `SecretReference` and never the plaintext, to the worker's `connection/register`, returning the updated connection list. Ordering matters here: the secret never exists in the worker process, and never touches disk unencrypted.
+
+No new tests at this layer — `ConnectionService.register` is a thin, direct composition of `ISecretStore.Save` and `WorkerClient.Send`, both already-tested primitives, and its actual behavior gets exercised end-to-end once Task 5 wires it into `ShellViewModel.RegisterConnectionAsync`. Verified via `dotnet build` (clean, 0 warnings/errors).
+
+Files changed: `src/FSharpQueryStudio.App/ConnectionService.fs` (new), `src/FSharpQueryStudio.App/FSharpQueryStudio.App.fsproj`.
+
+## 2026-08-11 — Feature: `ShellViewModel` tracks registered connections and can register a new one
+
+Added `Connections: ConnectionDefinition list` (starts empty), a `RegisterConnectionAsync` composition-root hook (`(ConnectionDefinition * string option) -> Task<ConnectionDefinition list>`), and `RegisterConnection`, which calls the hook, replaces `Connections` with whatever list it returns, and raises `PropertyChanged("Connections")` via a new `raiseConnectionsChanged` helper — the same re-raise-by-hand pattern `raiseProblemsChanged` already established, since a mutable field bound in the UI notifies nothing on its own. Same no-op-when-unconfigured shape as `ExecuteAsync`/`ResetSession`/`CopyResultToClipboard`: calling `RegisterConnection` before the hook is wired is a harmless no-op, not an error.
+
+TDD: 4 tests written first (empty by default; the hook is called and its returned list stored; a no-op when the hook is unconfigured; `PropertyChanged` fires for `"Connections"` on success), confirmed failing to compile (`Connections`/`RegisterConnectionAsync`/`RegisterConnection` not defined on `ShellViewModel`), then implemented. Verified via the focused filter (4/4 passed) and the full `FSharpQueryStudio.Ui.Tests` project (108/108 passed, no regressions).
+
+Files changed: `src/FSharpQueryStudio.Ui/ShellViewModel.fs`, `tests/FSharpQueryStudio.Ui.Tests/ShellViewModelTests.fs`.
+
+## 2026-08-11 — Feature: `ConnectionService` wired into the composition root; `Connections` seeded from `workspace.json` at startup
+
+`App.axaml.fs` now constructs a `WindowsCredentialStore`, wires `ShellViewModel.RegisterConnectionAsync` to a closure over `ConnectionService.register` (bridging its curried signature into the hook's tupled shape), and calls a new `ShellViewModel.SeedConnections` with `Workspace.readConnections workspaceDir` at startup — the piece connecting the New Connection flow to the real worker and loading whatever connections were already registered in a previous session. `SeedConnections` was added as a plain assignment (`connections <- initial`, no `PropertyChanged` raise), on the reasoning that it runs before `MainWindow` is shown and nothing is bound yet to notify.
+
+TDD: added a test asserting `SeedConnections` sets `Connections` without requiring `RegisterConnectionAsync` to be configured, confirmed it failed to compile (`SeedConnections` not defined on `ShellViewModel`), then implemented. A same-task review pass flagged that the test didn't actually pin down the "no `PropertyChanged`" half of `SeedConnections`'s stated contract, so a follow-up commit extended it to subscribe to `PropertyChanged` first and assert nothing fired.
+
+Verified via the full solution `dotnet build` (clean) and `dotnet test` (368 passed / 12 pre-existing `RequiresDocker` failures at the time; `FSharpQueryStudio.Ui.Tests` itself at 109/109, including the new test).
+
+Files changed: `src/FSharpQueryStudio.App/App.axaml.fs`, `src/FSharpQueryStudio.Ui/ShellViewModel.fs`, `tests/FSharpQueryStudio.Ui.Tests/ShellViewModelTests.fs`.
+
 ## 2026-08-11 — Feature: "New Connection" dialog, reachable from a real Connections menu
 
 Closed the plan's own end goal: a user-reachable path from the running app's menu to a registered, usable connection. The `_Connections` menu (disabled stub since A.10) is now a real submenu with one item, "New Connection…", opening a hand-rolled dialog that mirrors the existing `confirmDiscardDirty` `Window`-based pattern (same shape: build controls, wire `Click` handlers, `dialog.ShowDialog(this)` — Avalonia ships no dialog controls of its own, so this remains the project's one dialog pattern).
@@ -1132,7 +1186,7 @@ Files changed: `src/FSharpQueryStudio.Ui/MainWindow.axaml`, `src/FSharpQueryStud
 
 Replaced the placeholder `<TextBlock Text="Workspace" .../>` in `MainWindow.axaml`'s `WorkspacePanel` `Border` with a `DockPanel` containing a titled header and a `ListBox` bound to `ShellViewModel.Connections`. Each item renders via `DataTemplate` as a two-column stack (connector kind, connection name), completing the Connections UI plan's end-to-end flow from menu registration (Task 7) to live visibility of what's been registered. No new view-model behavior needed — `ShellViewModel.Connections: ConnectionDefinition list` (Task 5, already merged) provides the data, and this task is purely presentational XAML binding.
 
-Verified via `dotnet build` (clean, 0 warnings/errors) and full solution `dotnet test` (34 passed, 12 failed — the 12 failures are the pre-existing `RequiresDocker` SQL Server/PostgreSQL testcontainer tests, Docker not running in this environment). List rendering itself isn't visually verifiable in this environment (no display), same limitation as every prior XAML task — deferred to acceptance testing in deployment.
+Verified via `dotnet build` (clean, 0 warnings/errors) and full solution `dotnet test` (360 passed, 12 pre-existing `RequiresDocker` failures — the same SQL Server/PostgreSQL testcontainer tests as Task 7's entry, Docker not running in this environment; this task's XAML-only change added no new tests). List rendering itself isn't visually verifiable in this environment (no display), same limitation as every prior XAML task — deferred to acceptance testing in deployment.
 
 Files changed: `src/FSharpQueryStudio.Ui/MainWindow.axaml`.
 
