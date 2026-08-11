@@ -12,6 +12,7 @@
     <Compile Include="WorkerClient.fs" />
     <Compile Include="ExecutionService.fs" />
     <Compile Include="AnalysisService.fs" />
+    <Compile Include="ConnectionService.fs" />
     <Compile Include="App.axaml.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
@@ -30,6 +31,7 @@
     <ProjectReference Include="..\FSharpQueryStudio.Storage\FSharpQueryStudio.Storage.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Ui\FSharpQueryStudio.Ui.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Results\FSharpQueryStudio.Results.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Security\FSharpQueryStudio.Security.fsproj" />
   </ItemGroup>
 
 </Project>
