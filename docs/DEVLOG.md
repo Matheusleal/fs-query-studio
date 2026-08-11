@@ -1190,3 +1190,45 @@ Verified via `dotnet build` (clean, 0 warnings/errors) and full solution `dotnet
 
 Files changed: `src/FSharpQueryStudio.Ui/MainWindow.axaml`.
 
+## 2026-08-11 — Fix: hover requests from Monaco now actually reach the worker and resolve
+
+Wired `HoverAsync` end to end, fixing the root cause of hover requests being dead on arrival: `MainWindow.axaml.fs`'s bridge dispatch had exactly one real case (`TextChanged`), with every other request including `HoverRequested` falling silently into the `Ok _otherRequest -> ()` catch-all despite `AnalysisService.hover` already being functional and `MonacoHoverProvider` already registered in the editor.
+
+Added `ShellViewModel.HoverAsync` hook (same no-op-when-unconfigured shape as `CheckAsync`), the bridge dispatch case for `HoverRequested` (placed before the catch-all), and composition-root wiring in `App.axaml.fs`. Verified by test: `ShellViewModelTests` +1 (110/110 passed); full solution `dotnet test` green except pre-existing `RequiresDocker` Docker-unavailable failures. The JS-side behavior (hover popup actually appearing on screen) requires a display; verified via the message-correlation pattern matching Task 1-3 below.
+
+Files changed: `src/FSharpQueryStudio.Ui/ShellViewModel.fs`, `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`, `src/FSharpQueryStudio.App/App.axaml.fs`, `tests/FSharpQueryStudio.Ui.Tests/ShellViewModelTests.fs`.
+
+## 2026-08-11 — Fix: go-to-definition wired end to end, including a real Monaco definition provider
+
+Repeated Task 1's hover-wiring pattern for go-to-definition, adding `ShellViewModel.DefinitionAsync` hook and the bridge dispatch case for `GoToDefinitionRequested`. Registered Monaco's `registerDefinitionProvider` for the first time, implementing `pendingDefinitionResolvers` to correlate requests and responses; `provideDefinition` resolves to `null` (Monaco's "no definition") when `location.filePath !== documentUri` (the editor hosts one model at a time with no cross-file jump target yet).
+
+Verified by test: `ShellViewModelTests` +1 (111/111 passed); full solution build and test green except pre-existing Docker failures. Cross-file jumps resolve `null` as intentional (documented in the brief as out-of-scope pending E.5's `.fsproj` workspace support); no-error behavior for unresolvable definitions matches Milestone E.6 and earlier protocol-handler precedent.
+
+Files changed: `src/FSharpQueryStudio.Ui/ShellViewModel.fs`, `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`, `src/FSharpQueryStudio.App/App.axaml.fs`, `src/FSharpQueryStudio.Editor/EditorAssets/editor-host.html`, `tests/FSharpQueryStudio.Ui.Tests/ShellViewModelTests.fs`.
+
+## 2026-08-11 — Fix: signature help wired end to end, including a real Monaco provider
+
+Wired the third and final "dead protocol already exists, bridge dispatch missing" case: `ShellViewModel.SignatureHelpAsync` hook, bridge dispatch case for `SignatureHelpRequested`, and Monaco's first `registerSignatureHelpProvider("fsharp", { signatureHelpTriggerCharacters: ["(", ","] })`. The JS-side `signatureHelpResolved` builds Monaco's `SignatureHelpResult` shape (`{ value: { signatures, activeSignature: 0, activeParameter: 0 }, dispose() {} }`), with each signature's label as `displayName(params): returnType` and parameters from the returned list.
+
+Verified by test: `ShellViewModelTests` +1 (112/112 passed); full solution `dotnet test` shows 112/112 in `Ui.Tests`, matching the build report. The hook receives all five parameters (uri, version, source, line, column) and the return value round-trips correctly — same test pattern as Tasks 1-2.
+
+Files changed: `src/FSharpQueryStudio.Ui/ShellViewModel.fs`, `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`, `src/FSharpQueryStudio.App/App.axaml.fs`, `src/FSharpQueryStudio.Editor/EditorAssets/editor-host.html`, `tests/FSharpQueryStudio.Ui.Tests/ShellViewModelTests.fs`.
+
+## 2026-08-11 — Feature: completions wired end to end from nothing, plus Monaco's first completion provider (commits `eb2d995` and fix-round `df1257a`)
+
+Built the entire completion stack from scratch — no prior worker dispatch existed for `analysis/complete` — layer by layer: new Protocol types (`AnalysisCompletionParams`/`AnalysisCompletionResult`), worker handler combining `Completions.complete []` (tier 1: keywords/snippets/connector helpers) with `Completions.completeAtPosition` (tier 2: semantic names via FCS), app-layer `AnalysisService.complete`, `ShellViewModel.CompleteAsync` hook, bridge dispatch case in `MainWindow.axaml.fs`, composition-root wiring, and Monaco's `registerCompletionItemProvider` building a `CompletionItemKind.Text` suggestion for each returned name.
+
+Initial task (commit `eb2d995`): all tests green (113/113 in `Ui.Tests`, 29/29 in `Worker.Tests`). Fix-round (commit `df1257a`): task review found a real bug — the completion range was zero-width at the cursor position, causing text duplication on accept (typing `myLoc` then accepting `myLocalValue` produced `myLocmyLocalValue`). Fixed by storing the in-progress word's range (from `model.getWordUntilPosition(position)`) on the pending-resolver entry instead of rebuilding a zero-width range at resolve time. Also strengthened the `CompleteAsync` test to verify forwarded arguments, matching `HoverAsync`'s pattern. Both fixes verified: `Ui.Tests` 113/113 green.
+
+Files changed (original): `src/FSharpQueryStudio.Protocol/Payloads.fs`, `src/FSharpQueryStudio.Protocol/HostNotification.fs`, `src/FSharpQueryStudio.Editor/EditorBridge.fs`, `src/FSharpQueryStudio.Worker/Handlers.fs`, `src/FSharpQueryStudio.App/AnalysisService.fs`, `src/FSharpQueryStudio.App/App.axaml.fs`, `src/FSharpQueryStudio.Ui/ShellViewModel.fs`, `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`, `src/FSharpQueryStudio.Editor/EditorAssets/editor-host.html`, tests. Files changed (fix round): `src/FSharpQueryStudio.Editor/EditorAssets/editor-host.html`, `tests/FSharpQueryStudio.Ui.Tests/ShellViewModelTests.fs`.
+
+## 2026-08-11 — Feature: rename wired end to end at every layer from scratch, the final E.8 gap (commits `c13ad03` and fix-round `7647a50`)
+
+Built the complete rename stack from the protocol up, all five protocol/dispatch/service/hook/bridge/provider layers: Protocol types (`RenameEdit`/`AnalysisRenameParams`/`AnalysisRenameResult`), `EditorRequest.RenameRequested` + `HostNotification.RenameResolved` with full encode/decode in `EditorBridge.fs`, worker handler `handleAnalysisRename` dispatched on `"analysis/rename"`, app-layer `AnalysisService.rename`, `ShellViewModel.RenameAsync` hook, bridge dispatch case in `MainWindow.axaml.fs`, composition-root wiring, and Monaco's first `registerRenameProvider("fsharp", ...)` building each `WorkspaceEdit` from the resolved edits.
+
+Initial task (commit `c13ad03`): test-driven per TDD, layer by layer — every test suite green (114/114 in `Ui.Tests`, 31/31 in `Worker.Tests`, 26/26 in `Editor.Tests`). Fix-round (commit `7647a50`): task review found one Important and two Minor issues. (1) `provideRenameEdits` was sending the raw cursor column, but FCS's `GetSymbolUseAtLocation` requires the *end* column of the identifier — normal F2 presses land mid-word, so the common case was silently returning no edits. Fixed by computing the column from `model.getWordAtPosition(position).endColumn`. (2) `pendingRenameResolvers` now captures the model at request time (not read fresh at resolve time), matching the definition provider's robustness pattern. (3) The `RenameAsync` test was strengthened to verify forwarded arguments. All fixes verified: `Ui.Tests` 114/114 green.
+
+The `newName` parameter flows: Monaco's own rename widget → `provideRenameEdits(model, position, newName)` in JS → `renameRequested` message payload → `RenameRequested` tuple element → threaded unchanged through `MainWindow`'s dispatch into `RenameResolved(..., newName)` → substituted as each edit's replacement text in `renameResolved` handler. The F# backend never inspects `newName` — it only locates the edits — per the brief's scope.
+
+Files changed (original): `src/FSharpQueryStudio.Protocol/Payloads.fs`, `src/FSharpQueryStudio.Protocol/EditorRequest.fs`, `src/FSharpQueryStudio.Protocol/HostNotification.fs`, `src/FSharpQueryStudio.Editor/EditorBridge.fs`, `src/FSharpQueryStudio.Worker/Handlers.fs`, `src/FSharpQueryStudio.App/AnalysisService.fs`, `src/FSharpQueryStudio.App/App.axaml.fs`, `src/FSharpQueryStudio.Ui/ShellViewModel.fs`, `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`, `src/FSharpQueryStudio.Editor/EditorAssets/editor-host.html`, tests. Files changed (fix round): `src/FSharpQueryStudio.Editor/EditorAssets/editor-host.html`, `tests/FSharpQueryStudio.Ui.Tests/ShellViewModelTests.fs`.
+
