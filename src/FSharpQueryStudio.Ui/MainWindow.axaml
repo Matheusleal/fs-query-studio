@@ -84,23 +84,60 @@
               BorderThickness="0,0,1,0">
         <DockPanel>
           <TextBlock Text="Workspace" DockPanel.Dock="Top" Margin="8,8,8,4" FontWeight="Bold" />
-          <ListBox ItemsSource="{Binding Connections}" Name="ConnectionsList">
-            <ListBox.ItemTemplate>
-              <DataTemplate>
-                <Grid ColumnDefinitions="Auto,*,Auto">
-                  <TextBlock Grid.Column="0" Text="{Binding Kind}" Opacity="0.7" Margin="0,0,6,0" />
-                  <TextBlock Grid.Column="1" Text="{Binding Name}" />
-                  <Button Grid.Column="2"
-                          Content="&#x2715;"
-                          Padding="4,0"
-                          Background="Transparent"
-                          BorderThickness="0"
-                          Click="RemoveConnectionClicked"
-                          ToolTip.Tip="Remove this connection" />
-                </Grid>
-              </DataTemplate>
-            </ListBox.ItemTemplate>
-          </ListBox>
+          <ScrollViewer>
+            <ItemsControl ItemsSource="{Binding WorkspaceItems}" Name="WorkspaceItemsControl">
+              <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                  <Expander Margin="2" Expanding="ConnectionExpanderExpanded">
+                    <Expander.Header>
+                      <Grid ColumnDefinitions="Auto,*,Auto">
+                        <TextBlock Grid.Column="0" Text="{Binding Kind}" Opacity="0.7" Margin="0,0,6,0" />
+                        <TextBlock Grid.Column="1" Text="{Binding Name}" />
+                        <Button Grid.Column="2"
+                                Content="&#x2715;"
+                                Padding="4,0"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Click="RemoveConnectionClicked"
+                                ToolTip.Tip="Remove this connection" />
+                      </Grid>
+                    </Expander.Header>
+                    <StackPanel>
+                      <TextBlock Text="Loading…" Opacity="0.7" Margin="16,2" IsVisible="{Binding IsLoading}" />
+                      <TextBlock Text="{Binding ErrorMessage}"
+                                 Foreground="IndianRed"
+                                 TextWrapping="Wrap"
+                                 Margin="16,2"
+                                 IsVisible="{Binding HasError}" />
+                      <TextBlock Text="No tables found" Opacity="0.7" Margin="16,2" IsVisible="{Binding HasNoSchema}" />
+                      <TextBlock Text="No schema to browse for this connection type"
+                                 Opacity="0.7"
+                                 Margin="16,2"
+                                 IsVisible="{Binding !HasSchema}" />
+                      <ItemsControl ItemsSource="{Binding Tables}">
+                        <ItemsControl.ItemTemplate>
+                          <DataTemplate>
+                            <Expander Margin="16,2">
+                              <Expander.Header>
+                                <TextBlock Text="{Binding Name}" />
+                              </Expander.Header>
+                              <ItemsControl ItemsSource="{Binding Columns}">
+                                <ItemsControl.ItemTemplate>
+                                  <DataTemplate>
+                                    <TextBlock Text="{Binding Label}" FontFamily="Consolas,monospace" Margin="16,1" />
+                                  </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                              </ItemsControl>
+                            </Expander>
+                          </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                      </ItemsControl>
+                    </StackPanel>
+                  </Expander>
+                </DataTemplate>
+              </ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </ScrollViewer>
         </DockPanel>
       </Border>
 

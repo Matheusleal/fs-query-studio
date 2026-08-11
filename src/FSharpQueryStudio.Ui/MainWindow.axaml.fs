@@ -800,6 +800,17 @@ type MainWindow() as this =
         | :? ConnectionDefinition as connection -> shellViewModel.RemoveConnection connection |> ignore
         | _ -> ()
 
+    /// Wired via XAML `Expanding="ConnectionExpanderExpanded"` on each
+    /// connection's outer `Expander` in the Workspace panel — the schema
+    /// discovery trigger for real object navigation. `LoadSchemaAsync` is
+    /// idempotent on success and safe to call every time the user expands
+    /// a connection (it only actually re-fetches after a prior failure),
+    /// so no separate "already loaded" check is needed here.
+    member private _.ConnectionExpanderExpanded(sender: obj, _args: CancelRoutedEventArgs) =
+        match (sender :?> Control).DataContext with
+        | :? WorkspaceConnectionViewModel as vm -> vm.LoadSchemaAsync() |> ignore
+        | _ -> ()
+
     /// Exposed so the composition root (`App.axaml.fs`) can wire further
     /// hooks (`CheckAsync`, etc.) after construction, alongside
     /// `WireExecution` below.
