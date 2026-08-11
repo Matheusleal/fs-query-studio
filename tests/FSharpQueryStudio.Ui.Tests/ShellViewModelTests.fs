@@ -929,3 +929,50 @@ let ``SeedConnections sets Connections directly without requiring RegisterConnec
 
     Assert.Equal<ConnectionDefinition list>([ connection ], vm.Connections)
     Assert.Contains("Connections", raisedFor)
+
+[<Fact>]
+let ``RemoveConnection calls the configured hook and stores the returned list`` () =
+    task {
+        let vm = ShellViewModel()
+        let connection = testConnection "Sales"
+        vm.SeedConnections([ connection ])
+        let mutable received = None
+
+        vm.RemoveConnectionAsync <-
+            Some(fun def ->
+                received <- Some def
+                Task.FromResult([]))
+
+        do! vm.RemoveConnection connection
+
+        Assert.Equal(Some connection, received)
+        Assert.Empty(vm.Connections)
+    }
+
+[<Fact>]
+let ``RemoveConnection is a no-op when RemoveConnectionAsync has not been configured`` () =
+    task {
+        let vm = ShellViewModel()
+        let connection = testConnection "Sales"
+        vm.SeedConnections([ connection ])
+
+        do! vm.RemoveConnection connection // Must not throw.
+
+        Assert.Equal<ConnectionDefinition list>([ connection ], vm.Connections)
+    }
+
+[<Fact>]
+let ``PropertyChanged fires for Connections after a successful RemoveConnection`` () =
+    task {
+        let vm = ShellViewModel()
+        let connection = testConnection "Sales"
+        vm.SeedConnections([ connection ])
+        vm.RemoveConnectionAsync <- Some(fun _def -> Task.FromResult([]))
+
+        let raisedFor = ResizeArray<string>()
+        (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+        do! vm.RemoveConnection connection
+
+        Assert.Contains("Connections", raisedFor)
+    }

@@ -37,3 +37,32 @@ module ConnectionService =
             | Some resultJson -> return JsonSerializer.Deserialize<ConnectionDefinition list>(resultJson, Serialization.options)
             | None -> return []
         }
+
+    /// The "host service" for `connection/remove` — deletes the
+    /// connection's own credential (if it had one) from the OS
+    /// credential store *before* asking the worker to drop it from
+    /// `workspace.json`, the same save-before-send ordering `register`
+    /// uses for the opposite direction. Deleting first means a crash or
+    /// a dropped connection between the two steps leaves an orphaned
+    /// credential behind rather than a `workspace.json` entry pointing
+    /// at a `SecretReference` nothing will ever read again — the safer
+    /// of the two possible leaks.
+    let remove (client: WorkerClient) (secretStore: ISecretStore) (definition: ConnectionDefinition) : Task<ConnectionDefinition list> =
+        task {
+            definition.SecretReference |> Option.iter secretStore.Delete
+
+            let request: WorkerRequestFrame =
+                { Id = Guid.NewGuid().ToString()
+                  Method = "connection/remove"
+                  Params =
+                    JsonSerializer.SerializeToElement<ConnectionRemoveParams>(
+                        { Id = definition.Id },
+                        Serialization.options
+                    ) }
+
+            let! response = client.Send(request)
+
+            match response.Result with
+            | Some resultJson -> return JsonSerializer.Deserialize<ConnectionDefinition list>(resultJson, Serialization.options)
+            | None -> return []
+        }

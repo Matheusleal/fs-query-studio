@@ -785,6 +785,21 @@ type MainWindow() as this =
             | Some host -> (host :> IDisposable).Dispose()
             | None -> ())
 
+    /// Wired via XAML `Click="RemoveConnectionClicked"` on the "×" button
+    /// inside `WorkspacePanel`'s `ConnectionsList` item template — the
+    /// same reason `ResultsView.ProblemDoubleTapped` is a real member
+    /// rather than a `do`-block closure: each list item's button is a
+    /// separate, dynamically-created control, so there's no single named
+    /// control a closure could `FindControl`/`.Click.Add` onto. The
+    /// button's own `DataContext` at the moment it's clicked is that
+    /// row's `ConnectionDefinition`. No confirmation prompt — unlike
+    /// closing a dirty tab, removing a connection destroys nothing the
+    /// user typed; re-registering it is one dialog away.
+    member private _.RemoveConnectionClicked(sender: obj, _args: RoutedEventArgs) =
+        match (sender :?> Control).DataContext with
+        | :? ConnectionDefinition as connection -> shellViewModel.RemoveConnection connection |> ignore
+        | _ -> ()
+
     /// Exposed so the composition root (`App.axaml.fs`) can wire further
     /// hooks (`CheckAsync`, etc.) after construction, alongside
     /// `WireExecution` below.

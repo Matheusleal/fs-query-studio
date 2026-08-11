@@ -614,6 +614,57 @@ let ``dispatch on connection/register replacing an existing connection keeps onl
                 Directory.Delete(tempDir, true)
     }
 
+let private removeConnectionRequest (id: string) (connectionId: Guid) : WorkerRequestFrame =
+    { Id = id
+      Method = "connection/remove"
+      Params = JsonSerializer.SerializeToElement<ConnectionRemoveParams>({ Id = connectionId }, Serialization.options) }
+
+[<Fact>]
+let ``dispatch on connection/remove drops the connection from workspace.json`` () =
+    task {
+        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        Handlers.setWorkspaceDirForTests (Some tempDir)
+
+        try
+            let connection = testConnection "TestConn"
+            let! _ = Handlers.dispatch (registerConnectionRequest "reg1" connection)
+
+            let! response = Handlers.dispatch (removeConnectionRequest "rem1" connection.Id)
+
+            Assert.Equal("rem1", response.Id)
+            Assert.True(response.Error.IsNone)
+            Assert.Empty(Workspace.readConnections tempDir)
+        finally
+            Handlers.setWorkspaceDirForTests None
+
+            if Directory.Exists tempDir then
+                Directory.Delete(tempDir, true)
+    }
+
+[<Fact>]
+let ``dispatch on connection/remove preserves every other registered connection`` () =
+    task {
+        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        Handlers.setWorkspaceDirForTests (Some tempDir)
+
+        try
+            let keep = testConnection "Keep"
+            let drop = testConnection "Drop"
+            let! _ = Handlers.dispatch (registerConnectionRequest "reg1" keep)
+            let! _ = Handlers.dispatch (registerConnectionRequest "reg2" drop)
+
+            let! _ = Handlers.dispatch (removeConnectionRequest "rem1" drop.Id)
+
+            let persisted = Workspace.readConnections tempDir
+            Assert.Single(persisted) |> ignore
+            Assert.Equal("Keep", persisted.[0].Name)
+        finally
+            Handlers.setWorkspaceDirForTests None
+
+            if Directory.Exists tempDir then
+                Directory.Delete(tempDir, true)
+    }
+
 [<Fact>]
 let ``execution/evaluate resolves Connections.sql against a connection registered via connection/register`` () =
     task {

@@ -300,6 +300,28 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
                 raiseConnectionsChanged ()
         }
 
+    /// The composition root's hook into `connection/remove` — set
+    /// alongside `RegisterConnectionAsync`. See `ConnectionService.remove`
+    /// for why it takes the full definition (needs `SecretReference` to
+    /// know whether there's a credential to delete too), not just an Id.
+    /// A no-op if never configured, same rationale as every other hook
+    /// here.
+    member val RemoveConnectionAsync: (ConnectionDefinition -> Task<ConnectionDefinition list>) option =
+        None with get, set
+
+    /// Removes `definition` and updates `Connections` to the worker's
+    /// returned, up-to-date list on success. A no-op, not an error, when
+    /// `RemoveConnectionAsync` isn't configured.
+    member this.RemoveConnection(definition: ConnectionDefinition) : Task<unit> =
+        task {
+            match this.RemoveConnectionAsync with
+            | None -> ()
+            | Some remove ->
+                let! updated = remove definition
+                connections <- updated
+                raiseConnectionsChanged ()
+        }
+
     /// Seeds `Connections` at startup from whatever's already in
     /// `workspace.json` — distinct from `RegisterConnection`, which is
     /// for adding one new connection through the configured hook.

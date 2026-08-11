@@ -122,3 +122,36 @@ let ``registerConnection preserves other connections when adding a second one`` 
     let result = Workspace.registerConnection dir second
 
     assertSameConnections [ first; second ] result
+
+[<Fact>]
+let ``removeConnection drops the matching Id and persists the result`` () =
+    let dir = tempWorkspaceDir ()
+    let target = sampleConnection "Sales"
+    Workspace.writeConnections dir [ target ]
+
+    let result = Workspace.removeConnection dir target.Id
+
+    Assert.Empty(result)
+    Assert.Empty(Workspace.readConnections dir)
+
+[<Fact>]
+let ``removeConnection preserves every other connection`` () =
+    let dir = tempWorkspaceDir ()
+    let keep = sampleConnection "Sales"
+    let drop = sampleConnection "Inventory"
+    Workspace.writeConnections dir [ keep; drop ]
+
+    let result = Workspace.removeConnection dir drop.Id
+
+    assertSameConnections [ keep ] result
+    assertSameConnections [ keep ] (Workspace.readConnections dir)
+
+[<Fact>]
+let ``removeConnection for an Id that isn't registered is a no-op, not an error`` () =
+    let dir = tempWorkspaceDir ()
+    let existing = sampleConnection "Sales"
+    Workspace.writeConnections dir [ existing ]
+
+    let result = Workspace.removeConnection dir (System.Guid.NewGuid())
+
+    assertSameConnections [ existing ] result

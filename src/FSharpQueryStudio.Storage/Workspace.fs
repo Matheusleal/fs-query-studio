@@ -43,3 +43,14 @@ module Workspace =
 
         writeConnections workspaceDir updated
         updated
+
+    /// `connection/remove` — drops the binding with the matching `Id` and
+    /// persists the result. A no-op, not an error, when nothing is
+    /// registered under that `Id` (already removed, or never existed) —
+    /// the caller can't distinguish the two and shouldn't need to.
+    let removeConnection (workspaceDir: string) (id: System.Guid) : ConnectionDefinition list =
+        let updated =
+            readConnections workspaceDir |> List.filter (fun (c: ConnectionDefinition) -> c.Id <> id)
+
+        writeConnections workspaceDir updated
+        updated

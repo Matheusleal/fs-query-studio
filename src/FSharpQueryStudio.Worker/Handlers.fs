@@ -487,6 +487,23 @@ module Handlers =
           Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
           Error = None }
 
+    /// `connection/remove` — drops the connection with the given `Id`
+    /// from `workspace.json` via `Workspace.removeConnection` and returns
+    /// the updated full list. Deleting the credential itself (if the
+    /// removed connection had a `SecretReference`) is the App layer's
+    /// job, same rationale as `connection/register` saving a plaintext
+    /// secret before ever reaching the worker — the worker only ever
+    /// touches `workspace.json`, never the OS credential store.
+    let handleConnectionRemove (request: WorkerRequestFrame) : WorkerResponseFrame =
+        let removeParams =
+            JsonSerializer.Deserialize<ConnectionRemoveParams>(request.Params, Serialization.options)
+
+        let updated = Workspace.removeConnection (workspaceDir ()) removeParams.Id
+
+        { Id = request.Id
+          Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
+          Error = None }
+
     let dispatch (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
             match request.Method with
@@ -502,6 +519,7 @@ module Handlers =
             | "analysis/rename" -> return! handleAnalysisRename request
             | "results/page" -> return handleResultsPage request
             | "connection/register" -> return handleConnectionRegister request
+            | "connection/remove" -> return handleConnectionRemove request
             | unknown ->
                 return
                     { Id = request.Id

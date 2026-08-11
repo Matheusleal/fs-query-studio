@@ -112,6 +112,9 @@ type App() =
             mainWindow.ShellViewModel.RegisterConnectionAsync <-
                 Some(fun (definition, secret) -> ConnectionService.register client secretStore definition secret)
 
+            mainWindow.ShellViewModel.RemoveConnectionAsync <-
+                Some(fun definition -> ConnectionService.remove client secretStore definition)
+
             // Populate `Connections` from whatever's already registered —
             // reads the same `workspace.json` the worker itself reads
             // fresh before every `execution/evaluate` (see

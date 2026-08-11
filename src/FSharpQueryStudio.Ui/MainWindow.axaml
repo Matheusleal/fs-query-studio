@@ -87,10 +87,17 @@
           <ListBox ItemsSource="{Binding Connections}" Name="ConnectionsList">
             <ListBox.ItemTemplate>
               <DataTemplate>
-                <StackPanel Orientation="Horizontal" Spacing="6">
-                  <TextBlock Text="{Binding Kind}" Opacity="0.7" />
-                  <TextBlock Text="{Binding Name}" />
-                </StackPanel>
+                <Grid ColumnDefinitions="Auto,*,Auto">
+                  <TextBlock Grid.Column="0" Text="{Binding Kind}" Opacity="0.7" Margin="0,0,6,0" />
+                  <TextBlock Grid.Column="1" Text="{Binding Name}" />
+                  <Button Grid.Column="2"
+                          Content="&#x2715;"
+                          Padding="4,0"
+                          Background="Transparent"
+                          BorderThickness="0"
+                          Click="RemoveConnectionClicked"
+                          ToolTip.Tip="Remove this connection" />
+                </Grid>
               </DataTemplate>
             </ListBox.ItemTemplate>
           </ListBox>

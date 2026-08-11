@@ -25,3 +25,6 @@ type ConnectionDefinition =
       Configuration: JsonElement
       SecretReference: string option
       IsTrusted: bool }
+
+/// `connection/remove` request payload — see Section 7's method table.
+type ConnectionRemoveParams = { Id: Guid }
