@@ -20,7 +20,14 @@ type ResultViewModel() as self =
         member _.PropertyChanged = propertyChanged.Publish
 
     member _.Kind = kind
-    member _.DisplayText = displayText
+
+    /// Unwrapped, never the raw `string option` - `ResultsView.axaml`
+    /// binds this straight to a `TextBlock.Text`, which needs a real
+    /// `string`. Binding to the option directly used to fall back to
+    /// Avalonia calling `.ToString()` on the boxed `FSharpOption<string>`
+    /// itself, rendering the literal text "Some(null)"/"None" instead of
+    /// unwrapping it.
+    member _.DisplayText = displayText |> Option.defaultValue ""
     member _.Schema = schema
     member _.Rows = rows
     member _.IsTruncated = isTruncated

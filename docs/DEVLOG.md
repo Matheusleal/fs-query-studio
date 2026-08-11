@@ -1258,3 +1258,52 @@ Verified: `dotnet build` clean (0 warnings, 0 errors) and full-solution `dotnet 
 
 Files changed: `src/FSharpQueryStudio.Editor/EditorAssets/editor-host.html`, `src/FSharpQueryStudio.Worker/Handlers.fs`, `src/FSharpQueryStudio.Worker/Program.fs`, `src/FSharpQueryStudio.Analysis/Completions.fs`, `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`, `tests/FSharpQueryStudio.Worker.Tests/HandlersTests.fs`, `tests/FSharpQueryStudio.Ui.Tests/ShellViewModelTests.fs`, `docs/DEVLOG.md`.
 
+## 2026-08-11 — Fix: `CsvConnector.ReadRows()`'s `Rows` sequence could only be enumerated once
+
+User report, found using the app for real: after registering a `test1` CSV connection and running
+
+```fsharp
+let result = Connections.csv "test1"
+let rows = result.Rows |> Seq.toArray
+printfn "%A" rows.[1]
+```
+
+the Results pane showed `"Some(null)"` (root cause and fix: the entry below) — but fixing that surfaced a second, real bug underneath it while building `Results.table` (also below): calling anything that enumerates `result.Rows` a second time, after the script had already called `Seq.toArray` on it once, threw `ObjectDisposedException: Cannot read from a closed TextReader`.
+
+**Root cause.** `CsvConnector.ReadRows()` opened one `StreamReader` outside the `seq { }` block that builds `Rows`, then captured that same already-open reader inside the block via `use streamReader = streamReader`. Every `GetEnumerator()` call on `Rows` re-entered the block, but they all shared the one physical file handle — the first full enumeration read to EOF and disposed it (the `use` binding's `Dispose` firing at the end of that first pass), so a second enumeration hit a reader that was already closed. The method's own doc comment ("owns the underlying file handle until fully enumerated or disposed") described this as deliberate streaming behavior, but nothing about C.5–C.10's `ConnectorQueryResult` contract says `Rows` is single-use — `Connections.sql`/`SqlServer`/`PostgreSql`'s reader-backed sequences aren't (a fresh `SqliteDataReader`/`SqlDataReader` per `ExecuteQuery` call), and no prior test in this codebase had ever enumerated a CSV result twice to catch the difference.
+
+**Fix.** The header row is now peeked through its own short-lived reader (opened, one record read, disposed via `use` before `ReadRows()` returns) purely to compute `Columns` eagerly. The `Rows` sequence now opens a brand-new `StreamReader` *inside* the `seq { }` block on every single enumeration, reading from the start and re-skipping the header (or treating the first record as data, per `HasHeader`) each time — genuinely re-enumerable, at the cost of a re-open per pass, which is the normal price of re-enumerating any lazy sequence and no different from what `File.ReadLines` does.
+
+TDD: `ReadRows's Rows sequence can be enumerated more than once` (`CsvConnectorTests.fs`) — enumerate `Rows` via `Seq.toArray` twice, assert both passes return the same two rows. Failed first with the exact `ObjectDisposedException` from the real bug (not a compile error), confirming RED for the right reason; passes after the fix. Full `CsvConnectorTests.fs` (12/12) and `Connectors.Tests` (49/49) re-run clean — no regression to the quoted-field/embedded-newline/non-UTF8/no-header cases the existing suite already covered.
+
+Files changed: `src/FSharpQueryStudio.Connectors/CsvConnector.fs`, `tests/FSharpQueryStudio.Connectors.Tests/CsvConnectorTests.fs`.
+
+## 2026-08-11 — Feature: `Results.table`/`Results.text` let a script control the Results pane explicitly; fixes the "Some(null)" display bug at its root
+
+User report: running a script that ends in a `let` binding or a `printfn` (no trailing expression of its own) showed the literal text `"Some(null)"` in the Results pane, no matter what the script had actually computed earlier. Two real bugs, both fixed, plus the feature the user asked for on top.
+
+**Bug 1 — the display bug itself.** `Projection.projectWithCursor`'s `null` case (reached whenever FSI's own last-expression value is `unit`, e.g. a script ending in `printfn`) set `DisplayText = Some "null"` — a real F# `string option`, not a null reference. `ResultsView.axaml`'s `TextBlock.Text="{Binding Result.DisplayText}"` binds straight to `ResultViewModel.DisplayText`, which returned that `string option` unwrapped. Avalonia can't implicitly convert `option` to `string` for a `TextBlock.Text` binding, so it fell back to calling `.ToString()` on the boxed `FSharpOption<string>` object itself — rendering the literal text `"Some(null)"` (the option's own structural `ToString()`, not the string `"null"` it wrapped). Fixed at both ends: `ResultViewModel.DisplayText` now returns a plain, unwrapped `string` (`Option.defaultValue ""`), and `Projection`'s `null` case now produces `ResultKind.NoValue` with no `DisplayText` at all — a genuinely empty Results pane instead of a confusing literal `"null"`, since there's nothing to show either way.
+
+**Bug 2 — completions/rename/definition weren't the only place a bare option leaking into a binding could bite.** No other `ResultViewModel` member had the same issue (`ClipboardText` already defaulted through `Option.defaultValue ""` internally), but this is now the only place `DisplayText` is exposed, closing the gap for any future `None` case too.
+
+**Feature.** A new `Results` module (`FSharpQueryStudio.Results`, alongside `Projection`) gives a script an explicit way to choose what the Results pane shows, instead of relying solely on FSI's own last-expression convention:
+
+```fsharp
+let result = Connections.csv "test1"
+let rows = result.Rows |> Seq.toArray
+Results.table result |> ignore   // shows result's own real columns, right now
+printfn "%A" rows.[1]
+```
+
+`Results.table (query: ConnectorQueryResult)` shows `query`'s own real column names as a Table (bounded to the same `Projection.PreviewRowLimit`, `IsTruncated` set correctly) — bypassing generic result projection entirely, which has no way to know a raw `obj array seq`'s column names on its own and would otherwise wrap the whole thing as one opaque `"Value"` column. `Results.text (value: 'a)` shows `value`'s structured-printed form (`sprintf "%A"`, the same formatting FSI's own REPL echo uses) as text. Both return their input unchanged, so they compose in a pipeline without disturbing the script's own logic. Whichever was called most recently wins for that evaluation; `Handlers.runEvaluate` calls `Results.reset()` before every evaluation (Isolated or a Persistent session's next turn) so a previous run's push never leaks forward, and checks `Results.currentEnvelope` before falling back to the existing FSI-tail-value path.
+
+Reachable with no `#r`/`open` of its own, same as `Connections.*` (Task 3 of the Connections UI plan) — `FsiSession.create`'s auto-reference prologue now also references and opens `FSharpQueryStudio.Results`, so `Connections.csv "test1" |> Results.table` works in a script exactly as written above.
+
+Building the real end-to-end Worker test for this (`Connections.csv` into `Results.table`, materializing `Rows` first via `Seq.toArray` exactly like the user's script) is what surfaced Bug 2 in `CsvConnector` above — `Results.table` enumerating the same `ConnectorQueryResult.Rows` a second time after the script already had.
+
+TDD across every layer: `Tests.fs` (`Projection`, Results.Tests) for the `null → NoValue` change; `ResultViewModelTests.fs`/`ShellViewModelTests.fs` for the unwrapped `DisplayText`, including a test asserting `vm.DisplayText` is actually typed `string`, not just equal to one; `ScriptResultsTests.fs` (new, 7 tests) for `Results.table`/`text`/`reset`/`currentEnvelope` directly; two new `HandlersTests.fs` cases proving the exact user scenario end-to-end through real dispatch — `Results.table` winning over a trailing `printfn`, and a bare `let`+`printfn` script now showing `NoValue`/no `DisplayText` instead of `"null"`.
+
+Verified: `dotnet build` clean (0 warnings, 0 errors) across all 25 projects (`Results`/`Results.Tests` gain a `Connectors` reference, `Execution`/`Worker` unaffected beyond the new module being reachable). Full-solution `dotnet test`: every project green except the same 12 pre-existing `RequiresDocker` `Integration.Tests` failures.
+
+Files changed: `src/FSharpQueryStudio.Results/ScriptResults.fs` (new), `src/FSharpQueryStudio.Results/Projection.fs`, `src/FSharpQueryStudio.Results/FSharpQueryStudio.Results.fsproj`, `src/FSharpQueryStudio.Ui/ResultViewModel.fs`, `src/FSharpQueryStudio.Worker/Handlers.fs`, `src/FSharpQueryStudio.Execution/FsiSession.fs`, `src/FSharpQueryStudio.Execution/FSharpQueryStudio.Execution.fsproj`, `tests/FSharpQueryStudio.Results.Tests/ScriptResultsTests.fs` (new), `tests/FSharpQueryStudio.Results.Tests/Tests.fs`, `tests/FSharpQueryStudio.Results.Tests/FSharpQueryStudio.Results.Tests.fsproj`, `tests/FSharpQueryStudio.Ui.Tests/ResultViewModelTests.fs`, `tests/FSharpQueryStudio.Ui.Tests/ShellViewModelTests.fs`, `tests/FSharpQueryStudio.Worker.Tests/HandlersTests.fs`, `tests/FSharpQueryStudio.Integration.Tests/ExecutionServiceTests.fs`, `tests/FSharpQueryStudio.Integration.Tests/MilestoneAAcceptanceTests.fs`, `tests/FSharpQueryStudio.Integration.Tests/MilestoneEAcceptanceTests.fs`.
+

@@ -57,7 +57,7 @@ module Projection =
     /// wants to keep paging never re-runs whatever produced `value`.
     let projectWithCursor (value: obj) (elapsedMs: int64) : ResultEnvelope * PagingCursor option =
         match value with
-        | null -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some "null" }, None
+        | null -> emptyEnvelope ResultKind.NoValue elapsedMs, None
         | :? string as s -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some s }, None
         | v when isSimplePrimitive (v.GetType()) ->
             { emptyEnvelope ResultKind.Scalar elapsedMs with

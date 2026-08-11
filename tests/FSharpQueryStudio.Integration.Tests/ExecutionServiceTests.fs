@@ -19,7 +19,7 @@ let ``Run (F5) end to end: ShellViewModel -> ExecutionService -> real worker -> 
         do! shell.RunAsync() |> withTimeout 45.0
 
         Assert.Equal(ResultKind.Scalar, shell.Result.Kind)
-        Assert.Equal(Some "2", shell.Result.DisplayText)
+        Assert.Equal("2", shell.Result.DisplayText)
     }
 
 [<Fact>]
@@ -35,7 +35,7 @@ let ``Run end to end surfaces a worker-level error through ResultViewModel too``
         do! shell.RunAsync() |> withTimeout 45.0
 
         Assert.Equal(ResultKind.Error, shell.Result.Kind)
-        Assert.Equal(Some "boom", shell.Result.DisplayText)
+        Assert.Equal("boom", shell.Result.DisplayText)
     }
 
 [<Fact>]
@@ -60,9 +60,8 @@ let ``Cancel (through the UI command) lets a cooperative script stop early, work
 
         Assert.Equal(ResultKind.Scalar, shell.Result.Kind)
 
-        match shell.Result.DisplayText with
-        | Some text -> Assert.True(int text < 2_000_000_000, $"expected the loop to stop early, got {text}")
-        | None -> failwith "expected a display value"
+        let text = shell.Result.DisplayText
+        Assert.True(int text < 2_000_000_000, $"expected the loop to stop early, got {text}")
 
         Assert.Equal(WorkerState.Ready, shell.WorkerState.Current)
     }

@@ -40,9 +40,10 @@ module FsiSession =
             FsiEvaluationSession.Create(config, argv, stdin, output, errors, collectible = true)
 
         // Every script reaches the controlled `Connections.sql`/`csv`/
-        // `excel`/`rest` API (Section 10/11) with no #r/open of its own -
-        // the architecture spec's own example script calls
-        // `Connections.sql "Sales" ...` directly. Run as a separate
+        // `excel`/`rest` API (Section 10/11) and the `Results.table`/
+        // `Results.text` results-pane override (Section 11) with no
+        // #r/open of its own - the architecture spec's own example script
+        // calls `Connections.sql "Sales" ...` directly. Run as a separate
         // interaction, before any user source, so it never shifts the
         // user script's own line numbers - Diagnostic mapping elsewhere
         // in this project is 1-based on FCS's own line numbers and must
@@ -50,8 +51,11 @@ module FsiSession =
         let connectorsAssemblyPath =
             typeof<FSharpQueryStudio.Connectors.IConnector>.Assembly.Location
 
+        let resultsAssemblyPath =
+            typeof<FSharpQueryStudio.Results.PagingCursor>.Assembly.Location
+
         let prologue =
-            $"#r @\"{connectorsAssemblyPath}\"\nopen FSharpQueryStudio.Connectors"
+            $"#r @\"{connectorsAssemblyPath}\"\n#r @\"{resultsAssemblyPath}\"\nopen FSharpQueryStudio.Connectors\nopen FSharpQueryStudio.Results"
 
         fsi.EvalInteractionNonThrowing(prologue) |> ignore
 

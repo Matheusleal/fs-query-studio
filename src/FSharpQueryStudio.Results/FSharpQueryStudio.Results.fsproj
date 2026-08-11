@@ -7,11 +7,13 @@
   <ItemGroup>
     <Compile Include="PagingCursor.fs" />
     <Compile Include="Projection.fs" />
+    <Compile Include="ScriptResults.fs" />
     <Compile Include="CsvExport.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Connectors\FSharpQueryStudio.Connectors.fsproj" />
   </ItemGroup>
 
 </Project>

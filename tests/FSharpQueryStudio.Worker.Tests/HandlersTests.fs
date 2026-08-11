@@ -662,3 +662,58 @@ let ``execution/evaluate resolves Connections.sql against a connection registere
             if Directory.Exists tempDir then
                 Directory.Delete(tempDir, true)
     }
+
+[<Fact>]
+let ``execution/evaluate shows Results.table's push even when the script's own last statement is a printfn`` () =
+    task {
+        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let csvPath = Path.Combine(tempDir, "test1.csv")
+        Handlers.setWorkspaceDirForTests (Some tempDir)
+
+        try
+            Directory.CreateDirectory tempDir |> ignore
+            File.WriteAllText(csvPath, "id,name\n1,Ada\n2,Alan\n")
+
+            let registerRequest =
+                registerConnectionRequest
+                    "reg1"
+                    { Id = Guid.NewGuid()
+                      Name = "test1"
+                      Kind = Csv
+                      Configuration =
+                        JsonSerializer.SerializeToElement({| FilePath = csvPath |}, Serialization.options)
+                      SecretReference = None
+                      IsTrusted = false }
+
+            let! _ = Handlers.dispatch registerRequest
+
+            let script =
+                "let result = Connections.csv \"test1\"\n"
+                + "let rows = result.Rows |> Seq.toArray\n"
+                + "Results.table result |> ignore\n"
+                + "printfn \"%A\" rows.[1]"
+
+            let! evalResponse = Handlers.dispatch (evaluateRequest "eval1" script)
+
+            Assert.True(evalResponse.Error.IsNone)
+            let envelope = JsonSerializer.Deserialize<ResultEnvelope>(evalResponse.Result.Value, Serialization.options)
+            Assert.Equal(ResultKind.Table, envelope.Kind)
+            Assert.Equal<string list>([ "id"; "name" ], envelope.Schema |> List.map (fun c -> c.Name))
+            Assert.Equal(2, envelope.Rows.Length)
+        finally
+            Handlers.setWorkspaceDirForTests None
+
+            if Directory.Exists tempDir then
+                Directory.Delete(tempDir, true)
+    }
+
+[<Fact>]
+let ``execution/evaluate shows NoValue, not a literal "null", when the script's last statement produces nothing`` () =
+    task {
+        let! evalResponse = Handlers.dispatch (evaluateRequest "eval1" "let x = 1\nprintfn \"%d\" x")
+
+        Assert.True(evalResponse.Error.IsNone)
+        let envelope = JsonSerializer.Deserialize<ResultEnvelope>(evalResponse.Result.Value, Serialization.options)
+        Assert.Equal(ResultKind.NoValue, envelope.Kind)
+        Assert.Equal(None, envelope.DisplayText)
+    }

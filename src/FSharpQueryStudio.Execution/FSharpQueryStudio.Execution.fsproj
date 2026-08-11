@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FSharpQueryStudio.Connectors\FSharpQueryStudio.Connectors.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Results\FSharpQueryStudio.Results.fsproj" />
   </ItemGroup>
 
 </Project>

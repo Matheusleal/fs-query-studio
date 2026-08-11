@@ -134,6 +134,7 @@ module Handlers =
 
             let connections = Workspace.readConnections (workspaceDir ())
             Connections.configure (WorkspaceConnectionResolver(connections, WindowsCredentialStore()))
+            Results.reset ()
 
             let outcome = Evaluation.evaluate session evalParams.Source
             stopwatch.Stop()
@@ -144,21 +145,30 @@ module Handlers =
                 match outcome.Exception with
                 | Some ex -> { Projection.projectError ex stopwatch.ElapsedMilliseconds with Output = output }
                 | None ->
-                    let value =
-                        outcome.Value |> Option.map (fun v -> v.ReflectionValue) |> Option.toObj
+                    // A script's explicit `Results.table`/`Results.text` push
+                    // (Section 11's controlled results surface) wins over FSI's
+                    // own tail-value convention - the whole point is showing
+                    // something meaningful even when the script's last line is
+                    // a `let` binding or a side-effecting call that never
+                    // produces an "it" value of its own.
+                    match Results.currentEnvelope stopwatch.ElapsedMilliseconds output with
+                    | Some explicitEnvelope -> explicitEnvelope
+                    | None ->
+                        let value =
+                            outcome.Value |> Option.map (fun v -> v.ReflectionValue) |> Option.toObj
 
-                    let projected, cursor = Projection.projectWithCursor value stopwatch.ElapsedMilliseconds
+                        let projected, cursor = Projection.projectWithCursor value stopwatch.ElapsedMilliseconds
 
-                    let continuationToken =
-                        cursor
-                        |> Option.map (fun c ->
-                            let token = Guid.NewGuid().ToString("N")
-                            currentPaging <- Some(token, c)
-                            token)
+                        let continuationToken =
+                            cursor
+                            |> Option.map (fun c ->
+                                let token = Guid.NewGuid().ToString("N")
+                                currentPaging <- Some(token, c)
+                                token)
 
-                    { projected with
-                        Output = output
-                        ContinuationToken = continuationToken }
+                        { projected with
+                            Output = output
+                            ContinuationToken = continuationToken }
 
             Log.Information(
                 "Execution completed with outcome {Outcome} in {ElapsedMs}ms",

@@ -30,7 +30,7 @@ let ``Apply copies every field from the envelope`` () =
     vm.Apply(envelope ResultKind.Scalar (Some "1"))
 
     Assert.Equal(ResultKind.Scalar, vm.Kind)
-    Assert.Equal(Some "1", vm.DisplayText)
+    Assert.Equal("1", vm.DisplayText)
     Assert.Equal<Column list>([ { Name = "Value"; DisplayType = "int" } ], vm.Schema)
     Assert.Equal(1, vm.Rows.Length)
     Assert.True(vm.IsTruncated)
@@ -108,6 +108,22 @@ let ``Apply does not itself enumerate a slow/blocking Rows or Output sequence`` 
     Assert.Equal(1, vm.Rows.Length)
     Assert.Equal(1, vm.Rows.Length) // reading twice must not re-enumerate
     Assert.Equal(1, pulls)
+
+[<Fact>]
+let ``DisplayText is a plain empty string, not the option type's own ToString(), when the envelope carries none`` () =
+    // Avalonia's TextBlock.Text binding needs a real string. Before this
+    // was fixed, this member returned the raw `string option` straight
+    // through - a XAML binding to it can't convert `option` to `string`,
+    // so Avalonia fell back to calling .ToString() on the boxed
+    // FSharpOption<string> itself, rendering the literal text
+    // "Some(null)" for `Some "null"` (or "None"'s own ToString for a
+    // genuinely-empty DisplayText) instead of showing nothing.
+    let vm = ResultViewModel()
+
+    vm.Apply(envelope ResultKind.NoValue None)
+
+    Assert.Equal("", vm.DisplayText)
+    Assert.IsType<string>(vm.DisplayText :> obj) |> ignore
 
 [<Fact>]
 let ``ClipboardText for a Table result is tab-separated, header first, one line per row`` () =

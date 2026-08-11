@@ -56,7 +56,7 @@ let ``a persistent-mode session retains bindings across executions until Reset S
         shell.ActiveDocument.ApplyTextChanged(2, "let x = 41\nx + 1")
         do! shell.RunAsync() |> withTimeout 45.0
         Assert.Equal(ResultKind.Scalar, shell.Result.Kind)
-        Assert.Equal(Some "42", shell.Result.DisplayText)
+        Assert.Equal("42", shell.Result.DisplayText)
 
         // 3. Reset Session drops the worker-side session and the local
         // "active" display state.

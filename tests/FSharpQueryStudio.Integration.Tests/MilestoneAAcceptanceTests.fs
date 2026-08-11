@@ -36,7 +36,7 @@ let ``open, run, read output/results, cancel, and recover from a crash - all wit
             do! shell.RunAsync() |> withTimeout 45.0
 
             Assert.Equal(ResultKind.Scalar, shell.Result.Kind)
-            Assert.Equal(Some "42", shell.Result.DisplayText)
+            Assert.Equal("42", shell.Result.DisplayText)
 
             Assert.Contains(
                 shell.Result.Output,
@@ -61,9 +61,8 @@ let ``open, run, read output/results, cancel, and recover from a crash - all wit
 
             Assert.Equal(ResultKind.Scalar, shell.Result.Kind)
 
-            match shell.Result.DisplayText with
-            | Some text -> Assert.True(int text < 2_000_000_000, $"expected the loop to stop early, got {text}")
-            | None -> failwith "expected a display value"
+            let earlyStopText = shell.Result.DisplayText
+            Assert.True(int earlyStopText < 2_000_000_000, $"expected the loop to stop early, got {earlyStopText}")
 
             Assert.Equal(WorkerState.Ready, shell.WorkerState.Current)
 
@@ -86,7 +85,7 @@ let ``open, run, read output/results, cancel, and recover from a crash - all wit
             do! shell.RunAsync() |> withTimeout 45.0
 
             Assert.Equal(ResultKind.Scalar, shell.Result.Kind)
-            Assert.Equal(Some "2", shell.Result.DisplayText)
+            Assert.Equal("2", shell.Result.DisplayText)
         finally
             File.Delete(scriptPath)
     }

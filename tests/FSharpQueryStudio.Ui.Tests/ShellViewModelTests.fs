@@ -44,7 +44,7 @@ let ``RunAsync calls ExecuteAsync with the active document's text and applies th
 
         Assert.Equal(Some "1 + 1", receivedSource)
         Assert.Equal(ResultKind.Scalar, vm.Result.Kind)
-        Assert.Equal(Some "2", vm.Result.DisplayText)
+        Assert.Equal("2", vm.Result.DisplayText)
     }
 
 [<Fact>]

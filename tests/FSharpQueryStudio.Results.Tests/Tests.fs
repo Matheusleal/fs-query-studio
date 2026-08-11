@@ -15,6 +15,13 @@ let ``a primitive value projects to Scalar`` () =
     Assert.Equal(5L, envelope.ElapsedMs)
 
 [<Fact>]
+let ``a null value projects to NoValue with no placeholder text`` () =
+    let envelope = Projection.project (null: obj) 0L
+
+    Assert.Equal(ResultKind.NoValue, envelope.Kind)
+    Assert.Equal(None, envelope.DisplayText)
+
+[<Fact>]
 let ``a string value projects to Text`` () =
     let envelope = Projection.project (box "hello world") 3L
 
