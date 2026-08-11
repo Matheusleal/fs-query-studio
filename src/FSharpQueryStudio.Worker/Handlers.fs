@@ -12,6 +12,7 @@ open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Execution
 open FSharpQueryStudio.Results
 open FSharpQueryStudio.Analysis
+open FSharpQueryStudio.Storage
 
 /// Method dispatch for incoming WorkerRequestFrames — see Section 7's
 /// method table.
@@ -50,6 +51,22 @@ module Handlers =
     /// or clears it, which is what "expires when the session is reset"
     /// means in a worker that never actually holds multiple sessions.
     let mutable private currentPaging: (string * PagingCursor) option = None
+
+    /// The persistent, single per-machine workspace directory — connections,
+    /// trust metadata, package approvals — `%LOCALAPPDATA%\FSharpQueryStudio`
+    /// in production. Distinct from `currentWorkDir` above, which is a fresh
+    /// throwaway temp directory per *evaluation*; this one is long-lived and
+    /// shared across every evaluation. `setWorkspaceDirForTests` exists only
+    /// so a test run never reads or writes the real user profile — never
+    /// called from `Program.fs`.
+    let mutable private workspaceDirOverride: string option = None
+
+    let workspaceDir () : string =
+        defaultArg
+            workspaceDirOverride
+            (Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FSharpQueryStudio"))
+
+    let setWorkspaceDirForTests (dir: string option) : unit = workspaceDirOverride <- dir
 
     let private busyResponse (id: string) : WorkerResponseFrame =
         { Id = id
@@ -327,6 +344,19 @@ module Handlers =
                     { Code = "results/unknownToken"
                       Message = "The continuation token is unknown or has expired." } }
 
+    /// `connection/register` — Section 7. Persists `connection` to
+    /// `workspace.json` via `Workspace.registerConnection`, replacing any
+    /// existing binding sharing its `Id`, and returns the updated full list.
+    let handleConnectionRegister (request: WorkerRequestFrame) : WorkerResponseFrame =
+        let connection =
+            JsonSerializer.Deserialize<ConnectionDefinition>(request.Params, Serialization.options)
+
+        let updated = Workspace.registerConnection (workspaceDir ()) connection
+
+        { Id = request.Id
+          Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
+          Error = None }
+
     let dispatch (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
             match request.Method with
@@ -339,6 +369,7 @@ module Handlers =
             | "analysis/definition" -> return! handleAnalysisDefinition request
             | "analysis/signatureHelp" -> return! handleAnalysisSignatureHelp request
             | "results/page" -> return handleResultsPage request
+            | "connection/register" -> return handleConnectionRegister request
             | unknown ->
                 return
                     { Id = request.Id

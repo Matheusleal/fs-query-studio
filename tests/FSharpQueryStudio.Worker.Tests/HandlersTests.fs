@@ -1,10 +1,13 @@
 module HandlersTests
 
+open System
+open System.IO
 open System.Text.Json
 open System.Threading.Tasks
 open Xunit
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Execution
+open FSharpQueryStudio.Storage
 open FSharpQueryStudio.Worker
 
 let private emptyParamsRequest (id: string) (method_: string) : WorkerRequestFrame =
@@ -393,4 +396,63 @@ let ``dispatch on analysis/signatureHelp on a non-callable symbol returns a Resu
             JsonSerializer.Deserialize<AnalysisSignatureHelpResult>(response.Result.Value, Serialization.options)
 
         Assert.Equal(None, result.SignatureHelp)
+    }
+
+let private registerConnectionRequest (id: string) (connection: ConnectionDefinition) : WorkerRequestFrame =
+    { Id = id
+      Method = "connection/register"
+      Params = JsonSerializer.SerializeToElement(connection, Serialization.options) }
+
+let private testConnection (name: string) : ConnectionDefinition =
+    { Id = Guid.NewGuid()
+      Name = name
+      Kind = Sqlite
+      Configuration = JsonDocument.Parse("""{"FilePath":"C:\\data.db"}""").RootElement
+      SecretReference = None
+      IsTrusted = false }
+
+[<Fact>]
+let ``dispatch on connection/register persists the connection to workspace.json under the configured workspace directory`` () =
+    task {
+        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        Handlers.setWorkspaceDirForTests (Some tempDir)
+
+        try
+            let connection = testConnection "TestConn"
+            let! response = Handlers.dispatch (registerConnectionRequest "reg1" connection)
+
+            Assert.Equal("reg1", response.Id)
+            Assert.True(response.Error.IsNone)
+            Assert.True(response.Result.IsSome)
+
+            let persisted = Workspace.readConnections tempDir
+            Assert.Contains(persisted, fun c -> c.Name = "TestConn")
+        finally
+            Handlers.setWorkspaceDirForTests None
+
+            if Directory.Exists tempDir then
+                Directory.Delete(tempDir, true)
+    }
+
+[<Fact>]
+let ``dispatch on connection/register replacing an existing connection keeps only one binding for that Id`` () =
+    task {
+        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        Handlers.setWorkspaceDirForTests (Some tempDir)
+
+        try
+            let original = testConnection "Original"
+            let renamed = { original with Name = "Renamed" }
+
+            let! _ = Handlers.dispatch (registerConnectionRequest "reg1" original)
+            let! _ = Handlers.dispatch (registerConnectionRequest "reg2" renamed)
+
+            let persisted = Workspace.readConnections tempDir
+            Assert.Single(persisted) |> ignore
+            Assert.Equal("Renamed", persisted.[0].Name)
+        finally
+            Handlers.setWorkspaceDirForTests None
+
+            if Directory.Exists tempDir then
+                Directory.Delete(tempDir, true)
     }
