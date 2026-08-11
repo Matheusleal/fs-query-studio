@@ -30,6 +30,15 @@ let ``go-to-definition at a position with no resolvable symbol returns None`` ()
     // Line 2 is blank.
     Assert.Equal(None, definitionAt source 2 0)
 
+[<Fact>]
+let ``go-to-definition on Connections.sql resolves with no #r or open of its own`` () =
+    // "Connections.sql" ends at column 15 (0-based). Same rationale as
+    // the other Analysis modules' matching cases - real execution's own
+    // auto-reference must be matched by live analysis.
+    match definitionAt "Connections.sql" 1 15 with
+    | None -> failwith "expected a definition location"
+    | Some location -> Assert.Contains("Connections.fs", location.FilePath)
+
 /// The real point of go-to-definition across an E.5 multi-file project:
 /// resolving to a *different file's* real path, not just a position
 /// within the file being checked.

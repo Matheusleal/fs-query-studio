@@ -45,3 +45,11 @@ let ``findReferences on a binding used exactly once returns a single edit for th
 let ``findReferences at a position with no resolvable symbol returns None`` () =
     // Line 2 of "\n\n" is blank.
     Assert.Equal(None, referencesAt "\n\n" 2 0)
+
+[<Fact>]
+let ``findReferences on Connections.sql resolves with no #r or open of its own`` () =
+    // "Connections.sql" ends at column 15 (0-based). Same rationale as
+    // HoverTests'/SignatureHelpTests' matching cases.
+    match referencesAt "Connections.sql" 1 15 with
+    | None -> failwith "expected a list of references"
+    | Some edits -> Assert.Equal(1, edits.Length)

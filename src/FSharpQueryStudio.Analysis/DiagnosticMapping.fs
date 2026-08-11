@@ -17,11 +17,17 @@ module DiagnosticMapping =
         | FSharpDiagnosticSeverity.Info
         | FSharpDiagnosticSeverity.Hidden -> DiagnosticSeverity.Information
 
+    /// The `- AnalysisContext.prologueLineCount` alongside the usual
+    /// `- 1` (1-based FCS to 0-based protocol) accounts for
+    /// `Checker.check` prepending the controlled-API `open` prologue
+    /// ahead of whatever it checks — every diagnostic `Checker.check`
+    /// returns is already filtered to ones inside the user's own script
+    /// (never the prologue itself), so this offset always applies.
     let map (diagnostic: FSharpDiagnostic) : Diagnostic =
         { Message = diagnostic.Message
           Severity = mapSeverity diagnostic.Severity
-          StartLine = diagnostic.StartLine - 1
+          StartLine = diagnostic.StartLine - 1 - AnalysisContext.prologueLineCount
           StartColumn = diagnostic.StartColumn
-          EndLine = diagnostic.EndLine - 1
+          EndLine = diagnostic.EndLine - 1 - AnalysisContext.prologueLineCount
           EndColumn = diagnostic.EndColumn
           Code = if diagnostic.ErrorNumber = 0 then None else Some diagnostic.ErrorNumberText }

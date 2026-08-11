@@ -39,3 +39,24 @@ let ``completions for a value of a known standard-library type include its well-
     let names = completeAt "let sb = System.Text.StringBuilder()\nsb.A" 2 3
 
     Assert.Contains("Append", names)
+
+[<Fact>]
+let ``member access on Connections resolves real semantic completions, not just the static tier-1 name list`` () =
+    // "Connections." ends at column 12 (0-based), right after the dot -
+    // no #r/open needed, same as real execution: AnalysisContext.build
+    // references the Connectors assembly and Connections is
+    // [<AutoOpen>]. Semantic (tier-2) completions here, unlike tier-1's
+    // static "Connections.sql" string, prove FCS actually resolved the
+    // module and can enumerate its real members.
+    let names = completeAt "Connections." 1 12
+
+    Assert.Contains("sql", names)
+    Assert.Contains("csv", names)
+
+[<Fact>]
+let ``member access on Results resolves real semantic completions`` () =
+    // "Results." ends at column 8 (0-based), right after the dot.
+    let names = completeAt "Results." 1 8
+
+    Assert.Contains("table", names)
+    Assert.Contains("text", names)

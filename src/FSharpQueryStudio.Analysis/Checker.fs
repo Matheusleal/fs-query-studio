@@ -17,7 +17,7 @@ module Checker =
     /// it without needing a file on disk.
     let check (context: AnalysisContext.Context) (source: string) : Async<FSharpDiagnostic[]> =
         async {
-            let sourceText = SourceText.ofString source
+            let sourceText = SourceText.ofString (AnalysisContext.sourceForCheck context source)
 
             let! _parseResults, checkAnswer =
                 AnalysisContext.checker.ParseAndCheckFileInProject(
@@ -29,6 +29,13 @@ module Checker =
 
             return
                 match checkAnswer with
-                | FSharpCheckFileAnswer.Succeeded results -> results.Diagnostics
+                | FSharpCheckFileAnswer.Succeeded results ->
+                    // The prologue is the same `open` statements real
+                    // execution already runs cleanly - it should never
+                    // itself produce a diagnostic, but if it somehow did,
+                    // that's host-injected noise, not the user's own
+                    // script, and must never reach the wire.
+                    results.Diagnostics
+                    |> Array.filter (fun d -> d.StartLine > AnalysisContext.lineOffset context)
                 | FSharpCheckFileAnswer.Aborted -> [||]
         }

@@ -19,7 +19,7 @@ module GoToDefinition =
         (column: int)
         : Async<DefinitionLocation option> =
         async {
-            let sourceText = SourceText.ofString source
+            let sourceText = SourceText.ofString (AnalysisContext.sourceForCheck context source)
 
             let! _parseResults, checkAnswer =
                 AnalysisContext.checker.ParseAndCheckFileInProject(
@@ -40,18 +40,30 @@ module GoToDefinition =
                     let lineText = lines.[line - 1]
                     let partial = QuickParse.GetPartialLongNameEx(lineText, column)
                     let names = partial.QualifyingIdents @ [ partial.PartialIdent ]
+                    let fcsLine = line + AnalysisContext.lineOffset context
 
-                    match results.GetSymbolUseAtLocation(line, column, lineText, names) with
+                    match results.GetSymbolUseAtLocation(fcsLine, column, lineText, names) with
                     | None -> return None
                     | Some symbolUse ->
                         match symbolUse.Symbol.DeclarationLocation with
                         | None -> return None
                         | Some range ->
+                            // Only a declaration resolved inside *this*
+                            // checked file was ever shifted by the
+                            // prologue - one resolved elsewhere
+                            // (FSharp.Core, another project file) has its
+                            // own real, unshifted lines.
+                            let lineAdjustment =
+                                if range.FileName = context.ScriptPath then
+                                    AnalysisContext.lineOffset context
+                                else
+                                    0
+
                             return
                                 Some
                                     { FilePath = range.FileName
-                                      StartLine = range.StartLine - 1
+                                      StartLine = range.StartLine - 1 - lineAdjustment
                                       StartColumn = range.StartColumn
-                                      EndLine = range.EndLine - 1
+                                      EndLine = range.EndLine - 1 - lineAdjustment
                                       EndColumn = range.EndColumn }
         }

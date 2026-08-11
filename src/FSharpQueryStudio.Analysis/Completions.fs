@@ -61,7 +61,7 @@ module Completions =
         (column: int)
         : Async<string list> =
         async {
-            let sourceText = SourceText.ofString source
+            let sourceText = SourceText.ofString (AnalysisContext.sourceForCheck context source)
 
             let! parseResults, checkAnswer =
                 AnalysisContext.checker.ParseAndCheckFileInProject(
@@ -79,6 +79,7 @@ module Completions =
                 if line < 1 || line > lines.Length then
                     return []
                 else
+                    let fcsLine = line + AnalysisContext.lineOffset context
                     let lineText = lines.[line - 1]
 
                     // `column` follows this layer's shared convention - a
@@ -100,7 +101,7 @@ module Completions =
                     let partial = QuickParse.GetPartialLongNameEx(lineText, column - 1)
 
                     let declInfo =
-                        results.GetDeclarationListInfo(Some parseResults, line, lineText, partial, (fun () -> []))
+                        results.GetDeclarationListInfo(Some parseResults, fcsLine, lineText, partial, (fun () -> []))
 
                     return declInfo.Items |> Array.map (fun item -> item.NameInList) |> Array.toList
         }

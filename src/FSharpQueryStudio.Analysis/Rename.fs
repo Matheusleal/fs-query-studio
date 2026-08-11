@@ -34,7 +34,7 @@ module Rename =
         (column: int)
         : Async<RenameEdit list option> =
         async {
-            let sourceText = SourceText.ofString source
+            let sourceText = SourceText.ofString (AnalysisContext.sourceForCheck context source)
 
             let! _parseResults, checkAnswer =
                 AnalysisContext.checker.ParseAndCheckFileInProject(
@@ -55,16 +55,22 @@ module Rename =
                     let lineText = lines.[line - 1]
                     let partial = QuickParse.GetPartialLongNameEx(lineText, column)
                     let names = partial.QualifyingIdents @ [ partial.PartialIdent ]
+                    let fcsLine = line + AnalysisContext.lineOffset context
 
-                    match results.GetSymbolUseAtLocation(line, column, lineText, names) with
+                    match results.GetSymbolUseAtLocation(fcsLine, column, lineText, names) with
                     | None -> return None
                     | Some symbolUse ->
+                        // `GetUsesOfSymbolInFile` is scoped to this one
+                        // checked (prologue-prefixed) file, so every use
+                        // it returns needs the same shift back.
+                        let renameLineOffset = AnalysisContext.lineOffset context
+
                         let edits =
                             results.GetUsesOfSymbolInFile(symbolUse.Symbol)
                             |> Array.map (fun use_ ->
-                                { StartLine = use_.Range.StartLine - 1
+                                { StartLine = use_.Range.StartLine - 1 - renameLineOffset
                                   StartColumn = use_.Range.StartColumn
-                                  EndLine = use_.Range.EndLine - 1
+                                  EndLine = use_.Range.EndLine - 1 - renameLineOffset
                                   EndColumn = use_.Range.EndColumn })
                             |> Array.toList
 

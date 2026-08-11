@@ -17,6 +17,27 @@ let private firstDiagnostic (source: string) : Diagnostic =
         Directory.Delete(dir, true)
 
 [<Fact>]
+let ``a script calling Connections.sql/Results.table with no #r or open produces no diagnostics`` () =
+    // The real bug this pins: real execution (FsiSession.create) auto-
+    // references and opens both assemblies, but live analysis used to
+    // build its own FCS context with no reference to either - so a
+    // script that ran perfectly still showed a false "Connections is
+    // not defined" squiggle in the Problems pane. Same fix
+    // (AnalysisContext.build referencing both assemblies) closes it.
+    let dir = TestHelpers.tempWorkingDirectory ()
+
+    try
+        let context = AnalysisContext.build dir
+
+        let diagnostics =
+            Checker.check context "Connections.sql \"Sales\" \"select 1\" [] |> Results.table |> ignore"
+            |> Async.RunSynchronously
+
+        Assert.Empty(diagnostics)
+    finally
+        Directory.Delete(dir, true)
+
+[<Fact>]
 let ``a multiline span converts FCS's 1-based line to a 0-based protocol line`` () =
     // Error is on the second physical line; FCS reports StartLine=2/EndLine=2.
     let diagnostic = firstDiagnostic "let a = 1\nlet b : int = \"oops\""

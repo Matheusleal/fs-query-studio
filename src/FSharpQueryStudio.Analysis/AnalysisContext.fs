@@ -20,6 +20,51 @@ module AnalysisContext =
     /// instance.
     let checker = FSharpChecker.Create()
 
+    /// Opens the controlled script API's namespaces ahead of whatever's
+    /// checked, so live analysis (diagnostics, hover, go-to-definition,
+    /// signature help, completions, rename) sees `Connections`/`Results`
+    /// resolve exactly as real execution already does — `FsiSession
+    /// .create`'s own prologue auto-references *and opens* both, and a
+    /// mere assembly reference (`build`'s `otherFlags`, above) makes the
+    /// two modules' members resolvable but not their own qualified names
+    /// (`Connections.sql`, not just `sql`) without this. Two real lines,
+    /// so every caller below must add `prologueLineCount` to its own
+    /// 1-based `line` before asking FCS to look anything up, and
+    /// subtract it back from any FCS-reported line for a location that
+    /// resolved inside *this same checked file* (`range.FileName =
+    /// context.ScriptPath`) before it reaches the wire — never applied
+    /// to a location FCS resolves in a different file (FSharp.Core,
+    /// another project file), which has its own real, unshifted lines.
+    let prologue = "open FSharpQueryStudio.Connectors\nopen FSharpQueryStudio.Results\n"
+    let prologueLineCount = 2
+
+    /// Only for a standalone-script context (`build`, not
+    /// `buildForProject`) — an E.5 multi-file project checks each of its
+    /// own real files by name (`buildForProject`'s own doc comment: a
+    /// caller checking one specific file must point `ScriptPath` at that
+    /// file directly), and the prologue has no per-file story there yet;
+    /// applying it would shift only the one file being live-checked
+    /// while every *other* project file stays on disk unprefixed,
+    /// breaking cross-file resolution. Multi-file `Connections`/`Results`
+    /// support is out of scope here — those checks run exactly as before.
+    let private isStandaloneScript (context: Context) : bool =
+        context.ProjectOptions.UseScriptResolutionRules
+
+    /// The source text to actually hand FCS for `context` — prologue-
+    /// prefixed for a standalone script, unchanged for a multi-file
+    /// project.
+    let sourceForCheck (context: Context) (source: string) : string =
+        if isStandaloneScript context then prologue + source else source
+
+    /// How far a caller's own 1-based `line` (against their *unprefixed*
+    /// source) must be shifted before asking FCS to look anything up at
+    /// it for `context`, and how far an FCS-reported line for a location
+    /// inside *this same checked file* must be shifted back before it
+    /// reaches the wire. Zero for a multi-file project (no prologue was
+    /// ever prepended there).
+    let lineOffset (context: Context) : int =
+        if isStandaloneScript context then prologueLineCount else 0
+
     /// Resolves the baseline FSharp.Core/framework reference set an empty
     /// standalone script anchored at `workingDirectory` would see. Sorted so
     /// two calls with the same inputs produce a byte-identical list — FCS's
@@ -36,13 +81,31 @@ module AnalysisContext =
         // reference assemblies. Confirmed fixed with these three flags
         // set explicitly; unaffected on Windows (already the effective
         // default there).
+        //
+        // `otherFlags` also carries the Connectors/Results assembly
+        // references real execution (`FsiSession.create`) auto-loads, so
+        // a script can call `Connections.sql`/`Results.table` with no
+        // `#r`/`open` of its own - both modules are `[<AutoOpen>]`
+        // precisely so a mere reference (not a textual `open` injected
+        // ahead of the user's own script, which would shift every line
+        // number every analysis function below maps back to Monaco's
+        // coordinates) is enough. This must go through `otherFlags` here,
+        // not be appended to the returned `ProjectOptions.OtherOptions`
+        // afterward - script resolution rules re-derive references from
+        // exactly the flags passed to this call; anything appended
+        // post-hoc is silently never consulted by `ParseAndCheckFileInProject`.
+        let controlledApiReferences =
+            [| $"-r:{typeof<FSharpQueryStudio.Connectors.IConnector>.Assembly.Location}"
+               $"-r:{typeof<FSharpQueryStudio.Results.PagingCursor>.Assembly.Location}" |]
+
         let projectOptions, _diagnostics =
             checker.GetProjectOptionsFromScript(
                 scriptPath,
                 sourceText,
                 assumeDotNetFramework = false,
                 useSdkRefs = true,
-                useFsiAuxLib = false
+                useFsiAuxLib = false,
+                otherFlags = controlledApiReferences
             )
             |> Async.RunSynchronously
 

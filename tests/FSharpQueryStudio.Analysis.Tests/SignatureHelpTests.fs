@@ -34,3 +34,12 @@ let ``signature help on a plain value (no parameters) returns None`` () =
 let ``signature help at a position with no resolvable symbol returns None`` () =
     // Line 2 is blank.
     Assert.Equal(None, signatureHelpAt source 2 0)
+
+[<Fact>]
+let ``signature help on Connections.sql resolves with no #r or open of its own`` () =
+    // "Connections.sql" ends at column 15 (0-based). Same rationale as
+    // HoverTests' matching case: live analysis must see what real
+    // execution's own auto-reference already gives a running script.
+    match signatureHelpAt "Connections.sql" 1 15 with
+    | None -> failwith "expected signature help"
+    | Some info -> Assert.Equal("sql", info.DisplayName)

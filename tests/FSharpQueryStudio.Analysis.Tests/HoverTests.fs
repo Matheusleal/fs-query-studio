@@ -51,5 +51,15 @@ let ``hover on a symbol with no XML doc gracefully returns None, not an error`` 
     | Some info -> Assert.Equal(None, info.XmlDoc)
 
 [<Fact>]
+let ``hover on Connections.sql resolves with no #r or open of its own`` () =
+    // Real execution (FsiSession.create) auto-references and opens
+    // FSharpQueryStudio.Connectors; live analysis must agree, or hovering
+    // a script that runs fine shows nothing. "Connections.sql" ends at
+    // column 15 (0-based).
+    match hoverAt "Connections.sql" 1 15 with
+    | None -> failwith "expected hover info"
+    | Some info -> Assert.Equal("sql", info.DisplayName)
+
+[<Fact>]
 let ``hover at a position with no resolvable symbol returns None`` () =
     Assert.Equal(None, hoverAt source 3 0)

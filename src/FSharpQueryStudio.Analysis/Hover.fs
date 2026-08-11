@@ -15,7 +15,7 @@ module Hover =
 
     let hover (context: AnalysisContext.Context) (source: string) (line: int) (column: int) : Async<HoverInfo option> =
         async {
-            let sourceText = SourceText.ofString source
+            let sourceText = SourceText.ofString (AnalysisContext.sourceForCheck context source)
 
             let! _parseResults, checkAnswer =
                 AnalysisContext.checker.ParseAndCheckFileInProject(
@@ -36,8 +36,9 @@ module Hover =
                     let lineText = lines.[line - 1]
                     let partial = QuickParse.GetPartialLongNameEx(lineText, column)
                     let names = partial.QualifyingIdents @ [ partial.PartialIdent ]
+                    let fcsLine = line + AnalysisContext.lineOffset context
 
-                    match results.GetSymbolUseAtLocation(line, column, lineText, names) with
+                    match results.GetSymbolUseAtLocation(fcsLine, column, lineText, names) with
                     | None -> return None
                     | Some symbolUse ->
                         match symbolUse.Symbol with
