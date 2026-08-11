@@ -82,12 +82,19 @@
               Background="{DynamicResource ChromeBackgroundBrush}"
               BorderBrush="{DynamicResource PrimaryTextBrush}"
               BorderThickness="0,0,1,0">
-        <!-- File tree not built yet (UI-Workspace, future sub-project) -
-             placeholder text, not the pane itself. -->
-        <TextBlock Text="Workspace"
-                   Margin="8"
-                   TextWrapping="Wrap"
-                   Foreground="{DynamicResource PrimaryTextBrush}" />
+        <DockPanel>
+          <TextBlock Text="Workspace" DockPanel.Dock="Top" Margin="8,8,8,4" FontWeight="Bold" />
+          <ListBox ItemsSource="{Binding Connections}" Name="ConnectionsList">
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Text="{Binding Kind}" Opacity="0.7" />
+                  <TextBlock Text="{Binding Name}" />
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </DockPanel>
       </Border>
 
       <GridSplitter Grid.Column="1" ResizeDirection="Columns" />
