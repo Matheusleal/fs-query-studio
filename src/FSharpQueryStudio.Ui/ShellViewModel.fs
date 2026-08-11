@@ -101,6 +101,14 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
                 then
                     raiseProblemsChanged ())
 
+        (doc.Result :> INotifyPropertyChanged)
+            .PropertyChanged.Add(fun args ->
+                if
+                    args.PropertyName = "Schema"
+                    && System.Object.ReferenceEquals(activeDocument, doc)
+                then
+                    raiseResultChanged ())
+
     /// Starter content for every freshly created document — including
     /// the workspace's very first tab, not just later `File > New`
     /// documents — so a document with real, visibly-syntax-highlighted

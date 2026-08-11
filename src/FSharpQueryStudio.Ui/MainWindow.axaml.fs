@@ -646,10 +646,10 @@ type MainWindow() as this =
         /// Rebuilds `ResultsGrid`'s columns from whatever's currently
         /// `shellViewModel.Result.Schema` — always the *active* document's
         /// own last-run schema, never stale across a tab switch, since
-        /// `Result` itself is derived from `ActiveDocument`. Called both
-        /// when a run just landed for the active tab (via `runAndRebuild`
-        /// below) and whenever `ActiveDocument` itself changes (the
-        /// subscription right after this).
+        /// `Result` itself is derived from `ActiveDocument`. Called from
+        /// the `shellViewModel`-level "Result" subscription below, which
+        /// fires both on a tab switch and when the active tab's own
+        /// result changes after a run.
         let rebuildResultColumns () =
             resultsGrid.Columns.Clear()
 
@@ -660,20 +660,18 @@ type MainWindow() as this =
 
         // `ActiveDocument` changing (via `OpenDocument`, File > New/Open,
         // or a tab close that switches the active tab) is the signal to
-        // push the newly-active document into the editor, move the tab
-        // strip's highlight, and show that tab's own Results/Output/Schema
-        // (each open document owns its own `ResultViewModel` — see
-        // `DocumentViewModel.Result` — so switching tabs must re-render
-        // the results grid's columns, not just its rows, which the
-        // `{Binding Result.Xxx}` paths in `ResultsView.axaml` already
-        // handle on their own once `Result`'s own `PropertyChanged` fires).
+        // push the newly-active document into the editor and move the tab
+        // strip's highlight. Each open document owns its own
+        // `ResultViewModel` (see `DocumentViewModel.Result`); the separate
+        // "Result" subscription below handles re-rendering the results
+        // grid for both this case and a same-tab run completing, so it
+        // isn't duplicated here.
         (shellViewModel :> INotifyPropertyChanged)
             .PropertyChanged.Add(fun args ->
                 if args.PropertyName = nameof shellViewModel.ActiveDocument then
                     let doc = shellViewModel.ActiveDocument
                     rebuildTabs ()
                     this.Title <- $"F# Query Studio — {doc.Uri}"
-                    rebuildResultColumns ()
 
                     postToEditor
                         webView
@@ -691,24 +689,21 @@ type MainWindow() as this =
                 )
             ))
 
-        /// Runs the active document's script and, once it lands, rebuilds
-        /// `ResultsGrid`'s columns for whatever tab is active *at that
-        /// moment* — correctly a no-op-looking refresh (same columns) if
-        /// the user switched away mid-run, since `rebuildResultColumns`
-        /// always reads the *current* `shellViewModel.Result.Schema`, not
-        /// the one the run actually belongs to (`RunAsync` itself applies
-        /// the result to the right document regardless of which tab is
-        /// active when it completes — see its own doc comment).
-        let runAndRebuild () =
-            (task {
-                do! shellViewModel.RunAsync()
-                rebuildResultColumns ()
-            }
-            :> System.Threading.Tasks.Task)
-            |> ignore
+        // `shellViewModel.Result` is derived from `ActiveDocument.Result`
+        // (one `ResultViewModel` instance per tab, not a single shared one)
+        // and re-raises "Result" both when the active tab switches and when
+        // that tab's own result changes — see `ShellViewModel.raiseResultChanged`
+        // and `wireDocument`'s `doc.Result` "Schema"-changed bridge.
+        // Subscribing there, not to any one `ResultViewModel` instance
+        // directly, is what keeps this rebuild in sync as the active
+        // document's `Result` identity changes across tab switches, and as
+        // that document's own schema changes after a run.
+        (shellViewModel :> INotifyPropertyChanged).PropertyChanged.Add(fun args ->
+            if args.PropertyName = "Result" then
+                rebuildResultColumns ())
 
         let runButton = this.FindControl<Button>("RunButton")
-        runButton.Click.Add(fun (_: RoutedEventArgs) -> runAndRebuild ())
+        runButton.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.RunAsync() |> ignore)
 
         let cancelButton = this.FindControl<Button>("CancelButton")
         cancelButton.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.Cancel() |> ignore)
@@ -720,13 +715,18 @@ type MainWindow() as this =
         resetSessionButton.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.ResetSessionAsync() |> ignore)
 
         let runMenuItem = this.FindControl<MenuItem>("RunMenuItem")
-        runMenuItem.Click.Add(fun (_: RoutedEventArgs) -> runAndRebuild ())
+        runMenuItem.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.RunAsync() |> ignore)
 
         // The Run menu item and the Run button's tooltip both advertise F5;
         // this is the binding that makes that true. `InputGesture` on the
         // menu item only *renders* the gesture text — it does not handle the
         // key — so the window-level `KeyBinding` is what actually fires.
-        this.KeyBindings.Add(KeyBinding(Gesture = KeyGesture(Key.F5), Command = RelayCommand(runAndRebuild)))
+        this.KeyBindings.Add(
+            KeyBinding(
+                Gesture = KeyGesture(Key.F5),
+                Command = RelayCommand(fun () -> shellViewModel.RunAsync() |> ignore)
+            )
+        )
 
         let cancelMenuItem = this.FindControl<MenuItem>("CancelMenuItem")
         cancelMenuItem.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.Cancel() |> ignore)

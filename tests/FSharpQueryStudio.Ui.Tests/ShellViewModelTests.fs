@@ -1120,8 +1120,9 @@ let ``RunAsync applies its result to the document that was active when it starte
         executeSignal.SetResult(canned ResultKind.Scalar "late")
         do! runTask
 
+        Assert.Equal(ResultKind.Scalar, originalDoc.Result.Kind)
         Assert.Equal("late", originalDoc.Result.DisplayText)
-        Assert.Equal(ResultKind.NoValue, newDoc.Result.Kind)
+        Assert.Equal(ResultKind.NoValue, newDoc.Result.Kind) // The now-active tab is untouched.
     }
 
 [<Fact>]
@@ -1145,3 +1146,30 @@ let ``PropertyChanged fires for Result when CloseDocument changes which tab is a
     Assert.True(vm.CloseDocument("untitled:Script2.fsx"))
 
     Assert.Contains("Result", raisedFor)
+
+[<Fact>]
+let ``PropertyChanged fires for Result when the active document's own result changes`` () =
+    task {
+        let vm = ShellViewModel()
+        vm.ExecuteAsync <- Some(fun _evalParams -> Task.FromResult(canned ResultKind.Scalar "2"))
+        let raisedFor = ResizeArray<string>()
+        (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+        do! vm.RunAsync()
+
+        Assert.Contains("Result", raisedFor)
+    }
+
+[<Fact>]
+let ``PropertyChanged does not fire for Result when a background document's result changes`` () =
+    let vm = ShellViewModel()
+    let backgroundUri = vm.ActiveDocument.Uri
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+    let background = vm.Documents |> List.find (fun d -> d.Uri = backgroundUri)
+
+    let raisedFor = ResizeArray<string>()
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    background.Result.Apply(canned ResultKind.Scalar "ignored")
+
+    Assert.DoesNotContain("Result", raisedFor)
