@@ -132,3 +132,37 @@ module AnalysisService =
                 return result.SignatureHelp
             | None -> return None
         }
+
+    /// `analysis/complete` — same shape/rationale as `hover`.
+    let complete
+        (client: WorkerClient)
+        (documentUri: string)
+        (version: int)
+        (source: string)
+        (line: int)
+        (column: int)
+        : Task<string list> =
+        task {
+            let request: WorkerRequestFrame =
+                { Id = Guid.NewGuid().ToString()
+                  Method = "analysis/complete"
+                  Params =
+                    JsonSerializer.SerializeToElement<AnalysisCompletionParams>(
+                        ({ DocumentUri = documentUri
+                           Version = version
+                           Source = source
+                           Line = line
+                           Column = column }: AnalysisCompletionParams),
+                        Serialization.options
+                    ) }
+
+            let! response = client.Send(request)
+
+            match response.Result with
+            | Some resultJson ->
+                let result =
+                    JsonSerializer.Deserialize<AnalysisCompletionResult>(resultJson, Serialization.options)
+
+                return result.Items
+            | None -> return []
+        }

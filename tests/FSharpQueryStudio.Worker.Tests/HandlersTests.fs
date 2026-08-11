@@ -94,6 +94,19 @@ let private analysisSignatureHelpRequest (id: string) (source: string) (line: in
             Serialization.options
         ) }
 
+let private completionRequest (id: string) (source: string) (line: int) (column: int) : WorkerRequestFrame =
+    { Id = id
+      Method = "analysis/complete"
+      Params =
+        JsonSerializer.SerializeToElement<AnalysisCompletionParams>(
+            { DocumentUri = "untitled:Script1.fsx"
+              Version = 1
+              Source = source
+              Line = line
+              Column = column },
+            Serialization.options
+        ) }
+
 [<Fact>]
 let ``dispatch on worker/health returns a Result with no Error`` () =
     task {
@@ -396,6 +409,28 @@ let ``dispatch on analysis/signatureHelp on a non-callable symbol returns a Resu
             JsonSerializer.Deserialize<AnalysisSignatureHelpResult>(response.Result.Value, Serialization.options)
 
         Assert.Equal(None, result.SignatureHelp)
+    }
+
+[<Fact>]
+let ``dispatch on analysis/complete returns tier-1 keyword and connector-helper names regardless of cursor position`` () =
+    task {
+        let! response = Handlers.dispatch (completionRequest "cmp1" "" 1 0)
+
+        Assert.True(response.Error.IsNone)
+        let result = JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)
+        Assert.Contains("let", result.Items)
+        Assert.Contains("Connections.sql", result.Items)
+    }
+
+[<Fact>]
+let ``dispatch on analysis/complete includes tier-2 semantic completions at the cursor position`` () =
+    task {
+        let source = "let myLocalValue = 1\nmyLocal"
+        let! response = Handlers.dispatch (completionRequest "cmp2" source 2 8)
+
+        Assert.True(response.Error.IsNone)
+        let result = JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)
+        Assert.Contains("myLocalValue", result.Items)
     }
 
 let private registerConnectionRequest (id: string) (connection: ConnectionDefinition) : WorkerRequestFrame =

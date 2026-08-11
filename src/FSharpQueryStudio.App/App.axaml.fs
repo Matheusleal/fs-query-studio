@@ -94,6 +94,11 @@ type App() =
 
             mainWindow.ShellViewModel.SignatureHelpAsync <- Some signatureHelpAsync
 
+            let completeAsync (documentUri: string, version: int, source: string, line: int, column: int) =
+                AnalysisService.complete client documentUri version source line column
+
+            mainWindow.ShellViewModel.CompleteAsync <- Some completeAsync
+
             mainWindow.ShellViewModel.CopyResultToClipboard <-
                 Some(fun text -> task { do! mainWindow.Clipboard.SetTextAsync(text) })
 

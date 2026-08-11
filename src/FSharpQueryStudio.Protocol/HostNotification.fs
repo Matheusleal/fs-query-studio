@@ -26,6 +26,10 @@ type HostNotification =
     /// `None` means the symbol at that position isn't callable, or
     /// nothing resolved there at all — not an error.
     | SignatureHelpResolved of requestId: string * documentUri: string * signatureHelp: SignatureHelpInfo option
+    /// The answer to one `EditorRequest.CompletionRequested` — same
+    /// `requestId` correlation as `HoverResolved`/`DefinitionResolved`/
+    /// `SignatureHelpResolved`.
+    | CompletionResolved of requestId: string * documentUri: string * items: string list
     /// Swaps the shared Monaco instance's visible content to match the
     /// tab the user just switched to — `version` and `text` are that
     /// document's current state, not a fresh edit.
@@ -56,6 +60,8 @@ type DefinitionResolvedPayload =
 type SignatureHelpResolvedPayload =
     { DocumentUri: string
       SignatureHelp: SignatureHelpInfo option }
+
+type CompletionResolvedPayload = { DocumentUri: string; Items: string list }
 
 type DocumentLoadedPayload =
     { DocumentUri: string

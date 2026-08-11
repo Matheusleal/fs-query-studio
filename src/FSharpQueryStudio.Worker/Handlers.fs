@@ -320,6 +320,36 @@ module Handlers =
                   Error = None }
         }
 
+    /// `analysis/complete` — Milestone B.10/B.11. Merges tier 1 (static,
+    /// position-insensitive) and tier 2 (semantic, FCS-derived at the
+    /// cursor) into one de-duplicated list. `recentNames` (tier 1's
+    /// "names from the most recent successful check") is `[]` here —
+    /// nothing upstream tracks a document's last-checked declared names
+    /// yet; tracked as a known, accepted limitation, not silently
+    /// dropped scope (see this plan's Self-Review Notes).
+    let handleAnalysisComplete (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
+        task {
+            let completionParams =
+                JsonSerializer.Deserialize<AnalysisCompletionParams>(request.Params, Serialization.options)
+
+            let workDir =
+                Path.Combine(Path.GetTempPath(), "fqs-analysis-" + Guid.NewGuid().ToString("N"))
+
+            Directory.CreateDirectory(workDir) |> ignore
+            let context = AnalysisContext.build workDir
+
+            let! semantic =
+                Completions.completeAtPosition context completionParams.Source completionParams.Line completionParams.Column
+
+            let items = (Completions.complete [] @ semantic) |> List.distinct
+            let result: AnalysisCompletionResult = { Items = items }
+
+            return
+                { Id = request.Id
+                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                  Error = None }
+        }
+
     /// `results/page` — Section 7. An unknown or expired
     /// `ContinuationToken` (nothing currently open, or a token from a
     /// since-replaced evaluation) is a structured error, never a silent
@@ -373,6 +403,7 @@ module Handlers =
             | "analysis/hover" -> return! handleAnalysisHover request
             | "analysis/definition" -> return! handleAnalysisDefinition request
             | "analysis/signatureHelp" -> return! handleAnalysisSignatureHelp request
+            | "analysis/complete" -> return! handleAnalysisComplete request
             | "results/page" -> return handleResultsPage request
             | "connection/register" -> return handleConnectionRegister request
             | unknown ->

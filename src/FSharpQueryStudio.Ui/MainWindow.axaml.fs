@@ -160,6 +160,21 @@ type MainWindow() as this =
                     :> System.Threading.Tasks.Task)
                     |> ignore
                 | _ -> ()
+            | Ok(CompletionRequested(documentUri, version, line, column)) ->
+                match
+                    shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri), shellViewModel.CompleteAsync
+                with
+                | Some doc, Some complete ->
+                    (task {
+                        let! items = complete (documentUri, version, doc.Text, line, column)
+
+                        postToEditor
+                            webView
+                            (EditorBridge.encodeNotification (CompletionResolved(envelope.Id, documentUri, items)))
+                    }
+                    :> System.Threading.Tasks.Task)
+                    |> ignore
+                | _ -> ()
             | Ok _otherRequest -> () // Wired as each lands in its own later task.
             | Result.Error _err -> ()) // Malformed message from the page - never crashes the host.
 

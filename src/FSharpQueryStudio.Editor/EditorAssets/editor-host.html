@@ -43,6 +43,13 @@
       // as `pendingHoverResolvers` above.
       var pendingSignatureHelpResolvers = {};
 
+      // Pending `provideCompletionItems` promises, keyed by the
+      // completionRequested envelope's own id, same correlation scheme
+      // as `pendingHoverResolvers` above. Each entry also carries the
+      // Monaco `position` the request was made against, needed to build
+      // each suggestion's insertion `range` once the response lands.
+      var pendingCompletionResolvers = {};
+
       require.config({ paths: { vs: "vs" } });
 
       require(["vs/editor/editor.main"], function () {
@@ -126,6 +133,22 @@
               pendingSignatureHelpResolvers[id] = resolve;
 
               postToHostWithId(id, "signatureHelpRequested", {
+                documentUri: documentUri,
+                version: currentVersion,
+                line: position.lineNumber,
+                column: position.column - 1
+              });
+            });
+          }
+        });
+
+        monaco.languages.registerCompletionItemProvider("fsharp", {
+          provideCompletionItems: function (model, position) {
+            return new Promise(function (resolve) {
+              var id = crypto.randomUUID();
+              pendingCompletionResolvers[id] = { resolve: resolve, position: position };
+
+              postToHostWithId(id, "completionRequested", {
                 documentUri: documentUri,
                 version: currentVersion,
                 line: position.lineNumber,
@@ -251,6 +274,32 @@
                   } else {
                     resolveSig(null);
                   }
+                }
+
+                break;
+              }
+              case "completionResolved": {
+                var pendingCompletion = pendingCompletionResolvers[envelope.id];
+
+                if (pendingCompletion) {
+                  delete pendingCompletionResolvers[envelope.id];
+                  var pos = pendingCompletion.position;
+
+                  var suggestions = envelope.payload.items.map(function (name) {
+                    return {
+                      label: name,
+                      kind: monaco.languages.CompletionItemKind.Text,
+                      insertText: name,
+                      range: {
+                        startLineNumber: pos.lineNumber,
+                        endLineNumber: pos.lineNumber,
+                        startColumn: pos.column,
+                        endColumn: pos.column
+                      }
+                    };
+                  });
+
+                  pendingCompletion.resolve({ suggestions: suggestions });
                 }
 
                 break;

@@ -827,6 +827,19 @@ let ``SignatureHelpAsync is settable and reachable as a plain hook, no-op when u
     }
 
 [<Fact>]
+let ``CompleteAsync is settable and reachable as a plain hook, no-op when unconfigured`` () =
+    task {
+        let vm = ShellViewModel()
+        Assert.Equal(None, vm.CompleteAsync)
+
+        vm.CompleteAsync <- Some(fun (_uri, _version, _source, _line, _column) -> Task.FromResult([ "let"; "Connections.sql" ]))
+
+        let! result = vm.CompleteAsync.Value ("untitled:Script1.fsx", 1, "", 1, 0)
+
+        Assert.Contains("Connections.sql", result)
+    }
+
+[<Fact>]
 let ``a freshly-constructed ShellViewModel has no registered connections`` () =
     let vm = ShellViewModel()
     Assert.Empty(vm.Connections)

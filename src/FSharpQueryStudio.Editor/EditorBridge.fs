@@ -128,6 +128,14 @@ module EditorBridge =
                       SignatureHelp = signatureHelp },
                     Serialization.options
                 ) }
+        | CompletionResolved(requestId, uri, items) ->
+            { Id = requestId
+              Kind = "completionResolved"
+              Payload =
+                JsonSerializer.SerializeToElement<CompletionResolvedPayload>(
+                    { DocumentUri = uri; Items = items },
+                    Serialization.options
+                ) }
         | DocumentLoaded(uri, version, text) ->
             { Id = Guid.NewGuid().ToString()
               Kind = "documentLoaded"

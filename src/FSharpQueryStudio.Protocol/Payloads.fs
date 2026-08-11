@@ -105,6 +105,24 @@ type AnalysisSignatureHelpParams =
 /// `AnalysisHoverResult`.
 type AnalysisSignatureHelpResult = { SignatureHelp: SignatureHelpInfo option }
 
+/// `analysis/complete` request payload — Milestone B.10/B.11's
+/// completions. Same shape/rationale as `AnalysisHoverParams`.
+type AnalysisCompletionParams =
+    { DocumentUri: string
+      Version: int
+      Source: string
+      Line: int
+      Column: int }
+
+/// Tier 1 (keywords/snippets/connector helper names) and tier 2
+/// (semantic, FCS-derived at the cursor position) merged and
+/// de-duplicated — see `Completions.complete`/`completeAtPosition`. A
+/// flat name list, not yet Monaco's richer `CompletionItem` shape
+/// (kind/detail/documentation) — `editor-host.html` maps each name to a
+/// plain-text completion item; a later task can enrich this if
+/// per-item kind/detail turns out to matter in practice.
+type AnalysisCompletionResult = { Items: string list }
+
 /// `session/reset` request payload — see Section 7's method table. Drops
 /// the worker-side Persistent-mode session tracked under `SessionId`, if
 /// any; a no-op if nothing was tracked (never started, already reset, or
