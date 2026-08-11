@@ -30,6 +30,15 @@ type HostNotification =
     /// `requestId` correlation as `HoverResolved`/`DefinitionResolved`/
     /// `SignatureHelpResolved`.
     | CompletionResolved of requestId: string * documentUri: string * items: string list
+    /// The answer to one `EditorRequest.RenameRequested` — same
+    /// `requestId` correlation as `HoverResolved`/`DefinitionResolved`/
+    /// `SignatureHelpResolved`/`CompletionResolved`. `newName` is echoed
+    /// back unchanged from the originating request — `Editor`/`Worker`
+    /// never need to know what it means, only Monaco's own rename UI
+    /// does, to build each edit's replacement text once this resolves.
+    /// `edits = None` means nothing resolvable at that position, not an
+    /// error.
+    | RenameResolved of requestId: string * documentUri: string * edits: RenameEdit list option * newName: string
     /// Swaps the shared Monaco instance's visible content to match the
     /// tab the user just switched to — `version` and `text` are that
     /// document's current state, not a fresh edit.
@@ -62,6 +71,11 @@ type SignatureHelpResolvedPayload =
       SignatureHelp: SignatureHelpInfo option }
 
 type CompletionResolvedPayload = { DocumentUri: string; Items: string list }
+
+type RenameResolvedPayload =
+    { DocumentUri: string
+      Edits: RenameEdit list option
+      NewName: string }
 
 type DocumentLoadedPayload =
     { DocumentUri: string

@@ -123,6 +123,31 @@ type AnalysisCompletionParams =
 /// per-item kind/detail turns out to matter in practice.
 type AnalysisCompletionResult = { Items: string list }
 
+/// One reference's span to rewrite as part of a rename — Milestone
+/// E.8. 0-based lines, matching `Diagnostic`/`DefinitionLocation`.
+/// Mirrors `Analysis.Rename.RenameEdit` exactly; kept as a separate
+/// Protocol-level type rather than reused directly so `Analysis`'s
+/// internal representation can change without becoming a wire-format
+/// change, the same separation `DiagnosticMapping` already keeps
+/// between FCS's own diagnostic type and `Protocol.Diagnostic`.
+type RenameEdit =
+    { StartLine: int
+      StartColumn: int
+      EndLine: int
+      EndColumn: int }
+
+/// `analysis/rename` request payload.
+type AnalysisRenameParams =
+    { DocumentUri: string
+      Version: int
+      Source: string
+      Line: int
+      Column: int }
+
+/// `None` means nothing resolvable at that position — same convention
+/// as `AnalysisDefinitionResult`/`AnalysisSignatureHelpResult`.
+type AnalysisRenameResult = { Edits: RenameEdit list option }
+
 /// `session/reset` request payload — see Section 7's method table. Drops
 /// the worker-side Persistent-mode session tracked under `SessionId`, if
 /// any; a no-op if nothing was tracked (never started, already reset, or

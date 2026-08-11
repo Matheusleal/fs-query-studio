@@ -99,6 +99,11 @@ type App() =
 
             mainWindow.ShellViewModel.CompleteAsync <- Some completeAsync
 
+            let renameAsync (documentUri: string, version: int, source: string, line: int, column: int) =
+                AnalysisService.rename client documentUri version source line column
+
+            mainWindow.ShellViewModel.RenameAsync <- Some renameAsync
+
             mainWindow.ShellViewModel.CopyResultToClipboard <-
                 Some(fun text -> task { do! mainWindow.Clipboard.SetTextAsync(text) })
 

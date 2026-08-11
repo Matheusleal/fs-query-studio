@@ -175,6 +175,23 @@ type MainWindow() as this =
                     :> System.Threading.Tasks.Task)
                     |> ignore
                 | _ -> ()
+            | Ok(RenameRequested(documentUri, version, line, column, newName)) ->
+                match
+                    shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri), shellViewModel.RenameAsync
+                with
+                | Some doc, Some rename ->
+                    (task {
+                        let! edits = rename (documentUri, version, doc.Text, line, column)
+
+                        postToEditor
+                            webView
+                            (EditorBridge.encodeNotification (
+                                RenameResolved(envelope.Id, documentUri, edits, newName)
+                            ))
+                    }
+                    :> System.Threading.Tasks.Task)
+                    |> ignore
+                | _ -> ()
             | Ok _otherRequest -> () // Wired as each lands in its own later task.
             | Result.Error _err -> ()) // Malformed message from the page - never crashes the host.
 

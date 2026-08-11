@@ -166,3 +166,35 @@ module AnalysisService =
                 return result.Items
             | None -> return []
         }
+
+    /// `analysis/rename` — Milestone E.8. Same shape/rationale as `hover`.
+    let rename
+        (client: WorkerClient)
+        (documentUri: string)
+        (version: int)
+        (source: string)
+        (line: int)
+        (column: int)
+        : Task<RenameEdit list option> =
+        task {
+            let request: WorkerRequestFrame =
+                { Id = Guid.NewGuid().ToString()
+                  Method = "analysis/rename"
+                  Params =
+                    JsonSerializer.SerializeToElement<AnalysisRenameParams>(
+                        ({ DocumentUri = documentUri
+                           Version = version
+                           Source = source
+                           Line = line
+                           Column = column }: AnalysisRenameParams),
+                        Serialization.options
+                    ) }
+
+            let! response = client.Send(request)
+
+            match response.Result with
+            | Some resultJson ->
+                let result = JsonSerializer.Deserialize<AnalysisRenameResult>(resultJson, Serialization.options)
+                return result.Edits
+            | None -> return None
+        }

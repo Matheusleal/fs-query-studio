@@ -260,6 +260,15 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     member val CompleteAsync: ((string * int * string * int * int) -> Task<string list>) option =
         None with get, set
 
+    /// `analysis/rename` — same shape/rationale as `HoverAsync`. The
+    /// requested `newName` isn't part of this hook's own signature — the
+    /// bridge case in `MainWindow` carries it separately, since Monaco's
+    /// own rename UI collects it and this hook only ever needs to locate
+    /// the edits; applying the actual rewrite with `newName` substituted
+    /// is `editor-host.html`'s job once `RenameResolved` comes back.
+    member val RenameAsync: ((string * int * string * int * int) -> Task<RenameEdit list option>) option =
+        None with get, set
+
     /// The composition root's hook into the real OS clipboard — see
     /// C.15. A no-op if never configured, same rationale as
     /// `ExecuteAsync`.

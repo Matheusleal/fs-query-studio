@@ -50,6 +50,11 @@
       // each suggestion's insertion `range` once the response lands.
       var pendingCompletionResolvers = {};
 
+      // Pending `provideRenameEdits` promises, keyed by the
+      // renameRequested envelope's own id, same correlation scheme as
+      // `pendingHoverResolvers` above.
+      var pendingRenameResolvers = {};
+
       require.config({ paths: { vs: "vs" } });
 
       require(["vs/editor/editor.main"], function () {
@@ -167,6 +172,23 @@
                 version: currentVersion,
                 line: position.lineNumber,
                 column: position.column - 1
+              });
+            });
+          }
+        });
+
+        monaco.languages.registerRenameProvider("fsharp", {
+          provideRenameEdits: function (model, position, newName) {
+            return new Promise(function (resolve) {
+              var id = crypto.randomUUID();
+              pendingRenameResolvers[id] = resolve;
+
+              postToHostWithId(id, "renameRequested", {
+                documentUri: documentUri,
+                version: currentVersion,
+                line: position.lineNumber,
+                column: position.column - 1,
+                newName: newName
               });
             });
           }
@@ -308,6 +330,37 @@
                   });
 
                   pendingCompletion.resolve({ suggestions: suggestions });
+                }
+
+                break;
+              }
+              case "renameResolved": {
+                var resolveRename = pendingRenameResolvers[envelope.id];
+
+                if (resolveRename) {
+                  delete pendingRenameResolvers[envelope.id];
+                  var edits = envelope.payload.edits;
+
+                  if (edits) {
+                    resolveRename({
+                      edits: edits.map(function (e) {
+                        return {
+                          resource: editor.getModel().uri,
+                          textEdit: {
+                            range: {
+                              startLineNumber: e.startLine + 1,
+                              startColumn: e.startColumn + 1,
+                              endLineNumber: e.endLine + 1,
+                              endColumn: e.endColumn + 1
+                            },
+                            text: envelope.payload.newName
+                          }
+                        };
+                      })
+                    });
+                  } else {
+                    resolveRename({ edits: [] });
+                  }
                 }
 
                 break;

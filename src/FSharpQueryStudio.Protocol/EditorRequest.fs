@@ -9,6 +9,7 @@ type EditorRequest =
     | HoverRequested of documentUri: string * version: int * line: int * column: int
     | GoToDefinitionRequested of documentUri: string * version: int * line: int * column: int
     | SignatureHelpRequested of documentUri: string * version: int * line: int * column: int
+    | RenameRequested of documentUri: string * version: int * line: int * column: int * newName: string
     | ExecuteRequested of documentUri: string * version: int * selection: string option
     | CancelRequested
 
@@ -42,6 +43,13 @@ type SignatureHelpRequestedPayload =
       Version: int
       Line: int
       Column: int }
+
+type RenameRequestedPayload =
+    { DocumentUri: string
+      Version: int
+      Line: int
+      Column: int
+      NewName: string }
 
 type ExecuteRequestedPayload =
     { DocumentUri: string

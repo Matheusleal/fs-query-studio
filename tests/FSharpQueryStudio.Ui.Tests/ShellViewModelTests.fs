@@ -846,6 +846,21 @@ let ``CompleteAsync is settable and reachable as a plain hook, no-op when unconf
     }
 
 [<Fact>]
+let ``RenameAsync is settable and reachable as a plain hook, no-op when unconfigured`` () =
+    task {
+        let vm = ShellViewModel()
+        Assert.Equal(None, vm.RenameAsync)
+
+        vm.RenameAsync <-
+            Some(fun (_uri, _version, _source, _line, _column) ->
+                Task.FromResult(Some [ { StartLine = 0; StartColumn = 4; EndLine = 0; EndColumn = 5 } ]))
+
+        let! result = vm.RenameAsync.Value ("untitled:Script1.fsx", 1, "let x = 1", 1, 4)
+
+        Assert.Equal(1, result.Value.Length)
+    }
+
+[<Fact>]
 let ``a freshly-constructed ShellViewModel has no registered connections`` () =
     let vm = ShellViewModel()
     Assert.Empty(vm.Connections)

@@ -350,6 +350,39 @@ module Handlers =
                   Error = None }
         }
 
+    /// `analysis/rename` — Milestone E.8. `Analysis.Rename` only locates
+    /// references; this handler's own job is mapping its internal
+    /// `RenameEdit` to the protocol-level one, the same separation
+    /// `DiagnosticMapping` keeps for `analysis/check`.
+    let private toProtocolRenameEdit (edit: FSharpQueryStudio.Analysis.Rename.RenameEdit) : RenameEdit =
+        { StartLine = edit.StartLine
+          StartColumn = edit.StartColumn
+          EndLine = edit.EndLine
+          EndColumn = edit.EndColumn }
+
+    let handleAnalysisRename (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
+        task {
+            let renameParams =
+                JsonSerializer.Deserialize<AnalysisRenameParams>(request.Params, Serialization.options)
+
+            let workDir =
+                Path.Combine(Path.GetTempPath(), "fqs-analysis-" + Guid.NewGuid().ToString("N"))
+
+            Directory.CreateDirectory(workDir) |> ignore
+            let context = AnalysisContext.build workDir
+
+            let! edits =
+                Rename.findReferences context renameParams.Source renameParams.Line renameParams.Column
+
+            let result: AnalysisRenameResult =
+                { Edits = edits |> Option.map (List.map toProtocolRenameEdit) }
+
+            return
+                { Id = request.Id
+                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                  Error = None }
+        }
+
     /// `results/page` — Section 7. An unknown or expired
     /// `ContinuationToken` (nothing currently open, or a token from a
     /// since-replaced evaluation) is a structured error, never a silent
@@ -404,6 +437,7 @@ module Handlers =
             | "analysis/definition" -> return! handleAnalysisDefinition request
             | "analysis/signatureHelp" -> return! handleAnalysisSignatureHelp request
             | "analysis/complete" -> return! handleAnalysisComplete request
+            | "analysis/rename" -> return! handleAnalysisRename request
             | "results/page" -> return handleResultsPage request
             | "connection/register" -> return handleConnectionRegister request
             | unknown ->

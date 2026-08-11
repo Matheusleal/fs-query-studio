@@ -99,13 +99,51 @@ let private completionRequest (id: string) (source: string) (line: int) (column:
       Method = "analysis/complete"
       Params =
         JsonSerializer.SerializeToElement<AnalysisCompletionParams>(
-            { DocumentUri = "untitled:Script1.fsx"
-              Version = 1
-              Source = source
-              Line = line
-              Column = column },
+            ({ DocumentUri = "untitled:Script1.fsx"
+               Version = 1
+               Source = source
+               Line = line
+               Column = column }: AnalysisCompletionParams),
             Serialization.options
         ) }
+
+let private renameRequest (id: string) (source: string) (line: int) (column: int) : WorkerRequestFrame =
+    { Id = id
+      Method = "analysis/rename"
+      Params =
+        JsonSerializer.SerializeToElement<AnalysisRenameParams>(
+            ({ DocumentUri = "untitled:Script1.fsx"
+               Version = 1
+               Source = source
+               Line = line
+               Column = column }: AnalysisRenameParams),
+            Serialization.options
+        ) }
+
+[<Fact>]
+let ``dispatch on analysis/rename finds every reference to the symbol at the given position`` () =
+    task {
+        let source = "let value = 1\nlet total = value + value"
+        // "value" ends at column 9 (0-based) on line 1: "let value = 1" -
+        // same end-of-identifier convention as the hover/definition/
+        // signatureHelp requests above.
+        let! response = Handlers.dispatch (renameRequest "rn1" source 1 9)
+
+        Assert.True(response.Error.IsNone)
+        let result = JsonSerializer.Deserialize<AnalysisRenameResult>(response.Result.Value, Serialization.options)
+        Assert.True(result.Edits.IsSome)
+        Assert.Equal(3, result.Edits.Value.Length) // the declaration plus two uses
+    }
+
+[<Fact>]
+let ``dispatch on analysis/rename returns no edits for a position with no resolvable symbol`` () =
+    task {
+        let! response = Handlers.dispatch (renameRequest "rn2" "// just a comment" 1 5)
+
+        Assert.True(response.Error.IsNone)
+        let result = JsonSerializer.Deserialize<AnalysisRenameResult>(response.Result.Value, Serialization.options)
+        Assert.True(result.Edits.IsNone)
+    }
 
 [<Fact>]
 let ``dispatch on worker/health returns a Result with no Error`` () =

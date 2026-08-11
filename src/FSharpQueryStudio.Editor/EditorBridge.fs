@@ -19,6 +19,7 @@ module EditorBridge =
         | HoverRequested _ -> "hoverRequested"
         | GoToDefinitionRequested _ -> "goToDefinitionRequested"
         | SignatureHelpRequested _ -> "signatureHelpRequested"
+        | RenameRequested _ -> "renameRequested"
         | ExecuteRequested _ -> "executeRequested"
         | CancelRequested -> "cancelRequested"
 
@@ -61,6 +62,15 @@ module EditorBridge =
                    Version = version
                    Line = line
                    Column = column }: SignatureHelpRequestedPayload),
+                Serialization.options
+            )
+        | RenameRequested(uri, version, line, column, newName) ->
+            JsonSerializer.SerializeToElement<RenameRequestedPayload>(
+                ({ DocumentUri = uri
+                   Version = version
+                   Line = line
+                   Column = column
+                   NewName = newName }: RenameRequestedPayload),
                 Serialization.options
             )
         | ExecuteRequested(uri, version, selection) ->
@@ -136,6 +146,16 @@ module EditorBridge =
                     { DocumentUri = uri; Items = items },
                     Serialization.options
                 ) }
+        | RenameResolved(requestId, uri, edits, newName) ->
+            { Id = requestId
+              Kind = "renameResolved"
+              Payload =
+                JsonSerializer.SerializeToElement<RenameResolvedPayload>(
+                    { DocumentUri = uri
+                      Edits = edits
+                      NewName = newName },
+                    Serialization.options
+                ) }
         | DocumentLoaded(uri, version, text) ->
             { Id = Guid.NewGuid().ToString()
               Kind = "documentLoaded"
@@ -180,6 +200,11 @@ module EditorBridge =
                     JsonSerializer.Deserialize<SignatureHelpRequestedPayload>(envelope.Payload, Serialization.options)
 
                 Ok(SignatureHelpRequested(p.DocumentUri, p.Version, p.Line, p.Column))
+            | "renameRequested" ->
+                let p =
+                    JsonSerializer.Deserialize<RenameRequestedPayload>(envelope.Payload, Serialization.options)
+
+                Ok(RenameRequested(p.DocumentUri, p.Version, p.Line, p.Column, p.NewName))
             | "executeRequested" ->
                 let p =
                     JsonSerializer.Deserialize<ExecuteRequestedPayload>(envelope.Payload, Serialization.options)

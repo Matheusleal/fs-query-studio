@@ -66,6 +66,35 @@ let ``decoding an envelope with a payload missing required fields produces a typ
     | Ok decoded -> failwithf "expected an error, got %A" decoded
 
 [<Fact>]
+let ``encode then decode round-trips a RenameRequested request`` () =
+    let request = RenameRequested("untitled:Script1.fsx", 3, 1, 4, "newName")
+    let envelope = EditorBridge.encode request
+
+    Assert.Equal("renameRequested", envelope.Kind)
+    Assert.Equal(Ok request, EditorBridge.decode envelope)
+
+[<Fact>]
+let ``encodeNotification produces a well-formed renameResolved envelope`` () =
+    let edits =
+        Some
+            [ { StartLine = 0
+                StartColumn = 4
+                EndLine = 0
+                EndColumn = 5 } ]
+
+    let envelope =
+        EditorBridge.encodeNotification (RenameResolved("req1", "untitled:Script1.fsx", edits, "newName"))
+
+    Assert.Equal("req1", envelope.Id)
+    Assert.Equal("renameResolved", envelope.Kind)
+
+    let payload =
+        System.Text.Json.JsonSerializer.Deserialize<RenameResolvedPayload>(envelope.Payload, Serialization.options)
+
+    Assert.Equal(edits, payload.Edits)
+    Assert.Equal("newName", payload.NewName)
+
+[<Fact>]
 let ``encodeNotification for DocumentLoaded produces kind documentLoaded with uri version and text`` () =
     let envelope = EditorBridge.encodeNotification (DocumentLoaded("untitled:Script2.fsx", 3, "let x = 1"))
 
