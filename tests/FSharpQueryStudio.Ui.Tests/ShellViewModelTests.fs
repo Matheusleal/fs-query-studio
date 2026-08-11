@@ -808,3 +808,12 @@ let ``PropertyChanged fires for Connections after a successful RegisterConnectio
 
         Assert.Contains("Connections", raisedFor)
     }
+
+[<Fact>]
+let ``SeedConnections sets Connections directly without requiring RegisterConnectionAsync to be configured`` () =
+    let vm = ShellViewModel()
+    let connection = testConnection "Sales"
+
+    vm.SeedConnections([ connection ])
+
+    Assert.Equal<ConnectionDefinition list>([ connection ], vm.Connections)

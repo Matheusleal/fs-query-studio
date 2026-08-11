@@ -271,6 +271,15 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
                 raiseConnectionsChanged ()
         }
 
+    /// Seeds `Connections` at startup from whatever's already in
+    /// `workspace.json` — distinct from `RegisterConnection`, which is
+    /// for adding one new connection through the configured hook and
+    /// raises `PropertyChanged` for a UI that's already bound and
+    /// showing something. `SeedConnections` is a plain assignment: it
+    /// runs once, before `MainWindow` is even shown, so there's nothing
+    /// bound yet to notify.
+    member _.SeedConnections(initial: ConnectionDefinition list) = connections <- initial
+
     /// Section 13's `trust.json` metadata for the active workspace,
     /// loaded by the composition root — a freshly-created workspace
     /// defaults to locally-authored/unknown-trust with nothing requested,

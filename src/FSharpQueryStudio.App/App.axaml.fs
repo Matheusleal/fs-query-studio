@@ -9,6 +9,7 @@ open Avalonia.Markup.Xaml
 open Avalonia.Styling
 open Serilog
 open FSharpQueryStudio.Protocol
+open FSharpQueryStudio.Security
 open FSharpQueryStudio.Ui
 
 type App() =
@@ -80,6 +81,24 @@ type App() =
 
             mainWindow.ShellViewModel.CopyResultToClipboard <-
                 Some(fun text -> task { do! mainWindow.Clipboard.SetTextAsync(text) })
+
+            let secretStore = WindowsCredentialStore() :> ISecretStore
+
+            mainWindow.ShellViewModel.RegisterConnectionAsync <-
+                Some(fun (definition, secret) -> ConnectionService.register client secretStore definition secret)
+
+            // Populate `Connections` from whatever's already registered —
+            // reads the same `workspace.json` the worker itself reads
+            // fresh before every `execution/evaluate` (see
+            // `Handlers.runEvaluate`), so what the UI shows at startup and
+            // what a script can actually resolve always agree.
+            let workspaceDir =
+                Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "FSharpQueryStudio"
+                )
+
+            mainWindow.ShellViewModel.SeedConnections(FSharpQueryStudio.Storage.Workspace.readConnections workspaceDir)
 
             // D.7's packaged-artifact test launches the real published exe
             // as a black box - it has no way to assert on rendered window
