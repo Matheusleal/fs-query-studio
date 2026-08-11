@@ -751,3 +751,60 @@ let ``PropertyChanged fires for Problems when CloseDocument changes which tab is
     Assert.True(vm.CloseDocument("untitled:Script2.fsx"))
 
     Assert.Contains("Problems", raisedFor)
+
+let private testConnection (name: string) : ConnectionDefinition =
+    { Id = Guid.NewGuid()
+      Name = name
+      Kind = Sqlite
+      Configuration = JsonDocument.Parse("""{"FilePath":"C:\\data.db"}""").RootElement
+      SecretReference = None
+      IsTrusted = false }
+
+[<Fact>]
+let ``a freshly-constructed ShellViewModel has no registered connections`` () =
+    let vm = ShellViewModel()
+    Assert.Empty(vm.Connections)
+
+[<Fact>]
+let ``RegisterConnection calls the configured hook and stores the returned list`` () =
+    task {
+        let vm = ShellViewModel()
+        let connection = testConnection "Sales"
+        let mutable received = None
+
+        vm.RegisterConnectionAsync <-
+            Some(fun (def, secret) ->
+                received <- Some(def, secret)
+                Task.FromResult([ def ]))
+
+        do! vm.RegisterConnection connection (Some "s3cret")
+
+        Assert.Equal(Some(connection, Some "s3cret"), received)
+        Assert.Equal<ConnectionDefinition list>([ connection ], vm.Connections)
+    }
+
+[<Fact>]
+let ``RegisterConnection is a no-op when RegisterConnectionAsync has not been configured`` () =
+    task {
+        let vm = ShellViewModel()
+        let connection = testConnection "Sales"
+
+        do! vm.RegisterConnection connection None // Must not throw.
+
+        Assert.Empty(vm.Connections)
+    }
+
+[<Fact>]
+let ``PropertyChanged fires for Connections after a successful RegisterConnection`` () =
+    task {
+        let vm = ShellViewModel()
+        let connection = testConnection "Sales"
+        vm.RegisterConnectionAsync <- Some(fun (def, _secret) -> Task.FromResult([ def ]))
+
+        let raisedFor = ResizeArray<string>()
+        (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+        do! vm.RegisterConnection connection None
+
+        Assert.Contains("Connections", raisedFor)
+    }

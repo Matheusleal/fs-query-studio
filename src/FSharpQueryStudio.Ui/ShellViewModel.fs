@@ -15,6 +15,7 @@ open FSharpQueryStudio.Editor
 /// same way `DocumentViewModelTests` does directly.
 type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     let documents = ResizeArray<DocumentViewModel>()
+    let mutable connections: ConnectionDefinition list = []
 
     let mutable checkAsync: ((int * string) -> Task<Diagnostic list>) option = None
     let mutable activeDocument = Unchecked.defaultof<DocumentViewModel>
@@ -27,6 +28,13 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     /// derived value can change has to re-raise here by hand.
     let raiseProblemsChanged () =
         propertyChanged.Trigger(self, PropertyChangedEventArgs("Problems"))
+
+    /// `Connections` is a mutable list that updates whenever a connection
+    /// is successfully registered. A derived CLR property notifies nothing
+    /// on its own, so every place the derived value changes has to re-raise
+    /// here by hand.
+    let raiseConnectionsChanged () =
+        propertyChanged.Trigger(self, PropertyChangedEventArgs("Connections"))
 
     /// Wires a document's debounced text change to `checkAsync` — every
     /// open tab gets its own analysis pipeline, not just the first one —
@@ -236,6 +244,32 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     /// C.15. A no-op if never configured, same rationale as
     /// `ExecuteAsync`.
     member val CopyResultToClipboard: (string -> Task<unit>) option = None with get, set
+
+    /// The list of registered database connections for this workspace.
+    member _.Connections = connections
+
+    /// The composition root's hook into `connection/register` — set
+    /// alongside `ExecuteAsync`/`ResetSession`. Takes the definition and
+    /// an optional plaintext secret (saved to the OS credential store
+    /// before the definition itself is ever sent anywhere) — see
+    /// `ConnectionService.register`. A no-op if never configured, same
+    /// rationale as every other hook here.
+    member val RegisterConnectionAsync: ((ConnectionDefinition * string option) -> Task<ConnectionDefinition list>) option =
+        None with get, set
+
+    /// Registers `definition` (with `secret`, if any) and updates
+    /// `Connections` to the worker's returned, up-to-date list on
+    /// success. A no-op, not an error, when `RegisterConnectionAsync`
+    /// isn't configured.
+    member this.RegisterConnection (definition: ConnectionDefinition) (secret: string option) : Task<unit> =
+        task {
+            match this.RegisterConnectionAsync with
+            | None -> ()
+            | Some register ->
+                let! updated = register (definition, secret)
+                connections <- updated
+                raiseConnectionsChanged ()
+        }
 
     /// Section 13's `trust.json` metadata for the active workspace,
     /// loaded by the composition root — a freshly-created workspace
