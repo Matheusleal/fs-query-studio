@@ -89,6 +89,11 @@ type App() =
 
             mainWindow.ShellViewModel.DefinitionAsync <- Some definitionAsync
 
+            let signatureHelpAsync (documentUri: string, version: int, source: string, line: int, column: int) =
+                AnalysisService.signatureHelp client documentUri version source line column
+
+            mainWindow.ShellViewModel.SignatureHelpAsync <- Some signatureHelpAsync
+
             mainWindow.ShellViewModel.CopyResultToClipboard <-
                 Some(fun text -> task { do! mainWindow.Clipboard.SetTextAsync(text) })
 

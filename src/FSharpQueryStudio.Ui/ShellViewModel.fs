@@ -252,6 +252,10 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     member val DefinitionAsync: ((string * int * string * int * int) -> Task<DefinitionLocation option>) option =
         None with get, set
 
+    /// `analysis/signatureHelp` — same shape/rationale as `HoverAsync`.
+    member val SignatureHelpAsync: ((string * int * string * int * int) -> Task<SignatureHelpInfo option>) option =
+        None with get, set
+
     /// The composition root's hook into the real OS clipboard — see
     /// C.15. A no-op if never configured, same rationale as
     /// `ExecuteAsync`.

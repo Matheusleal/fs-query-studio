@@ -38,6 +38,11 @@
       // the resolved `Location` (its `uri`) once the response lands.
       var pendingDefinitionResolvers = {};
 
+      // Pending `provideSignatureHelp` promises, keyed by the
+      // signatureHelpRequested envelope's own id, same correlation scheme
+      // as `pendingHoverResolvers` above.
+      var pendingSignatureHelpResolvers = {};
+
       require.config({ paths: { vs: "vs" } });
 
       require(["vs/editor/editor.main"], function () {
@@ -104,6 +109,23 @@
               pendingDefinitionResolvers[id] = { resolve: resolve, model: model };
 
               postToHostWithId(id, "goToDefinitionRequested", {
+                documentUri: documentUri,
+                version: currentVersion,
+                line: position.lineNumber,
+                column: position.column - 1
+              });
+            });
+          }
+        });
+
+        monaco.languages.registerSignatureHelpProvider("fsharp", {
+          signatureHelpTriggerCharacters: ["(", ","],
+          provideSignatureHelp: function (model, position) {
+            return new Promise(function (resolve) {
+              var id = crypto.randomUUID();
+              pendingSignatureHelpResolvers[id] = resolve;
+
+              postToHostWithId(id, "signatureHelpRequested", {
                 documentUri: documentUri,
                 version: currentVersion,
                 line: position.lineNumber,
@@ -200,6 +222,34 @@
                     });
                   } else {
                     pending.resolve(null);
+                  }
+                }
+
+                break;
+              }
+              case "signatureHelpResolved": {
+                var resolveSig = pendingSignatureHelpResolvers[envelope.id];
+
+                if (resolveSig) {
+                  delete pendingSignatureHelpResolvers[envelope.id];
+                  var help = envelope.payload.signatureHelp;
+
+                  if (help) {
+                    resolveSig({
+                      value: {
+                        signatures: [
+                          {
+                            label: help.displayName + "(" + help.parameters.join(", ") + "): " + help.returnType,
+                            parameters: help.parameters.map(function (p) { return { label: p }; })
+                          }
+                        ],
+                        activeSignature: 0,
+                        activeParameter: 0
+                      },
+                      dispose: function () {}
+                    });
+                  } else {
+                    resolveSig(null);
                   }
                 }
 

@@ -142,6 +142,24 @@ type MainWindow() as this =
                     :> System.Threading.Tasks.Task)
                     |> ignore
                 | _ -> ()
+            | Ok(SignatureHelpRequested(documentUri, version, line, column)) ->
+                match
+                    shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri),
+                    shellViewModel.SignatureHelpAsync
+                with
+                | Some doc, Some signatureHelp ->
+                    (task {
+                        let! info = signatureHelp (documentUri, version, doc.Text, line, column)
+
+                        postToEditor
+                            webView
+                            (EditorBridge.encodeNotification (
+                                SignatureHelpResolved(envelope.Id, documentUri, info)
+                            ))
+                    }
+                    :> System.Threading.Tasks.Task)
+                    |> ignore
+                | _ -> ()
             | Ok _otherRequest -> () // Wired as each lands in its own later task.
             | Result.Error _err -> ()) // Malformed message from the page - never crashes the host.
 

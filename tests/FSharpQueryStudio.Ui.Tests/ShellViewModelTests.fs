@@ -802,6 +802,31 @@ let ``DefinitionAsync is settable and reachable as a plain hook, no-op when unco
     }
 
 [<Fact>]
+let ``SignatureHelpAsync is settable and reachable as a plain hook, no-op when unconfigured`` () =
+    task {
+        let vm = ShellViewModel()
+        Assert.Equal(None, vm.SignatureHelpAsync)
+
+        let mutable received = None
+
+        vm.SignatureHelpAsync <-
+            Some(fun (uri, version, source, line, column) ->
+                received <- Some(uri, version, source, line, column)
+
+                Task.FromResult(
+                    Some
+                        { DisplayName = "printfn"
+                          Parameters = [ "format: Printf.TextWriterFormat<'T>" ]
+                          ReturnType = "'T" }
+                ))
+
+        let! result = vm.SignatureHelpAsync.Value ("untitled:Script1.fsx", 1, "printfn \"%s\"", 1, 9)
+
+        Assert.Equal(Some("untitled:Script1.fsx", 1, "printfn \"%s\"", 1, 9), received)
+        Assert.Equal("printfn", result.Value.DisplayName)
+    }
+
+[<Fact>]
 let ``a freshly-constructed ShellViewModel has no registered connections`` () =
     let vm = ShellViewModel()
     Assert.Empty(vm.Connections)
