@@ -144,9 +144,23 @@
 
         monaco.languages.registerCompletionItemProvider("fsharp", {
           provideCompletionItems: function (model, position) {
+            // The already-typed partial word at the cursor (e.g. "myLoc"
+            // of "myLocalValue") — without this, every accepted
+            // suggestion inserts at the bare cursor point instead of
+            // replacing what's already there, doubling the typed prefix
+            // (accepting "myLocalValue" after typing "myLoc" would
+            // produce "myLocmyLocalValue").
+            var word = model.getWordUntilPosition(position);
+            var wordRange = {
+              startLineNumber: position.lineNumber,
+              endLineNumber: position.lineNumber,
+              startColumn: word.startColumn,
+              endColumn: word.endColumn
+            };
+
             return new Promise(function (resolve) {
               var id = crypto.randomUUID();
-              pendingCompletionResolvers[id] = { resolve: resolve, position: position };
+              pendingCompletionResolvers[id] = { resolve: resolve, range: wordRange };
 
               postToHostWithId(id, "completionRequested", {
                 documentUri: documentUri,
@@ -283,19 +297,13 @@
 
                 if (pendingCompletion) {
                   delete pendingCompletionResolvers[envelope.id];
-                  var pos = pendingCompletion.position;
 
                   var suggestions = envelope.payload.items.map(function (name) {
                     return {
                       label: name,
                       kind: monaco.languages.CompletionItemKind.Text,
                       insertText: name,
-                      range: {
-                        startLineNumber: pos.lineNumber,
-                        endLineNumber: pos.lineNumber,
-                        startColumn: pos.column,
-                        endColumn: pos.column
-                      }
+                      range: pendingCompletion.range
                     };
                   });
 

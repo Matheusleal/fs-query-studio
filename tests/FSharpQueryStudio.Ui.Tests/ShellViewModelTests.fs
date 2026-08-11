@@ -832,10 +832,16 @@ let ``CompleteAsync is settable and reachable as a plain hook, no-op when unconf
         let vm = ShellViewModel()
         Assert.Equal(None, vm.CompleteAsync)
 
-        vm.CompleteAsync <- Some(fun (_uri, _version, _source, _line, _column) -> Task.FromResult([ "let"; "Connections.sql" ]))
+        let mutable received = None
 
-        let! result = vm.CompleteAsync.Value ("untitled:Script1.fsx", 1, "", 1, 0)
+        vm.CompleteAsync <-
+            Some(fun (uri, version, source, line, column) ->
+                received <- Some(uri, version, source, line, column)
+                Task.FromResult([ "let"; "Connections.sql" ]))
 
+        let! result = vm.CompleteAsync.Value ("untitled:Script1.fsx", 1, "myLoc", 1, 5)
+
+        Assert.Equal(Some("untitled:Script1.fsx", 1, "myLoc", 1, 5), received)
         Assert.Contains("Connections.sql", result)
     }
 
