@@ -1,6 +1,7 @@
 module ShellViewModelTests
 
 open System
+open System.ComponentModel
 open System.Text.Json
 open System.Threading.Tasks
 open Xunit
@@ -403,6 +404,183 @@ let ``closing the last remaining document leaves a fresh document active`` () =
     Assert.NotSame(firstDoc, vm.ActiveDocument)
     Assert.False(vm.ActiveDocument.IsDirty)
 
+// A bridge `textChanged` names the document it came from. Applying it to
+// `ActiveDocument` instead was harmless while there was only ever one tab;
+// with several open, an edit still in flight when the user switches tabs
+// would land on the wrong document.
+
+[<Fact>]
+let ``RouteTextChanged applies the change to the document the message names`` () =
+    let vm = ShellViewModel()
+    let firstDoc = vm.ActiveDocument
+    let secondDoc = vm.OpenDocument("untitled:Script2.fsx")
+
+    let untouchedSeedText = secondDoc.Text
+    vm.RouteTextChanged(firstDoc.Uri, 1, "typed into the first tab")
+
+    Assert.Equal("typed into the first tab", firstDoc.Text)
+    Assert.Equal(untouchedSeedText, secondDoc.Text)
+
+[<Fact>]
+let ``RouteTextChanged does not touch the active tab when the message names a background one`` () =
+    let vm = ShellViewModel()
+    let backgroundDoc = vm.ActiveDocument
+    let activeDoc = vm.OpenDocument("untitled:Script2.fsx")
+
+    // The exact race the URI routing exists for: an edit for the tab the
+    // user just left arrives after the switch. The active tab's version
+    // counter is its own, so a plain `newVersion > version` guard would
+    // happily accept this into the wrong document.
+    Assert.Same(activeDoc, vm.ActiveDocument)
+    let untouchedSeedText = activeDoc.Text
+    vm.RouteTextChanged(backgroundDoc.Uri, 1, "belongs to the background tab")
+
+    Assert.Equal("belongs to the background tab", backgroundDoc.Text)
+    Assert.Equal(untouchedSeedText, activeDoc.Text)
+    Assert.False(activeDoc.IsDirty)
+
+[<Fact>]
+let ``RouteTextChanged drops a message for a uri that is not open`` () =
+    let vm = ShellViewModel()
+    let onlyDoc = vm.ActiveDocument
+    let untouchedSeedText = onlyDoc.Text
+
+    vm.RouteTextChanged("untitled:ClosedWhileTyping.fsx", 1, "orphaned") // Must not throw.
+
+    Assert.Equal(untouchedSeedText, onlyDoc.Text)
+
+// Saving an `untitled:` tab retags its `Uri`, but the editor page keeps its
+// own copy of that URI and stamps every `textChanged` with it. Since
+// `RouteTextChanged` above matches strictly on the URI, a retag the page
+// never hears about turns every later keystroke into an unroutable message.
+
+[<Fact>]
+let ``MarkDocumentSaved re-keys the editor page when the save retagged the document uri`` () =
+    let vm = ShellViewModel()
+    let doc = vm.ActiveDocument
+    doc.ApplyTextChanged(1, "let x = 1")
+
+    let sent = ResizeArray<EditorEnvelope>()
+    vm.SendToEditor <- Some(fun envelope -> sent.Add envelope)
+
+    vm.MarkDocumentSaved(doc, Some "C:/scripts/saved.fsx")
+
+    Assert.Equal("C:/scripts/saved.fsx", doc.Uri)
+    Assert.False(doc.IsDirty)
+    Assert.Equal(1, sent.Count)
+    Assert.Equal("documentLoaded", sent.[0].Kind)
+
+    let payload =
+        JsonSerializer.Deserialize<DocumentLoadedPayload>(sent.[0].Payload, Serialization.options)
+
+    Assert.Equal("C:/scripts/saved.fsx", payload.DocumentUri)
+    Assert.Equal(1, payload.Version)
+    Assert.Equal("let x = 1", payload.Text)
+
+[<Fact>]
+let ``edits typed after saving an untitled tab still reach the document`` () =
+    // The whole point of the push: the page re-keys onto the saved path, so
+    // the next keystroke is stamped with a URI `RouteTextChanged` can find.
+    // Without it the message carried `untitled:Script1.fsx`, matched nothing,
+    // and the edit vanished - the following Save then wrote the pre-save text.
+    let vm = ShellViewModel()
+    let doc = vm.ActiveDocument
+    doc.ApplyTextChanged(1, "before the save")
+
+    let mutable pageUri = doc.Uri
+
+    vm.SendToEditor <-
+        Some(fun envelope ->
+            if envelope.Kind = "documentLoaded" then
+                pageUri <-
+                    JsonSerializer
+                        .Deserialize<DocumentLoadedPayload>(envelope.Payload, Serialization.options)
+                        .DocumentUri)
+
+    vm.MarkDocumentSaved(doc, Some "C:/scripts/saved.fsx")
+    vm.RouteTextChanged(pageUri, 2, "typed after the save")
+
+    Assert.Equal("typed after the save", doc.Text)
+    Assert.True(doc.IsDirty)
+
+[<Fact>]
+let ``MarkDocumentSaved does not re-push when the save left the uri unchanged`` () =
+    // `documentLoaded` calls Monaco's `setValue`, which throws away the undo
+    // stack - so an ordinary re-save of a file-backed tab must stay silent.
+    let vm = ShellViewModel()
+    let doc = vm.OpenDocument("C:/scripts/saved.fsx")
+    doc.ApplyTextChanged(1, "let x = 1")
+
+    let sent = ResizeArray<EditorEnvelope>()
+    vm.SendToEditor <- Some(fun envelope -> sent.Add envelope)
+
+    vm.MarkDocumentSaved(doc, None)
+    vm.MarkDocumentSaved(doc, Some "C:/scripts/saved.fsx")
+
+    Assert.False(doc.IsDirty)
+    Assert.Empty(sent)
+
+[<Fact>]
+let ``MarkDocumentSaved does not re-key the editor page for a tab that is no longer active`` () =
+    // The save handlers await a file picker, so the user can switch tabs
+    // before the write lands. Re-keying then would point the page at a
+    // document it isn't showing and overwrite the visible tab's text.
+    let vm = ShellViewModel()
+    let saved = vm.ActiveDocument
+    saved.ApplyTextChanged(1, "belongs to the first tab")
+    let other = vm.OpenDocument("untitled:Script2.fsx")
+    Assert.Same(other, vm.ActiveDocument)
+
+    let sent = ResizeArray<EditorEnvelope>()
+    vm.SendToEditor <- Some(fun envelope -> sent.Add envelope)
+
+    vm.MarkDocumentSaved(saved, Some "C:/scripts/saved.fsx")
+
+    Assert.Equal("C:/scripts/saved.fsx", saved.Uri)
+    Assert.False(saved.IsDirty)
+    Assert.Empty(sent)
+
+[<Fact>]
+let ``MarkDocumentSaved still marks the document clean with no editor hook configured`` () =
+    let vm = ShellViewModel()
+    let doc = vm.ActiveDocument
+    doc.ApplyTextChanged(1, "let x = 1")
+
+    vm.MarkDocumentSaved(doc, Some "C:/scripts/saved.fsx") // Must not throw.
+
+    Assert.Equal("C:/scripts/saved.fsx", doc.Uri)
+    Assert.False(doc.IsDirty)
+
+[<Fact>]
+let ``NextUntitledUri starts at Script2 when only the initial Script1 is open`` () =
+    let vm = ShellViewModel()
+
+    Assert.Equal("untitled:Script2.fsx", vm.NextUntitledUri())
+
+[<Fact>]
+let ``NextUntitledUri fills a gap left by a closed tab instead of colliding with a live one`` () =
+    let vm = ShellViewModel()
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+    vm.OpenDocument("untitled:Script3.fsx") |> ignore
+
+    // Three open, close the middle one: a `Documents.Length + 1` scheme
+    // would now propose `Script3`, which is still open - and the caller's
+    // open-or-activate dedupe would silently re-activate it rather than
+    // creating anything.
+    Assert.True(vm.CloseDocument("untitled:Script2.fsx"))
+
+    Assert.Equal("untitled:Script2.fsx", vm.NextUntitledUri())
+
+[<Fact>]
+let ``NextUntitledUri never proposes a uri that is already open`` () =
+    let vm = ShellViewModel()
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+    vm.OpenDocument("untitled:Script3.fsx") |> ignore
+
+    let proposed = vm.NextUntitledUri()
+
+    Assert.DoesNotContain(proposed, vm.Documents |> List.map (fun d -> d.Uri))
+
 [<Fact>]
 let ``a document opened via OpenDocument also gets debounced CheckAsync wiring`` () =
     let scheduler = FakeDebounceScheduler()
@@ -476,3 +654,100 @@ let ``a debounced text change calls CheckAsync and applies the result through th
     Assert.Equal(1, receivedVersion)
     Assert.Equal("let x : int = \"oops\"", receivedSource)
     Assert.Equal<Diagnostic list>([ diagnostic ], vm.ActiveDocument.Diagnostics)
+
+[<Fact>]
+let ``PropertyChanged fires for ActiveDocument when OpenDocument switches to a different tab`` () =
+    let vm = ShellViewModel()
+    let firstUri = vm.ActiveDocument.Uri
+    let raisedFor = ResizeArray<string>()
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+
+    Assert.Contains("ActiveDocument", raisedFor)
+    Assert.NotEqual<string>(firstUri, vm.ActiveDocument.Uri)
+
+[<Fact>]
+let ``PropertyChanged does not fire for ActiveDocument when OpenDocument re-opens the already-active tab`` () =
+    let vm = ShellViewModel()
+    let mutable raised = false
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun _ -> raised <- true)
+
+    vm.OpenDocument(vm.ActiveDocument.Uri) |> ignore
+
+    Assert.False(raised)
+
+// `Problems` is derived from the active document's `Diagnostics`, so a
+// binding on it (the Problems pane, from UI-Foundation.9 onward) only ever
+// updates if `ShellViewModel` itself re-raises for both of the reasons the
+// derived value can change: a different tab became active, or the active
+// tab's own diagnostics changed.
+
+[<Fact>]
+let ``PropertyChanged fires for Problems when the active document's diagnostics change`` () =
+    let vm = ShellViewModel()
+    vm.ActiveDocument.ApplyTextChanged(1, "let x : int = \"oops\"")
+
+    let diagnostic: Diagnostic =
+        { Message = "type error"
+          Severity = DiagnosticSeverity.Error
+          StartLine = 0
+          StartColumn = 14
+          EndLine = 0
+          EndColumn = 20
+          Code = Some "FS0001" }
+
+    let raisedFor = ResizeArray<string>()
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    vm.ActiveDocument.ApplyAnalysisResult(1, [ diagnostic ])
+
+    Assert.Contains("Problems", raisedFor)
+    Assert.Equal<Diagnostic list>([ diagnostic ], vm.Problems |> List.map (fun p -> p.Diagnostic))
+
+[<Fact>]
+let ``PropertyChanged does not fire for Problems when a background document's diagnostics change`` () =
+    let vm = ShellViewModel()
+    let backgroundUri = vm.ActiveDocument.Uri
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+
+    let background = vm.Documents |> List.find (fun d -> d.Uri = backgroundUri)
+    background.ApplyTextChanged(1, "let x : int = \"oops\"")
+
+    let diagnostic: Diagnostic =
+        { Message = "type error"
+          Severity = DiagnosticSeverity.Error
+          StartLine = 0
+          StartColumn = 14
+          EndLine = 0
+          EndColumn = 20
+          Code = Some "FS0001" }
+
+    let raisedFor = ResizeArray<string>()
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    background.ApplyAnalysisResult(1, [ diagnostic ])
+
+    Assert.DoesNotContain("Problems", raisedFor)
+
+[<Fact>]
+let ``PropertyChanged fires for Problems when OpenDocument switches to a different tab`` () =
+    let vm = ShellViewModel()
+    let raisedFor = ResizeArray<string>()
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+
+    Assert.Contains("Problems", raisedFor)
+
+[<Fact>]
+let ``PropertyChanged fires for Problems when CloseDocument changes which tab is active`` () =
+    let vm = ShellViewModel()
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+
+    let raisedFor = ResizeArray<string>()
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    Assert.True(vm.CloseDocument("untitled:Script2.fsx"))
+
+    Assert.Contains("Problems", raisedFor)

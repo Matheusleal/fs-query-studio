@@ -1,5 +1,6 @@
 namespace FSharpQueryStudio.Ui
 
+open System.ComponentModel
 open System.Threading.Tasks
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Editor
@@ -12,14 +13,26 @@ open FSharpQueryStudio.Editor
 /// creates (the initial tab and any later `OpenDocument` call), so tests
 /// can drive `CheckAsync`'s debounced trigger with a virtual clock the
 /// same way `DocumentViewModelTests` does directly.
-type ShellViewModel(?scheduler: IDebounceScheduler) =
+type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     let documents = ResizeArray<DocumentViewModel>()
 
     let mutable checkAsync: ((int * string) -> Task<Diagnostic list>) option = None
     let mutable activeDocument = Unchecked.defaultof<DocumentViewModel>
+    let propertyChanged = Event<PropertyChangedEventHandler, PropertyChangedEventArgs>()
+
+    /// `Problems` below is derived from the *active* document's
+    /// `Diagnostics`, and a derived CLR property notifies nothing on its
+    /// own. Anything bound to it (the Problems pane) would therefore read
+    /// it exactly once at bind time and never again, so every place the
+    /// derived value can change has to re-raise here by hand.
+    let raiseProblemsChanged () =
+        propertyChanged.Trigger(self, PropertyChangedEventArgs("Problems"))
 
     /// Wires a document's debounced text change to `checkAsync` — every
-    /// open tab gets its own analysis pipeline, not just the first one.
+    /// open tab gets its own analysis pipeline, not just the first one —
+    /// and re-raises `Problems` when this document's diagnostics land,
+    /// but only while it's the active tab (a background tab's analysis
+    /// completing changes nothing the Problems pane is showing).
     let wireDocument (doc: DocumentViewModel) =
         doc.DebouncedTextChanged.Add(fun (version, source) ->
             match checkAsync with
@@ -32,13 +45,34 @@ type ShellViewModel(?scheduler: IDebounceScheduler) =
                 :> Task)
                 |> ignore)
 
+        (doc :> INotifyPropertyChanged)
+            .PropertyChanged.Add(fun args ->
+                if
+                    args.PropertyName = nameof doc.Diagnostics
+                    && System.Object.ReferenceEquals(activeDocument, doc)
+                then
+                    raiseProblemsChanged ())
+
+    /// Starter content for every freshly created document — including
+    /// the workspace's very first tab, not just later `File > New`
+    /// documents — so a document with real, visibly-syntax-highlighted
+    /// text is on screen the moment a tab opens, rather than an empty
+    /// buffer indistinguishable from the editor having failed to render
+    /// at all.
+    let newScriptSeed =
+        "// New F# script — write your code below\nprintfn \"Hello from F# Query Studio!\"\n"
+
     let createDocument (uri: string) =
-        let doc = DocumentViewModel(uri, ?scheduler = scheduler)
+        let doc = DocumentViewModel(uri, ?scheduler = scheduler, initialText = newScriptSeed)
         wireDocument doc
         documents.Add(doc)
         doc
 
     do activeDocument <- createDocument "untitled:Script1.fsx"
+
+    interface INotifyPropertyChanged with
+        [<CLIEvent>]
+        member _.PropertyChanged = propertyChanged.Publish
 
     member val WorkerState = WorkerStateViewModel()
     member _.ActiveDocument = activeDocument
@@ -60,8 +94,79 @@ type ShellViewModel(?scheduler: IDebounceScheduler) =
             |> Seq.tryFind (fun d -> d.Uri = uri)
             |> Option.defaultWith (fun () -> createDocument uri)
 
-        activeDocument <- doc
+        if not (System.Object.ReferenceEquals(activeDocument, doc)) then
+            activeDocument <- doc
+            propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof this.ActiveDocument))
+            raiseProblemsChanged ()
+
         doc
+
+    /// Routes a bridge `textChanged` message to the document it actually
+    /// names, ignoring one for a URI no longer open.
+    ///
+    /// Deliberately *not* applied to `ActiveDocument`: while there was one
+    /// tab those were the same document, but with several open they aren't.
+    /// Type in tab A and immediately click tab B, and an in-flight
+    /// `textChanged` for A can land after the switch — applying it to
+    /// whichever tab is active *now* would write A's text into B.
+    /// `DocumentViewModel.ApplyTextChanged`'s `newVersion > version` guard
+    /// is no defence there, because that counter is per-document and B's
+    /// was just reset by the `documentLoaded` push the activation itself
+    /// triggered.
+    member _.RouteTextChanged(documentUri: string, version: int, source: string) : unit =
+        documents
+        |> Seq.tryFind (fun d -> d.Uri = documentUri)
+        |> Option.iter (fun d -> d.ApplyTextChanged(version, source))
+
+    /// Marks `doc` clean after a *successful* write to disk (delegating to
+    /// `DocumentViewModel.MarkSaved`) and — when that actually retagged the
+    /// document's `Uri` — re-keys the editor page onto the new URI with a
+    /// `DocumentLoaded` push. Called by `MainWindow`'s save handlers, which
+    /// wire `SendToEditor` to the real WebView.
+    ///
+    /// That push is not cosmetic. `editor-host.html` stamps every outgoing
+    /// `textChanged` with a `documentUri` variable it updates *only* on an
+    /// incoming `documentLoaded`, and `RouteTextChanged` above routes
+    /// strictly by that URI. Saving an `untitled:` tab through the picker
+    /// retags the document host-side, but nothing else tells the page — so
+    /// without this every keystroke after that first save still carries the
+    /// dead pre-save URI, matches no open document, and is dropped in
+    /// silence: the next Save writes the pre-save text, and the tab never
+    /// even re-marks dirty to hint that anything was lost.
+    ///
+    /// Pushed only when the URI actually changed, and only while `doc` is
+    /// still the active tab. Both guards matter: `documentLoaded` calls
+    /// Monaco's `setValue`, which discards the editor's undo stack, so
+    /// re-pushing on an ordinary same-path re-save would cost the user
+    /// their undo history for no gain — and the save handlers `await` a
+    /// file picker, so the user can switch tabs before the write lands.
+    /// Pushing then would re-key the page onto a document it isn't showing
+    /// *and* overwrite the visible tab's text with the saved one's. The
+    /// background case needs no push anyway: switching back to that tab
+    /// changes `ActiveDocument`, which pushes the (by then retagged) URI
+    /// itself.
+    member this.MarkDocumentSaved(doc: DocumentViewModel, newUri: string option) : unit =
+        let previousUri = doc.Uri
+        doc.MarkSaved(newUri)
+
+        if doc.Uri <> previousUri && System.Object.ReferenceEquals(activeDocument, doc) then
+            match this.SendToEditor with
+            | None -> ()
+            | Some send -> send (EditorBridge.encodeNotification (DocumentLoaded(doc.Uri, doc.Version, doc.Text)))
+
+    /// The first `untitled:ScriptN.fsx` (probing upward from 1) that no
+    /// open tab is already using — what File > New names its document.
+    ///
+    /// Probing rather than counting matters: `Documents.Length + 1` collides
+    /// as soon as a tab has been closed. Open three, close the second, and
+    /// `Length + 1` is `Script3`, which is still open — the caller's
+    /// open-or-activate dedupe would then quietly re-activate that existing
+    /// tab, making File > New look like it did nothing.
+    member _.NextUntitledUri() : string =
+        let inUse = documents |> Seq.map (fun d -> d.Uri) |> Set.ofSeq
+
+        Seq.initInfinite (fun i -> $"untitled:Script{i + 1}.fsx")
+        |> Seq.find (fun uri -> not (inUse.Contains uri))
 
     /// Closes the tab for `uri`, prompting via `ConfirmDiscardDirtyDocument`
     /// first if it's dirty. Returns whether the tab was actually closed.
@@ -84,8 +189,12 @@ type ShellViewModel(?scheduler: IDebounceScheduler) =
 
                 if documents.Count = 0 then
                     activeDocument <- createDocument "untitled:Script1.fsx"
+                    propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof this.ActiveDocument))
+                    raiseProblemsChanged ()
                 elif System.Object.ReferenceEquals(activeDocument, doc) then
                     activeDocument <- documents.[documents.Count - 1]
+                    propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof this.ActiveDocument))
+                    raiseProblemsChanged ()
 
             canDiscard
 
@@ -150,8 +259,12 @@ type ShellViewModel(?scheduler: IDebounceScheduler) =
     member val RequestCapabilityApproval: (TrustMetadata -> bool) option = None with get, set
 
     /// Problems pane rows for the active document's current diagnostics —
-    /// see Section 5. Recomputed on every access rather than cached/
-    /// observable, since nothing binds to it yet.
+    /// see Section 5. Recomputed on every access rather than cached; the
+    /// Problems pane binds to this (UI-Foundation.9), so `PropertyChanged`
+    /// is raised for it by hand — see `raiseProblemsChanged` above — both
+    /// when the active document changes and when the active document's own
+    /// `Diagnostics` do. A derived property notifies nothing on its own,
+    /// so without those raises the pane would bind once and never update.
     member this.Problems: ProblemViewModel list =
         this.ActiveDocument.Diagnostics
         |> List.map (fun d -> ProblemViewModel(this.ActiveDocument.Uri, d, this.SendToEditor))

@@ -6,6 +6,7 @@ open Avalonia
 open Avalonia.Controls.ApplicationLifetimes
 open Avalonia.Input.Platform
 open Avalonia.Markup.Xaml
+open Avalonia.Styling
 open Serilog
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Ui
@@ -18,7 +19,28 @@ type App() =
     override this.OnFrameworkInitializationCompleted() =
         match this.ApplicationLifetime with
         | :? IClassicDesktopStyleApplicationLifetime as desktop ->
+            // UI-Foundation.12: load the persisted theme/layout choice
+            // before building the window, so the saved theme can be
+            // applied to a freshly-constructed `MainWindow` (which always
+            // starts Dark) rather than flashing the default theme first.
+            let appDataDir =
+                Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "FSharpQueryStudio"
+                )
+
+            let uiState = FSharpQueryStudio.Storage.UiState.read appDataDir
+
+            let startupTheme =
+                match uiState.Theme with
+                | "Light" -> Theme.Light
+                | _ -> Theme.Dark
+
             let mainWindow = MainWindow()
+
+            if startupTheme = Theme.Light then
+                mainWindow.ThemeService.Toggle()
+                this.RequestedThemeVariant <- ThemeVariant.Light
 
             // Composition root (Section 4's App responsibility): the one
             // place a real WorkerClient gets constructed and wired into
@@ -65,6 +87,21 @@ type App() =
             // the shell actually reached a usable state rather than just
             // "the process didn't crash yet".
             mainWindow.Opened.Add(fun _ -> Log.Information("Host window ready"))
+
+            // Persists the theme choice on close. `uiState.DockLayout` is
+            // passed through unchanged — this fixed shell has no layout
+            // of its own to save, but an older saved value is left alone
+            // rather than cleared.
+            mainWindow.Closing.Add(fun _ ->
+                let theme =
+                    match mainWindow.ThemeService.Current with
+                    | Theme.Light -> "Light"
+                    | Theme.Dark -> "Dark"
+
+                FSharpQueryStudio.Storage.UiState.write
+                    appDataDir
+                    { Theme = theme
+                      DockLayout = uiState.DockLayout })
 
             desktop.MainWindow <- mainWindow
         | _ -> ()

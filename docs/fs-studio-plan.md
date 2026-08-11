@@ -155,20 +155,21 @@ Keep FSharp.Compiler.Service types, database driver objects, and runtime values 
 
 ## 5. Avalonia UX and Layout
 
-Use a straightforward `Grid` with persisted splitter positions for the MVP. Avoid a complex docking framework until users need arbitrary pane docking.
+Uses `Dock.Avalonia` (`Dock.Model.Mvvm` + `Dock.Avalonia.Themes.Fluent`) for a real dockable/floatable tool-window shell — VS-familiar drag-to-dock, float, and re-tab behavior, superseding this section’s original fixed-`Grid`-only MVP decision (see the UI-Foundation spec and DEVLOG for the full rationale). `DockFactory` (in `Ui`) builds the default layout in code; `MainWindow.axaml` hosts a single `DockControl` bound to it.
 
 ```text
-┌─────────────────────────────────────────────────────────────────┐
+┌──────────────────────────────────────────────────────────────────┐
 │ File · Edit · View · Connections · Run  | New Save Run Cancel    │
-├────────────────┬────────────────────────────────────────────────┤
-│ Workspace      │ Script tabs                                    │
-│ - Scripts      ├────────────────────────────────────────────────┤
-│ - Connections  │ Monaco F# editor                               │
-│ - History      │                                                │
-│ - Packages     ├────────────────────────────────────────────────┤
-│                │ Results | Output | Problems | Schema           │
-└────────────────┴────────────────────────────────────────────────┘
+├─────────────────┬────────────────────────────────────────────────┤
+│ Workspace       │ Script tabs (dockable document dock)           │
+│ (dockable tool  ├────────────────────────────────────────────────┤
+│  window)        │ Monaco F# editor (shared across tabs)          │
+│                 ├────────────────────────────────────────────────┤
+│                 │ Results | Output | Problems | Schema (1 tool)  │
+└─────────────────┴────────────────────────────────────────────────┘
 ```
+
+Dock layout (panel positions, sizes, and hidden/shown state) and the dark/light theme choice persist across restarts to `%LOCALAPPDATA%/FSharpQueryStudio/ui-state.json`. Torn-off floating windows are a known exception — the restore path only walks the main docked tree, so a floated pane comes back docked.
 
 ### Core view models
 

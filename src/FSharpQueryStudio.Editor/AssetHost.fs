@@ -5,6 +5,7 @@ open System.IO
 open System.Net
 open System.Net.Sockets
 open System.Threading.Tasks
+open Serilog
 
 /// Serves Monaco's local assets over loopback-only HTTP — see Section 6.
 /// Binds `127.0.0.1` on an OS-assigned ephemeral port ("127.0.0.1" is the
@@ -59,7 +60,7 @@ module AssetHost =
         task {
             context.Response.Headers.Add(
                 "Content-Security-Policy",
-                "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'"
+                "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; worker-src 'self' blob:"
             )
 
             match resolveAsset assetsRoot context.Request.Url.AbsolutePath with
@@ -74,6 +75,13 @@ module AssetHost =
         }
         :> Task
 
+    /// `GetContextAsync` throwing anything other than these two is
+    /// unexpected — both are the normal "the listener was stopped/
+    /// disposed" shutdown signal, everything else is a real failure that
+    /// silently kills asset serving (and with it, Monaco) for the rest of
+    /// the app's lifetime unless it's logged here. There was previously no
+    /// way to tell "the listener died" from "someone tested the wrong
+    /// port" after the fact.
     let private acceptLoop (listener: HttpListener) (assetsRoot: string) : Task =
         task {
             let mutable keepGoing = true
@@ -85,6 +93,13 @@ module AssetHost =
                 with
                 | :? ObjectDisposedException
                 | :? HttpListenerException -> keepGoing <- false
+                | ex ->
+                    Log.Warning(
+                        ex,
+                        "Asset host's accept loop stopped unexpectedly; Monaco/editor assets are no longer reachable"
+                    )
+
+                    keepGoing <- false
         }
         :> Task
 
@@ -99,10 +114,16 @@ module AssetHost =
                 listener.Close()
                 ignore acceptTask
 
+    /// Logs the real `BaseUri` on every start — previously nothing did,
+    /// so there was no way to confirm which port a running instance
+    /// actually bound to (it's a fresh OS-assigned ephemeral port every
+    /// launch) versus a stale one from an earlier run or a different
+    /// process.
     let start (assetsRoot: string) : Host =
         let port = findEphemeralPort ()
         let baseUri = Uri($"http://127.0.0.1:{port}/")
         let listener = new HttpListener()
         listener.Prefixes.Add(baseUri.ToString())
         listener.Start()
+        Log.Information("Asset host listening at {BaseUri}", baseUri)
         new Host(listener, assetsRoot, baseUri)

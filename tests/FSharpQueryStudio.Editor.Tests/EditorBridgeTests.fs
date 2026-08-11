@@ -64,3 +64,16 @@ let ``decoding an envelope with a payload missing required fields produces a typ
     match EditorBridge.decode envelope with
     | Result.Error _ -> ()
     | Ok decoded -> failwithf "expected an error, got %A" decoded
+
+[<Fact>]
+let ``encodeNotification for DocumentLoaded produces kind documentLoaded with uri version and text`` () =
+    let envelope = EditorBridge.encodeNotification (DocumentLoaded("untitled:Script2.fsx", 3, "let x = 1"))
+
+    Assert.Equal("documentLoaded", envelope.Kind)
+
+    let payload =
+        System.Text.Json.JsonSerializer.Deserialize<DocumentLoadedPayload>(envelope.Payload, Serialization.options)
+
+    Assert.Equal("untitled:Script2.fsx", payload.DocumentUri)
+    Assert.Equal(3, payload.Version)
+    Assert.Equal("let x = 1", payload.Text)

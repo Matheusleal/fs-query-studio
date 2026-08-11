@@ -188,3 +188,96 @@ let ``a stale analysis response arriving after a newer one is discarded, not app
     vm.ApplyAnalysisResult(1, [ diagnostic "stale" ])
 
     Assert.Equal<Diagnostic list>(currentDiagnostics, vm.Diagnostics)
+
+[<Fact>]
+let ``PropertyChanged fires for IsDirty when ApplyTextChanged marks the document dirty`` () =
+    let doc = DocumentViewModel("untitled:Script1.fsx")
+    let mutable raisedFor: string option = None
+    (doc :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor <- Some args.PropertyName)
+
+    doc.ApplyTextChanged(1, "1 + 1")
+
+    Assert.Equal(Some "IsDirty", raisedFor)
+
+// `MarkSaved` is what the save handlers call after a write that actually
+// landed on disk. Before it existed a saved tab kept its dirty marker
+// forever, and an `untitled:` tab re-prompted for a path on every Save
+// instead of writing through to the file it had already been saved to.
+
+[<Fact>]
+let ``MarkSaved clears IsDirty`` () =
+    let doc = DocumentViewModel("file:///a.fsx")
+    doc.ApplyTextChanged(1, "1 + 1")
+    Assert.True(doc.IsDirty)
+
+    doc.MarkSaved(None)
+
+    Assert.False(doc.IsDirty)
+
+[<Fact>]
+let ``MarkSaved with None leaves the Uri alone`` () =
+    let doc = DocumentViewModel("file:///a.fsx")
+    doc.ApplyTextChanged(1, "1 + 1")
+
+    doc.MarkSaved(None)
+
+    Assert.Equal("file:///a.fsx", doc.Uri)
+
+[<Fact>]
+let ``MarkSaved retags an untitled document to the path it was written to`` () =
+    let doc = DocumentViewModel("untitled:Script1.fsx")
+    doc.ApplyTextChanged(1, "1 + 1")
+
+    doc.MarkSaved(Some @"C:\scripts\real.fsx")
+
+    // The retag is what makes the *next* Save write straight through
+    // instead of re-opening the picker: `untitled:` is the only thing the
+    // save handler distinguishes a scratch tab by.
+    Assert.Equal(@"C:\scripts\real.fsx", doc.Uri)
+    Assert.False(doc.Uri.StartsWith("untitled:"))
+    Assert.False(doc.IsDirty)
+
+[<Fact>]
+let ``MarkSaved preserves Text and Version - saving is not an edit`` () =
+    let doc = DocumentViewModel("untitled:Script1.fsx")
+    doc.ApplyTextChanged(7, "let x = 1")
+
+    doc.MarkSaved(Some @"C:\scripts\real.fsx")
+
+    Assert.Equal("let x = 1", doc.Text)
+    Assert.Equal(7, doc.Version)
+
+[<Fact>]
+let ``MarkSaved raises PropertyChanged for both Uri and IsDirty`` () =
+    let doc = DocumentViewModel("untitled:Script1.fsx")
+    doc.ApplyTextChanged(1, "1 + 1")
+    let raisedFor = ResizeArray<string>()
+    (doc :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    doc.MarkSaved(Some @"C:\scripts\real.fsx")
+
+    Assert.Contains("Uri", raisedFor)
+    Assert.Contains("IsDirty", raisedFor)
+
+[<Fact>]
+let ``MarkSaved does not raise for Uri when the path has not actually changed`` () =
+    let doc = DocumentViewModel(@"C:\scripts\real.fsx")
+    doc.ApplyTextChanged(1, "1 + 1")
+    let raisedFor = ResizeArray<string>()
+    (doc :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    doc.MarkSaved(Some @"C:\scripts\real.fsx")
+
+    Assert.DoesNotContain("Uri", raisedFor)
+    Assert.Contains("IsDirty", raisedFor)
+
+[<Fact>]
+let ``MarkSaved on an already-clean document raises nothing`` () =
+    let doc = DocumentViewModel("file:///a.fsx")
+    let raisedFor = ResizeArray<string>()
+    (doc :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    doc.MarkSaved(None)
+
+    Assert.False(doc.IsDirty)
+    Assert.Empty(raisedFor)

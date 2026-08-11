@@ -1,0 +1,56 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="FSharpQueryStudio.Ui.ResultsView"
+             x:CompileBindings="False">
+  <TabControl Name="ResultsTabs">
+    <TabItem Header="Results">
+      <Grid>
+        <!--
+          DisplayText for Scalar/Text/Error; a virtualized DataGrid
+          for Table (C.12) - Columns are rebuilt from Result.Schema
+          in MainWindow's code-behind (ResultGridColumns.build) since
+          Avalonia's DataGrid needs concrete columns, not a schema
+          binding. ItemsSource binds Result.Rows (obj array array)
+          directly, so the DataGrid virtualizes rows itself for large
+          results.
+        -->
+        <TextBlock Text="{Binding Result.DisplayText}"
+                   IsVisible="{Binding Result.IsScalarOrText}"
+                   Margin="8"
+                   TextWrapping="Wrap" />
+        <DataGrid Name="ResultsGrid"
+                  ItemsSource="{Binding Result.Rows}"
+                  IsVisible="{Binding Result.IsTable}"
+                  AutoGenerateColumns="False"
+                  IsReadOnly="True" />
+      </Grid>
+    </TabItem>
+    <TabItem Header="Output">
+      <ListBox ItemsSource="{Binding Result.Output}" Name="OutputList">
+        <ListBox.ItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding Text}" FontFamily="Consolas,Cascadia Mono,monospace" />
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </TabItem>
+    <TabItem Header="Problems">
+      <ListBox ItemsSource="{Binding Problems}" Name="ProblemsList">
+        <ListBox.ItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding Diagnostic.Message}" DoubleTapped="ProblemDoubleTapped" />
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </TabItem>
+    <TabItem Header="Schema">
+      <ListBox ItemsSource="{Binding Result.Schema}" Name="SchemaList">
+        <ListBox.ItemTemplate>
+          <DataTemplate>
+            <TextBlock Text="{Binding Name}" />
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </TabItem>
+  </TabControl>
+</UserControl>

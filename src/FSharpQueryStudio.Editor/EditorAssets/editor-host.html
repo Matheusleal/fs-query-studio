@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self'; worker-src 'self' blob:" />
     <style>
       html, body, #editor { height: 100%; margin: 0; padding: 0; }
     </style>
@@ -40,16 +40,28 @@
         // the editor surface exists now.
         monaco.languages.register({ id: "fsharp" });
 
+        // Set synchronously from the host's own Uri (?theme=vs-dark/vs)
+        // rather than waiting for a themeChanged message: the message
+        // channel isn't guaranteed to be ready this early (see
+        // documentLoaded's own doc comment on `MainWindow`'s host side),
+        // but this URL query string is available immediately, no race.
+        var initialTheme = new URLSearchParams(location.search).get("theme") || "vs-dark";
+
         var editor = monaco.editor.create(document.getElementById("editor"), {
           value: "",
           language: "fsharp",
-          automaticLayout: true
+          automaticLayout: true,
+          theme: initialTheme
         });
 
         var documentUri = "untitled:Script1.fsx";
         var currentVersion = 0;
+        var suppressChangeEvent = false;
 
         editor.onDidChangeModelContent(function () {
+          if (suppressChangeEvent) {
+            return;
+          }
           currentVersion += 1;
           postToHost("textChanged", {
             documentUri: documentUri,
@@ -161,6 +173,18 @@
                   monaco.editor.setModelMarkers(model, "fsharp", markers);
                 }
 
+                break;
+              }
+              case "documentLoaded": {
+                suppressChangeEvent = true;
+                documentUri = envelope.payload.documentUri;
+                currentVersion = envelope.payload.version;
+                editor.setValue(envelope.payload.text);
+                suppressChangeEvent = false;
+                break;
+              }
+              case "themeChanged": {
+                monaco.editor.setTheme(envelope.payload.theme);
                 break;
               }
               default:

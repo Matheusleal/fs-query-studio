@@ -6,12 +6,14 @@
 
   <ItemGroup>
     <Compile Include="WorkerStateViewModel.fs" />
+    <Compile Include="ThemeService.fs" />
     <Compile Include="Debouncer.fs" />
     <Compile Include="DocumentViewModel.fs" />
     <Compile Include="ResultViewModel.fs" />
     <Compile Include="ResultGridColumns.fs" />
     <Compile Include="ProblemViewModel.fs" />
     <Compile Include="ShellViewModel.fs" />
+    <Compile Include="ResultsView.axaml.fs" />
     <Compile Include="MainWindow.axaml.fs" />
   </ItemGroup>
 
@@ -21,6 +23,11 @@
     <PackageReference Include="Avalonia.Controls.WebView" Version="12.0.1" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.1" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.1" />
+    <PackageReference Include="Material.Icons.Avalonia" Version="3.0.2" />
+    <!-- `MainWindow`'s save handlers log a warning when a write to disk
+         fails, matching the `Log.Warning(ex, ...)` convention already used
+         in `App`/`Worker`. Same 4.4.0 pin as every other project here. -->
+    <PackageReference Include="Serilog" Version="4.4.0" />
   </ItemGroup>
 
   <ItemGroup>

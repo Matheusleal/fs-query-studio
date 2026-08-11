@@ -9,6 +9,7 @@
     <Compile Include="FakeDebounceScheduler.fs" />
     <Compile Include="DebouncerTests.fs" />
     <Compile Include="WorkerStateViewModelTests.fs" />
+    <Compile Include="ThemeServiceTests.fs" />
     <Compile Include="DocumentViewModelTests.fs" />
     <Compile Include="ResultViewModelTests.fs" />
     <Compile Include="ResultGridColumnsTests.fs" />
