@@ -751,3 +751,86 @@ let ``PropertyChanged fires for Problems when CloseDocument changes which tab is
     Assert.True(vm.CloseDocument("untitled:Script2.fsx"))
 
     Assert.Contains("Problems", raisedFor)
+
+// `Result` (Results/Output/Schema pane) used to be one `ResultViewModel`
+// shared by the whole window - running a query in tab A and switching to
+// tab B still showed A's results, with no isolation between tabs. It now
+// lives on `DocumentViewModel`, one instance per open tab, and `Result`
+// follows `ActiveDocument` the same way `Problems` already does.
+
+[<Fact>]
+let ``switching tabs shows each document's own Result instead of a shared one`` () =
+    task {
+        let vm = ShellViewModel()
+        let docA = vm.ActiveDocument
+        vm.ExecuteAsync <- Some(fun _evalParams -> Task.FromResult(canned ResultKind.Scalar "A-result"))
+        do! vm.RunAsync()
+
+        let docB = vm.OpenDocument("untitled:Script2.fsx")
+        Assert.Same(docB, vm.ActiveDocument)
+        Assert.Equal(ResultKind.NoValue, vm.Result.Kind) // B has never run anything yet.
+
+        vm.ExecuteAsync <- Some(fun _evalParams -> Task.FromResult(canned ResultKind.Scalar "B-result"))
+        do! vm.RunAsync()
+        Assert.Equal(Some "B-result", vm.Result.DisplayText)
+
+        vm.OpenDocument(docA.Uri) |> ignore
+        Assert.Equal(Some "A-result", vm.Result.DisplayText)
+    }
+
+[<Fact>]
+let ``a result that arrives after the user switches tabs applies to the document that was running, not whichever tab is now active`` () =
+    task {
+        let vm = ShellViewModel()
+        let docA = vm.ActiveDocument
+        let executeSignal = TaskCompletionSource<ResultEnvelope>()
+        vm.ExecuteAsync <- Some(fun _evalParams -> executeSignal.Task)
+
+        let runTask = vm.RunAsync() // Starts running on docA.
+        let docB = vm.OpenDocument("untitled:Script2.fsx") // User switches away mid-flight.
+        Assert.Same(docB, vm.ActiveDocument)
+
+        executeSignal.SetResult(canned ResultKind.Scalar "late")
+        do! runTask
+
+        Assert.Equal(ResultKind.Scalar, docA.Result.Kind)
+        Assert.Equal(Some "late", docA.Result.DisplayText)
+        Assert.Equal(ResultKind.NoValue, docB.Result.Kind) // The now-active tab is untouched.
+    }
+
+[<Fact>]
+let ``PropertyChanged fires for Result when OpenDocument switches to a different tab`` () =
+    let vm = ShellViewModel()
+    let raisedFor = ResizeArray<string>()
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+
+    Assert.Contains("Result", raisedFor)
+
+[<Fact>]
+let ``PropertyChanged fires for Result when the active document's own result changes`` () =
+    task {
+        let vm = ShellViewModel()
+        vm.ExecuteAsync <- Some(fun _evalParams -> Task.FromResult(canned ResultKind.Scalar "2"))
+        let raisedFor = ResizeArray<string>()
+        (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+        do! vm.RunAsync()
+
+        Assert.Contains("Result", raisedFor)
+    }
+
+[<Fact>]
+let ``PropertyChanged does not fire for Result when a background document's result changes`` () =
+    let vm = ShellViewModel()
+    let backgroundUri = vm.ActiveDocument.Uri
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+    let background = vm.Documents |> List.find (fun d -> d.Uri = backgroundUri)
+
+    let raisedFor = ResizeArray<string>()
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    background.Result.Apply(canned ResultKind.Scalar "ignored")
+
+    Assert.DoesNotContain("Result", raisedFor)

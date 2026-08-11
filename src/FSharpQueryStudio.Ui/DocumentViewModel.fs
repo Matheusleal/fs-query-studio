@@ -27,6 +27,7 @@ type DocumentViewModel(uri: string, ?scheduler: IDebounceScheduler, ?initialText
     let mutable diagnostics: Diagnostic list = []
     let mutable sessionMode = Isolated
     let mutable hasActiveSession = false
+    let result = ResultViewModel()
     let propertyChanged = Event<PropertyChangedEventHandler, PropertyChangedEventArgs>()
     let debouncedTextChanged = Event<int * string>()
 
@@ -42,6 +43,11 @@ type DocumentViewModel(uri: string, ?scheduler: IDebounceScheduler, ?initialText
     member _.Version = version
     member _.IsDirty = isDirty
     member _.Diagnostics = diagnostics
+
+    /// This tab's own Results/Output/Schema state - one instance per open
+    /// document, not shared window-wide, so running a query in one tab
+    /// never overwrites what another tab is showing.
+    member _.Result = result
 
     /// Isolated (Milestone A's default) or opt-in per-tab Persistent
     /// (E.1) — `Uri` doubles as the `SessionId` a Persistent-mode

@@ -28,6 +28,13 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     let raiseProblemsChanged () =
         propertyChanged.Trigger(self, PropertyChangedEventArgs("Problems"))
 
+    /// `Result` below is derived from the *active* document's own `Result`
+    /// (Results/Output/Schema), the same reason `Problems` needs its own
+    /// re-raise: a derived property notifies nothing on its own, so every
+    /// place the derived value can change has to re-raise here by hand.
+    let raiseResultChanged () =
+        propertyChanged.Trigger(self, PropertyChangedEventArgs("Result"))
+
     /// Wires a document's debounced text change to `checkAsync` — every
     /// open tab gets its own analysis pipeline, not just the first one —
     /// and re-raises `Problems` when this document's diagnostics land,
@@ -53,6 +60,14 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
                 then
                     raiseProblemsChanged ())
 
+        (doc.Result :> INotifyPropertyChanged)
+            .PropertyChanged.Add(fun args ->
+                if
+                    args.PropertyName = "Schema"
+                    && System.Object.ReferenceEquals(activeDocument, doc)
+                then
+                    raiseResultChanged ())
+
     /// Starter content for every freshly created document — including
     /// the workspace's very first tab, not just later `File > New`
     /// documents — so a document with real, visibly-syntax-highlighted
@@ -77,7 +92,11 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     member val WorkerState = WorkerStateViewModel()
     member _.ActiveDocument = activeDocument
     member _.Documents = documents |> List.ofSeq
-    member val Result = ResultViewModel()
+
+    /// The active document's own Results/Output/Schema state - see
+    /// `DocumentViewModel.Result`'s doc comment. Derived, like `Problems`
+    /// below, and re-raised by hand for the same reason.
+    member _.Result = activeDocument.Result
 
     /// Prompts before discarding a dirty tab's unsaved changes — set by
     /// the composition root to show a real confirmation dialog. `Close`
@@ -98,6 +117,7 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
             activeDocument <- doc
             propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof this.ActiveDocument))
             raiseProblemsChanged ()
+            raiseResultChanged ()
 
         doc
 
@@ -191,10 +211,12 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
                     activeDocument <- createDocument "untitled:Script1.fsx"
                     propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof this.ActiveDocument))
                     raiseProblemsChanged ()
+                    raiseResultChanged ()
                 elif System.Object.ReferenceEquals(activeDocument, doc) then
                     activeDocument <- documents.[documents.Count - 1]
                     propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof this.ActiveDocument))
                     raiseProblemsChanged ()
+                    raiseResultChanged ()
 
             canDiscard
 
@@ -311,7 +333,7 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
                           Mode = doc.SessionMode }
 
                     let! envelope = execute evalParams
-                    this.Result.Apply(envelope)
+                    doc.Result.Apply(envelope)
 
                     if doc.SessionMode = Persistent then
                         doc.MarkSessionActive()

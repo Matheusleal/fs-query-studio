@@ -8,8 +8,8 @@
     <Compile Include="WorkerStateViewModel.fs" />
     <Compile Include="ThemeService.fs" />
     <Compile Include="Debouncer.fs" />
-    <Compile Include="DocumentViewModel.fs" />
     <Compile Include="ResultViewModel.fs" />
+    <Compile Include="DocumentViewModel.fs" />
     <Compile Include="ResultGridColumns.fs" />
     <Compile Include="ProblemViewModel.fs" />
     <Compile Include="ShellViewModel.fs" />

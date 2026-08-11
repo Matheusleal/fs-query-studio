@@ -392,8 +392,15 @@ type MainWindow() as this =
                     DataGridTextColumn(Header = column.Header, Binding = Binding(column.BindingPath))
                 )
 
-        (shellViewModel.Result :> INotifyPropertyChanged).PropertyChanged.Add(fun args ->
-            if args.PropertyName = "Schema" then
+        // `shellViewModel.Result` is derived from `ActiveDocument.Result`
+        // (one `ResultViewModel` instance per tab, not a single shared one)
+        // and re-raises "Result" both when the active tab switches and when
+        // that tab's own result changes - see `ShellViewModel.raiseResultChanged`.
+        // Subscribing there, not to any one `ResultViewModel` instance
+        // directly, is what keeps this rebuild in sync as the active
+        // document's `Result` identity changes across tab switches.
+        (shellViewModel :> INotifyPropertyChanged).PropertyChanged.Add(fun args ->
+            if args.PropertyName = "Result" then
                 rebuildResultColumns ())
 
         let runButton = this.FindControl<Button>("RunButton")
