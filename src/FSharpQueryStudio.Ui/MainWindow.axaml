@@ -85,15 +85,25 @@
         <DockPanel>
           <TextBlock Text="Workspace" DockPanel.Dock="Top" Margin="8,8,8,4" FontWeight="Bold" />
           <ScrollViewer>
-            <ItemsControl ItemsSource="{Binding WorkspaceItems}" Name="WorkspaceItemsControl">
+            <ItemsControl ItemsSource="{Binding WorkspaceItems}" Name="WorkspaceItemsControl" HorizontalAlignment="Stretch">
               <ItemsControl.ItemTemplate>
                 <DataTemplate>
-                  <Expander Margin="2" Expanding="ConnectionExpanderExpanded">
+                  <Expander Margin="2"
+                            HorizontalAlignment="Stretch"
+                            HorizontalContentAlignment="Stretch"
+                            Expanding="ConnectionExpanderExpanded">
                     <Expander.Header>
-                      <Grid ColumnDefinitions="Auto,*,Auto">
+                      <Grid ColumnDefinitions="Auto,*,Auto,Auto" HorizontalAlignment="Stretch">
                         <TextBlock Grid.Column="0" Text="{Binding Kind}" Opacity="0.7" Margin="0,0,6,0" />
                         <TextBlock Grid.Column="1" Text="{Binding Name}" />
                         <Button Grid.Column="2"
+                                Content="&#x270E;"
+                                Padding="4,0"
+                                Background="Transparent"
+                                BorderThickness="0"
+                                Click="EditConnectionClicked"
+                                ToolTip.Tip="View/edit connection properties" />
+                        <Button Grid.Column="3"
                                 Content="&#x2715;"
                                 Padding="4,0"
                                 Background="Transparent"
@@ -102,7 +112,7 @@
                                 ToolTip.Tip="Remove this connection" />
                       </Grid>
                     </Expander.Header>
-                    <StackPanel>
+                    <StackPanel HorizontalAlignment="Stretch">
                       <TextBlock Text="Loading…" Opacity="0.7" Margin="16,2" IsVisible="{Binding IsLoading}" />
                       <TextBlock Text="{Binding ErrorMessage}"
                                  Foreground="IndianRed"
@@ -114,10 +124,10 @@
                                  Opacity="0.7"
                                  Margin="16,2"
                                  IsVisible="{Binding !HasSchema}" />
-                      <ItemsControl ItemsSource="{Binding Tables}">
+                      <ItemsControl ItemsSource="{Binding Tables}" HorizontalAlignment="Stretch">
                         <ItemsControl.ItemTemplate>
                           <DataTemplate>
-                            <Expander Margin="16,2">
+                            <Expander Margin="16,2" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
                               <Expander.Header>
                                 <TextBlock Text="{Binding Name}" />
                               </Expander.Header>

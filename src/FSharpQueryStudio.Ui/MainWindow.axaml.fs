@@ -41,6 +41,14 @@ type MainWindow() as this =
     let shellViewModel = ShellViewModel()
     let themeService = ThemeService()
 
+    /// Set once, inside the constructor's `do` block, to the real
+    /// `showConnectionDialog` closure defined there — it needs `this` (for
+    /// `ShowDialog(this)`) and several controls only reachable at that
+    /// point in construction. Exists so `EditConnectionClicked`, an
+    /// ordinary member declared outside that `do` block, can still reach
+    /// it; nothing calls this before the `do` block runs.
+    let mutable showConnectionDialogHook: ConnectionDefinition option -> unit = fun _ -> ()
+
     // The Results panel: one shared instance, since exactly one Results
     // pane ever exists in `FixedShellGrid`.
     let resultsView = ResultsView(DataContext = shellViewModel)
@@ -349,18 +357,39 @@ type MainWindow() as this =
         // no prompt, no message, the tab just refused to close.
         shellViewModel.ConfirmDiscardDirtyDocument <- Some confirmDiscardDirty
 
-        /// Collects a new connection's name/kind/configuration and
-        /// registers it — the only UI path to `ShellViewModel
-        /// .RegisterConnection`. Kind-specific fields are the minimum
-        /// each connector's `WorkspaceConnectionResolver.build` case
-        /// actually reads (a file path for Sqlite/Csv/Excel, a
-        /// connection string + optional password for SqlServer/
-        /// PostgreSql, a URL for RestJson) — see
+        /// Collects a connection's name/kind/configuration and registers
+        /// it — the only UI path to `ShellViewModel.RegisterConnection`,
+        /// for both a brand-new connection (`existing = None`, wired to
+        /// `NewConnectionMenuItem`) and viewing/editing an already
+        /// registered one in place (`existing = Some ...`, wired to each
+        /// row's pencil button — `EditConnectionClicked`). Editing reuses
+        /// `RegisterConnection`'s own replace-by-`Id` behavior
+        /// (`Workspace.registerConnection`), so it's the same call with
+        /// the same `Id` and pre-filled fields, not a separate code path.
+        /// Kind-specific fields are the minimum each connector's
+        /// `WorkspaceConnectionResolver.build` case actually reads (a
+        /// file path for Sqlite/Csv/Excel, a connection string + optional
+        /// password for SqlServer/PostgreSql, a URL for RestJson) — see
         /// `WorkspaceConnectionResolver.fs`'s `FileConnectionConfig`/
         /// `SqlConnectionStringConfig` for the exact shape each one
         /// serializes into `Configuration`.
-        let showNewConnectionDialog () =
-            let nameBox = TextBox(PlaceholderText = "Connection name")
+        ///
+        /// The password field is never pre-filled — `ConnectionDefinition`
+        /// only ever carries a `SecretReference` pointer, never the
+        /// plaintext secret itself, so there's nothing to show. Left
+        /// blank while editing a connection that already has a secret, the
+        /// existing `SecretReference` (and the credential it points at) is
+        /// left untouched; typed over, it's saved under the same
+        /// reference if one already existed, or a freshly minted one if
+        /// this connection never had a secret before.
+        let showConnectionDialog (existing: ConnectionDefinition option) =
+            let isEdit = existing.IsSome
+
+            let nameBox =
+                TextBox(
+                    PlaceholderText = "Connection name",
+                    Text = (existing |> Option.map (fun c -> c.Name) |> Option.defaultValue "")
+                )
 
             let kindCombo =
                 ComboBox(
@@ -370,14 +399,44 @@ type MainWindow() as this =
                           ConnectorKind.Excel
                           ConnectorKind.SqlServer
                           ConnectorKind.PostgreSql
-                          ConnectorKind.RestJson ],
-                    SelectedIndex = 0
+                          ConnectorKind.RestJson ]
                 )
 
-            let filePathBox = TextBox(PlaceholderText = @"C:\path\to\file")
-            let connectionStringBox = TextBox(PlaceholderText = "Server=...;Database=...;User Id=...;Password={password};")
-            let passwordBox = TextBox(PlaceholderText = "Password (optional)", PasswordChar = '*')
-            let urlBox = TextBox(PlaceholderText = "https://example.com/api")
+            kindCombo.SelectedIndex <-
+                match existing with
+                | Some c ->
+                    (kindCombo.ItemsSource :?> ConnectorKind list) |> List.findIndex (fun k -> k = c.Kind)
+                | None -> 0
+
+            let stringProperty (name: string) (definition: ConnectionDefinition) =
+                match definition.Configuration.TryGetProperty(name) with
+                | true, value when value.ValueKind = System.Text.Json.JsonValueKind.String -> value.GetString()
+                | _ -> ""
+
+            let filePathBox =
+                TextBox(
+                    PlaceholderText = @"C:\path\to\file",
+                    Text = (existing |> Option.map (stringProperty "FilePath") |> Option.defaultValue "")
+                )
+
+            let connectionStringBox =
+                TextBox(
+                    PlaceholderText = "Server=...;Database=...;User Id=...;Password={password};",
+                    Text = (existing |> Option.map (stringProperty "ConnectionString") |> Option.defaultValue "")
+                )
+
+            let passwordPlaceholder =
+                match existing with
+                | Some c when c.SecretReference.IsSome -> "Password (leave blank to keep the current one)"
+                | _ -> "Password (optional)"
+
+            let passwordBox = TextBox(PlaceholderText = passwordPlaceholder, PasswordChar = '*')
+
+            let urlBox =
+                TextBox(
+                    PlaceholderText = "https://example.com/api",
+                    Text = (existing |> Option.map (stringProperty "Url") |> Option.defaultValue "")
+                )
 
             let fieldsPanel = StackPanel(Spacing = 8.0)
 
@@ -397,7 +456,8 @@ type MainWindow() as this =
             kindCombo.SelectionChanged.Add(fun _ -> rebuildFields ())
             rebuildFields ()
 
-            let saveButton = Button(Content = "Register", Width = 96.0, IsDefault = true)
+            let saveButtonText = if isEdit then "Save" else "Register"
+            let saveButton = Button(Content = saveButtonText, Width = 96.0, IsDefault = true)
             let cancelButton = Button(Content = "Cancel", Width = 96.0, IsCancel = true)
 
             let buttons =
@@ -420,7 +480,7 @@ type MainWindow() as this =
 
             let dialog =
                 Window(
-                    Title = "New Connection",
+                    Title = (if isEdit then "Connection Properties" else "New Connection"),
                     Width = 420.0,
                     SizeToContent = SizeToContent.Height,
                     CanResize = false,
@@ -431,8 +491,15 @@ type MainWindow() as this =
 
             saveButton.Click.Add(fun _ ->
                 let kind = kindCombo.SelectedItem :?> ConnectorKind
+                let existingSecretReference = existing |> Option.bind (fun c -> c.SecretReference)
+                let hasNewSecret = not (String.IsNullOrWhiteSpace passwordBox.Text)
 
-                let configuration, secretReference =
+                let secretReference =
+                    match existingSecretReference with
+                    | Some reference -> Some reference
+                    | None -> if hasNewSecret then Some $"fqs-conn-{Guid.NewGuid():N}" else None
+
+                let configuration =
                     match kind with
                     | ConnectorKind.Sqlite
                     | ConnectorKind.Csv
@@ -440,17 +507,13 @@ type MainWindow() as this =
                         System.Text.Json.JsonSerializer.SerializeToElement(
                             {| FilePath = filePathBox.Text |},
                             Serialization.options
-                        ),
-                        None
+                        )
                     | ConnectorKind.SqlServer
                     | ConnectorKind.PostgreSql ->
-                        let hasSecret = not (String.IsNullOrWhiteSpace passwordBox.Text)
-
                         System.Text.Json.JsonSerializer.SerializeToElement(
                             {| ConnectionString = connectionStringBox.Text |},
                             Serialization.options
-                        ),
-                        (if hasSecret then Some $"fqs-conn-{Guid.NewGuid():N}" else None)
+                        )
                     | ConnectorKind.RestJson ->
                         System.Text.Json.JsonSerializer.SerializeToElement(
                             {| Url = urlBox.Text
@@ -459,19 +522,17 @@ type MainWindow() as this =
                                QueryParams = [||]
                                Body = (None: string option) |},
                             Serialization.options
-                        ),
-                        None
+                        )
 
                 let definition: ConnectionDefinition =
-                    { Id = Guid.NewGuid()
+                    { Id = existing |> Option.map (fun c -> c.Id) |> Option.defaultValue (Guid.NewGuid())
                       Name = nameBox.Text
                       Kind = kind
                       Configuration = configuration
                       SecretReference = secretReference
-                      IsTrusted = false }
+                      IsTrusted = existing |> Option.map (fun c -> c.IsTrusted) |> Option.defaultValue false }
 
-                let secret =
-                    if String.IsNullOrWhiteSpace passwordBox.Text then None else Some passwordBox.Text
+                let secret = if hasNewSecret then Some passwordBox.Text else None
 
                 shellViewModel.RegisterConnection definition secret |> ignore
                 dialog.Close())
@@ -480,7 +541,9 @@ type MainWindow() as this =
 
             dialog.ShowDialog(this) |> ignore
 
-        this.FindControl<MenuItem>("NewConnectionMenuItem").Click.Add(fun _ -> showNewConnectionDialog ())
+        showConnectionDialogHook <- showConnectionDialog
+
+        this.FindControl<MenuItem>("NewConnectionMenuItem").Click.Add(fun _ -> showConnectionDialog None)
 
         // The open-tab strip, rebuilt by hand from
         // `shellViewModel.Documents` (a plain
@@ -786,18 +849,32 @@ type MainWindow() as this =
             | None -> ())
 
     /// Wired via XAML `Click="RemoveConnectionClicked"` on the "×" button
-    /// inside `WorkspacePanel`'s `ConnectionsList` item template — the
-    /// same reason `ResultsView.ProblemDoubleTapped` is a real member
-    /// rather than a `do`-block closure: each list item's button is a
-    /// separate, dynamically-created control, so there's no single named
-    /// control a closure could `FindControl`/`.Click.Add` onto. The
-    /// button's own `DataContext` at the moment it's clicked is that
-    /// row's `ConnectionDefinition`. No confirmation prompt — unlike
-    /// closing a dirty tab, removing a connection destroys nothing the
-    /// user typed; re-registering it is one dialog away.
+    /// inside `WorkspacePanel`'s connection item template — the same
+    /// reason `ResultsView.ProblemDoubleTapped` is a real member rather
+    /// than a `do`-block closure: each row's button is a separate,
+    /// dynamically-created control, so there's no single named control a
+    /// closure could `FindControl`/`.Click.Add` onto. The button's own
+    /// `DataContext` at the moment it's clicked is that row's
+    /// `WorkspaceConnectionViewModel` (the panel's `ItemsSource` is
+    /// `WorkspaceItems`, not the raw `Connections` list). No confirmation
+    /// prompt — unlike closing a dirty tab, removing a connection
+    /// destroys nothing the user typed; re-registering it is one dialog
+    /// away.
     member private _.RemoveConnectionClicked(sender: obj, _args: RoutedEventArgs) =
         match (sender :?> Control).DataContext with
-        | :? ConnectionDefinition as connection -> shellViewModel.RemoveConnection connection |> ignore
+        | :? WorkspaceConnectionViewModel as vm -> shellViewModel.RemoveConnection vm.Definition |> ignore
+        | _ -> ()
+
+    /// Wired via XAML `Click="EditConnectionClicked"` on the pencil
+    /// button inside `WorkspacePanel`'s connection item template — opens
+    /// the same dialog `NewConnectionMenuItem` does, pre-filled from this
+    /// row's own `WorkspaceConnectionViewModel.Definition`, via the
+    /// `showConnectionDialogHook` set up in the constructor. See that
+    /// dialog's own doc comment for how editing reuses
+    /// `RegisterConnection`'s replace-by-`Id` behavior.
+    member private _.EditConnectionClicked(sender: obj, _args: RoutedEventArgs) =
+        match (sender :?> Control).DataContext with
+        | :? WorkspaceConnectionViewModel as vm -> showConnectionDialogHook (Some vm.Definition)
         | _ -> ()
 
     /// Wired via XAML `Expanding="ConnectionExpanderExpanded"` on each
