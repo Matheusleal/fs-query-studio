@@ -617,7 +617,11 @@ let ``dispatch on connection/register replacing an existing connection keeps onl
 let private removeConnectionRequest (id: string) (connectionId: Guid) : WorkerRequestFrame =
     { Id = id
       Method = "connection/remove"
-      Params = JsonSerializer.SerializeToElement<ConnectionRemoveParams>({ Id = connectionId }, Serialization.options) }
+      Params =
+        JsonSerializer.SerializeToElement<ConnectionRemoveParams>(
+            ({ Id = connectionId }: ConnectionRemoveParams),
+            Serialization.options
+        ) }
 
 [<Fact>]
 let ``dispatch on connection/remove drops the connection from workspace.json`` () =
@@ -658,6 +662,75 @@ let ``dispatch on connection/remove preserves every other registered connection`
             let persisted = Workspace.readConnections tempDir
             Assert.Single(persisted) |> ignore
             Assert.Equal("Keep", persisted.[0].Name)
+        finally
+            Handlers.setWorkspaceDirForTests None
+
+            if Directory.Exists tempDir then
+                Directory.Delete(tempDir, true)
+    }
+
+let private schemaRequest (id: string) (connectionId: Guid) : WorkerRequestFrame =
+    { Id = id
+      Method = "connection/schema"
+      Params =
+        JsonSerializer.SerializeToElement<ConnectionSchemaParams>(
+            ({ Id = connectionId }: ConnectionSchemaParams),
+            Serialization.options
+        ) }
+
+[<Fact>]
+let ``dispatch on connection/schema discovers real tables and columns for a registered SQLite connection`` () =
+    task {
+        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let dbPath = Path.Combine(tempDir, "orders.db")
+        Handlers.setWorkspaceDirForTests (Some tempDir)
+
+        try
+            Directory.CreateDirectory tempDir |> ignore
+
+            use connection = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}")
+            connection.Open()
+            use createCmd = connection.CreateCommand()
+            createCmd.CommandText <- "create table Orders (Id integer primary key, Total real)"
+            createCmd.ExecuteNonQuery() |> ignore
+            connection.Close()
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
+            let registered =
+                { Id = Guid.NewGuid()
+                  Name = "Sales"
+                  Kind = Sqlite
+                  Configuration = JsonSerializer.SerializeToElement({| FilePath = dbPath |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = false }
+
+            let! _ = Handlers.dispatch (registerConnectionRequest "reg1" registered)
+            let! response = Handlers.dispatch (schemaRequest "schema1" registered.Id)
+
+            Assert.True(response.Error.IsNone)
+            let result = JsonSerializer.Deserialize<ConnectionSchemaResult>(response.Result.Value, Serialization.options)
+            Assert.Equal<string list>([ "Orders" ], result.Tables |> List.map (fun t -> t.Name))
+            let columns = result.Tables.[0].Columns |> List.map (fun c -> c.Name)
+            Assert.Equal<string list>([ "Id"; "Total" ], columns)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
+            if Directory.Exists tempDir then
+                Directory.Delete(tempDir, true)
+    }
+
+[<Fact>]
+let ``dispatch on connection/schema returns a structured error for an unregistered Id`` () =
+    task {
+        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        Handlers.setWorkspaceDirForTests (Some tempDir)
+
+        try
+            let! response = Handlers.dispatch (schemaRequest "schema1" (Guid.NewGuid()))
+
+            Assert.True(response.Result.IsNone)
+            Assert.True(response.Error.IsSome)
         finally
             Handlers.setWorkspaceDirForTests None
 

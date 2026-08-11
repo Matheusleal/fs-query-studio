@@ -56,7 +56,7 @@ module ConnectionService =
                   Method = "connection/remove"
                   Params =
                     JsonSerializer.SerializeToElement<ConnectionRemoveParams>(
-                        { Id = definition.Id },
+                        ({ Id = definition.Id }: ConnectionRemoveParams),
                         Serialization.options
                     ) }
 
@@ -65,4 +65,34 @@ module ConnectionService =
             match response.Result with
             | Some resultJson -> return JsonSerializer.Deserialize<ConnectionDefinition list>(resultJson, Serialization.options)
             | None -> return []
+        }
+
+    /// The "host service" for `connection/schema` — Section 10's schema
+    /// discovery, wired to the UI for the first time. Real I/O (opening a
+    /// database connection, reading a file's header, ...) stays in the
+    /// worker process, same architectural boundary `register`/`remove`
+    /// already draw; this is a thin request/response wrapper, nothing
+    /// more. Surfaces the worker's own structured error message (e.g. an
+    /// unknown `Id`, or a real connectivity failure) as `Error` rather
+    /// than silently returning an empty table list, so the Workspace
+    /// panel can show the user *why* nothing came back.
+    let schema (client: WorkerClient) (id: Guid) : Task<Result<SchemaTable list, string>> =
+        task {
+            let request: WorkerRequestFrame =
+                { Id = Guid.NewGuid().ToString()
+                  Method = "connection/schema"
+                  Params =
+                    JsonSerializer.SerializeToElement<ConnectionSchemaParams>(
+                        ({ Id = id }: ConnectionSchemaParams),
+                        Serialization.options
+                    ) }
+
+            let! response = client.Send(request)
+
+            match response.Result, response.Error with
+            | Some resultJson, _ ->
+                let result = JsonSerializer.Deserialize<ConnectionSchemaResult>(resultJson, Serialization.options)
+                return Ok result.Tables
+            | None, Some workerError -> return Result.Error workerError.Message
+            | None, None -> return Result.Error "The worker returned no response."
         }

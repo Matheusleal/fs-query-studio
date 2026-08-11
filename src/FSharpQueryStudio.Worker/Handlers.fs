@@ -504,6 +504,61 @@ module Handlers =
           Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
           Error = None }
 
+    /// `connection/schema` — Section 10's schema discovery, wired to the
+    /// UI for the first time: resolves the registered connection named by
+    /// `Id` (the same `WorkspaceConnectionResolver` `runEvaluate` already
+    /// uses for `Connections.*`), then calls its own `DiscoverSchemaAsync`
+    /// and maps the result to the wire-facing `SchemaTable`/`SchemaColumn`
+    /// shape. A `connection/unknown` error for an `Id` nothing is
+    /// registered under; a `connection/schemaFailed` error — not an
+    /// unhandled exception taking the read loop down — for a real
+    /// discovery failure (bad credentials, unreachable server, missing
+    /// file), since unlike `Connections.sql` this runs before any script
+    /// exists to catch its own exception.
+    let handleConnectionSchema (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
+        task {
+            let schemaParams =
+                JsonSerializer.Deserialize<ConnectionSchemaParams>(request.Params, Serialization.options)
+
+            let connections = Workspace.readConnections (workspaceDir ())
+
+            match connections |> List.tryFind (fun c -> c.Id = schemaParams.Id) with
+            | None ->
+                return
+                    { Id = request.Id
+                      Result = None
+                      Error =
+                        Some
+                            { Code = "connection/unknown"
+                              Message = $"No connection is registered with Id '{schemaParams.Id}'." } }
+            | Some definition ->
+                try
+                    let resolver =
+                        WorkspaceConnectionResolver([ definition ], WindowsCredentialStore()) :> IConnectionResolver
+
+                    let connector = resolver.Resolve(definition.Name)
+                    let! tables = connector.DiscoverSchemaAsync(CancellationToken.None)
+
+                    let result: ConnectionSchemaResult =
+                        { Tables =
+                            tables
+                            |> List.map (fun t ->
+                                { Name = t.Name
+                                  Columns =
+                                    t.Columns
+                                    |> List.map (fun c -> ({ Name = c.Name; DataType = c.DataType }: SchemaColumn)) }: SchemaTable) }
+
+                    return
+                        { Id = request.Id
+                          Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                          Error = None }
+                with ex ->
+                    return
+                        { Id = request.Id
+                          Result = None
+                          Error = Some { Code = "connection/schemaFailed"; Message = ex.Message } }
+        }
+
     let dispatch (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
             match request.Method with
@@ -520,6 +575,7 @@ module Handlers =
             | "results/page" -> return handleResultsPage request
             | "connection/register" -> return handleConnectionRegister request
             | "connection/remove" -> return handleConnectionRemove request
+            | "connection/schema" -> return! handleConnectionSchema request
             | unknown ->
                 return
                     { Id = request.Id

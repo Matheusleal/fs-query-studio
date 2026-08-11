@@ -28,3 +28,19 @@ type ConnectionDefinition =
 
 /// `connection/remove` request payload — see Section 7's method table.
 type ConnectionRemoveParams = { Id: Guid }
+
+/// `connection/schema` request payload — see Section 7's method table.
+type ConnectionSchemaParams = { Id: Guid }
+
+/// One discovered column — the wire-facing mirror of
+/// `FSharpQueryStudio.Connectors.ConnectorColumn`. A separate type, not a
+/// reused one: `Protocol` never depends on `Connectors` (the connector
+/// implementations depend on `Protocol`, not the other way around), the
+/// same layering `ConnectionDefinition`/`ConnectorKind` already keep.
+type SchemaColumn = { Name: string; DataType: string }
+
+/// One discovered table/sheet/resource — mirrors `ConnectorTable`.
+type SchemaTable = { Name: string; Columns: SchemaColumn list }
+
+/// `connection/schema` result payload.
+type ConnectionSchemaResult = { Tables: SchemaTable list }

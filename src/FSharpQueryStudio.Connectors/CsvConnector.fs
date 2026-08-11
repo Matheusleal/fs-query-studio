@@ -165,6 +165,6 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
 
             let table: ConnectorTable =
                 { Name = Path.GetFileNameWithoutExtension(filePath)
-                  Columns = columns |> List.map (fun name -> { Name = name; DataType = "string" }) }
+                  Columns = columns |> List.map (fun name -> ({ Name = name; DataType = "string" }: ConnectorColumn)) }
 
             Task.FromResult [ table ]

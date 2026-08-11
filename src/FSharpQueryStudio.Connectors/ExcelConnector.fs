@@ -95,7 +95,9 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
                             [ for i in 1 .. usedRange.ColumnCount() -> $"Column{i}" ]
 
                     { Name = sheet.Name
-                      Columns = columnNames |> List.map (fun name -> { Name = name; DataType = "string" }) })
+                      Columns =
+                        columnNames
+                        |> List.map (fun name -> ({ Name = name; DataType = "string" }: ConnectorColumn)) }: ConnectorTable)
                 |> List.ofSeq
 
             Task.FromResult tables

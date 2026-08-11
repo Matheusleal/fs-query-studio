@@ -78,8 +78,8 @@ type SqlServerConnector(connectionString: string) =
                     { Name = tableName
                       Columns =
                         tableRows
-                        |> Seq.map (fun (_, columnName, dataType) -> { Name = columnName; DataType = dataType })
-                        |> List.ofSeq })
+                        |> Seq.map (fun (_, columnName, dataType) -> ({ Name = columnName; DataType = dataType }: ConnectorColumn))
+                        |> List.ofSeq }: ConnectorTable)
                 |> List.ofSeq
         }
 
