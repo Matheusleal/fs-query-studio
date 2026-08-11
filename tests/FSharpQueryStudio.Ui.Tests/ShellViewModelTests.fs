@@ -810,10 +810,13 @@ let ``PropertyChanged fires for Connections after a successful RegisterConnectio
     }
 
 [<Fact>]
-let ``SeedConnections sets Connections directly without requiring RegisterConnectionAsync to be configured`` () =
+let ``SeedConnections sets Connections directly without requiring RegisterConnectionAsync to be configured, and does not raise PropertyChanged`` () =
     let vm = ShellViewModel()
     let connection = testConnection "Sales"
+    let mutable raised = false
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun _ -> raised <- true)
 
     vm.SeedConnections([ connection ])
 
     Assert.Equal<ConnectionDefinition list>([ connection ], vm.Connections)
+    Assert.False(raised)
