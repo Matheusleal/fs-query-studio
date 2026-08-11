@@ -84,6 +84,11 @@ type App() =
 
             mainWindow.ShellViewModel.HoverAsync <- Some hoverAsync
 
+            let definitionAsync (documentUri: string, version: int, source: string, line: int, column: int) =
+                AnalysisService.definition client documentUri version source line column
+
+            mainWindow.ShellViewModel.DefinitionAsync <- Some definitionAsync
+
             mainWindow.ShellViewModel.CopyResultToClipboard <-
                 Some(fun text -> task { do! mainWindow.Clipboard.SetTextAsync(text) })
 

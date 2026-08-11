@@ -248,6 +248,10 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     member val HoverAsync: ((string * int * string * int * int) -> Task<HoverInfo option>) option =
         None with get, set
 
+    /// `analysis/definition` — same shape/rationale as `HoverAsync`.
+    member val DefinitionAsync: ((string * int * string * int * int) -> Task<DefinitionLocation option>) option =
+        None with get, set
+
     /// The composition root's hook into the real OS clipboard — see
     /// C.15. A no-op if never configured, same rationale as
     /// `ExecuteAsync`.

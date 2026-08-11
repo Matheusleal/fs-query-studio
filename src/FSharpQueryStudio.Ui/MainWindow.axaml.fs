@@ -126,6 +126,22 @@ type MainWindow() as this =
                     :> System.Threading.Tasks.Task)
                     |> ignore
                 | _ -> ()
+            | Ok(GoToDefinitionRequested(documentUri, version, line, column)) ->
+                match
+                    shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri),
+                    shellViewModel.DefinitionAsync
+                with
+                | Some doc, Some definition ->
+                    (task {
+                        let! location = definition (documentUri, version, doc.Text, line, column)
+
+                        postToEditor
+                            webView
+                            (EditorBridge.encodeNotification (DefinitionResolved(envelope.Id, documentUri, location)))
+                    }
+                    :> System.Threading.Tasks.Task)
+                    |> ignore
+                | _ -> ()
             | Ok _otherRequest -> () // Wired as each lands in its own later task.
             | Result.Error _err -> ()) // Malformed message from the page - never crashes the host.
 

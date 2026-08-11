@@ -31,6 +31,13 @@
       // response is matched to the request that triggered it.
       var pendingHoverResolvers = {};
 
+      // Pending `provideDefinition` promises, keyed by the
+      // goToDefinitionRequested envelope's own id, same correlation
+      // scheme as `pendingHoverResolvers` above. Each entry also carries
+      // the Monaco `model` the request was made against, needed to build
+      // the resolved `Location` (its `uri`) once the response lands.
+      var pendingDefinitionResolvers = {};
+
       require.config({ paths: { vs: "vs" } });
 
       require(["vs/editor/editor.main"], function () {
@@ -81,6 +88,22 @@
               // see DiagnosticsUpdated below) and 1-based on the line
               // to match FCS's own native line numbering directly.
               postToHostWithId(id, "hoverRequested", {
+                documentUri: documentUri,
+                version: currentVersion,
+                line: position.lineNumber,
+                column: position.column - 1
+              });
+            });
+          }
+        });
+
+        monaco.languages.registerDefinitionProvider("fsharp", {
+          provideDefinition: function (model, position) {
+            return new Promise(function (resolve) {
+              var id = crypto.randomUUID();
+              pendingDefinitionResolvers[id] = { resolve: resolve, model: model };
+
+              postToHostWithId(id, "goToDefinitionRequested", {
                 documentUri: documentUri,
                 version: currentVersion,
                 line: position.lineNumber,
@@ -147,6 +170,37 @@
                   delete pendingHoverResolvers[envelope.id];
                   var hover = envelope.payload.hover;
                   resolve(hover ? { contents: hoverInfoToContents(hover) } : null);
+                }
+
+                break;
+              }
+              case "definitionResolved": {
+                var pending = pendingDefinitionResolvers[envelope.id];
+
+                if (pending) {
+                  delete pendingDefinitionResolvers[envelope.id];
+                  var location = envelope.payload.location;
+
+                  // Cross-file jumps (a resolved declaration outside the
+                  // one open document/model) aren't supported yet - this
+                  // editor hosts exactly one model at a time, with no
+                  // multi-file project view for Monaco to jump into. Same
+                  // documentUri is the only case that can resolve to
+                  // anything real; anything else resolves null (Monaco
+                  // treats that as "no definition found", not an error).
+                  if (location && location.filePath === documentUri) {
+                    pending.resolve({
+                      uri: pending.model.uri,
+                      range: {
+                        startLineNumber: location.startLine + 1,
+                        startColumn: location.startColumn + 1,
+                        endLineNumber: location.endLine + 1,
+                        endColumn: location.endColumn + 1
+                      }
+                    });
+                  } else {
+                    pending.resolve(null);
+                  }
                 }
 
                 break;

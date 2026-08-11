@@ -780,6 +780,28 @@ let ``HoverAsync is settable and reachable as a plain hook, no-op when unconfigu
     }
 
 [<Fact>]
+let ``DefinitionAsync is settable and reachable as a plain hook, no-op when unconfigured`` () =
+    task {
+        let vm = ShellViewModel()
+        Assert.Equal(None, vm.DefinitionAsync)
+
+        vm.DefinitionAsync <-
+            Some(fun (_uri, _version, _source, _line, _column) ->
+                Task.FromResult(
+                    Some
+                        { FilePath = "script.fsx"
+                          StartLine = 0
+                          StartColumn = 4
+                          EndLine = 0
+                          EndColumn = 5 }
+                ))
+
+        let! result = vm.DefinitionAsync.Value ("untitled:Script1.fsx", 1, "let x = 1\nx", 2, 0)
+
+        Assert.Equal(0, result.Value.StartLine)
+    }
+
+[<Fact>]
 let ``a freshly-constructed ShellViewModel has no registered connections`` () =
     let vm = ShellViewModel()
     Assert.Empty(vm.Connections)
