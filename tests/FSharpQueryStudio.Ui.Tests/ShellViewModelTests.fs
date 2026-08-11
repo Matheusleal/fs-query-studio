@@ -761,6 +761,25 @@ let private testConnection (name: string) : ConnectionDefinition =
       IsTrusted = false }
 
 [<Fact>]
+let ``HoverAsync is settable and reachable as a plain hook, no-op when unconfigured`` () =
+    task {
+        let vm = ShellViewModel()
+        Assert.Equal(None, vm.HoverAsync)
+
+        let mutable received = None
+
+        vm.HoverAsync <-
+            Some(fun (uri, version, source, line, column) ->
+                received <- Some(uri, version, source, line, column)
+                Task.FromResult(Some { DisplayName = "x"; Type = "int"; Signature = None; XmlDoc = None }))
+
+        let! result = vm.HoverAsync.Value ("untitled:Script1.fsx", 1, "let x = 1", 1, 5)
+
+        Assert.Equal(Some("untitled:Script1.fsx", 1, "let x = 1", 1, 5), received)
+        Assert.Equal("x", result.Value.DisplayName)
+    }
+
+[<Fact>]
 let ``a freshly-constructed ShellViewModel has no registered connections`` () =
     let vm = ShellViewModel()
     Assert.Empty(vm.Connections)

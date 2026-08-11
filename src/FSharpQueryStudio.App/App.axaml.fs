@@ -79,6 +79,11 @@ type App() =
             mainWindow.WireExecution(executeAsync, cancelAsync, resetSessionAsync)
             mainWindow.ShellViewModel.CheckAsync <- Some checkAsync
 
+            let hoverAsync (documentUri: string, version: int, source: string, line: int, column: int) =
+                AnalysisService.hover client documentUri version source line column
+
+            mainWindow.ShellViewModel.HoverAsync <- Some hoverAsync
+
             mainWindow.ShellViewModel.CopyResultToClipboard <-
                 Some(fun text -> task { do! mainWindow.Clipboard.SetTextAsync(text) })
 

@@ -240,6 +240,14 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
         with get () = checkAsync
         and set value = checkAsync <- value
 
+    /// `analysis/hover` — set by the composition root, same
+    /// no-op-when-unconfigured shape as `ExecuteAsync`/`CheckAsync`.
+    /// Takes `(documentUri, version, source, line, column)`; `MainWindow`
+    /// calls it in response to a bridge `hoverRequested` message and
+    /// posts the result back as `HoverResolved`.
+    member val HoverAsync: ((string * int * string * int * int) -> Task<HoverInfo option>) option =
+        None with get, set
+
     /// The composition root's hook into the real OS clipboard — see
     /// C.15. A no-op if never configured, same rationale as
     /// `ExecuteAsync`.

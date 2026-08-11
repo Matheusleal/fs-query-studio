@@ -111,6 +111,21 @@ type MainWindow() as this =
             match EditorBridge.decode envelope with
             | Ok(TextChanged(documentUri, version, source)) ->
                 shellViewModel.RouteTextChanged(documentUri, version, source)
+            | Ok(HoverRequested(documentUri, version, line, column)) ->
+                match
+                    shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri), shellViewModel.HoverAsync
+                with
+                | Some doc, Some hover ->
+                    (task {
+                        let! info = hover (documentUri, version, doc.Text, line, column)
+
+                        postToEditor
+                            webView
+                            (EditorBridge.encodeNotification (HoverResolved(envelope.Id, documentUri, info)))
+                    }
+                    :> System.Threading.Tasks.Task)
+                    |> ignore
+                | _ -> ()
             | Ok _otherRequest -> () // Wired as each lands in its own later task.
             | Result.Error _err -> ()) // Malformed message from the page - never crashes the host.
 
