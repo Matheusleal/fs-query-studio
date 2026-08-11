@@ -28,7 +28,9 @@
         <MenuItem Header="_Workspace" Name="ToggleWorkspaceMenuItem" />
         <MenuItem Header="_Results" Name="ToggleResultsMenuItem" />
       </MenuItem>
-      <MenuItem Header="_Connections" IsEnabled="False" />
+      <MenuItem Header="_Connections">
+        <MenuItem Header="_New Connection…" Name="NewConnectionMenuItem" />
+      </MenuItem>
       <MenuItem Header="_Run">
         <!-- InputGesture only *renders* "F5" beside the item; the binding
              that actually handles the key is added to Window.KeyBindings in

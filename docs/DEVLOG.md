@@ -1114,3 +1114,17 @@ Flagged by the user while reviewing the shell: the bottom panel's `Results`/`Out
 
 **Not fixed yet** — recorded here as a real, user-identified gap for a follow-up task. The fix shape: move `Result`/`Output`/`Schema` (and whatever else `RunAsync`/`ExecutionService` currently write onto the shared `ResultViewModel`) onto `DocumentViewModel` instead, one instance per open tab, and have `ResultsView`'s bindings follow `ActiveDocument.Result` the same way `Problems` already follows `ActiveDocument.Diagnostics` — including the DataGrid column-rebuild wiring in `MainWindow.axaml.fs`, which currently rebuilds once for the single shared `Result.Schema` and would need to react to the active tab changing too.
 
+## 2026-08-11 — Feature: "New Connection" dialog, reachable from a real Connections menu
+
+Closed the plan's own end goal: a user-reachable path from the running app's menu to a registered, usable connection. The `_Connections` menu (disabled stub since A.10) is now a real submenu with one item, "New Connection…", opening a hand-rolled dialog that mirrors the existing `confirmDiscardDirty` `Window`-based pattern (same shape: build controls, wire `Click` handlers, `dialog.ShowDialog(this)` — Avalonia ships no dialog controls of its own, so this remains the project's one dialog pattern).
+
+The dialog collects a name, a `ConnectorKind` (all six: `Sqlite`/`Csv`/`Excel`/`SqlServer`/`PostgreSql`/`RestJson`), and kind-specific fields rebuilt on selection change — a file path for the three file-backed connectors, a connection string plus optional password for the two SQL connectors, a URL for REST — matching exactly what each connector's `WorkspaceConnectionResolver.build` case actually reads. On Register, builds a `ConnectionDefinition` (serializing `Configuration` per-kind via `JsonSerializer.SerializeToElement`) and calls `ShellViewModel.RegisterConnection`, already fully wired end-to-end since Tasks 2–6; Cancel only closes the dialog.
+
+Two compile-time issues surfaced writing this, both anticipated as possible and resolved without needing to ask:
+- An anonymous-record field with an inline type annotation (`Body: string option = None`, needed so `JsonSerializer.SerializeToElement` gets a concrete type for the RestJson case's `None`) doesn't parse in this F# version — `error FS0609`/`FS0010`. Moved the annotation onto the value instead: `Body = (None: string option)`, which compiles and serializes identically.
+- `TextBox(Watermark = ...)` failed with `error FS0044: This construct is deprecated. Use PlaceholderText instead` — this project's installed Avalonia version has already deprecated `Watermark` (treated as a build error here, not just a warning), and no prior code in the repo used it. Renamed all five occurrences to `PlaceholderText`, a purely mechanical fix.
+
+`MainWindow.axaml.fs` remains untestable by automation (needs a real `Window`), same standing limitation as every prior XAML task — verified via `dotnet build` (clean, 0 warnings/errors) and the full solution `dotnet test` (360 passed; the only 12 failures are the pre-existing `RequiresDocker` SQL Server/PostgreSQL testcontainer tests, Docker not running in this environment). `ShellViewModel.RegisterConnection`'s own behavior is already covered by Task 5's tests.
+
+Files changed: `src/FSharpQueryStudio.Ui/MainWindow.axaml`, `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`.
+

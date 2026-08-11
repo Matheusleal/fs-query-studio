@@ -259,6 +259,139 @@ type MainWindow() as this =
         // no prompt, no message, the tab just refused to close.
         shellViewModel.ConfirmDiscardDirtyDocument <- Some confirmDiscardDirty
 
+        /// Collects a new connection's name/kind/configuration and
+        /// registers it — the only UI path to `ShellViewModel
+        /// .RegisterConnection`. Kind-specific fields are the minimum
+        /// each connector's `WorkspaceConnectionResolver.build` case
+        /// actually reads (a file path for Sqlite/Csv/Excel, a
+        /// connection string + optional password for SqlServer/
+        /// PostgreSql, a URL for RestJson) — see
+        /// `WorkspaceConnectionResolver.fs`'s `FileConnectionConfig`/
+        /// `SqlConnectionStringConfig` for the exact shape each one
+        /// serializes into `Configuration`.
+        let showNewConnectionDialog () =
+            let nameBox = TextBox(PlaceholderText = "Connection name")
+
+            let kindCombo =
+                ComboBox(
+                    ItemsSource =
+                        [ ConnectorKind.Sqlite
+                          ConnectorKind.Csv
+                          ConnectorKind.Excel
+                          ConnectorKind.SqlServer
+                          ConnectorKind.PostgreSql
+                          ConnectorKind.RestJson ],
+                    SelectedIndex = 0
+                )
+
+            let filePathBox = TextBox(PlaceholderText = @"C:\path\to\file")
+            let connectionStringBox = TextBox(PlaceholderText = "Server=...;Database=...;User Id=...;Password={password};")
+            let passwordBox = TextBox(PlaceholderText = "Password (optional)", PasswordChar = '*')
+            let urlBox = TextBox(PlaceholderText = "https://example.com/api")
+
+            let fieldsPanel = StackPanel(Spacing = 8.0)
+
+            let rebuildFields () =
+                fieldsPanel.Children.Clear()
+
+                match kindCombo.SelectedItem :?> ConnectorKind with
+                | ConnectorKind.Sqlite
+                | ConnectorKind.Csv
+                | ConnectorKind.Excel -> fieldsPanel.Children.Add(filePathBox)
+                | ConnectorKind.SqlServer
+                | ConnectorKind.PostgreSql ->
+                    fieldsPanel.Children.Add(connectionStringBox)
+                    fieldsPanel.Children.Add(passwordBox)
+                | ConnectorKind.RestJson -> fieldsPanel.Children.Add(urlBox)
+
+            kindCombo.SelectionChanged.Add(fun _ -> rebuildFields ())
+            rebuildFields ()
+
+            let saveButton = Button(Content = "Register", Width = 96.0, IsDefault = true)
+            let cancelButton = Button(Content = "Cancel", Width = 96.0, IsCancel = true)
+
+            let buttons =
+                StackPanel(
+                    Orientation = Orientation.Horizontal,
+                    Spacing = 8.0,
+                    HorizontalAlignment = HorizontalAlignment.Right
+                )
+
+            buttons.Children.Add(cancelButton)
+            buttons.Children.Add(saveButton)
+
+            let panel = StackPanel(Margin = Thickness(16.0), Spacing = 12.0)
+            panel.Children.Add(TextBlock(Text = "Name"))
+            panel.Children.Add(nameBox)
+            panel.Children.Add(TextBlock(Text = "Kind"))
+            panel.Children.Add(kindCombo)
+            panel.Children.Add(fieldsPanel)
+            panel.Children.Add(buttons)
+
+            let dialog =
+                Window(
+                    Title = "New Connection",
+                    Width = 420.0,
+                    SizeToContent = SizeToContent.Height,
+                    CanResize = false,
+                    ShowInTaskbar = false,
+                    WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                    Content = panel
+                )
+
+            saveButton.Click.Add(fun _ ->
+                let kind = kindCombo.SelectedItem :?> ConnectorKind
+
+                let configuration, secretReference =
+                    match kind with
+                    | ConnectorKind.Sqlite
+                    | ConnectorKind.Csv
+                    | ConnectorKind.Excel ->
+                        System.Text.Json.JsonSerializer.SerializeToElement(
+                            {| FilePath = filePathBox.Text |},
+                            Serialization.options
+                        ),
+                        None
+                    | ConnectorKind.SqlServer
+                    | ConnectorKind.PostgreSql ->
+                        let hasSecret = not (String.IsNullOrWhiteSpace passwordBox.Text)
+
+                        System.Text.Json.JsonSerializer.SerializeToElement(
+                            {| ConnectionString = connectionStringBox.Text |},
+                            Serialization.options
+                        ),
+                        (if hasSecret then Some $"fqs-conn-{Guid.NewGuid():N}" else None)
+                    | ConnectorKind.RestJson ->
+                        System.Text.Json.JsonSerializer.SerializeToElement(
+                            {| Url = urlBox.Text
+                               Method = "GET"
+                               Headers = [||]
+                               QueryParams = [||]
+                               Body = (None: string option) |},
+                            Serialization.options
+                        ),
+                        None
+
+                let definition: ConnectionDefinition =
+                    { Id = Guid.NewGuid()
+                      Name = nameBox.Text
+                      Kind = kind
+                      Configuration = configuration
+                      SecretReference = secretReference
+                      IsTrusted = false }
+
+                let secret =
+                    if String.IsNullOrWhiteSpace passwordBox.Text then None else Some passwordBox.Text
+
+                shellViewModel.RegisterConnection definition secret |> ignore
+                dialog.Close())
+
+            cancelButton.Click.Add(fun _ -> dialog.Close())
+
+            dialog.ShowDialog(this) |> ignore
+
+        this.FindControl<MenuItem>("NewConnectionMenuItem").Click.Add(fun _ -> showNewConnectionDialog ())
+
         // The open-tab strip, rebuilt by hand from
         // `shellViewModel.Documents` (a plain
         // snapshot, not an observable collection) every time the set of
