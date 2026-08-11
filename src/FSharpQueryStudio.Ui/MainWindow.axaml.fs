@@ -416,13 +416,13 @@ type MainWindow() as this =
             let filePathBox =
                 TextBox(
                     PlaceholderText = @"C:\path\to\file",
-                    Text = (existing |> Option.map (stringProperty "FilePath") |> Option.defaultValue "")
+                    Text = (existing |> Option.map (stringProperty "filePath") |> Option.defaultValue "")
                 )
 
             let connectionStringBox =
                 TextBox(
                     PlaceholderText = "Server=...;Database=...;User Id=...;Password={password};",
-                    Text = (existing |> Option.map (stringProperty "ConnectionString") |> Option.defaultValue "")
+                    Text = (existing |> Option.map (stringProperty "connectionString") |> Option.defaultValue "")
                 )
 
             let passwordPlaceholder =
@@ -435,7 +435,7 @@ type MainWindow() as this =
             let urlBox =
                 TextBox(
                     PlaceholderText = "https://example.com/api",
-                    Text = (existing |> Option.map (stringProperty "Url") |> Option.defaultValue "")
+                    Text = (existing |> Option.map (stringProperty "url") |> Option.defaultValue "")
                 )
 
             let fieldsPanel = StackPanel(Spacing = 8.0)
