@@ -491,29 +491,13 @@ let ``execution/evaluate resolves Connections.sql against a connection registere
 
             let! _ = Handlers.dispatch registerRequest
 
-            let connectorsAssemblyPath = typeof<FSharpQueryStudio.Connectors.IConnectionResolver>.Assembly.Location
-            let escapedPath = connectorsAssemblyPath.Replace("\\", "\\\\")
-            let evaluateRequest = evaluateRequest "eval1" $"""#r "{escapedPath}"
-open FSharpQueryStudio.Connectors
-Connections.sql "Sales" "select Total from Orders" [] |> fun r -> r.Rows |> Seq.toArray"""
+            let evaluateRequest = evaluateRequest "eval1" """Connections.sql "Sales" "select Total from Orders" [] |> fun r -> r.Rows |> Seq.head |> Array.head"""
             let! evalResponse = Handlers.dispatch evaluateRequest
 
             Assert.True(evalResponse.Error.IsNone)
             let result = JsonSerializer.Deserialize<ResultEnvelope>(evalResponse.Result.Value, Serialization.options)
-            if result.Kind = ResultKind.Error then
-                failwith $"Script failed with error: {result.DisplayText}"
-            Assert.Equal(ResultKind.Table, result.Kind)
-            Assert.Single(result.Rows) |> ignore
-            let firstRow = result.Rows.[0]
-            let firstCell = firstRow.[0]
-            match firstCell with
-            | :? JsonElement as je when je.ValueKind = JsonValueKind.Array ->
-                Assert.Single(je.EnumerateArray() |> Seq.toList) |> ignore
-                let value = je.[0].GetDouble()
-                Assert.Equal(100.0, value)
-            | :? float as f ->
-                Assert.Equal(100.0, f)
-            | _ -> failwith $"Unexpected cell type: {firstCell.GetType()}"
+            Assert.Equal(ResultKind.Scalar, result.Kind)
+            Assert.Equal(Some "100", result.DisplayText)
         finally
             Handlers.setWorkspaceDirForTests None
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()

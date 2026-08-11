@@ -39,6 +39,29 @@ module FsiSession =
         let fsi =
             FsiEvaluationSession.Create(config, argv, stdin, output, errors, collectible = true)
 
+        // Every script reaches the controlled `Connections.sql`/`csv`/
+        // `excel`/`rest` API (Section 10/11) with no #r/open of its own -
+        // the architecture spec's own example script calls
+        // `Connections.sql "Sales" ...` directly. Run as a separate
+        // interaction, before any user source, so it never shifts the
+        // user script's own line numbers - Diagnostic mapping elsewhere
+        // in this project is 1-based on FCS's own line numbers and must
+        // stay aligned with exactly what the user typed.
+        let connectorsAssemblyPath =
+            typeof<FSharpQueryStudio.Connectors.IConnector>.Assembly.Location
+
+        let prologue =
+            $"#r @\"{connectorsAssemblyPath}\"\nopen FSharpQueryStudio.Connectors"
+
+        fsi.EvalInteractionNonThrowing(prologue) |> ignore
+
+        // Clear whatever FSI's own reference/echo messages the prologue
+        // produced (e.g. "--> Referenced ...") - a script's own captured
+        // Output/ErrorOutput (Evaluation.evaluate) must reflect only what
+        // the user's own code printed, not this host-injected setup step.
+        output.GetStringBuilder().Clear() |> ignore
+        errors.GetStringBuilder().Clear() |> ignore
+
         { Fsi = fsi
           Output = output
           Errors = errors }
