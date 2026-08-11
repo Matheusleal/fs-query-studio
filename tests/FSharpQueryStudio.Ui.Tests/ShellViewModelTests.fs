@@ -785,8 +785,12 @@ let ``DefinitionAsync is settable and reachable as a plain hook, no-op when unco
         let vm = ShellViewModel()
         Assert.Equal(None, vm.DefinitionAsync)
 
+        let mutable received = None
+
         vm.DefinitionAsync <-
-            Some(fun (_uri, _version, _source, _line, _column) ->
+            Some(fun (uri, version, source, line, column) ->
+                received <- Some(uri, version, source, line, column)
+
                 Task.FromResult(
                     Some
                         { FilePath = "script.fsx"
@@ -796,8 +800,9 @@ let ``DefinitionAsync is settable and reachable as a plain hook, no-op when unco
                           EndColumn = 5 }
                 ))
 
-        let! result = vm.DefinitionAsync.Value ("untitled:Script1.fsx", 1, "let x = 1\nx", 2, 0)
+        let! result = vm.DefinitionAsync.Value ("untitled:Script1.fsx", 1, "let x = 1\nx", 2, 1)
 
+        Assert.Equal(Some("untitled:Script1.fsx", 1, "let x = 1\nx", 2, 1), received)
         Assert.Equal(0, result.Value.StartLine)
     }
 

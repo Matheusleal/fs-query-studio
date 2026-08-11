@@ -104,6 +104,41 @@ type MainWindow() as this =
         // editor slot, shared by every open tab.
         webView <- NativeWebView()
 
+        // Every editor-intelligence request Monaco makes is a promise on
+        // the page waiting for exactly one matching *Resolved notification.
+        // If nothing ever posts one - the document lookup missed, the hook
+        // was never configured, or the hook itself threw - that promise
+        // never settles, Monaco's UI hangs on it forever, and the page's
+        // pending-resolver entry leaks (completions fire per keystroke, so
+        // that leak is unbounded). This funnels all five through one place
+        // that always posts something back and logs whenever the answer is
+        // the `fallback` "nothing found" one rather than a real result.
+        let resolveEditorRequest
+            (kind: string)
+            (fallback: HostNotification)
+            (context: 'doc option * 'hook option)
+            (run: 'doc -> 'hook -> System.Threading.Tasks.Task<HostNotification>)
+            : unit =
+            match context with
+            | Some doc, Some hook ->
+                (task {
+                    try
+                        let! notification = run doc hook
+                        postToEditor webView (EditorBridge.encodeNotification notification)
+                    with ex ->
+                        Log.Warning(ex, "Editor {RequestKind} request failed; resolving it with nothing", kind)
+                        postToEditor webView (EditorBridge.encodeNotification fallback)
+                }
+                :> System.Threading.Tasks.Task)
+                |> ignore
+            | _ ->
+                Log.Warning(
+                    "Editor {RequestKind} request had no matching document or no configured hook; resolving it with nothing",
+                    kind
+                )
+
+                postToEditor webView (EditorBridge.encodeNotification fallback)
+
         webView.WebMessageReceived.Add(fun args ->
             let envelope =
                 System.Text.Json.JsonSerializer.Deserialize<EditorEnvelope>(args.Body, Serialization.options)
@@ -112,87 +147,61 @@ type MainWindow() as this =
             | Ok(TextChanged(documentUri, version, source)) ->
                 shellViewModel.RouteTextChanged(documentUri, version, source)
             | Ok(HoverRequested(documentUri, version, line, column)) ->
-                match
-                    shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri), shellViewModel.HoverAsync
-                with
-                | Some doc, Some hover ->
-                    (task {
-                        let! info = hover (documentUri, version, doc.Text, line, column)
-
-                        postToEditor
-                            webView
-                            (EditorBridge.encodeNotification (HoverResolved(envelope.Id, documentUri, info)))
-                    }
-                    :> System.Threading.Tasks.Task)
-                    |> ignore
-                | _ -> ()
+                resolveEditorRequest
+                    "hover"
+                    (HoverResolved(envelope.Id, documentUri, None))
+                    (shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri), shellViewModel.HoverAsync)
+                    (fun doc hover ->
+                        task {
+                            let! info = hover (documentUri, version, doc.Text, line, column)
+                            return HoverResolved(envelope.Id, documentUri, info)
+                        })
             | Ok(GoToDefinitionRequested(documentUri, version, line, column)) ->
-                match
-                    shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri),
-                    shellViewModel.DefinitionAsync
-                with
-                | Some doc, Some definition ->
-                    (task {
-                        let! location = definition (documentUri, version, doc.Text, line, column)
-
-                        postToEditor
-                            webView
-                            (EditorBridge.encodeNotification (DefinitionResolved(envelope.Id, documentUri, location)))
-                    }
-                    :> System.Threading.Tasks.Task)
-                    |> ignore
-                | _ -> ()
+                resolveEditorRequest
+                    "goToDefinition"
+                    (DefinitionResolved(envelope.Id, documentUri, None))
+                    (shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri),
+                     shellViewModel.DefinitionAsync)
+                    (fun doc definition ->
+                        task {
+                            let! location = definition (documentUri, version, doc.Text, line, column)
+                            return DefinitionResolved(envelope.Id, documentUri, location)
+                        })
             | Ok(SignatureHelpRequested(documentUri, version, line, column)) ->
-                match
-                    shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri),
-                    shellViewModel.SignatureHelpAsync
-                with
-                | Some doc, Some signatureHelp ->
-                    (task {
-                        let! info = signatureHelp (documentUri, version, doc.Text, line, column)
-
-                        postToEditor
-                            webView
-                            (EditorBridge.encodeNotification (
-                                SignatureHelpResolved(envelope.Id, documentUri, info)
-                            ))
-                    }
-                    :> System.Threading.Tasks.Task)
-                    |> ignore
-                | _ -> ()
+                resolveEditorRequest
+                    "signatureHelp"
+                    (SignatureHelpResolved(envelope.Id, documentUri, None))
+                    (shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri),
+                     shellViewModel.SignatureHelpAsync)
+                    (fun doc signatureHelp ->
+                        task {
+                            let! info = signatureHelp (documentUri, version, doc.Text, line, column)
+                            return SignatureHelpResolved(envelope.Id, documentUri, info)
+                        })
             | Ok(CompletionRequested(documentUri, version, line, column)) ->
-                match
-                    shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri), shellViewModel.CompleteAsync
-                with
-                | Some doc, Some complete ->
-                    (task {
-                        let! items = complete (documentUri, version, doc.Text, line, column)
-
-                        postToEditor
-                            webView
-                            (EditorBridge.encodeNotification (CompletionResolved(envelope.Id, documentUri, items)))
-                    }
-                    :> System.Threading.Tasks.Task)
-                    |> ignore
-                | _ -> ()
+                resolveEditorRequest
+                    "completion"
+                    (CompletionResolved(envelope.Id, documentUri, []))
+                    (shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri),
+                     shellViewModel.CompleteAsync)
+                    (fun doc complete ->
+                        task {
+                            let! items = complete (documentUri, version, doc.Text, line, column)
+                            return CompletionResolved(envelope.Id, documentUri, items)
+                        })
             | Ok(RenameRequested(documentUri, version, line, column, newName)) ->
-                match
-                    shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri), shellViewModel.RenameAsync
-                with
-                | Some doc, Some rename ->
-                    (task {
-                        let! edits = rename (documentUri, version, doc.Text, line, column)
-
-                        postToEditor
-                            webView
-                            (EditorBridge.encodeNotification (
-                                RenameResolved(envelope.Id, documentUri, edits, newName)
-                            ))
-                    }
-                    :> System.Threading.Tasks.Task)
-                    |> ignore
-                | _ -> ()
-            | Ok _otherRequest -> () // Wired as each lands in its own later task.
+                resolveEditorRequest
+                    "rename"
+                    (RenameResolved(envelope.Id, documentUri, None, newName))
+                    (shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri), shellViewModel.RenameAsync)
+                    (fun doc rename ->
+                        task {
+                            let! edits = rename (documentUri, version, doc.Text, line, column)
+                            return RenameResolved(envelope.Id, documentUri, edits, newName)
+                        })
+            // ExecuteRequested/CancelRequested are the only requests left,
+            // and both are handled by `WireExecution` rather than here.
+            | Ok _executionRequest -> ()
             | Result.Error _err -> ()) // Malformed message from the page - never crashes the host.
 
         // Logs the native adapter's lifecycle and navigation outcome —

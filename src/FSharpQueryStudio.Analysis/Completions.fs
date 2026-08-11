@@ -80,7 +80,24 @@ module Completions =
                     return []
                 else
                     let lineText = lines.[line - 1]
-                    let partial = QuickParse.GetPartialLongNameEx(lineText, column)
+
+                    // `column` follows this layer's shared convention - a
+                    // 0-based column at/*after* the end of the token, i.e.
+                    // an exclusive end. `GetPartialLongNameEx` instead wants
+                    // an *inclusive* index: the 0-based position of the last
+                    // character typed, and it hands back
+                    // `PartialLongName.Empty` for any index at or past the
+                    // line's length. Passing the exclusive end straight
+                    // through therefore blanked the partial name in exactly
+                    // the case that matters most - the caret sitting at the
+                    // end of the line, which is where completion is always
+                    // requested from. With an empty partial name the
+                    // qualifying idents are lost too, so `s.Sub|` fell back
+                    // to a dump of everything in top-level scope instead of
+                    // String's members. A negative index (caret at column 0)
+                    // is fine: GetPartialLongNameEx treats it as empty, which
+                    // is the correct "nothing typed yet" answer.
+                    let partial = QuickParse.GetPartialLongNameEx(lineText, column - 1)
 
                     let declInfo =
                         results.GetDeclarationListInfo(Some parseResults, line, lineText, partial, (fun () -> []))

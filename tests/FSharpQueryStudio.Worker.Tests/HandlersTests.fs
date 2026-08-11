@@ -401,6 +401,27 @@ let ``dispatch on analysis/definition resolves a use site back to its own declar
     }
 
 [<Fact>]
+let ``dispatch on analysis/definition reports a same-file declaration against the requesting document, not the analysis context's temp script`` () =
+    task {
+        let source = "let helper (x: int) : int = x + 1\n\nlet total = helper 41\n"
+        let! response = Handlers.dispatch (analysisDefinitionRequest "d3" source 3 18)
+
+        let result =
+            JsonSerializer.Deserialize<AnalysisDefinitionResult>(response.Result.Value, Serialization.options)
+
+        match result.Location with
+        | None -> failwith "expected a definition location"
+        | Some location ->
+            // FCS answers with the throwaway fqs-analysis-<guid> script the
+            // context was anchored at, which is a different path on every
+            // request and matches nothing the editor knows about. The
+            // handler rewrites it to the URI the request came from so the
+            // editor's same-document check can actually succeed.
+            Assert.Equal("file:///workspace/sales.fsx", location.FilePath)
+            Assert.DoesNotContain("fqs-analysis-", location.FilePath)
+    }
+
+[<Fact>]
 let ``dispatch on analysis/definition at a position with no resolvable symbol returns a Result with no location`` () =
     task {
         let source = "let helper (x: int) : int = x + 1\n\nlet total = helper 41\n"
@@ -435,6 +456,28 @@ let ``dispatch on analysis/signatureHelp returns the parameter and return types 
     }
 
 [<Fact>]
+let ``dispatch on analysis/signatureHelp resolves from the called function's own end column, not the open-paren the trigger fired on`` () =
+    task {
+        let source = "let add (x: int) (y: int) : int = x + y\nadd("
+        // Line 2 is "add(". Column 4 is where Monaco's "(" trigger fires;
+        // column 3 is the end of "add" itself. The backend resolves the
+        // single symbol at the requested position, so only the latter
+        // finds anything - which is why the editor scans back to the
+        // function name before asking.
+        let! atName = Handlers.dispatch (analysisSignatureHelpRequest "s3" source 2 3)
+        let! atParen = Handlers.dispatch (analysisSignatureHelpRequest "s4" source 2 4)
+
+        let parse (r: WorkerResponseFrame) =
+            JsonSerializer.Deserialize<AnalysisSignatureHelpResult>(r.Result.Value, Serialization.options)
+
+        match (parse atName).SignatureHelp with
+        | None -> failwith "expected signature help at the function name's end column"
+        | Some info -> Assert.Equal("add", info.DisplayName)
+
+        Assert.Equal(None, (parse atParen).SignatureHelp)
+    }
+
+[<Fact>]
 let ``dispatch on analysis/signatureHelp on a non-callable symbol returns a Result with no signature`` () =
     task {
         let source = "let total = 42\n"
@@ -464,11 +507,52 @@ let ``dispatch on analysis/complete returns tier-1 keyword and connector-helper 
 let ``dispatch on analysis/complete includes tier-2 semantic completions at the cursor position`` () =
     task {
         let source = "let myLocalValue = 1\nmyLocal"
-        let! response = Handlers.dispatch (completionRequest "cmp2" source 2 8)
+        // Line 2 is "myLocal", 7 characters — column 7 is the end-of-line
+        // caret a completion is actually requested from, and the largest
+        // in-range value for this line. (The earlier 8 was past the end.)
+        let! response = Handlers.dispatch (completionRequest "cmp2" source 2 7)
 
         Assert.True(response.Error.IsNone)
         let result = JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)
         Assert.Contains("myLocalValue", result.Items)
+    }
+
+[<Fact>]
+let ``dispatch on analysis/complete returns the members of the qualifier at a dotted position, not the whole top-level scope`` () =
+    task {
+        // The caret sits at the end of "s.Sub", the shape Monaco actually
+        // asks about while a member name is being typed. FCS never
+        // prefix-filters (the editor does), so the useful assertion is
+        // that the list is String's *members* rather than everything in
+        // top-level scope - the failure mode when the qualifier is lost.
+        let source = "let s = \"abc\"\ns.Sub"
+        let! response = Handlers.dispatch (completionRequest "cmp3" source 2 5)
+
+        Assert.True(response.Error.IsNone)
+        let result = JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)
+
+        Assert.Contains("Substring", result.Items)
+        Assert.Contains("Length", result.Items)
+        Assert.Contains("ToUpper", result.Items)
+
+        // Tier 1 is merged in unconditionally, so its presence proves
+        // nothing - but a top-level-scope dump would also carry names like
+        // these, and a real member list must not.
+        Assert.DoesNotContain("Choice1Of2", result.Items)
+        Assert.DoesNotContain("printfn", result.Items)
+    }
+
+[<Fact>]
+let ``dispatch on analysis/complete at a bare trailing dot returns the qualifier's members`` () =
+    task {
+        let source = "let s = \"abc\"\ns."
+        let! response = Handlers.dispatch (completionRequest "cmp4" source 2 2)
+
+        Assert.True(response.Error.IsNone)
+        let result = JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)
+
+        Assert.Contains("Substring", result.Items)
+        Assert.DoesNotContain("Choice1Of2", result.Items)
     }
 
 let private registerConnectionRequest (id: string) (connection: ConnectionDefinition) : WorkerRequestFrame =

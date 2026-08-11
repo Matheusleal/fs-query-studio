@@ -212,6 +212,28 @@ module Handlers =
           Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
           Error = None }
 
+    /// Every `analysis/*` handler anchors its throwaway `AnalysisContext`
+    /// at a fresh temp directory. Nothing is ever written into it (the
+    /// source is handed to FCS as a `SourceText`, never as a file), but
+    /// the directory itself has to exist for `GetProjectOptionsFromScript`
+    /// to resolve against it — so it is created per request and, unlike
+    /// before, deleted again when the request finishes.
+    let private createAnalysisWorkDir () : string =
+        let workDir =
+            Path.Combine(Path.GetTempPath(), "fqs-analysis-" + Guid.NewGuid().ToString("N"))
+
+        Directory.CreateDirectory(workDir) |> ignore
+        workDir
+
+    /// Best-effort cleanup: a failed delete (a locked file, a racing
+    /// antivirus scan) must never mask the analysis result or throw past
+    /// the handler's own `finally`.
+    let private deleteAnalysisWorkDir (workDir: string) : unit =
+        try
+            Directory.Delete(workDir, true)
+        with ex ->
+            Log.Debug(ex, "Could not delete the analysis working directory {WorkingDirectory}", workDir)
+
     /// Parses/type-checks the request's source snapshot via FCS, in a fresh
     /// analysis context per call (Section 8, step 3-4) — the context is
     /// cheap to (re)build and this stays stateless, unlike `runEvaluate`'s
@@ -221,20 +243,21 @@ module Handlers =
             let checkParams =
                 JsonSerializer.Deserialize<AnalysisCheckParams>(request.Params, Serialization.options)
 
-            let workDir =
-                Path.Combine(Path.GetTempPath(), "fqs-analysis-" + Guid.NewGuid().ToString("N"))
+            let workDir = createAnalysisWorkDir ()
 
-            Directory.CreateDirectory(workDir) |> ignore
-            let context = AnalysisContext.build workDir
-            let! diagnostics = Checker.check context checkParams.Source
+            try
+                let context = AnalysisContext.build workDir
+                let! diagnostics = Checker.check context checkParams.Source
 
-            let result: AnalysisCheckResult =
-                { Diagnostics = diagnostics |> Array.map DiagnosticMapping.map |> Array.toList }
+                let result: AnalysisCheckResult =
+                    { Diagnostics = diagnostics |> Array.map DiagnosticMapping.map |> Array.toList }
 
-            return
-                { Id = request.Id
-                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                  Error = None }
+                return
+                    { Id = request.Id
+                      Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                      Error = None }
+            finally
+                deleteAnalysisWorkDir workDir
         }
 
     /// Answers `analysis/hover` from the request's own source snapshot, in
@@ -246,19 +269,20 @@ module Handlers =
             let hoverParams =
                 JsonSerializer.Deserialize<AnalysisHoverParams>(request.Params, Serialization.options)
 
-            let workDir =
-                Path.Combine(Path.GetTempPath(), "fqs-analysis-" + Guid.NewGuid().ToString("N"))
+            let workDir = createAnalysisWorkDir ()
 
-            Directory.CreateDirectory(workDir) |> ignore
-            let context = AnalysisContext.build workDir
-            let! hover = Hover.hover context hoverParams.Source hoverParams.Line hoverParams.Column
+            try
+                let context = AnalysisContext.build workDir
+                let! hover = Hover.hover context hoverParams.Source hoverParams.Line hoverParams.Column
 
-            let result: AnalysisHoverResult = { Hover = hover }
+                let result: AnalysisHoverResult = { Hover = hover }
 
-            return
-                { Id = request.Id
-                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                  Error = None }
+                return
+                    { Id = request.Id
+                      Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                      Error = None }
+            finally
+                deleteAnalysisWorkDir workDir
         }
 
     /// Answers `analysis/definition` from the request's own source
@@ -271,21 +295,42 @@ module Handlers =
             let definitionParams =
                 JsonSerializer.Deserialize<AnalysisDefinitionParams>(request.Params, Serialization.options)
 
-            let workDir =
-                Path.Combine(Path.GetTempPath(), "fqs-analysis-" + Guid.NewGuid().ToString("N"))
+            let workDir = createAnalysisWorkDir ()
 
-            Directory.CreateDirectory(workDir) |> ignore
-            let context = AnalysisContext.build workDir
+            try
+                let context = AnalysisContext.build workDir
 
-            let! location =
-                GoToDefinition.findDefinition context definitionParams.Source definitionParams.Line definitionParams.Column
+                let! location =
+                    GoToDefinition.findDefinition
+                        context
+                        definitionParams.Source
+                        definitionParams.Line
+                        definitionParams.Column
 
-            let result: AnalysisDefinitionResult = { Location = location }
+                // A same-file declaration comes back carrying the analysis
+                // context's own throwaway script path (a per-request
+                // fqs-analysis-<guid> temp file that never existed on disk
+                // and is deleted below). That path is meaningless to the
+                // UI and can never equal the document URI the request came
+                // from, so the editor's "is this the document I'm looking
+                // at?" check could never match. Rewriting it here keeps
+                // that temp identity off the wire entirely.
+                let location =
+                    location
+                    |> Option.map (fun l ->
+                        if l.FilePath = context.ScriptPath then
+                            { l with FilePath = definitionParams.DocumentUri }
+                        else
+                            l)
 
-            return
-                { Id = request.Id
-                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                  Error = None }
+                let result: AnalysisDefinitionResult = { Location = location }
+
+                return
+                    { Id = request.Id
+                      Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                      Error = None }
+            finally
+                deleteAnalysisWorkDir workDir
         }
 
     /// Answers `analysis/signatureHelp` from the request's own source
@@ -299,25 +344,26 @@ module Handlers =
             let signatureHelpParams =
                 JsonSerializer.Deserialize<AnalysisSignatureHelpParams>(request.Params, Serialization.options)
 
-            let workDir =
-                Path.Combine(Path.GetTempPath(), "fqs-analysis-" + Guid.NewGuid().ToString("N"))
+            let workDir = createAnalysisWorkDir ()
 
-            Directory.CreateDirectory(workDir) |> ignore
-            let context = AnalysisContext.build workDir
+            try
+                let context = AnalysisContext.build workDir
 
-            let! signatureHelp =
-                SignatureHelp.signatureHelp
-                    context
-                    signatureHelpParams.Source
-                    signatureHelpParams.Line
-                    signatureHelpParams.Column
+                let! signatureHelp =
+                    SignatureHelp.signatureHelp
+                        context
+                        signatureHelpParams.Source
+                        signatureHelpParams.Line
+                        signatureHelpParams.Column
 
-            let result: AnalysisSignatureHelpResult = { SignatureHelp = signatureHelp }
+                let result: AnalysisSignatureHelpResult = { SignatureHelp = signatureHelp }
 
-            return
-                { Id = request.Id
-                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                  Error = None }
+                return
+                    { Id = request.Id
+                      Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                      Error = None }
+            finally
+                deleteAnalysisWorkDir workDir
         }
 
     /// `analysis/complete` — Milestone B.10/B.11. Merges tier 1 (static,
@@ -332,22 +378,27 @@ module Handlers =
             let completionParams =
                 JsonSerializer.Deserialize<AnalysisCompletionParams>(request.Params, Serialization.options)
 
-            let workDir =
-                Path.Combine(Path.GetTempPath(), "fqs-analysis-" + Guid.NewGuid().ToString("N"))
+            let workDir = createAnalysisWorkDir ()
 
-            Directory.CreateDirectory(workDir) |> ignore
-            let context = AnalysisContext.build workDir
+            try
+                let context = AnalysisContext.build workDir
 
-            let! semantic =
-                Completions.completeAtPosition context completionParams.Source completionParams.Line completionParams.Column
+                let! semantic =
+                    Completions.completeAtPosition
+                        context
+                        completionParams.Source
+                        completionParams.Line
+                        completionParams.Column
 
-            let items = (Completions.complete [] @ semantic) |> List.distinct
-            let result: AnalysisCompletionResult = { Items = items }
+                let items = (Completions.complete [] @ semantic) |> List.distinct
+                let result: AnalysisCompletionResult = { Items = items }
 
-            return
-                { Id = request.Id
-                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                  Error = None }
+                return
+                    { Id = request.Id
+                      Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                      Error = None }
+            finally
+                deleteAnalysisWorkDir workDir
         }
 
     /// `analysis/rename` — Milestone E.8. `Analysis.Rename` only locates
@@ -365,22 +416,23 @@ module Handlers =
             let renameParams =
                 JsonSerializer.Deserialize<AnalysisRenameParams>(request.Params, Serialization.options)
 
-            let workDir =
-                Path.Combine(Path.GetTempPath(), "fqs-analysis-" + Guid.NewGuid().ToString("N"))
+            let workDir = createAnalysisWorkDir ()
 
-            Directory.CreateDirectory(workDir) |> ignore
-            let context = AnalysisContext.build workDir
+            try
+                let context = AnalysisContext.build workDir
 
-            let! edits =
-                Rename.findReferences context renameParams.Source renameParams.Line renameParams.Column
+                let! edits =
+                    Rename.findReferences context renameParams.Source renameParams.Line renameParams.Column
 
-            let result: AnalysisRenameResult =
-                { Edits = edits |> Option.map (List.map toProtocolRenameEdit) }
+                let result: AnalysisRenameResult =
+                    { Edits = edits |> Option.map (List.map toProtocolRenameEdit) }
 
-            return
-                { Id = request.Id
-                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                  Error = None }
+                return
+                    { Id = request.Id
+                      Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                      Error = None }
+            finally
+                deleteAnalysisWorkDir workDir
         }
 
     /// `results/page` — Section 7. An unknown or expired

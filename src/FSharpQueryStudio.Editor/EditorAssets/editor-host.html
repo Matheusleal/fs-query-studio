@@ -55,6 +55,45 @@
       // `pendingHoverResolvers` above.
       var pendingRenameResolvers = {};
 
+      // Settles and clears every pending request across all five maps.
+      // Used when the document underneath them changes identity, where
+      // any still-outstanding response has become meaningless. Each
+      // promise is resolved with that provider's own "nothing found"
+      // shape rather than left dangling - an unsettled Monaco provider
+      // promise hangs its UI (a spinning hover, a stuck rename) forever,
+      // and the map entry leaks.
+      function settlePending() {
+        Object.keys(pendingHoverResolvers).forEach(function (id) {
+          var resolve = pendingHoverResolvers[id];
+          delete pendingHoverResolvers[id];
+          resolve(null);
+        });
+
+        Object.keys(pendingDefinitionResolvers).forEach(function (id) {
+          var pending = pendingDefinitionResolvers[id];
+          delete pendingDefinitionResolvers[id];
+          pending.resolve(null);
+        });
+
+        Object.keys(pendingSignatureHelpResolvers).forEach(function (id) {
+          var resolve = pendingSignatureHelpResolvers[id];
+          delete pendingSignatureHelpResolvers[id];
+          resolve(null);
+        });
+
+        Object.keys(pendingCompletionResolvers).forEach(function (id) {
+          var pending = pendingCompletionResolvers[id];
+          delete pendingCompletionResolvers[id];
+          pending.resolve({ suggestions: [] });
+        });
+
+        Object.keys(pendingRenameResolvers).forEach(function (id) {
+          var pending = pendingRenameResolvers[id];
+          delete pendingRenameResolvers[id];
+          pending.resolve({ edits: [], rejectReason: "The document changed before the rename resolved" });
+        });
+      }
+
       require.config({ paths: { vs: "vs" } });
 
       require(["vs/editor/editor.main"], function () {
@@ -82,6 +121,25 @@
         var currentVersion = 0;
         var suppressChangeEvent = false;
 
+        // The column every symbol-lookup request has to send. Monaco hands
+        // a provider the raw caret/mouse position, which for a hover lands
+        // wherever the pointer happened to stop inside the glyph run and
+        // for F2/F12 wherever the caret already was — but the whole
+        // Analysis layer (Hover, GoToDefinition, SignatureHelp, Rename)
+        // requires the column at or *after* the end of the identifier,
+        // because that is what FCS's GetSymbolUseAtLocation resolves
+        // against. Sending the raw caret means GetSymbolUseAtLocation
+        // returns None and the feature silently does nothing.
+        // getWordAtPosition supplies the identifier's real end column; the
+        // caret is the fallback when the position isn't inside a word at
+        // all (whitespace, punctuation), where there is nothing to resolve
+        // anyway. The trailing -1 converts Monaco's 1-based column to the
+        // wire's 0-based one.
+        function fcsColumnAt(model, position) {
+          var word = model.getWordAtPosition(position);
+          return (word ? word.endColumn : position.column) - 1;
+        }
+
         editor.onDidChangeModelContent(function () {
           if (suppressChangeEvent) {
             return;
@@ -108,7 +166,7 @@
                 documentUri: documentUri,
                 version: currentVersion,
                 line: position.lineNumber,
-                column: position.column - 1
+                column: fcsColumnAt(model, position)
               });
             });
           }
@@ -124,15 +182,42 @@
                 documentUri: documentUri,
                 version: currentVersion,
                 line: position.lineNumber,
-                column: position.column - 1
+                column: fcsColumnAt(model, position)
               });
             });
           }
         });
 
+        // The column to ask about for signature help. The trigger
+        // characters below fire the provider with the caret sitting
+        // *inside* the argument list, right after "(" or ",", but the
+        // backend (Analysis/SignatureHelp.fs) resolves the single symbol
+        // at the requested position — the click-on-the-identifier model —
+        // and there is no symbol at a paren. So scan back over the text
+        // before the caret for "name(" and ask about the end of that name
+        // instead. `match.index + match[1].length` is already the 0-based
+        // column just past the name's last character: for "add(" the match
+        // starts at 0, the name is 3 long, and 3 is exactly the exclusive
+        // end of "add". Returns null when the caret isn't in that shape,
+        // so the caller can fall back.
+        function calledFunctionEndColumn(model, position) {
+          var lineContent = model.getLineContent(position.lineNumber);
+          var beforeCursor = lineContent.substring(0, position.column - 1);
+          var match = beforeCursor.match(/([A-Za-z_][A-Za-z0-9_.]*)\s*\($/);
+          return match ? match.index + match[1].length : null;
+        }
+
         monaco.languages.registerSignatureHelpProvider("fsharp", {
+          // "," is kept as a trigger so the popup at least reappears while
+          // typing further arguments, but the backend has no active-
+          // parameter tracking, so it always highlights the first
+          // parameter — the backward scan below only reliably identifies
+          // the function for the "just typed name(" case.
           signatureHelpTriggerCharacters: ["(", ","],
           provideSignatureHelp: function (model, position) {
+            var nameEnd = calledFunctionEndColumn(model, position);
+            var lookupColumn = nameEnd !== null ? nameEnd : fcsColumnAt(model, position);
+
             return new Promise(function (resolve) {
               var id = crypto.randomUUID();
               pendingSignatureHelpResolvers[id] = resolve;
@@ -141,13 +226,17 @@
                 documentUri: documentUri,
                 version: currentVersion,
                 line: position.lineNumber,
-                column: position.column - 1
+                column: lookupColumn
               });
             });
           }
         });
 
         monaco.languages.registerCompletionItemProvider("fsharp", {
+          // Without this Monaco only invokes the provider on word
+          // characters, so a bare "s." never popped the member list until
+          // another character was typed.
+          triggerCharacters: ["."],
           provideCompletionItems: function (model, position) {
             // The already-typed partial word at the cursor (e.g. "myLoc"
             // of "myLocalValue") — without this, every accepted
@@ -167,6 +256,14 @@
               var id = crypto.randomUUID();
               pendingCompletionResolvers[id] = { resolve: resolve, range: wordRange };
 
+              // Deliberately the raw caret, *not* fcsColumnAt: completion
+              // asks "what could follow what I have typed so far", so the
+              // wanted column is the end of the typed prefix, which is
+              // exactly where the caret already is. fcsColumnAt would snap
+              // forward to the end of the whole word under the caret,
+              // which is a different question. Verified empirically
+              // against the worker (see HandlersTests' dotted-completion
+              // tests) rather than assumed.
               postToHostWithId(id, "completionRequested", {
                 documentUri: documentUri,
                 version: currentVersion,
@@ -183,22 +280,11 @@
               var id = crypto.randomUUID();
               pendingRenameResolvers[id] = { resolve: resolve, model: model };
 
-              // Monaco hands F2 the raw caret position, which for a normal
-              // rename lands somewhere inside the word, not at its end -
-              // but findReferences (via FCS's GetSymbolUseAtLocation)
-              // requires the column at the word's *end*, the same
-              // convention proved out by the Worker test's corrected
-              // column. getWordAtPosition finds that end column, same API
-              // family the completion provider above already uses
-              // (getWordUntilPosition).
-              var word = model.getWordAtPosition(position);
-              var column = (word ? word.endColumn : position.column) - 1;
-
               postToHostWithId(id, "renameRequested", {
                 documentUri: documentUri,
                 version: currentVersion,
                 line: position.lineNumber,
-                column: column,
+                column: fcsColumnAt(model, position),
                 newName: newName
               });
             });
@@ -280,6 +366,12 @@
                   // documentUri is the only case that can resolve to
                   // anything real; anything else resolves null (Monaco
                   // treats that as "no definition found", not an error).
+                  // The worker normalises a same-file declaration's
+                  // filePath back to the requesting documentUri before
+                  // sending it, so this comparison is against a value that
+                  // can actually match - it used to be compared against
+                  // the analysis context's throwaway temp script path,
+                  // which differed on every request and never matched.
                   if (location && location.filePath === documentUri) {
                     pending.resolve({
                       uri: pending.model.uri,
@@ -370,7 +462,14 @@
                       })
                     });
                   } else {
-                    pendingRename.resolve({ edits: [] });
+                    // rejectReason surfaces a message in the rename
+                    // widget; without it Monaco just closes silently and
+                    // the user can't tell a failed lookup from a rename
+                    // that genuinely changed nothing.
+                    pendingRename.resolve({
+                      edits: [],
+                      rejectReason: "No symbol found to rename at this position"
+                    });
                   }
                 }
 
@@ -401,6 +500,16 @@
                 break;
               }
               case "documentLoaded": {
+                // Settle and drop every in-flight request first. setValue
+                // mutates the one shared model in place, so a response for
+                // the *previous* document that lands after this point
+                // would otherwise be applied against the new document's
+                // text - resolving a hover, a jump target, or worse a
+                // rename edit at coordinates that mean something else now.
+                // Each is settled with its own "nothing found" value
+                // rather than abandoned, so no Monaco promise hangs.
+                settlePending();
+
                 suppressChangeEvent = true;
                 documentUri = envelope.payload.documentUri;
                 currentVersion = envelope.payload.version;

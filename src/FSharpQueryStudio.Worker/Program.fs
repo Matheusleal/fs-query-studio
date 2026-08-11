@@ -55,7 +55,7 @@ let rec private loop (stdin: TextReader) (stdout: TextWriter) =
                 |> ignore
 
                 do! loop stdin stdout
-        | Some request when request.Method = "analysis/check" || request.Method = "analysis/hover" ->
+        | Some request when request.Method.StartsWith("analysis/") ->
             // Backgrounded like execution/evaluate, but for a different
             // reason: analysis requests are stateless (a fresh
             // AnalysisContext per call, no shared mutable state like
@@ -63,6 +63,15 @@ let rec private loop (stdin: TextReader) (stdout: TextWriter) =
             // out of order without corrupting anything - which is exactly
             // what lets a genuinely stale response arrive after a newer
             // one, for the host's version guard (Section 7) to discard.
+            //
+            // Matched by prefix, not by an enumerated pair of method
+            // names: every analysis/* method has that same stateless
+            // shape, and leaving any of them on the inline path blocks
+            // the read loop for the whole duration of a full
+            // AnalysisContext.build plus type-check. analysis/complete
+            // fires on every keystroke, so an inline dispatch there can
+            // stall an incoming execution/cancel past the grace period
+            // WorkerClient.Cancel waits before killing the process.
             Task.Run(fun () ->
                 (task {
                     use _ = Correlation.pushCorrelationId request.Id
