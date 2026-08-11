@@ -13,6 +13,7 @@
     <Compile Include="ExcelConnector.fs" />
     <Compile Include="RestConnector.fs" />
     <Compile Include="Connections.fs" />
+    <Compile Include="WorkspaceConnectionResolver.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,6 +30,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Security\FSharpQueryStudio.Security.fsproj" />
   </ItemGroup>
 
 </Project>

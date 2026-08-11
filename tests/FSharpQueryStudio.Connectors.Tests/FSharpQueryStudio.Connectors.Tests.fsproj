@@ -14,6 +14,7 @@
     <Compile Include="ConnectionsTests.fs" />
     <Compile Include="CsvExportTests.fs" />
     <Compile Include="ConnectorCallLoggingTests.fs" />
+    <Compile Include="WorkspaceConnectionResolverTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -31,6 +32,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors\FSharpQueryStudio.Connectors.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Results\FSharpQueryStudio.Results.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Security\FSharpQueryStudio.Security.fsproj" />
   </ItemGroup>
 
 </Project>
