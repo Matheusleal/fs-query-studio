@@ -96,12 +96,211 @@
 
       require.config({ paths: { vs: "vs" } });
 
+      // Monaco ships no built-in F# language (unlike TypeScript/JS/Python,
+      // it's not one of vs/basic-languages) — this is a hand-written
+      // Monarch tokenizer, F#'s real lexical grammar, not a generic
+      // keyword-soup approximation. Declared before `require()` below so
+      // it's available the moment the language is registered.
+      var fsharpLanguageConfiguration = {
+        comments: { lineComment: "//", blockComment: ["(*", "*)"] },
+        brackets: [
+          ["{", "}"],
+          ["[", "]"],
+          ["(", ")"],
+          ["[<", ">]"]
+        ],
+        autoClosingPairs: [
+          { open: "{", close: "}" },
+          { open: "[", close: "]" },
+          { open: "(", close: ")" },
+          { open: "\"", close: "\"", notIn: ["string", "comment"] },
+          { open: "'", close: "'", notIn: ["string", "comment"] },
+          { open: "(*", close: "*)" }
+        ],
+        surroundingPairs: [
+          { open: "{", close: "}" },
+          { open: "[", close: "]" },
+          { open: "(", close: ")" },
+          { open: "\"", close: "\"" },
+          { open: "'", close: "'" }
+        ]
+      };
+
+      var fsharpMonarchLanguage = {
+        defaultToken: "",
+        tokenPostfix: ".fs",
+
+        // Every one of these is a real F# reserved word (the "keywords in
+        // use" table, not the "reserved for future use" one) - a partial
+        // list would be a partial highlight.
+        keywords: [
+          "abstract", "and", "as", "assert", "base", "begin", "class", "default",
+          "delegate", "do", "done", "downcast", "downto", "elif", "else", "end",
+          "exception", "extern", "false", "finally", "for", "fun", "function",
+          "global", "if", "in", "inherit", "inline", "interface", "internal",
+          "lazy", "let", "match", "member", "module", "mutable", "namespace",
+          "new", "not", "null", "of", "open", "or", "override", "private",
+          "public", "rec", "return", "sig", "static", "struct", "then", "to",
+          "true", "try", "type", "upcast", "use", "val", "void", "when",
+          "while", "with", "yield", "async", "atomic", "break", "checked",
+          "component", "const", "constraint", "constructor", "continue",
+          "eager", "event", "external", "fixed", "functor", "include", "method",
+          "mixin", "object", "parallel", "process", "protected", "pure",
+          "sealed", "tailcall", "trait", "virtual", "volatile"
+        ],
+
+        // Monarch's `@brackets` token action (used by the root state's
+        // generic bracket rule, below) looks the matched text up in this
+        // array — a separate thing from `fsharpLanguageConfiguration
+        // .brackets` above, which only drives editor bracket-matching/
+        // auto-close, not tokenizer coloring. Missing this means every
+        // {}/[]/() in the file falls through with no color and no
+        // bracket-depth tracking at all.
+        brackets: [
+          { open: "{", close: "}", token: "delimiter.curly" },
+          { open: "[", close: "]", token: "delimiter.square" },
+          { open: "(", close: ")", token: "delimiter.parenthesis" }
+        ],
+
+        operators: [
+          "|>", "<|", ">>", "<<", "->", "<-", "<->", "::", "@", "..", "...",
+          "|", "&&", "||", "&", "=", "==", "<>", "<=", ">=", "<", ">", "+",
+          "-", "*", "/", "%", "**", "^", "~", "!", ":=", ":>", ":?>", ":?",
+          ":", ";", ";;", "?", "?.", "|]", "[|"
+        ],
+
+        symbols: /[=><!~?:&|+\-*\/\^%@.]+/,
+        escapes: /\\(?:[abfnrtv\\"'0]|x[0-9A-Fa-f]{2}|u[0-9A-Fa-f]{4}|U[0-9A-Fa-f]{8})/,
+
+        tokenizer: {
+          root: [
+            // Attributes - [<Literal>], [<AutoOpen>], ... - checked before
+            // the generic bracket rule so they get their own token class.
+            [/\[<(?!\s*>\])/, { token: "annotation.punctuation", next: "@attribute" }],
+
+            // Compiler directives - #r, #load, #if, #light, #time, #I, ...
+            [/^\s*#\w+/, "keyword.directive"],
+
+            // Triple-quoted strings before the single-quote char-literal
+            // rule, and before plain double-quoted strings - longest match
+            // must win here or `"""` would tokenize as an empty string
+            // immediately followed by a stray quote.
+            [/"""/, { token: "string.quote", next: "@stringTriple" }],
+            // Verbatim strings: @"..." - only "" is an escape (a literal
+            // embedded quote), backslashes are not special at all.
+            [/@"/, { token: "string.quote", next: "@stringVerbatim" }],
+            // Interpolated strings: $"...{expr}..." - highlighted as a
+            // string overall, with each {...} splice picked out separately
+            // so an interpolated expression doesn't just disappear into the
+            // surrounding string color.
+            [/\$"/, { token: "string.quote", next: "@stringInterpolated" }],
+            [/"/, { token: "string.quote", next: "@string" }],
+
+            // Char literal: 'a', '\n', '\uXXXX' - distinct from a generic
+            // identifier's trailing prime (`x'`, `list'`), which the
+            // identifier rule below handles instead.
+            [/'(?:[^'\\]|\\.)'/, "string.char"],
+
+            // Line and block comments - block comments nest, matching real
+            // F# semantics (a (* (* ... *) ... *) doesn't close on the
+            // first *)).
+            [/\/\/.*$/, "comment"],
+            [/\(\*/, { token: "comment", next: "@comment" }],
+
+            // Numbers - hex/octal/binary, decimal/float (with optional
+            // exponent), and every real F# numeric-literal type suffix
+            // (uy/y/us/s/u/l/UL/L/f/F/m/M/I/Q/R/Z/N/G), longest-suffix
+            // first so e.g. "UL" doesn't match as "U" and leave a stray "L".
+            [/0[xX][0-9a-fA-F]+(?:UL|LF|UY|Y|US|S|UL|L|U)?/, "number.hex"],
+            [/0[oO][0-7]+(?:UL|LF|UY|Y|US|S|UL|L|U)?/, "number.octal"],
+            [/0[bB][01]+(?:UL|LF|UY|Y|US|S|UL|L|U)?/, "number.binary"],
+            [/\d+\.\d+(?:[eE][+-]?\d+)?[fFmM]?/, "number.float"],
+            [/\d+[eE][+-]?\d+[fFmM]?/, "number.float"],
+            [/\d+(?:UL|LF|UY|Y|US|S|UL|L|U|I|Q|R|Z|N|G|F|M|y|s|u)?/, "number"],
+
+            // Bang-suffixed keywords (let!, use!, do!, yield!, return!,
+            // match!) before the generic identifier rule, which would
+            // otherwise swallow the letters and leave a stray "!" behind.
+            [/\b(?:let|use|do|yield|return|match)!/, "keyword"],
+
+            // Identifiers - PascalCase reads as a type/module name (F#'s
+            // own convention: types, modules, and constructors are always
+            // capitalized), everything else falls through the keyword
+            // table or is a plain identifier. Trailing "'" is legal
+            // (`x'`, `acc'`) and included directly in the pattern.
+            [
+              /[a-z_][a-zA-Z0-9_']*/,
+              { cases: { "@keywords": "keyword", "@default": "identifier" } }
+            ],
+            [/[A-Z][a-zA-Z0-9_']*/, "type.identifier"],
+
+            [/[{}()\[\]]/, "@brackets"],
+
+            [/@symbols/, { cases: { "@operators": "operator", "@default": "" } }],
+
+            [/[;,]/, "delimiter"],
+            [/\s+/, ""]
+          ],
+
+          // [<...>] attribute body - back to root once the closing ">]" is
+          // seen, so whatever the attribute *contains* (an expression, in
+          // general) still tokenizes normally rather than as one opaque
+          // annotation blob.
+          attribute: [[/>\]/, { token: "annotation.punctuation", next: "@pop" }], { include: "root" }],
+
+          string: [
+            [/[^\\"]+/, "string"],
+            [/@escapes/, "string.escape"],
+            [/\\./, "string.escape.invalid"],
+            [/"/, { token: "string.quote", next: "@pop" }]
+          ],
+
+          stringTriple: [
+            [/[^"]+/, "string"],
+            [/"""/, { token: "string.quote", next: "@pop" }],
+            [/"/, "string"]
+          ],
+
+          stringVerbatim: [
+            [/[^"]+/, "string"],
+            [/""/, "string.escape"],
+            [/"/, { token: "string.quote", next: "@pop" }]
+          ],
+
+          stringInterpolated: [
+            [/\{\{/, "string"],
+            [/\}\}/, "string"],
+            [/\{/, { token: "delimiter.bracket", next: "@interpolation" }],
+            [/[^\\"{}]+/, "string"],
+            [/@escapes/, "string.escape"],
+            [/\\./, "string.escape.invalid"],
+            [/"/, { token: "string.quote", next: "@pop" }]
+          ],
+
+          // A splice inside an interpolated string - re-enters the normal
+          // tokenizer rules for whatever expression is inside {...} (so a
+          // spliced identifier/number/string still colors correctly),
+          // tracking its own bracket depth so a splice containing a
+          // record/list literal's own {}/[] doesn't close the splice early.
+          interpolation: [
+            [/\{/, { token: "delimiter.bracket", next: "@push" }],
+            [/\}/, { token: "delimiter.bracket", next: "@pop" }],
+            { include: "root" }
+          ],
+
+          comment: [
+            [/[^(*]+/, "comment"],
+            [/\(\*/, { token: "comment", next: "@push" }],
+            [/\*\)/, { token: "comment", next: "@pop" }],
+            [/[(*]/, "comment"]
+          ]
+        }
+      };
+
       require(["vs/editor/editor.main"], function () {
-        // F# has no built-in Monaco language yet — real tokenization,
-        // completion, and hover providers are registered in Milestone B
-        // (Section 8). Plain-text tokenization is the starting point so
-        // the editor surface exists now.
         monaco.languages.register({ id: "fsharp" });
+        monaco.languages.setLanguageConfiguration("fsharp", fsharpLanguageConfiguration);
+        monaco.languages.setMonarchTokensProvider("fsharp", fsharpMonarchLanguage);
 
         // Set synchronously from the host's own Uri (?theme=vs-dark/vs)
         // rather than waiting for a themeChanged message: the message
