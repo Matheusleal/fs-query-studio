@@ -281,3 +281,16 @@ let ``MarkSaved on an already-clean document raises nothing`` () =
 
     Assert.False(doc.IsDirty)
     Assert.Empty(raisedFor)
+
+[<Fact>]
+let ``a freshly-constructed DocumentViewModel owns its own Result, starting at NoValue`` () =
+    let doc = DocumentViewModel("file:///a.fsx")
+
+    Assert.Equal(ResultKind.NoValue, doc.Result.Kind)
+
+[<Fact>]
+let ``two different DocumentViewModels each own a distinct Result instance`` () =
+    let first = DocumentViewModel("file:///a.fsx")
+    let second = DocumentViewModel("file:///b.fsx")
+
+    Assert.NotSame(first.Result, second.Result)

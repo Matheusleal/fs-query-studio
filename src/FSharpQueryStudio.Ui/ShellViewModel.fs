@@ -31,6 +31,14 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     let raiseProblemsChanged () =
         propertyChanged.Trigger(self, PropertyChangedEventArgs("Problems"))
 
+    /// `Result` below is derived from the *active* document's own
+    /// `Result` — same shape/rationale as `raiseProblemsChanged` above,
+    /// so every place `ActiveDocument` changes has to re-raise here by
+    /// hand too, or a `{Binding Result.Xxx}` (Results/Output/Schema
+    /// panes) would bind once and never notice a tab switch.
+    let raiseResultChanged () =
+        propertyChanged.Trigger(self, PropertyChangedEventArgs("Result"))
+
     /// `Connections` is a mutable list that updates whenever a connection
     /// is successfully registered. A derived CLR property notifies nothing
     /// on its own, so every place the derived value changes has to re-raise
@@ -117,7 +125,12 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     member val WorkerState = WorkerStateViewModel()
     member _.ActiveDocument = activeDocument
     member _.Documents = documents |> List.ofSeq
-    member val Result = ResultViewModel()
+
+    /// The active document's own Results/Output/Schema — see
+    /// `DocumentViewModel.Result`. Recomputed on every access rather than
+    /// cached (same pattern as `Problems`), with `raiseResultChanged`
+    /// covering every place `ActiveDocument` itself changes.
+    member this.Result = this.ActiveDocument.Result
 
     /// Prompts before discarding a dirty tab's unsaved changes — set by
     /// the composition root to show a real confirmation dialog. `Close`
@@ -138,6 +151,7 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
             activeDocument <- doc
             propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof this.ActiveDocument))
             raiseProblemsChanged ()
+            raiseResultChanged ()
 
         doc
 
@@ -231,10 +245,12 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
                     activeDocument <- createDocument "untitled:Script1.fsx"
                     propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof this.ActiveDocument))
                     raiseProblemsChanged ()
+                    raiseResultChanged ()
                 elif System.Object.ReferenceEquals(activeDocument, doc) then
                     activeDocument <- documents.[documents.Count - 1]
                     propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof this.ActiveDocument))
                     raiseProblemsChanged ()
+                    raiseResultChanged ()
 
             canDiscard
 
@@ -458,7 +474,15 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
                           Mode = doc.SessionMode }
 
                     let! envelope = execute evalParams
-                    this.Result.Apply(envelope)
+
+                    // `doc`, not `this.ActiveDocument` re-read here — the
+                    // user can switch tabs while `execute` is in flight,
+                    // and the result belongs to the document that was
+                    // actually run, not whatever tab happens to be active
+                    // when the response lands (see `RouteTextChanged`'s
+                    // doc comment for the same race, applied there to
+                    // text instead of results).
+                    doc.Result.Apply(envelope)
 
                     if doc.SessionMode = Persistent then
                         doc.MarkSessionActive()

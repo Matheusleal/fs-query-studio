@@ -1070,3 +1070,78 @@ let ``a WorkspaceConnectionViewModel built by SeedConnections loads schema throu
         Assert.Equal(Some connection.Id, receivedId)
         Assert.Equal<string list>([ "Orders" ], vm.WorkspaceItems.[0].Tables |> List.map (fun t -> t.Name))
     }
+
+// `Result` is derived from the active document's own `Result` — same
+// shape as `Problems`/`ActiveDocument.Diagnostics` — so each tab keeps
+// its own last execution's Results/Output/Schema instead of sharing one
+// global instance across every open tab.
+
+[<Fact>]
+let ``Result reflects the active document's own Result instance`` () =
+    let vm = ShellViewModel()
+    Assert.Same(vm.ActiveDocument.Result, vm.Result)
+
+[<Fact>]
+let ``switching tabs shows that tab's own previously-applied Result, not the other tab's`` () =
+    task {
+        let vm = ShellViewModel()
+        let firstUri = vm.ActiveDocument.Uri
+
+        vm.ExecuteAsync <- Some(fun _ -> Task.FromResult(canned ResultKind.Scalar "first"))
+        do! vm.RunAsync()
+        Assert.Equal("first", vm.Result.DisplayText)
+
+        let secondDoc = vm.OpenDocument("untitled:Script2.fsx")
+        Assert.Equal(ResultKind.NoValue, vm.Result.Kind) // The new tab never ran anything.
+
+        vm.ExecuteAsync <- Some(fun _ -> Task.FromResult(canned ResultKind.Scalar "second"))
+        do! vm.RunAsync()
+        Assert.Equal("second", vm.Result.DisplayText)
+
+        vm.OpenDocument(firstUri) |> ignore
+        Assert.Equal("first", vm.Result.DisplayText) // The first tab's own result, untouched.
+
+        Assert.Equal("second", secondDoc.Result.DisplayText)
+    }
+
+[<Fact>]
+let ``RunAsync applies its result to the document that was active when it started, not whatever's active when it completes`` () =
+    task {
+        let vm = ShellViewModel()
+        let originalDoc = vm.ActiveDocument
+        let executeSignal = TaskCompletionSource<ResultEnvelope>()
+        vm.ExecuteAsync <- Some(fun _ -> executeSignal.Task)
+
+        let runTask = vm.RunAsync()
+
+        // The user switches tabs while the run is still in flight.
+        let newDoc = vm.OpenDocument("untitled:Script2.fsx")
+
+        executeSignal.SetResult(canned ResultKind.Scalar "late")
+        do! runTask
+
+        Assert.Equal("late", originalDoc.Result.DisplayText)
+        Assert.Equal(ResultKind.NoValue, newDoc.Result.Kind)
+    }
+
+[<Fact>]
+let ``PropertyChanged fires for Result when OpenDocument switches to a different tab`` () =
+    let vm = ShellViewModel()
+    let raisedFor = ResizeArray<string>()
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+
+    Assert.Contains("Result", raisedFor)
+
+[<Fact>]
+let ``PropertyChanged fires for Result when CloseDocument changes which tab is active`` () =
+    let vm = ShellViewModel()
+    vm.OpenDocument("untitled:Script2.fsx") |> ignore
+
+    let raisedFor = ResizeArray<string>()
+    (vm :> INotifyPropertyChanged).PropertyChanged.Add(fun args -> raisedFor.Add(args.PropertyName))
+
+    Assert.True(vm.CloseDocument("untitled:Script2.fsx"))
+
+    Assert.Contains("Result", raisedFor)

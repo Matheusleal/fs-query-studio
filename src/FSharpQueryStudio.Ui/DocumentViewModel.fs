@@ -27,6 +27,7 @@ type DocumentViewModel(uri: string, ?scheduler: IDebounceScheduler, ?initialText
     let mutable diagnostics: Diagnostic list = []
     let mutable sessionMode = Isolated
     let mutable hasActiveSession = false
+    let result = ResultViewModel()
     let propertyChanged = Event<PropertyChangedEventHandler, PropertyChangedEventArgs>()
     let debouncedTextChanged = Event<int * string>()
 
@@ -42,6 +43,12 @@ type DocumentViewModel(uri: string, ?scheduler: IDebounceScheduler, ?initialText
     member _.Version = version
     member _.IsDirty = isDirty
     member _.Diagnostics = diagnostics
+
+    /// This tab's own last-executed Results/Output/Schema — each open
+    /// document owns one, rather than every tab sharing a single global
+    /// `ResultViewModel`, so switching tabs shows that tab's own last
+    /// run instead of whichever tab last ran a script.
+    member _.Result = result
 
     /// Isolated (Milestone A's default) or opt-in per-tab Persistent
     /// (E.1) — `Uri` doubles as the `SessionId` a Persistent-mode
