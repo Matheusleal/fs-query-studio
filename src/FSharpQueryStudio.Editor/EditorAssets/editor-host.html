@@ -208,11 +208,15 @@
         }
 
         monaco.languages.registerSignatureHelpProvider("fsharp", {
-          // "," is kept as a trigger so the popup at least reappears while
-          // typing further arguments, but the backend has no active-
-          // parameter tracking, so it always highlights the first
-          // parameter — the backward scan below only reliably identifies
-          // the function for the "just typed name(" case.
+          // "," is kept as a trigger character, but the backward scan below
+          // only matches "name(" — at a comma there's no trailing "name("
+          // to match, so the lookup falls back to fcsColumnAt(model,
+          // position) on a non-word position, resolves nothing, and Monaco
+          // *dismisses* the hint widget rather than re-showing it. The
+          // backend also has no active-parameter tracking, so even the one
+          // case that does resolve ("just typed name(") always highlights
+          // the first parameter. Both are known, deliberately out-of-scope
+          // limitations — see docs/DEVLOG.md.
           signatureHelpTriggerCharacters: ["(", ","],
           provideSignatureHelp: function (model, position) {
             var nameEnd = calledFunctionEndColumn(model, position);
