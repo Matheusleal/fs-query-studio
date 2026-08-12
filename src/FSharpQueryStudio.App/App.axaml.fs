@@ -117,6 +117,12 @@ type App() =
 
             mainWindow.ShellViewModel.LoadConnectionSchemaAsync <- Some(fun id -> ConnectionService.schema client id)
 
+            mainWindow.ShellViewModel.ExportCsvToFile <-
+                Some(fun (documentUri, filePath) -> ExportService.exportCsv client documentUri filePath)
+
+            mainWindow.ShellViewModel.DiscardResultsAsync <-
+                Some(fun documentUri -> ExportService.discardResults client documentUri)
+
             // Populate `Connections` from whatever's already registered —
             // reads the same `workspace.json` the worker itself reads
             // fresh before every `execution/evaluate` (see

@@ -67,6 +67,12 @@
         <Button Name="CopyResultButton" ToolTip.Tip="Copy Result" Margin="4,0,0,0">
           <mi:MaterialIcon Kind="ContentCopy" Width="16" Height="16" />
         </Button>
+        <Button Name="ExportCsvButton"
+                ToolTip.Tip="Export CSV…"
+                Margin="4,0,0,0"
+                IsEnabled="{Binding Result.IsTable}">
+          <mi:MaterialIcon Kind="FileExport" Width="16" Height="16" />
+        </Button>
         <Button Name="ResetSessionButton" ToolTip.Tip="Reset Session" Margin="4,0,0,0">
           <mi:MaterialIcon Kind="Restore" Width="16" Height="16" />
         </Button>

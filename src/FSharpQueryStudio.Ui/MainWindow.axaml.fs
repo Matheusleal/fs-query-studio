@@ -734,6 +734,25 @@ type MainWindow() as this =
         let copyResultButton = this.FindControl<Button>("CopyResultButton")
         copyResultButton.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.CopyResultAsync() |> ignore)
 
+        let csvFilter = FilePickerFileType("CSV", Patterns = [ "*.csv" ])
+        let exportCsvButton = this.FindControl<Button>("ExportCsvButton")
+
+        exportCsvButton.Click.Add(fun (_: RoutedEventArgs) ->
+            task {
+                let options =
+                    FilePickerSaveOptions(FileTypeChoices = [ csvFilter ], SuggestedFileName = "Results.csv")
+
+                let! file = this.StorageProvider.SaveFilePickerAsync(options)
+
+                if not (isNull file) then
+                    let! result = shellViewModel.ExportCsvAsync(file.Path.LocalPath)
+
+                    match result with
+                    | Ok() -> ()
+                    | Result.Error message -> Log.Warning("CSV export failed: {Message}", message)
+            }
+            |> ignore)
+
         let resetSessionButton = this.FindControl<Button>("ResetSessionButton")
         resetSessionButton.Click.Add(fun (_: RoutedEventArgs) -> shellViewModel.ResetSessionAsync() |> ignore)
 
