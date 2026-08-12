@@ -152,7 +152,19 @@ module Handlers =
                     // a `let` binding or a side-effecting call that never
                     // produces an "it" value of its own.
                     match Results.currentEnvelope stopwatch.ElapsedMilliseconds output with
-                    | Some explicitEnvelope -> explicitEnvelope
+                    | Some explicitEnvelope ->
+                        // Retention is committed here, not on `envelope.Kind`
+                        // after the fact — this keeps the generic FSI-tail-
+                        // value path (below) untouched even when it also
+                        // happens to produce a Table-kind envelope. See
+                        // docs/superpowers/specs/2026-08-12-results-export-design.md.
+                        if explicitEnvelope.Kind = ResultKind.Table then
+                            ResultRetention.set
+                                evalParams.DocumentUri
+                                { Columns = explicitEnvelope.Schema |> List.map (fun c -> c.Name)
+                                  Rows = explicitEnvelope.Rows }
+
+                        explicitEnvelope
                     | None ->
                         let value =
                             outcome.Value |> Option.map (fun v -> v.ReflectionValue) |> Option.toObj
@@ -474,6 +486,50 @@ module Handlers =
                     { Code = "results/unknownToken"
                       Message = "The continuation token is unknown or has expired." } }
 
+    /// `results/exportCsv` — writes `documentUri`'s retained full result
+    /// (see `ResultRetention`) straight to `filePath` via the existing,
+    /// already-tested `CsvExport.write`. No re-query, no connector: the
+    /// retained columns/rows are already fully in memory by this point.
+    let handleResultsExportCsv (request: WorkerRequestFrame) : WorkerResponseFrame =
+        let exportParams =
+            JsonSerializer.Deserialize<ExportCsvParams>(request.Params, Serialization.options)
+
+        match ResultRetention.tryGet exportParams.DocumentUri with
+        | None ->
+            { Id = request.Id
+              Result = None
+              Error =
+                Some
+                    { Code = "results/nothingToExport"
+                      Message = $"No retained table result for '{exportParams.DocumentUri}'." } }
+        | Some retained ->
+            try
+                use writer = new StreamWriter(exportParams.FilePath)
+                CsvExport.write writer retained.Columns retained.Rows
+
+                { Id = request.Id
+                  Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
+                  Error = None }
+            with ex ->
+                { Id = request.Id
+                  Result = None
+                  Error = Some { Code = "results/exportFailed"; Message = ex.Message } }
+
+    /// `results/discard` — evicts `documentUri`'s retained result, if any
+    /// (Section "Eviction on tab close"). Always succeeds, even for a
+    /// `documentUri` nothing is retained under, matching
+    /// `Workspace.removeConnection`'s established no-op-on-unknown-key
+    /// convention.
+    let handleResultsDiscard (request: WorkerRequestFrame) : WorkerResponseFrame =
+        let discardParams =
+            JsonSerializer.Deserialize<ResultsDiscardParams>(request.Params, Serialization.options)
+
+        ResultRetention.discard discardParams.DocumentUri
+
+        { Id = request.Id
+          Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
+          Error = None }
+
     /// `connection/register` — Section 7. Persists `connection` to
     /// `workspace.json` via `Workspace.registerConnection`, replacing any
     /// existing binding sharing its `Id`, and returns the updated full list.
@@ -573,6 +629,8 @@ module Handlers =
             | "analysis/complete" -> return! handleAnalysisComplete request
             | "analysis/rename" -> return! handleAnalysisRename request
             | "results/page" -> return handleResultsPage request
+            | "results/exportCsv" -> return handleResultsExportCsv request
+            | "results/discard" -> return handleResultsDiscard request
             | "connection/register" -> return handleConnectionRegister request
             | "connection/remove" -> return handleConnectionRemove request
             | "connection/schema" -> return! handleConnectionSchema request

@@ -39,6 +39,36 @@ let private persistentEvaluateRequest (id: string) (source: string) (sessionId: 
             Serialization.options
         ) }
 
+let private evaluateRequestFor (id: string) (documentUri: string) (source: string) : WorkerRequestFrame =
+    { Id = id
+      Method = "execution/evaluate"
+      Params =
+        JsonSerializer.SerializeToElement<EvaluateParams>(
+            { Source = source
+              SessionId = None
+              Mode = Isolated
+              DocumentUri = documentUri },
+            Serialization.options
+        ) }
+
+let private exportCsvRequest (id: string) (documentUri: string) (filePath: string) : WorkerRequestFrame =
+    { Id = id
+      Method = "results/exportCsv"
+      Params =
+        JsonSerializer.SerializeToElement<ExportCsvParams>(
+            { DocumentUri = documentUri; FilePath = filePath },
+            Serialization.options
+        ) }
+
+let private resultsDiscardRequest (id: string) (documentUri: string) : WorkerRequestFrame =
+    { Id = id
+      Method = "results/discard"
+      Params =
+        JsonSerializer.SerializeToElement<ResultsDiscardParams>(
+            { DocumentUri = documentUri },
+            Serialization.options
+        ) }
+
 let private analysisCheckRequest (id: string) (source: string) : WorkerRequestFrame =
     { Id = id
       Method = "analysis/check"
@@ -828,6 +858,153 @@ let ``execution/evaluate shows Results.table's push even when the script's own l
             Assert.Equal(ResultKind.Table, envelope.Kind)
             Assert.Equal<string list>([ "id"; "name" ], envelope.Schema |> List.map (fun c -> c.Name))
             Assert.Equal(2, envelope.Rows.Length)
+        finally
+            Handlers.setWorkspaceDirForTests None
+
+            if Directory.Exists tempDir then
+                Directory.Delete(tempDir, true)
+    }
+
+[<Fact>]
+let ``execution/evaluate committing a Results.table push, then results/exportCsv, writes the full retained CSV`` () =
+    task {
+        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let csvPath = Path.Combine(tempDir, "test1.csv")
+        let exportPath = Path.Combine(tempDir, "exported.csv")
+        Handlers.setWorkspaceDirForTests (Some tempDir)
+
+        try
+            Directory.CreateDirectory tempDir |> ignore
+            File.WriteAllText(csvPath, "id,name\n1,Ada\n2,Alan\n")
+
+            let registerRequest =
+                registerConnectionRequest
+                    "reg1"
+                    { Id = Guid.NewGuid()
+                      Name = "test1"
+                      Kind = Csv
+                      Configuration =
+                        JsonSerializer.SerializeToElement({| FilePath = csvPath |}, Serialization.options)
+                      SecretReference = None
+                      IsTrusted = false }
+
+            let! _ = Handlers.dispatch registerRequest
+
+            let script = "Connections.csv \"test1\" |> Results.table |> ignore"
+
+            let! evalResponse = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Export1.fsx" script)
+            Assert.True(evalResponse.Error.IsNone)
+
+            let! exportResponse = Handlers.dispatch (exportCsvRequest "export1" "untitled:Export1.fsx" exportPath)
+            Assert.True(exportResponse.Error.IsNone)
+
+            let written = File.ReadAllText(exportPath)
+            Assert.Equal("id,name\r\n1,Ada\r\n2,Alan\r\n", written)
+        finally
+            Handlers.setWorkspaceDirForTests None
+
+            if Directory.Exists tempDir then
+                Directory.Delete(tempDir, true)
+    }
+
+[<Fact>]
+let ``a second execution/evaluate under the same DocumentUri overwrites the tab's retained result`` () =
+    task {
+        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let exportPath = Path.Combine(tempDir, "exported.csv")
+        Handlers.setWorkspaceDirForTests (Some tempDir)
+
+        try
+            Directory.CreateDirectory tempDir |> ignore
+
+            let firstScript =
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.table |> ignore"
+
+            let secondScript =
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 2 |]; yield [| box 3 |] } }: ConnectorQueryResult) |> Results.table |> ignore"
+
+            let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Overwrite1.fsx" firstScript)
+            let! _ = Handlers.dispatch (evaluateRequestFor "eval2" "untitled:Overwrite1.fsx" secondScript)
+
+            let! exportResponse = Handlers.dispatch (exportCsvRequest "export1" "untitled:Overwrite1.fsx" exportPath)
+            Assert.True(exportResponse.Error.IsNone)
+
+            let written = File.ReadAllText(exportPath)
+            Assert.Equal("n\r\n2\r\n3\r\n", written)
+        finally
+            Handlers.setWorkspaceDirForTests None
+
+            if Directory.Exists tempDir then
+                Directory.Delete(tempDir, true)
+    }
+
+[<Fact>]
+let ``an evaluate that doesn't push a table leaves the tab's existing retained result untouched`` () =
+    task {
+        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let exportPath = Path.Combine(tempDir, "exported.csv")
+        Handlers.setWorkspaceDirForTests (Some tempDir)
+
+        try
+            Directory.CreateDirectory tempDir |> ignore
+
+            let tableScript =
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.table |> ignore"
+
+            let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Untouched1.fsx" tableScript)
+            let! _ = Handlers.dispatch (evaluateRequestFor "eval2" "untitled:Untouched1.fsx" "printfn \"no table here\"")
+
+            let! exportResponse = Handlers.dispatch (exportCsvRequest "export1" "untitled:Untouched1.fsx" exportPath)
+            Assert.True(exportResponse.Error.IsNone)
+
+            let written = File.ReadAllText(exportPath)
+            Assert.Equal("n\r\n1\r\n", written)
+        finally
+            Handlers.setWorkspaceDirForTests None
+
+            if Directory.Exists tempDir then
+                Directory.Delete(tempDir, true)
+    }
+
+[<Fact>]
+let ``results/exportCsv against a DocumentUri with nothing retained returns a nothingToExport error`` () =
+    task {
+        let! response = Handlers.dispatch (exportCsvRequest "export1" "untitled:NeverRun.fsx" "irrelevant.csv")
+
+        Assert.True(response.Result.IsNone)
+
+        match response.Error with
+        | Some err -> Assert.Equal("results/nothingToExport", err.Code)
+        | None -> failwith "expected a nothingToExport error"
+    }
+
+[<Fact>]
+let ``results/discard removes a retained result, and a repeat call is a no-op`` () =
+    task {
+        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        Handlers.setWorkspaceDirForTests (Some tempDir)
+
+        try
+            Directory.CreateDirectory tempDir |> ignore
+
+            let tableScript =
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.table |> ignore"
+
+            let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Discard1.fsx" tableScript)
+
+            let! discardResponse = Handlers.dispatch (resultsDiscardRequest "discard1" "untitled:Discard1.fsx")
+            Assert.True(discardResponse.Error.IsNone)
+
+            let! exportResponse =
+                Handlers.dispatch (exportCsvRequest "export1" "untitled:Discard1.fsx" (Path.Combine(tempDir, "x.csv")))
+
+            match exportResponse.Error with
+            | Some err -> Assert.Equal("results/nothingToExport", err.Code)
+            | None -> failwith "expected a nothingToExport error after discard"
+
+            // Repeating the discard must not throw.
+            let! secondDiscardResponse = Handlers.dispatch (resultsDiscardRequest "discard2" "untitled:Discard1.fsx")
+            Assert.True(secondDiscardResponse.Error.IsNone)
         finally
             Handlers.setWorkspaceDirForTests None
 
