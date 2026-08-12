@@ -545,6 +545,8 @@ type MainWindow() as this =
 
         this.FindControl<MenuItem>("NewConnectionMenuItem").Click.Add(fun _ -> showConnectionDialog None)
 
+        this.FindControl<MenuItem>("LogsMenuItem").Click.Add(fun _ -> LogViewerWindow().Show())
+
         // The open-tab strip, rebuilt by hand from
         // `shellViewModel.Documents` (a plain
         // snapshot, not an observable collection) every time the set of

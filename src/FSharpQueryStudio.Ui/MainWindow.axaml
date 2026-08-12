@@ -40,6 +40,9 @@
         <MenuItem Header="_Cancel" Name="CancelMenuItem" />
         <MenuItem Header="_Reset Session" Name="ResetSessionMenuItem" />
       </MenuItem>
+      <MenuItem Header="_Help">
+        <MenuItem Header="_Logs…" Name="LogsMenuItem" />
+      </MenuItem>
     </Menu>
 
     <Border DockPanel.Dock="Top" Background="{DynamicResource ChromeBackgroundBrush}" Padding="4">
