@@ -12,14 +12,14 @@ let ``currentEnvelope is None when nothing has been pushed this evaluation`` () 
     Assert.True((Results.currentEnvelope 0L []).IsNone)
 
 [<Fact>]
-let ``table pushes a real Table envelope with the connector's own column names, and returns its input unchanged`` () =
+let ``raw pushes a real Table envelope with the connector's own column names, and returns its input unchanged`` () =
     Results.reset ()
 
     let query: ConnectorQueryResult =
         { Columns = [ "id"; "name" ]
           Rows = seq { yield [| box 1; box "Ada" |] } }
 
-    let returned = Results.table query
+    let returned = Results.raw query
     Assert.Same(query, returned)
 
     let envelope = (Results.currentEnvelope 5L []).Value
@@ -32,7 +32,7 @@ let ``table pushes a real Table envelope with the connector's own column names, 
     Assert.Equal(5L, envelope.ElapsedMs)
 
 [<Fact>]
-let ``table fully materializes every row, even past the preview row limit, and never marks IsTruncated`` () =
+let ``raw fully materializes every row, even past the preview row limit, and never marks IsTruncated`` () =
     Results.reset ()
 
     let rowCount = Projection.PreviewRowLimit + 10
@@ -40,7 +40,7 @@ let ``table fully materializes every row, even past the preview row limit, and n
 
     let query: ConnectorQueryResult = { Columns = [ "n" ]; Rows = manyRows }
 
-    let returned = Results.table query
+    let returned = Results.raw query
     Assert.Same(query, returned)
 
     let envelope = (Results.currentEnvelope 0L []).Value

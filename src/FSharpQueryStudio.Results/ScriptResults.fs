@@ -29,12 +29,12 @@ module Results =
     let reset () = explicit <- None
 
     /// Fully materializes `query.Rows` — a deliberate memory trade-off:
-    /// every `Results.table`-produced result now sits entirely in the
+    /// every `Results.raw`-produced result now sits entirely in the
     /// Worker's memory for as long as its tab stays open (via
     /// `ResultRetention`, committed by `runEvaluate`), where before only
     /// `Projection.PreviewRowLimit + 1` rows were ever even read off the
     /// connector's stream. See docs/superpowers/specs/2026-08-12-results-export-design.md.
-    let table (query: ConnectorQueryResult) : ConnectorQueryResult =
+    let raw (query: ConnectorQueryResult) : ConnectorQueryResult =
         let columns =
             query.Columns |> List.map (fun name -> { Name = name; DisplayType = "obj" })
 
