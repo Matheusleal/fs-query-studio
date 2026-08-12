@@ -278,10 +278,21 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
         let previousUri = doc.Uri
         doc.MarkSaved(newUri)
 
-        if doc.Uri <> previousUri && System.Object.ReferenceEquals(activeDocument, doc) then
-            match this.SendToEditor with
+        if doc.Uri <> previousUri then
+            // Retention is keyed by DocumentUri at run time (see
+            // `ResultRetention`). A retag off `previousUri` would otherwise
+            // strand that key's entry forever — exactly the memory leak
+            // this plan set out to stop — and leave the new URI with
+            // nothing retained, breaking that tab's export going forward.
+            // Same fire-and-forget hook `CloseDocument` already uses.
+            match this.DiscardResultsAsync with
             | None -> ()
-            | Some send -> send (EditorBridge.encodeNotification (DocumentLoaded(doc.Uri, doc.Version, doc.Text)))
+            | Some discard -> discard previousUri |> ignore
+
+            if System.Object.ReferenceEquals(activeDocument, doc) then
+                match this.SendToEditor with
+                | None -> ()
+                | Some send -> send (EditorBridge.encodeNotification (DocumentLoaded(doc.Uri, doc.Version, doc.Text)))
 
     /// The first `untitled:ScriptN.fsx` (probing upward from 1) that no
     /// open tab is already using — what File > New names its document.

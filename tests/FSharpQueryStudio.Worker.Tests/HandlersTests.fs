@@ -1013,6 +1013,50 @@ let ``results/discard removes a retained result, and a repeat call is a no-op`` 
     }
 
 [<Fact>]
+let ``a later generic-projection Table run under the same DocumentUri discards the tab's earlier retained result`` () =
+    task {
+        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let exportPath = Path.Combine(tempDir, "exported.csv")
+        Handlers.setWorkspaceDirForTests (Some tempDir)
+
+        try
+            Directory.CreateDirectory tempDir |> ignore
+
+            let tableScript =
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.table |> ignore"
+
+            // A generic FSI-tail-value script - no `Results.table` push -
+            // whose last expression is still an `IEnumerable`, which
+            // `Projection.projectWithCursor` turns into a `ResultKind.Table`
+            // envelope without ever touching `ResultRetention`.
+            let genericTableScript = "[ [| box 1 |] ]"
+
+            let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:StaleAfterGeneric1.fsx" tableScript)
+
+            let! genericResponse =
+                Handlers.dispatch (evaluateRequestFor "eval2" "untitled:StaleAfterGeneric1.fsx" genericTableScript)
+
+            Assert.True(genericResponse.Error.IsNone)
+
+            let genericEnvelope =
+                JsonSerializer.Deserialize<ResultEnvelope>(genericResponse.Result.Value, Serialization.options)
+
+            Assert.Equal(ResultKind.Table, genericEnvelope.Kind)
+
+            let! exportResponse =
+                Handlers.dispatch (exportCsvRequest "export1" "untitled:StaleAfterGeneric1.fsx" exportPath)
+
+            match exportResponse.Error with
+            | Some err -> Assert.Equal("results/nothingToExport", err.Code)
+            | None -> failwith "expected a nothingToExport error, not the earlier retained data"
+        finally
+            Handlers.setWorkspaceDirForTests None
+
+            if Directory.Exists tempDir then
+                Directory.Delete(tempDir, true)
+    }
+
+[<Fact>]
 let ``execution/evaluate shows NoValue, not a literal "null", when the script's last statement produces nothing`` () =
     task {
         let! evalResponse = Handlers.dispatch (evaluateRequest "eval1" "let x = 1\nprintfn \"%d\" x")

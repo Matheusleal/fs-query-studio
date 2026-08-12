@@ -736,6 +736,7 @@ type MainWindow() as this =
 
         let csvFilter = FilePickerFileType("CSV", Patterns = [ "*.csv" ])
         let exportCsvButton = this.FindControl<Button>("ExportCsvButton")
+        let exportStatusText = this.FindControl<TextBlock>("ExportStatusText")
 
         exportCsvButton.Click.Add(fun (_: RoutedEventArgs) ->
             task {
@@ -747,9 +748,18 @@ type MainWindow() as this =
                 if not (isNull file) then
                     let! result = shellViewModel.ExportCsvAsync(file.Path.LocalPath)
 
+                    // No toast/notification system exists anywhere in this
+                    // app (confirmed) — a failed export was previously only
+                    // a Log.Warning, completely invisible to a user who just
+                    // went through a Save dialog and has every reason to
+                    // believe a file was written. This status-bar text is
+                    // the minimal fix: it always shows the most recent
+                    // export outcome, with no auto-clear.
                     match result with
-                    | Ok() -> ()
-                    | Result.Error message -> Log.Warning("CSV export failed: {Message}", message)
+                    | Ok() -> exportStatusText.Text <- $"Exported to {file.Name}"
+                    | Result.Error message ->
+                        Log.Warning("CSV export failed: {Message}", message)
+                        exportStatusText.Text <- $"Export failed: {message}"
             }
             |> ignore)
 

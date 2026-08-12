@@ -55,7 +55,7 @@ let rec private loop (stdin: TextReader) (stdout: TextWriter) =
                 |> ignore
 
                 do! loop stdin stdout
-        | Some request when request.Method.StartsWith("analysis/") ->
+        | Some request when request.Method.StartsWith("analysis/") || request.Method = "results/exportCsv" ->
             // Backgrounded like execution/evaluate, but for a different
             // reason: analysis requests are stateless (a fresh
             // AnalysisContext per call, no shared mutable state like
@@ -72,6 +72,14 @@ let rec private loop (stdin: TextReader) (stdout: TextWriter) =
             // fires on every keystroke, so an inline dispatch there can
             // stall an incoming execution/cancel past the grace period
             // WorkerClient.Cancel waits before killing the process.
+            //
+            // results/exportCsv joins this path for the same underlying
+            // reason: it only ever touches a ConcurrentDictionary and the
+            // filesystem (via CsvExport.write), no shared FSI state, and
+            // can write an unbounded amount of data to disk — just as
+            // capable of stalling the read loop past execution/cancel's
+            // grace period as an inline analysis/* call. results/discard
+            // is cheap/synchronous and stays on the inline path below.
             Task.Run(fun () ->
                 (task {
                     use _ = Correlation.pushCorrelationId request.Id

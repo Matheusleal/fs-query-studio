@@ -158,7 +158,16 @@ module Handlers =
                         // value path (below) untouched even when it also
                         // happens to produce a Table-kind envelope. See
                         // docs/superpowers/specs/2026-08-12-results-export-design.md.
-                        if explicitEnvelope.Kind = ResultKind.Table then
+                        //
+                        // Guarded on a non-empty DocumentUri: every real
+                        // caller populates it, but `ResultRetention.set`
+                        // could otherwise throw on a null key inside this
+                        // backgrounded task, silently hanging the request
+                        // with no response frame ever written.
+                        if
+                            explicitEnvelope.Kind = ResultKind.Table
+                            && not (System.String.IsNullOrEmpty evalParams.DocumentUri)
+                        then
                             ResultRetention.set
                                 evalParams.DocumentUri
                                 { Columns = explicitEnvelope.Schema |> List.map (fun c -> c.Name)
@@ -170,6 +179,24 @@ module Handlers =
                             outcome.Value |> Option.map (fun v -> v.ReflectionValue) |> Option.toObj
 
                         let projected, cursor = Projection.projectWithCursor value stopwatch.ElapsedMilliseconds
+
+                        // The generic FSI-tail-value path never retains a
+                        // result of its own (see the comment above), but it
+                        // can still land on `ResultKind.Table` — any record
+                        // or `IEnumerable` tail value does. Left alone, the
+                        // Export button (enabled whenever `Kind = Table`,
+                        // regardless of which path produced it) would
+                        // either silently export nothing for a fresh tab or
+                        // silently export a stale, earlier `Results.table`
+                        // push for a tab that ran one before. Discarding
+                        // here collapses both into the honest
+                        // "nothing to export" case. Same DocumentUri guard
+                        // as above.
+                        if
+                            projected.Kind = ResultKind.Table
+                            && not (System.String.IsNullOrEmpty evalParams.DocumentUri)
+                        then
+                            ResultRetention.discard evalParams.DocumentUri
 
                         let continuationToken =
                             cursor
@@ -504,7 +531,9 @@ module Handlers =
                       Message = $"No retained table result for '{exportParams.DocumentUri}'." } }
         | Some retained ->
             try
-                use writer = new StreamWriter(exportParams.FilePath)
+                // `Encoding.UTF8` (not `UTF8NoBOM`) writes the BOM Excel
+                // needs to render non-ASCII CSV content correctly.
+                use writer = new StreamWriter(exportParams.FilePath, false, System.Text.Encoding.UTF8)
                 CsvExport.write writer retained.Columns retained.Rows
 
                 { Id = request.Id

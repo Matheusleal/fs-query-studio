@@ -541,6 +541,43 @@ let ``MarkDocumentSaved does not re-key the editor page for a tab that is no lon
     Assert.Empty(sent)
 
 [<Fact>]
+let ``MarkDocumentSaved fires DiscardResultsAsync with the old uri when the save retagged the document`` () =
+    // Retention is keyed by DocumentUri at run time. Saving an `untitled:`
+    // tab retags `doc.Uri` to a real file path, so the old key's entry
+    // would otherwise be stranded forever (the exact memory leak this
+    // plan set out to stop) - and the new URI would have nothing retained
+    // under it, breaking that tab's export going forward. Same
+    // fire-and-forget hook `CloseDocument` already uses.
+    let vm = ShellViewModel()
+    let doc = vm.ActiveDocument
+    let previousUri = doc.Uri
+    doc.ApplyTextChanged(1, "let x = 1")
+
+    let mutable discardedUri = None
+    vm.DiscardResultsAsync <- Some(fun uri ->
+        discardedUri <- Some uri
+        Task.FromResult(()))
+
+    vm.MarkDocumentSaved(doc, Some "C:/scripts/saved.fsx")
+
+    Assert.Equal(Some previousUri, discardedUri)
+
+[<Fact>]
+let ``MarkDocumentSaved does not fire DiscardResultsAsync when the save left the uri unchanged`` () =
+    let vm = ShellViewModel()
+    let doc = vm.OpenDocument("C:/scripts/saved.fsx")
+    doc.ApplyTextChanged(1, "let x = 1")
+
+    let mutable discardCalled = false
+    vm.DiscardResultsAsync <- Some(fun _ ->
+        discardCalled <- true
+        Task.FromResult(()))
+
+    vm.MarkDocumentSaved(doc, None)
+
+    Assert.False(discardCalled)
+
+[<Fact>]
 let ``MarkDocumentSaved still marks the document clean with no editor hook configured`` () =
     let vm = ShellViewModel()
     let doc = vm.ActiveDocument

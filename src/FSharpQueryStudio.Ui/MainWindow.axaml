@@ -83,6 +83,11 @@
       <StackPanel Orientation="Horizontal" Spacing="16">
         <TextBlock Text="{Binding WorkerState.Current}" Foreground="{DynamicResource PrimaryTextBrush}" />
         <TextBlock Text="{Binding ActiveDocument.SessionStateDisplay}" Foreground="{DynamicResource PrimaryTextBrush}" />
+        <!-- Set directly (not bound) by ExportCsvButton's click handler in
+             the code-behind — the most recent CSV export outcome, success
+             or failure. A static status field, not a full toast/
+             notification system: see MainWindow.axaml.fs. -->
+        <TextBlock Name="ExportStatusText" Foreground="{DynamicResource PrimaryTextBrush}" />
       </StackPanel>
     </Border>
 
