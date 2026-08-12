@@ -32,19 +32,21 @@ let ``table pushes a real Table envelope with the connector's own column names, 
     Assert.Equal(5L, envelope.ElapsedMs)
 
 [<Fact>]
-let ``table truncates to the preview row limit and marks IsTruncated, same bound as generic Table projection`` () =
+let ``table fully materializes every row, even past the preview row limit, and never marks IsTruncated`` () =
     Results.reset ()
 
-    let manyRows =
-        seq { for i in 1 .. Projection.PreviewRowLimit + 10 -> [| box i |] }
+    let rowCount = Projection.PreviewRowLimit + 10
+    let manyRows = seq { for i in 1..rowCount -> [| box i |] }
 
     let query: ConnectorQueryResult = { Columns = [ "n" ]; Rows = manyRows }
 
-    Results.table query |> ignore
+    let returned = Results.table query
+    Assert.Same(query, returned)
+
     let envelope = (Results.currentEnvelope 0L []).Value
 
-    Assert.Equal(Projection.PreviewRowLimit, envelope.Rows.Length)
-    Assert.True(envelope.IsTruncated)
+    Assert.Equal(rowCount, envelope.Rows.Length)
+    Assert.False(envelope.IsTruncated)
 
 [<Fact>]
 let ``text pushes the value's structured-printed form as a Text envelope, and returns its input unchanged`` () =
