@@ -16,6 +16,7 @@
     <Compile Include="LogViewerViewModel.fs" />
     <Compile Include="ShellViewModel.fs" />
     <Compile Include="ResultsView.axaml.fs" />
+    <Compile Include="LogViewerWindow.axaml.fs" />
     <Compile Include="MainWindow.axaml.fs" />
   </ItemGroup>
 
