@@ -14,9 +14,12 @@ open System.Reflection
 /// produces no "it" value at all, which used to render as a bare,
 /// confusing "null" (previously "Some(null)" — see `ResultViewModel`'s
 /// own fix) in the Results pane no matter what the script actually
-/// computed earlier. `table`/`text` both return their input unchanged,
-/// so they compose in a pipeline without disturbing the script's own
-/// logic; whichever was called most recently wins for this evaluation.
+/// computed earlier. `raw`/`table`/`text` all return their input
+/// unchanged, so they compose in a pipeline without disturbing the
+/// script's own logic; whichever was called most recently wins for this
+/// evaluation. `raw` accepts only a `ConnectorQueryResult`; `table`
+/// accepts any other collection (records, tuples, nested collections,
+/// Map/IDictionary, or flat scalars) and infers columns from its shape.
 module Results =
 
     type private Explicit =

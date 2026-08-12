@@ -339,3 +339,16 @@ let ``table on a scalar sequence with columnNames uses it as the single header``
 
     let envelope = (Results.currentEnvelope 0L []).Value
     Assert.Equal<string list>([ "n" ], envelope.Schema |> List.map (fun c -> c.Name))
+
+[<Fact>]
+let ``table dispatches on the first element's shape; a later row of a different shape fails with a row-naming error``
+    ()
+    =
+    Results.reset ()
+
+    let mixed: obj list = [ box (1, "Ada"); box { Id = 2; Name = "Grace" } ]
+
+    let ex =
+        Assert.ThrowsAny<exn>(fun () -> Results.table (box mixed) (Some [ "id"; "name" ]) |> ignore)
+
+    Assert.NotNull(ex.Message)
