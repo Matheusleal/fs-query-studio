@@ -223,3 +223,39 @@ let ``table on a Map sequence with columnNames overrides the headers positionall
 
     let envelope = (Results.currentEnvelope 0L []).Value
     Assert.Equal<string list>([ "identifier"; "full name" ], envelope.Schema |> List.map (fun c -> c.Name))
+
+[<Fact>]
+let ``table on a Map<string,int> sequence infers columns correctly`` () =
+    Results.reset ()
+
+    let rows =
+        [ Map.ofList [ ("id", 1); ("count", 5) ]
+          Map.ofList [ ("id", 2); ("extra", 10) ] ]
+
+    Results.table (box rows) None |> ignore
+
+    let envelope = (Results.currentEnvelope 0L []).Value
+    // Maps maintain keys in sorted order: row1 has ["count", "id"], row2 has ["extra", "id"]
+    // First-seen order: count (row1), id (row1), extra (row2)
+    Assert.Equal<string list>([ "count"; "id"; "extra" ], envelope.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal<obj array>([| box 5; box 1; null |], envelope.Rows.[0])
+    Assert.Equal<obj array>([| null; box 2; box 10 |], envelope.Rows.[1])
+
+[<Fact>]
+let ``table on a plain Dictionary<string,obj> sequence infers union-of-keys columns`` () =
+    Results.reset ()
+
+    let dict1 = System.Collections.Generic.Dictionary<string, obj>()
+    dict1.Add("id", box 1)
+    dict1.Add("name", box "Alice")
+
+    let dict2 = System.Collections.Generic.Dictionary<string, obj>()
+    dict2.Add("id", box 2)
+    dict2.Add("age", box 30)
+
+    Results.table (box [ dict1; dict2 ]) None |> ignore
+
+    let envelope = (Results.currentEnvelope 0L []).Value
+    Assert.Equal<string list>([ "id"; "name"; "age" ], envelope.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal<obj array>([| box 1; box "Alice"; null |], envelope.Rows.[0])
+    Assert.Equal<obj array>([| box 2; null; box 30 |], envelope.Rows.[1])

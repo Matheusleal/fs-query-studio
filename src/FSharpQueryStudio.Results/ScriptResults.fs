@@ -60,6 +60,134 @@ module Results =
                 names.Length
                 inferredNames.Length
 
+    /// Check if a type is dictionary-like (implements IDictionary<K,V> for any K,V,
+    /// or is a non-generic IDictionary, or is an F# Map)
+    let private isDictionary (typ: System.Type) : bool =
+        if typ = null then false
+        else
+            let interfaces = typ.GetInterfaces()
+            // Check for non-generic IDictionary
+            let hasNonGenericIDictionary =
+                interfaces
+                |> Array.exists (fun i -> i = typeof<IDictionary>)
+            // Check for any IDictionary<K,V> generic interface
+            let hasGenericIDictionary =
+                interfaces
+                |> Array.exists (fun i ->
+                    i.IsGenericType &&
+                    i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>>)
+            // Check if it's an F# Map type
+            let isFSharpMap =
+                typ.IsGenericType &&
+                typ.GetGenericTypeDefinition().Name = "FSharpMap`2"
+
+            hasNonGenericIDictionary || hasGenericIDictionary || isFSharpMap
+
+    /// Extract all keys from a dictionary-like object as strings
+    let private getDictionaryKeys (obj: obj) : string list =
+        if obj = null then []
+        else
+            let typ = obj.GetType()
+            let interfaces = typ.GetInterfaces()
+
+            // Try non-generic IDictionary first
+            let nonGenericInterface = interfaces |> Array.tryFind (fun i -> i = typeof<IDictionary>)
+            match nonGenericInterface with
+            | Some _ ->
+                try
+                    let dict = obj :?> IDictionary
+                    dict.Keys
+                    |> Seq.cast<obj>
+                    |> Seq.map string
+                    |> List.ofSeq
+                with _ ->
+                    // If casting fails, try generic approach
+                    let genericInterface =
+                        interfaces
+                        |> Array.tryFind (fun i ->
+                            i.IsGenericType &&
+                            i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>>)
+                    match genericInterface with
+                    | Some gi ->
+                        let keysProperty = gi.GetProperty("Keys")
+                        if keysProperty <> null then
+                            let keys = keysProperty.GetValue(obj) :?> System.Collections.IEnumerable
+                            keys
+                            |> Seq.cast<obj>
+                            |> Seq.map string
+                            |> List.ofSeq
+                        else []
+                    | None -> []
+            | None ->
+                // Try generic IDictionary<K,V>
+                let genericInterface =
+                    interfaces
+                    |> Array.tryFind (fun i ->
+                        i.IsGenericType &&
+                        i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>>)
+                match genericInterface with
+                | Some gi ->
+                    let keysProperty = gi.GetProperty("Keys")
+                    if keysProperty <> null then
+                        let keys = keysProperty.GetValue(obj) :?> System.Collections.IEnumerable
+                        keys
+                        |> Seq.cast<obj>
+                        |> Seq.map string
+                        |> List.ofSeq
+                    else []
+                | None -> []
+
+    /// Get a value from a dictionary-like object, or null if key not found
+    let private getDictionaryValue (obj: obj) (key: string) : obj =
+        if obj = null then null
+        else
+            let typ = obj.GetType()
+            let interfaces = typ.GetInterfaces()
+
+            // Try non-generic IDictionary first
+            let nonGenericInterface = interfaces |> Array.tryFind (fun i -> i = typeof<IDictionary>)
+            match nonGenericInterface with
+            | Some _ ->
+                try
+                    let dict = obj :?> IDictionary
+                    if dict.Contains(key) then dict.[key] else null
+                with _ ->
+                    // If casting fails, try generic approach
+                    let genericInterface =
+                        interfaces
+                        |> Array.tryFind (fun i ->
+                            i.IsGenericType &&
+                            i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>>)
+                    match genericInterface with
+                    | Some gi ->
+                        let containsKeyMethod = gi.GetMethod("ContainsKey")
+                        let itemProperty = gi.GetProperty("Item")
+                        if containsKeyMethod <> null && itemProperty <> null then
+                            let containsKey = containsKeyMethod.Invoke(obj, [| key |]) :?> bool
+                            if containsKey then
+                                itemProperty.GetValue(obj, [| key |])
+                            else null
+                        else null
+                    | None -> null
+            | None ->
+                // Try generic IDictionary<K,V>
+                let genericInterface =
+                    interfaces
+                    |> Array.tryFind (fun i ->
+                        i.IsGenericType &&
+                        i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>>)
+                match genericInterface with
+                | Some gi ->
+                    let containsKeyMethod = gi.GetMethod("ContainsKey")
+                    let itemProperty = gi.GetProperty("Item")
+                    if containsKeyMethod <> null && itemProperty <> null then
+                        let containsKey = containsKeyMethod.Invoke(obj, [| key |]) :?> bool
+                        if containsKey then
+                            itemProperty.GetValue(obj, [| key |])
+                        else null
+                    else null
+                | None -> null
+
     /// Row 0 of the materialized input decides every other row's shape;
     /// see the design doc's dispatch table for the full shape list. This
     /// task only implements the F# record branch — tuple, dictionary,
@@ -102,29 +230,30 @@ module Results =
                     let width = if dataRows.Length = 0 then names.Length else dataRows.[0].Length
                     let headers = resolveHeaders (List.replicate width "") (Some names)
                     (headers |> List.map (fun n -> { Name = n; DisplayType = "obj" })), dataRows
-            | :? System.Collections.Generic.IDictionary<string, obj> ->
-                let dicts = rows |> Array.map (fun r -> r :?> System.Collections.Generic.IDictionary<string, obj>)
-
+            | _ when first <> null && isDictionary (first.GetType()) ->
+                // Handle any dictionary-like type: Map<K,V>, Dictionary<K,V>, IDictionary, etc.
+                // via reflection to extract keys and values regardless of type parameters
                 let keysInFirstSeenOrder =
                     let seen = HashSet<string>()
                     let ordered = ResizeArray<string>()
 
-                    for d in dicts do
-                        for key in d.Keys do
-                            let k = string key
-
-                            if seen.Add(k) then
-                                ordered.Add(k)
+                    for row in rows do
+                        let keys = getDictionaryKeys row
+                        for key in keys do
+                            if seen.Add(key) then
+                                ordered.Add(key)
 
                     ordered |> List.ofSeq
 
                 let headers = resolveHeaders keysInFirstSeenOrder columnNames
 
                 let dataRows =
-                    dicts
-                    |> Array.map (fun d ->
+                    rows
+                    |> Array.map (fun row ->
                         keysInFirstSeenOrder
-                        |> List.map (fun k -> if d.ContainsKey(k) then d.[k] else null)
+                        |> List.map (fun k ->
+                            let value = getDictionaryValue row k
+                            if value <> null then value else null)
                         |> Array.ofList)
 
                 (headers |> List.map (fun n -> { Name = n; DisplayType = "obj" })), dataRows
