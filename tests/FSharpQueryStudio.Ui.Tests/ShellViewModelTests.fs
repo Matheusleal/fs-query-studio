@@ -626,6 +626,74 @@ let ``CopyResultAsync is a no-op when CopyResultToClipboard has not been configu
     }
 
 [<Fact>]
+let ``ExportCsvAsync sends the active document's Uri and the given file path through the configured hook`` () =
+    task {
+        let vm = ShellViewModel()
+        let mutable captured = None
+        vm.ExportCsvToFile <- Some(fun (documentUri, filePath) ->
+            captured <- Some(documentUri, filePath)
+            Task.FromResult(Ok()))
+
+        let! result = vm.ExportCsvAsync("C:\\export.csv")
+
+        Assert.Equal(Ok(), result)
+        Assert.Equal(Some(vm.ActiveDocument.Uri, "C:\\export.csv"), captured)
+    }
+
+[<Fact>]
+let ``ExportCsvAsync returns an error result when ExportCsvToFile has not been configured`` () =
+    task {
+        let vm = ShellViewModel()
+
+        let! result = vm.ExportCsvAsync("C:\\export.csv")
+
+        match result with
+        | Result.Error _ -> ()
+        | Ok() -> failwith "expected an Error result when the hook is unconfigured"
+    }
+
+[<Fact>]
+let ``CloseDocument fires DiscardResultsAsync with the closed document's Uri`` () =
+    let vm = ShellViewModel()
+    let firstDoc = vm.ActiveDocument
+    let secondDoc = vm.OpenDocument("untitled:Script2.fsx")
+    let mutable discardedUri = None
+    vm.DiscardResultsAsync <- Some(fun uri ->
+        discardedUri <- Some uri
+        Task.FromResult(()))
+
+    vm.CloseDocument(secondDoc.Uri) |> ignore
+
+    Assert.Equal(Some secondDoc.Uri, discardedUri)
+    ignore firstDoc
+
+[<Fact>]
+let ``CloseDocument does not fire DiscardResultsAsync when the close is refused`` () =
+    let vm = ShellViewModel()
+    let firstDoc = vm.ActiveDocument
+    firstDoc.ApplyTextChanged(1, "unsaved")
+    vm.ConfirmDiscardDirtyDocument <- Some(fun _ -> false)
+    let mutable discardCalled = false
+    vm.DiscardResultsAsync <- Some(fun _ ->
+        discardCalled <- true
+        Task.FromResult(()))
+
+    vm.CloseDocument(firstDoc.Uri) |> ignore
+
+    Assert.False(discardCalled)
+
+[<Fact>]
+let ``CloseDocument is a no-op-safe close when DiscardResultsAsync has not been configured`` () =
+    let vm = ShellViewModel()
+    let firstDoc = vm.ActiveDocument
+    let secondDoc = vm.OpenDocument("untitled:Script3.fsx")
+
+    let closed = vm.CloseDocument(secondDoc.Uri) // Must not throw.
+
+    Assert.True(closed)
+    ignore firstDoc
+
+[<Fact>]
 let ``a debounced text change calls CheckAsync and applies the result through the version guard`` () =
     let scheduler = FakeDebounceScheduler()
     let vm = ShellViewModel(scheduler)

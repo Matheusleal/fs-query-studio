@@ -322,6 +322,10 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
             if canDiscard then
                 documents.Remove(doc) |> ignore
 
+                match this.DiscardResultsAsync with
+                | None -> ()
+                | Some discard -> discard doc.Uri |> ignore
+
                 if documents.Count = 0 then
                     activeDocument <- createDocument "untitled:Script1.fsx"
                     propertyChanged.Trigger(self, PropertyChangedEventArgs(nameof this.ActiveDocument))
@@ -402,6 +406,20 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     /// C.15. A no-op if never configured, same rationale as
     /// `ExecuteAsync`.
     member val CopyResultToClipboard: (string -> Task<unit>) option = None with get, set
+
+    /// The composition root's hook into `results/exportCsv` — see
+    /// `ExportService.exportCsv`. Takes `(documentUri, filePath)`; a no-op
+    /// (`Error`) if never configured, so `ExportCsvAsync` stays callable
+    /// without a worker process behind it, same rationale as every other
+    /// hook here.
+    member val ExportCsvToFile: ((string * string) -> Task<Result<unit, string>>) option = None with get, set
+
+    /// The composition root's hook into `results/discard` — see
+    /// `ExportService.discardResults`. Called fire-and-forget from
+    /// `CloseDocument` right after a tab is actually removed, so a
+    /// closed tab's retained result doesn't leak in the Worker's memory.
+    /// A no-op if never configured, same rationale as every other hook.
+    member val DiscardResultsAsync: (string -> Task<unit>) option = None with get, set
 
     /// The list of registered database connections for this workspace.
     member _.Connections = connections
@@ -597,6 +615,19 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
             match this.CopyResultToClipboard with
             | None -> ()
             | Some copy -> do! copy this.Result.ClipboardText
+        }
+
+    /// Exports the active document's retained full result to `filePath` —
+    /// see docs/superpowers/specs/2026-08-12-results-export-design.md.
+    /// Returns an `Error` (not a thrown exception) both for a real worker-
+    /// side failure and for `ExportCsvToFile` never having been configured
+    /// — the caller (`MainWindow`'s click handler) surfaces either the same
+    /// way.
+    member this.ExportCsvAsync(filePath: string) : Task<Result<unit, string>> =
+        task {
+            match this.ExportCsvToFile with
+            | None -> return Result.Error "Export is not available."
+            | Some export -> return! export (this.ActiveDocument.Uri, filePath)
         }
 
     /// A no-op unless the worker is actually `Running` — nothing to

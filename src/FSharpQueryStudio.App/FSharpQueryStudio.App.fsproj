@@ -13,6 +13,7 @@
     <Compile Include="ExecutionService.fs" />
     <Compile Include="AnalysisService.fs" />
     <Compile Include="ConnectionService.fs" />
+    <Compile Include="ExportService.fs" />
     <Compile Include="App.axaml.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
