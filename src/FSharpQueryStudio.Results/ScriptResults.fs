@@ -2,6 +2,10 @@ namespace FSharpQueryStudio.Results
 
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Connectors
+open Microsoft.FSharp.Reflection
+open System.Collections
+open System.Collections.Generic
+open System.Reflection
 
 /// The controlled surface `.fsx` scripts use to explicitly choose how a
 /// value shows up in the Results pane, instead of relying solely on F#
@@ -42,6 +46,73 @@ module Results =
 
         explicit <- Some(Table(columns, allRows))
         query
+
+    /// Applies an explicit `columnNames` override positionally over
+    /// `inferredNames`, throwing if the counts disagree — the one rule
+    /// that holds across every shape `table` dispatches on.
+    let private resolveHeaders (inferredNames: string list) (columnNames: string list option) : string list =
+        match columnNames with
+        | None -> inferredNames
+        | Some names when names.Length = inferredNames.Length -> names
+        | Some names ->
+            failwithf
+                "columnNames has %d entries but rows have %d values"
+                names.Length
+                inferredNames.Length
+
+    /// Row 0 of the materialized input decides every other row's shape;
+    /// see the design doc's dispatch table for the full shape list. This
+    /// task only implements the F# record branch — tuple, dictionary,
+    /// nested-collection, and scalar branches are added in later tasks.
+    let private dispatchRows (rows: obj array) (columnNames: string list option) : Column list * obj array array =
+        match rows with
+        | [||] ->
+            let headers = columnNames |> Option.defaultValue []
+            (headers |> List.map (fun n -> { Name = n; DisplayType = "obj" })), [||]
+        | _ ->
+            let first = rows.[0]
+
+            let allFlags = BindingFlags.Public ||| BindingFlags.NonPublic
+
+            match first with
+            | :? ConnectorQueryResult ->
+                failwith "Results.table does not accept ConnectorQueryResult — use Results.raw."
+            | _ when first <> null && FSharpType.IsRecord(first.GetType(), allFlags) ->
+                let recordType = first.GetType()
+
+                let fieldNames =
+                    FSharpType.GetRecordFields(recordType, allFlags)
+                    |> Array.map (fun p -> p.Name)
+                    |> Array.toList
+
+                let headers = resolveHeaders fieldNames columnNames
+
+                let dataRows =
+                    rows
+                    |> Array.map (fun r -> FSharpValue.GetRecordFields(r, allFlags))
+
+                (headers |> List.map (fun n -> { Name = n; DisplayType = "obj" })), dataRows
+            | _ -> failwith "Results.table: unrecognized element shape."
+
+    /// New generalized entry point — accepts any collection (records,
+    /// tuples, nested collections, Map/IDictionary, or flat scalars) and
+    /// renders it as a real table, inferring columns from the data's own
+    /// shape wherever possible. `columnNames`, when given, always wins as
+    /// the final headers, applied positionally. See
+    /// docs/superpowers/specs/2026-08-12-results-table-generalization-design.md.
+    let table (data: obj) (columnNames: string list option) : obj =
+        match data with
+        | :? ConnectorQueryResult ->
+            failwith "Results.table does not accept ConnectorQueryResult — use Results.raw."
+        | :? string ->
+            failwith "Results.table expects a collection; got a single value — wrap it, e.g. [value]."
+        | :? IEnumerable as enumerable ->
+            let materialized = enumerable |> Seq.cast<obj> |> Array.ofSeq
+            let columns, dataRows = dispatchRows materialized columnNames
+            explicit <- Some(Table(columns, dataRows))
+            data
+        | _ ->
+            failwith "Results.table expects a collection; got a single value — wrap it, e.g. [value]."
 
     /// Explicitly shows `value`'s structured-printed form (F#'s own `%A`,
     /// the same formatting FSI's own REPL echo uses) as text in the
