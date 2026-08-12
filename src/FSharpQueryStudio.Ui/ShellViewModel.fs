@@ -552,7 +552,8 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
                           SessionId = (match doc.SessionMode with
                                        | Persistent -> Some doc.Uri
                                        | Isolated -> None)
-                          Mode = doc.SessionMode }
+                          Mode = doc.SessionMode
+                          DocumentUri = doc.Uri }
 
                     let! envelope = execute evalParams
 

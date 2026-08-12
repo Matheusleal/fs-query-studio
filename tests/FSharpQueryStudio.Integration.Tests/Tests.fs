@@ -58,7 +58,7 @@ let ``a throwing script returns a structured Error result and the worker survive
             // characterization test in Execution.Tests) - annotate the type
             // so this actually exercises a runtime exception.
             let evaluateParams =
-                """{"source":"(failwith \"boom\" : int)","sessionId":null,"mode":{"Case":"Isolated"}}"""
+                """{"source":"(failwith \"boom\" : int)","sessionId":null,"mode":{"Case":"Isolated"},"documentUri":"untitled:Test.fsx"}"""
             let! errorResponse = roundTrip proc (request "it-2" "execution/evaluate" evaluateParams)
 
             match errorResponse with

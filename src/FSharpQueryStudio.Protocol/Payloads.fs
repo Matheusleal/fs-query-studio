@@ -17,10 +17,17 @@ type SessionMode =
 /// `Mode` defaults to `Isolated`: every call gets a fresh session in a
 /// fresh working directory. `SessionId` only matters for `Persistent`,
 /// where it keys the worker-side session to reuse or create.
+/// `DocumentUri` is always populated (unlike `SessionId`, which is `None`
+/// for Isolated mode) — it names the tab that's running, independent of
+/// session semantics, so `runEvaluate` knows which tab's retained result
+/// (see `FSharpQueryStudio.Results.ResultRetention`) to commit into when
+/// the script pushes a table. Additive: `SessionId`'s own meaning is
+/// untouched.
 type EvaluateParams =
     { Source: string
       SessionId: string option
-      Mode: SessionMode }
+      Mode: SessionMode
+      DocumentUri: string }
 
 /// `analysis/check` request payload — see Section 7's method table.
 type AnalysisCheckParams =
@@ -169,3 +176,13 @@ type ResultPage =
     { Rows: obj array array
       IsTruncated: bool
       ContinuationToken: string option }
+
+/// `results/exportCsv` request payload. `FilePath` is a real filesystem
+/// path chosen by the user via the UI's own Save File dialog — the worker
+/// never picks or prompts for a path itself.
+type ExportCsvParams = { DocumentUri: string; FilePath: string }
+
+/// `results/discard` request payload — evicts `DocumentUri`'s retained
+/// result, if any (see `ResultRetention.discard`). Always succeeds, even
+/// for a `DocumentUri` nothing is retained under.
+type ResultsDiscardParams = { DocumentUri: string }

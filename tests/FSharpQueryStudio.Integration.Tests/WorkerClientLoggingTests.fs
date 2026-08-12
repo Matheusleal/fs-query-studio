@@ -77,7 +77,10 @@ let private evaluateRequest (id: string) (source: string) : WorkerRequestFrame =
       Method = "execution/evaluate"
       Params =
         JsonSerializer.SerializeToElement<EvaluateParams>(
-            { Source = source; SessionId = None; Mode = Isolated },
+            { Source = source
+              SessionId = None
+              Mode = Isolated
+              DocumentUri = "untitled:Test.fsx" },
             Serialization.options
         ) }
 

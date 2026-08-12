@@ -150,7 +150,10 @@ let ``ApprovedPackage round-trips through JSON`` () =
 [<Fact>]
 let ``EvaluateParams round-trips through JSON for both Isolated and Persistent modes`` () =
     let isolated: EvaluateParams =
-        { Source = "1 + 1"; SessionId = None; Mode = Isolated }
+        { Source = "1 + 1"
+          SessionId = None
+          Mode = Isolated
+          DocumentUri = "untitled:Script1.fsx" }
 
     let isolatedJson = JsonSerializer.Serialize(isolated, Serialization.options)
     let roundTrippedIsolated = JsonSerializer.Deserialize<EvaluateParams>(isolatedJson, Serialization.options)
@@ -159,7 +162,8 @@ let ``EvaluateParams round-trips through JSON for both Isolated and Persistent m
     let persistent: EvaluateParams =
         { Source = "x + 1"
           SessionId = Some "sess-1"
-          Mode = Persistent }
+          Mode = Persistent
+          DocumentUri = "file:///workspace/sales.fsx" }
 
     let persistentJson = JsonSerializer.Serialize(persistent, Serialization.options)
     let roundTrippedPersistent = JsonSerializer.Deserialize<EvaluateParams>(persistentJson, Serialization.options)

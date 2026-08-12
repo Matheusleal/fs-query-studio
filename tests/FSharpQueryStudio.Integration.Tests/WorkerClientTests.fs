@@ -51,7 +51,10 @@ let private evaluateRequest (id: string) (source: string) : WorkerRequestFrame =
       Method = "execution/evaluate"
       Params =
         JsonSerializer.SerializeToElement<EvaluateParams>(
-            { Source = source; SessionId = None; Mode = Isolated },
+            { Source = source
+              SessionId = None
+              Mode = Isolated
+              DocumentUri = "untitled:Test.fsx" },
             Serialization.options
         ) }
 
@@ -62,7 +65,8 @@ let private persistentEvaluateRequest (id: string) (source: string) (sessionId: 
         JsonSerializer.SerializeToElement<EvaluateParams>(
             { Source = source
               SessionId = Some sessionId
-              Mode = Persistent },
+              Mode = Persistent
+              DocumentUri = "untitled:Test.fsx" },
             Serialization.options
         ) }
 
