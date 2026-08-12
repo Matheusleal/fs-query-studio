@@ -1525,3 +1525,15 @@ Verified: `dotnet build` clean across the full solution (0 warnings, 0 errors). 
 
 Files changed across all seven tasks: `src/FSharpQueryStudio.Results/ResultRetention.fs` (new), `src/FSharpQueryStudio.Results/ScriptResults.fs`, `src/FSharpQueryStudio.Results/FSharpQueryStudio.Results.fsproj`, `src/FSharpQueryStudio.Protocol/Payloads.fs`, `src/FSharpQueryStudio.Worker/Handlers.fs`, `src/FSharpQueryStudio.App/ExportService.fs`, `src/FSharpQueryStudio.App/App.axaml.fs`, `src/FSharpQueryStudio.Ui/ShellViewModel.fs`, `src/FSharpQueryStudio.Ui/MainWindow.axaml`, `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`, plus the corresponding test files across `tests/FSharpQueryStudio.Results.Tests`, `tests/FSharpQueryStudio.Worker.Tests`, `tests/FSharpQueryStudio.Ui.Tests`, `tests/FSharpQueryStudio.Protocol.Tests`, `tests/FSharpQueryStudio.Integration.Tests`, `docs/superpowers/plans/2026-08-12-results-export.md` (new), `docs/DEVLOG.md`.
 
+## 2026-08-12 — Feature: generalize `Results.table` dispatch to any collection shape (scalar fallback dispatch) — Task 6
+
+Last of six sequential tasks on a narrower plan to remove the final exception path from `dispatchRows` and complete the shape-dispatch table. `Results.table` now handles every possible non-ConnectorQueryResult collection shape: records, tuples, Maps/IDictionaries, nested enumerables (with ragged-row padding and string exclusion from nesting), and — as of this task — scalar values. Any row that doesn't match record/tuple/dictionary/IEnumerable patterns becomes a scalar entry in a single-column table, with header "Value" by default or a user-provided `columnNames` entry if given.
+
+Strict TDD workflow: added two new scalar-sequence tests (defaults to "Value" column; columnNames override), verified both fail along with the carried-over `seq<string>` test from Task 5 (all three hit the old error path), implemented the scalar fallback branch, verified all 52 tests pass (49 previously + 2 new + 1 seq<string> fix).
+
+Implementation: replaced the final `| _ -> failwith "Results.table: unrecognized element shape."` with a functional scalar branch that calls `resolveHeaders ["Value"] columnNames` and wraps each row as a single-element array `[| r |]`. No function signatures changed.
+
+Verified: `dotnet test tests/FSharpQueryStudio.Results.Tests` — all 52 passing (39 baseline + 10 from prior tasks + 2 new + 1 fix).
+
+Files changed: `src/FSharpQueryStudio.Results/ScriptResults.fs`, `tests/FSharpQueryStudio.Results.Tests/ScriptResultsTests.fs`, `.superpowers/sdd/2026-08-12-results-table-generalization/task-6-report.md` (new), `docs/DEVLOG.md`.
+
