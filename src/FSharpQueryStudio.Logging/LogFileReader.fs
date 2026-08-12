@@ -47,3 +47,76 @@ module LogFileReader =
                       Message = root.GetProperty("RenderedMessage").GetString() }
             with _ ->
                 None
+
+    /// Every distinct date with a `host-*.log`/`worker-*.log` file in
+    /// `logsDirectory`, newest first — what populates the log viewer's
+    /// date picker. Empty, not an error, for a directory that doesn't
+    /// exist yet (a freshly-installed app before its first log line).
+    let listAvailableDates (logsDirectory: string) : DateOnly list =
+        if not (System.IO.Directory.Exists logsDirectory) then
+            []
+        else
+            let pattern =
+                System.Text.RegularExpressions.Regex(@"^(?:host|worker)-(\d{8})\.log$")
+
+            System.IO.Directory.GetFiles(logsDirectory)
+            |> Array.choose (fun path ->
+                let name = System.IO.Path.GetFileName path
+                let m = pattern.Match name
+
+                if m.Success then
+                    match DateOnly.TryParseExact(m.Groups.[1].Value, "yyyyMMdd") with
+                    | true, date -> Some date
+                    | false, _ -> None
+                else
+                    None)
+            |> Array.distinct
+            |> Array.sortDescending
+            |> Array.toList
+
+    /// Reads only the bytes appended to `filePath` since `byteOffset`,
+    /// parsing every complete line into a `LogEntry` (skipping any that
+    /// fail to parse — `parseLine`'s own routine-partial-write case) and
+    /// returning the new offset alongside them. A trailing line with no
+    /// terminating `\n` yet (the poller caught a write in progress) is
+    /// left unconsumed — the returned offset stops before it, so the next
+    /// call picks it up once it's whole. `[], byteOffset` (offset
+    /// unchanged) for a file that doesn't exist or has nothing new since
+    /// `byteOffset` — never an error, since both are routine for a
+    /// live-tail poller (the file may not exist yet at the very start of
+    /// a session; most polls find nothing new).
+    let readEntriesSince (filePath: string) (byteOffset: int64) : LogEntry list * int64 =
+        if not (System.IO.File.Exists filePath) then
+            [], byteOffset
+        else
+            use stream =
+                new System.IO.FileStream(
+                    filePath,
+                    System.IO.FileMode.Open,
+                    System.IO.FileAccess.Read,
+                    System.IO.FileShare.ReadWrite
+                )
+
+            if byteOffset >= stream.Length then
+                [], byteOffset
+            else
+                stream.Seek(byteOffset, System.IO.SeekOrigin.Begin) |> ignore
+                let buffer = Array.zeroCreate<byte> (int (stream.Length - byteOffset))
+                stream.ReadExactly(buffer, 0, buffer.Length)
+
+                match buffer |> Array.tryFindIndexBack (fun b -> b = byte '\n') with
+                | None -> [], byteOffset
+                | Some lastNewlineIndex ->
+                    let complete = System.Text.Encoding.UTF8.GetString(buffer, 0, lastNewlineIndex + 1)
+
+                    let entries =
+                        complete.Split('\n')
+                        |> Array.choose (fun line -> parseLine (line.TrimEnd('\r')))
+                        |> Array.toList
+
+                    entries, byteOffset + int64 (lastNewlineIndex + 1)
+
+    /// Every entry in `filePath`, from the start — a past date's static
+    /// view (never live-polled again once selected).
+    let readAllEntries (filePath: string) : LogEntry list =
+        readEntriesSince filePath 0L |> fst
