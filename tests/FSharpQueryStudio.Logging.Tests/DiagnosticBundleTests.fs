@@ -60,6 +60,47 @@ let ``scanForLeakedSecrets flags an unredacted password assignment`` () =
     Assert.Equal<string list>([ "host-20260806.log" ], leaks)
 
 [<Fact>]
+let ``scanForLeakedSecrets flags an unredacted password in JSON-formatted log lines`` () =
+    // The file sinks write JSON (`LoggerSetup.fs`), which puts quotes
+    // around both the key and the value - a shape the plain-text
+    // `key: value`/`key=value` pattern alone can't match.
+    let logsDir = tempDir ()
+    let now = DateTimeOffset(2026, 8, 6, 12, 0, 0, TimeSpan.Zero)
+
+    writeLogFile
+        logsDir
+        "host-20260806.log"
+        """{"Timestamp":"2026-08-06T12:00:00Z","Level":"Information","Properties":{"password":"hunter2"}}"""
+        now.UtcDateTime
+    |> ignore
+
+    let zipPath = Path.Combine(logsDir, "bundle.zip")
+    DiagnosticBundle.createBundle logsDir 14 now zipPath
+
+    let leaks = DiagnosticBundle.scanForLeakedSecrets zipPath
+
+    Assert.Equal<string list>([ "host-20260806.log" ], leaks)
+
+[<Fact>]
+let ``scanForLeakedSecrets finds nothing for an already-redacted JSON property value`` () =
+    let logsDir = tempDir ()
+    let now = DateTimeOffset(2026, 8, 6, 12, 0, 0, TimeSpan.Zero)
+
+    writeLogFile
+        logsDir
+        "host-20260806.log"
+        """{"Timestamp":"2026-08-06T12:00:00Z","Level":"Information","Properties":{"password":"***REDACTED***"}}"""
+        now.UtcDateTime
+    |> ignore
+
+    let zipPath = Path.Combine(logsDir, "bundle.zip")
+    DiagnosticBundle.createBundle logsDir 14 now zipPath
+
+    let leaks = DiagnosticBundle.scanForLeakedSecrets zipPath
+
+    Assert.Empty(leaks)
+
+[<Fact>]
 let ``scanForLeakedSecrets finds nothing once RedactingEnricher has already redacted the value`` () =
     // Builds a minimal file-only logger (no console sink) rather than
     // LoggerSetup.build - that call touches the real, process-global

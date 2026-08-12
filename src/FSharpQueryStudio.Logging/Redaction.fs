@@ -43,9 +43,16 @@ module Redaction =
     /// either missed it at write time or never ran. Deliberately excludes
     /// the placeholder itself so scanning already-redacted output doesn't
     /// flag its own redaction markers as a leak.
+    ///
+    /// Two alternatives, since the file sinks write JSON (`LoggerSetup.fs`)
+    /// while the console sink and any older plain-text output don't: the
+    /// first matches plain-text `key: value`/`key=value`; the second
+    /// matches JSON's `"key":"value"` shape, where the plain-text
+    /// alternative can't match because the `"` right after the key blocks
+    /// `\s*[:=]\s*`.
     let private leakedSecretPattern =
         Regex(
-            $@"(?i)\b(password|pwd|secret|token|authorization)\s*[:=]\s*(?!{Regex.Escape RedactedPlaceholder})\S+",
+            $@"(?i)\b(password|pwd|secret|token|authorization)\s*[:=]\s*(?!{Regex.Escape RedactedPlaceholder})\S+|""(password|pwd|secret|token|authorization)""\s*:\s*""(?!{Regex.Escape RedactedPlaceholder})[^""]*""",
             RegexOptions.Compiled
         )
 

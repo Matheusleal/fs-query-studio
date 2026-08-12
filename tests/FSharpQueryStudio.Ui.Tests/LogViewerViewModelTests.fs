@@ -39,7 +39,7 @@ let ``a freshly-constructed LogViewerViewModel defaults to today, live, with no 
     Assert.Empty(vm.Entries)
 
 [<Fact>]
-let ``Poll merges host and worker entries and sorts them by Timestamp`` () =
+let ``Poll merges host and worker entries and sorts them newest-first by Timestamp`` () =
     let reader =
         fakeReader (
             Map [ hostPathFor today, [ entry 2 "Information" "host" "later host" ]
@@ -49,7 +49,7 @@ let ``Poll merges host and worker entries and sorts them by Timestamp`` () =
     let vm = LogViewerViewModel("logs", reader)
     vm.Poll()
 
-    Assert.Equal<string list>([ "earlier worker"; "later host" ], vm.Entries |> List.map (fun e -> e.Message))
+    Assert.Equal<string list>([ "later host"; "earlier worker" ], vm.Entries |> List.map (fun e -> e.Message))
 
 [<Fact>]
 let ``Poll is a no-op once IsLive is false`` () =
@@ -155,3 +155,9 @@ let ``HasEntries and HasNoEntries track Entries, including after a filter emptie
 
     Assert.False(vm.HasEntries)
     Assert.True(vm.HasNoEntries)
+
+[<Fact>]
+let ``AvailableDates doesn't throw when logsDirectory doesn't exist`` () =
+    let vm = LogViewerViewModel("some-nonexistent-directory-xyz", fun _ _ -> [], 0L)
+
+    Assert.Empty(vm.AvailableDates)

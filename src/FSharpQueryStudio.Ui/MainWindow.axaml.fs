@@ -38,6 +38,14 @@ type MainWindow() as this =
 
     let mutable assetHost: AssetHost.Host option = None
 
+    /// The currently-open `LogViewerWindow`, if any — `None` when the log
+    /// viewer isn't open. Lets the Logs menu item dedup: a click while one
+    /// is already open just brings it to front (`Activate()`) instead of
+    /// spawning another independently-polling window; the field resets to
+    /// `None` in that window's own `Closed` handler so the next click
+    /// starts fresh.
+    let mutable logViewerWindow: LogViewerWindow option = None
+
     let shellViewModel = ShellViewModel()
     let themeService = ThemeService()
 
@@ -545,7 +553,14 @@ type MainWindow() as this =
 
         this.FindControl<MenuItem>("NewConnectionMenuItem").Click.Add(fun _ -> showConnectionDialog None)
 
-        this.FindControl<MenuItem>("LogsMenuItem").Click.Add(fun _ -> LogViewerWindow().Show())
+        this.FindControl<MenuItem>("LogsMenuItem").Click.Add(fun _ ->
+            match logViewerWindow with
+            | Some window -> window.Activate()
+            | None ->
+                let window = LogViewerWindow()
+                logViewerWindow <- Some window
+                window.Closed.Add(fun _ -> logViewerWindow <- None)
+                window.Show(this))
 
         // The open-tab strip, rebuilt by hand from
         // `shellViewModel.Documents` (a plain

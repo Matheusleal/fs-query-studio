@@ -37,16 +37,27 @@ type LogViewerViewModel(logsDirectory: string, readEntriesSince: string -> int64
         [<CLIEvent>]
         member _.PropertyChanged = propertyChanged.Publish
 
-    member _.AvailableDates = LogFileReader.listAvailableDates logsDirectory
+    /// Same never-crash-the-viewer guard as `Poll`/`SelectedDate`'s static
+    /// read: `listAvailableDates` checks `Directory.Exists` itself but its
+    /// subsequent `Directory.GetFiles` can still throw (permissions, the
+    /// directory disappearing between the check and the call, ...), and
+    /// this is bound directly to the window's date-picker `ItemsSource`.
+    member _.AvailableDates =
+        try
+            LogFileReader.listAvailableDates logsDirectory
+        with _ ->
+            []
     member _.IsLive = isLive
     member _.LevelOptions = [ "All"; "Information"; "Warning"; "Error" ]
     member _.ProcessOptions = [ "All"; "host"; "worker" ]
 
     /// The currently-displayed rows: `rawEntries` (already merged and
-    /// sorted by `Timestamp` at fetch time — `Poll`/a `SelectedDate`
-    /// switch), narrowed by `LevelFilter`/`ProcessFilter` on every access.
-    /// Filtering never triggers a fresh read, just a re-derivation over
-    /// what's already fetched.
+    /// sorted newest-first by `Timestamp` at fetch time — `Poll`/a
+    /// `SelectedDate` switch — so a live tail shows new lines at the top of
+    /// the grid without needing the user to scroll), narrowed by
+    /// `LevelFilter`/`ProcessFilter` on every access. Filtering never
+    /// triggers a fresh read, just a re-derivation over what's already
+    /// fetched.
     member _.Entries =
         rawEntries
         |> List.filter (fun e -> levelFilter = "All" || levelFilter = e.Level)
@@ -95,7 +106,7 @@ type LogViewerViewModel(logsDirectory: string, readEntriesSince: string -> int64
                     try
                         let hostEntries, _ = readEntriesSince (logFilePath date "host") 0L
                         let workerEntries, _ = readEntriesSince (logFilePath date "worker") 0L
-                        rawEntries <- (hostEntries @ workerEntries) |> List.sortBy (fun e -> e.Timestamp)
+                        rawEntries <- (hostEntries @ workerEntries) |> List.sortByDescending (fun e -> e.Timestamp)
                     with _ ->
                         rawEntries <- []
 
@@ -121,7 +132,10 @@ type LogViewerViewModel(logsDirectory: string, readEntriesSince: string -> int64
                 if not (List.isEmpty newHostEntries) || not (List.isEmpty newWorkerEntries) then
                     hostOffset <- newHostOffset
                     workerOffset <- newWorkerOffset
-                    rawEntries <- (rawEntries @ newHostEntries @ newWorkerEntries) |> List.sortBy (fun e -> e.Timestamp)
+
+                    rawEntries <-
+                        (rawEntries @ newHostEntries @ newWorkerEntries)
+                        |> List.sortByDescending (fun e -> e.Timestamp)
                     raise "Entries"
                     raise "HasEntries"
                     raise "HasNoEntries"
