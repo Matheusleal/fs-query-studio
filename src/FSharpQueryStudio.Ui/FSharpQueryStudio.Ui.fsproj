@@ -13,6 +13,7 @@
     <Compile Include="ResultGridColumns.fs" />
     <Compile Include="ProblemViewModel.fs" />
     <Compile Include="WorkspaceConnectionViewModel.fs" />
+    <Compile Include="LogViewerViewModel.fs" />
     <Compile Include="ShellViewModel.fs" />
     <Compile Include="ResultsView.axaml.fs" />
     <Compile Include="MainWindow.axaml.fs" />
@@ -32,6 +33,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\FSharpQueryStudio.Logging\FSharpQueryStudio.Logging.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Editor\FSharpQueryStudio.Editor.fsproj" />
   </ItemGroup>
 
