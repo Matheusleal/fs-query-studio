@@ -302,6 +302,21 @@ let ``table on ragged nested-collection rows pads short rows blank and truncates
     Assert.Equal<obj array>([| box 2; box 3; box 4 |], envelope.Rows.[0 + 1])
 
 [<Fact>]
+let ``table on a nested collection with columnNames throws when the count does not match the first row's width``
+    ()
+    =
+    Results.reset ()
+
+    let grid: obj array list =
+        [ [| box "1"; box "Ada" |]; [| box "2"; box "Grace" |] ]
+
+    let ex =
+        Assert.Throws<exn>(fun () -> Results.table (box grid) (Some [ "only-one" ]) |> ignore)
+
+    Assert.Contains("1", ex.Message)
+    Assert.Contains("2", ex.Message)
+
+[<Fact>]
 let ``table on a seq of strings renders as scalars, one column, not exploded into characters`` () =
     Results.reset ()
 

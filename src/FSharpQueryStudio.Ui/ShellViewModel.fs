@@ -170,8 +170,9 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
 //   By default the script's last value shows in the Results pane. To
 //   show something specific instead:
 //
-//     Results.table orders   // shows orders' own real columns as a table
-//     Results.text  "done"   // shows a plain text/string value
+//     Results.raw   orders          // shows a ConnectorQueryResult's own real columns as a table
+//     Results.table myList None     // shows any other collection (records, tuples, Map, etc.) as a table
+//     Results.text  "done"          // shows a plain text/string value
 //
 // READING RESULTS
 //   Results, Output, Problems, and Schema each have their own tab at the

@@ -192,9 +192,10 @@ module Results =
                 | None -> null
 
     /// Row 0 of the materialized input decides every other row's shape;
-    /// see the design doc's dispatch table for the full shape list. This
-    /// task only implements the F# record branch — tuple, dictionary,
-    /// nested-collection, and scalar branches are added in later tasks.
+    /// see the design doc's dispatch table for the full shape list.
+    /// Dispatches on the first element's runtime shape — F# record,
+    /// tuple, dictionary/Map, nested collection, or flat scalar — and
+    /// builds that shape's columns and rows accordingly.
     let private dispatchRows (rows: obj array) (columnNames: string list option) : Column list * obj array array =
         match rows with
         | [||] ->
@@ -275,7 +276,14 @@ module Results =
 
                 let width =
                     match columnNames with
-                    | Some names -> names.Length
+                    | Some names ->
+                        // Validate columnNames' count against the first row's actual
+                        // width — the same rule every other shape enforces via
+                        // resolveHeaders — before any padding/truncation below.
+                        if dataRawRows.Length > 0 then
+                            resolveHeaders (List.replicate dataRawRows.[0].Length "") (Some names) |> ignore
+
+                        names.Length
                     | None ->
                         match headerRow with
                         | Some h -> h.Length
