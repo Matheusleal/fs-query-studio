@@ -697,17 +697,20 @@ type MainWindow() as this =
                         webView
                         (EditorBridge.encodeNotification (DocumentLoaded(doc.Uri, doc.Version, doc.Text))))
 
-        // Initial push for the workspace's very first document — nothing
-        // else fires an `ActiveDocument` change for it.
-        postToEditor
-            webView
-            (EditorBridge.encodeNotification (
-                DocumentLoaded(
-                    shellViewModel.ActiveDocument.Uri,
-                    shellViewModel.ActiveDocument.Version,
-                    shellViewModel.ActiveDocument.Text
-                )
-            ))
+        // Monaco posts "editorReady" once its own message listener is
+        // attached (see editor-host.html's require() callback) - this is
+        // the earliest safe point to push the active document, replacing
+        // both the constructor-time push and NavigationCompleted-time
+        // assumptions, both of which fire before Monaco's own listener
+        // necessarily exists and were silently dropping the push (see
+        // docs/DEVLOG.md's note on this exact race, closed here).
+        webView.WebMessageReceived.Add(fun args ->
+            let envelope =
+                System.Text.Json.JsonSerializer.Deserialize<EditorEnvelope>(args.Body, Serialization.options)
+
+            if envelope.Kind = "editorReady" then
+                let doc = shellViewModel.ActiveDocument
+                postToEditor webView (EditorBridge.encodeNotification (DocumentLoaded(doc.Uri, doc.Version, doc.Text))))
 
         // `shellViewModel.Result` is derived from `ActiveDocument.Result`
         // (one `ResultViewModel` instance per tab, not a single shared one)

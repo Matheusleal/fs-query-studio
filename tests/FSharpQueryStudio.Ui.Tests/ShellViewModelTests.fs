@@ -1200,3 +1200,33 @@ let ``WelcomeUri is the same stable constant across separate ShellViewModel inst
 
     Assert.Equal(first.WelcomeUri, second.WelcomeUri)
     Assert.Equal("untitled:Welcome.fsx", first.WelcomeUri)
+
+[<Fact>]
+let ``the Welcome guide is entirely inert - every non-blank line is a comment`` () =
+    let vm = ShellViewModel()
+    let text = vm.OpenDocument(vm.WelcomeUri).Text
+
+    let live =
+        text.Split('\n')
+        |> Array.filter (fun l -> not (System.String.IsNullOrWhiteSpace l) && not ((l.TrimStart()).StartsWith "//"))
+
+    Assert.Empty(live)
+
+[<Fact>]
+let ``closing the Welcome tab and reopening it from OpenDocument gives a fresh, unedited copy`` () =
+    let vm = ShellViewModel()
+    let welcomeDoc = vm.OpenDocument(vm.WelcomeUri)
+    welcomeDoc.ApplyTextChanged(1, "// edited by the user")
+
+    // The edit above makes the tab dirty, so - same as any other tab, per
+    // CloseDocument's own documented convention (see the "keeps a dirty
+    // tab open when no prompt handler is configured" test above) - closing
+    // it needs a confirmation hook that agrees to discard.
+    vm.ConfirmDiscardDirtyDocument <- Some(fun _ -> true)
+
+    Assert.True(vm.CloseDocument(vm.WelcomeUri))
+
+    let reopened = vm.OpenDocument(vm.WelcomeUri)
+
+    Assert.Contains("RUNNING SCRIPTS", reopened.Text)
+    Assert.DoesNotContain("edited by the user", reopened.Text)

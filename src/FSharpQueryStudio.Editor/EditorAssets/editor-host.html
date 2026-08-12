@@ -729,6 +729,13 @@
             }
           });
         }
+
+        // Tell the host this message listener is now attached and Monaco
+        // is ready for a documentLoaded push - the host waits for this
+        // instead of pushing at construction time or on
+        // NavigationCompleted, both of which can fire before this
+        // require() callback (and therefore the listener above) has run.
+        postToHost("editorReady", {});
       });
     </script>
   </body>

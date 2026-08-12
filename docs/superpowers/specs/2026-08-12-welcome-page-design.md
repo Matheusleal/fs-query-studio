@@ -11,7 +11,7 @@ Clarified during brainstorming: this is a **tab in the existing tab strip**, not
 ## Goals
 
 - A `Welcome.fsx`-style tab, seeded with real guide content as `//` comments, open and active every time the app starts (alongside the usual blank `Script1.fsx`, which stays open behind it).
-- A `_Welcome…` item under the existing `_Help` menu (added after `_Logs…`) that reopens it — recreating it with fresh, unedited content if the user closed or edited it away.
+- A `_Welcome…` item under the existing `_Help` menu (added after `_Logs…`) that reopens it if closed (with fresh, unedited content); if it's still open, just activates it without touching whatever it currently contains.
 - Closable exactly like any other tab — no special pinning, no "are you sure" prompt (it starts non-dirty, matching a fresh script's own close behavior).
 - Guide content accurate to what the app can actually do today — no describing a feature that doesn't exist, no describing one that exists differently than written.
 
