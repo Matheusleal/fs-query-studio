@@ -259,3 +259,57 @@ let ``table on a plain Dictionary<string,obj> sequence infers union-of-keys colu
     Assert.Equal<string list>([ "id"; "name"; "age" ], envelope.Schema |> List.map (fun c -> c.Name))
     Assert.Equal<obj array>([| box 1; box "Alice"; null |], envelope.Rows.[0])
     Assert.Equal<obj array>([| box 2; null; box 30 |], envelope.Rows.[1])
+
+[<Fact>]
+let ``table on a nested collection without columnNames consumes row 0 as headers`` () =
+    Results.reset ()
+
+    let grid = [ [| "id"; "name" |]; [| "1"; "Ada" |]; [| "2"; "Grace" |] ]
+
+    Results.table (box grid) None |> ignore
+
+    let envelope = (Results.currentEnvelope 0L []).Value
+    Assert.Equal<string list>([ "id"; "name" ], envelope.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal(2, envelope.Rows.Length)
+    Assert.Equal<obj array>([| box "1"; box "Ada" |], envelope.Rows.[0])
+
+[<Fact>]
+let ``table on a nested collection with columnNames treats every row as data`` () =
+    Results.reset ()
+
+    let grid = [ [| "1"; "Ada" |]; [| "2"; "Grace" |] ]
+
+    Results.table (box grid) (Some [ "id"; "name" ]) |> ignore
+
+    let envelope = (Results.currentEnvelope 0L []).Value
+    Assert.Equal(2, envelope.Rows.Length)
+    Assert.Equal<obj array>([| box "1"; box "Ada" |], envelope.Rows.[0])
+
+[<Fact>]
+let ``table on ragged nested-collection rows pads short rows blank and truncates long rows`` () =
+    Results.reset ()
+
+    let grid: obj array list =
+        [ [| box "a"; box "b"; box "c" |]
+          [| box 1 |]
+          [| box 2; box 3; box 4; box 5 |] ]
+
+    Results.table (box grid) None |> ignore
+
+    let envelope = (Results.currentEnvelope 0L []).Value
+    Assert.Equal<string list>([ "a"; "b"; "c" ], envelope.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal<obj array>([| box 1; null; null |], envelope.Rows.[0])
+    Assert.Equal<obj array>([| box 2; box 3; box 4 |], envelope.Rows.[0 + 1])
+
+[<Fact>]
+let ``table on a seq of strings renders as scalars, one column, not exploded into characters`` () =
+    Results.reset ()
+
+    let names = [ "Ada"; "Grace" ]
+
+    Results.table (box names) None |> ignore
+
+    let envelope = (Results.currentEnvelope 0L []).Value
+    Assert.Equal<string list>([ "Value" ], envelope.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal(2, envelope.Rows.Length)
+    Assert.Equal<obj array>([| box "Ada" |], envelope.Rows.[0])

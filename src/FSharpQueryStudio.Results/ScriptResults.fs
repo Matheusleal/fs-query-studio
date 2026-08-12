@@ -257,6 +257,41 @@ module Results =
                         |> Array.ofList)
 
                 (headers |> List.map (fun n -> { Name = n; DisplayType = "obj" })), dataRows
+            | :? IEnumerable as elementEnumerable when not (first :? string) ->
+                let rawRows =
+                    rows
+                    |> Array.map (fun r -> (r :?> IEnumerable) |> Seq.cast<obj> |> Array.ofSeq)
+
+                let headerRow, dataRawRows =
+                    match columnNames with
+                    | Some _ -> None, rawRows
+                    | None ->
+                        match rawRows with
+                        | [||] -> None, rawRows
+                        | _ -> Some(rawRows.[0] |> Array.map string |> Array.toList), rawRows.[1..]
+
+                let width =
+                    match columnNames with
+                    | Some names -> names.Length
+                    | None ->
+                        match headerRow with
+                        | Some h -> h.Length
+                        | None -> if dataRawRows.Length = 0 then 0 else dataRawRows.[0].Length
+
+                let inferredNames = headerRow |> Option.defaultValue (List.replicate width "")
+                let headers = resolveHeaders inferredNames columnNames
+
+                let padOrTruncate (row: obj array) : obj array =
+                    if row.Length = width then
+                        row
+                    elif row.Length > width then
+                        row.[0 .. width - 1]
+                    else
+                        Array.append row (Array.create (width - row.Length) null)
+
+                let dataRows = dataRawRows |> Array.map padOrTruncate
+
+                (headers |> List.map (fun n -> { Name = n; DisplayType = "obj" })), dataRows
             | _ -> failwith "Results.table: unrecognized element shape."
 
     /// New generalized entry point — accepts any collection (records,
