@@ -118,8 +118,75 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
     let newScriptSeed =
         "// New F# script — write your code below\nprintfn \"Hello from F# Query Studio!\"\n"
 
+    /// The one, stable URI the Welcome tab is always opened/reopened
+    /// under — reachable as `ShellViewModel.WelcomeUri` so the
+    /// composition root's startup call and `MainWindow`'s Help-menu
+    /// handler both reference the exact same constant, never a
+    /// re-typed literal that could drift. Reuses the existing
+    /// `"untitled:"` scheme deliberately; `Welcome.fsx` doesn't match
+    /// `NextUntitledUri`'s own `ScriptN.fsx` probing pattern, so the two
+    /// coexist without collision.
+    let welcomeUri = "untitled:Welcome.fsx"
+
+    /// A quick guide to the app's actual features, seeded into the
+    /// Welcome tab instead of `newScriptSeed` — see
+    /// `docs/superpowers/specs/2026-08-12-welcome-page-design.md`. Every
+    /// example stays inside a `//` comment deliberately: this file is
+    /// meant to be run (F5) harmlessly as a no-op, not to hit a real
+    /// "connection not found" error on a user's very first run.
+    let welcomeGuideSeed =
+        """// Welcome to F# Query Studio!
+//
+// This tab is a quick guide to what the app can do. It's just comments —
+// press F5 if you like, it won't do anything (there's no live code here).
+// Close this tab any time; reopen it later from Help > Welcome...
+//
+// RUNNING SCRIPTS
+//   Write F# in a script tab, then press F5 (or Run in the toolbar/menu)
+//   to execute it. Cancel stops a running script. Every run starts fresh
+//   (Isolated mode) - nothing from a previous run carries over. The
+//   status bar at the bottom shows the current session state.
+//
+// CONNECTING TO DATA
+//   Connections menu > New Connection... registers a database, CSV file,
+//   Excel workbook, or REST/JSON endpoint. Once registered, expand it in
+//   the Workspace panel on the left to browse its tables and columns.
+//
+//   Supported kinds: SQLite, SQL Server, PostgreSQL, CSV, Excel, REST/JSON.
+//
+// QUERYING FROM A SCRIPT
+//   Once a connection is registered, call it by name - no #r or open
+//   needed, these are already available in every script:
+//
+//     let orders = Connections.sql "Sales" "select * from Orders where Total > @min" [ "min", box 100 ]
+//     let rows    = Connections.csv "MyCsvConnection"
+//     let sheet   = Connections.excel "MyWorkbook" None
+//     // let data = Connections.rest "MyApi" options ct
+//
+//   Parameters are always bound, never string-concatenated into the SQL -
+//   the `[ "min", box 100 ]` list above is how you pass them safely.
+//
+// CONTROLLING WHAT SHOWS IN RESULTS
+//   By default the script's last value shows in the Results pane. To
+//   show something specific instead:
+//
+//     Results.table orders   // shows orders' own real columns as a table
+//     Results.text  "done"   // shows a plain text/string value
+//
+// READING RESULTS
+//   Results, Output, Problems, and Schema each have their own tab at the
+//   bottom - and each open script tab has its own: switching tabs never
+//   loses another tab's last run, output log, or diagnostics.
+//
+// WATCHING WHAT THE APP IS DOING
+//   Help > Logs... opens a live view of the app's own log files - useful
+//   when something doesn't behave the way you expect.
+"""
+
+    let seedFor (uri: string) = if uri = welcomeUri then welcomeGuideSeed else newScriptSeed
+
     let createDocument (uri: string) =
-        let doc = DocumentViewModel(uri, ?scheduler = scheduler, initialText = newScriptSeed)
+        let doc = DocumentViewModel(uri, ?scheduler = scheduler, initialText = seedFor uri)
         wireDocument doc
         documents.Add(doc)
         doc
@@ -229,6 +296,12 @@ type ShellViewModel(?scheduler: IDebounceScheduler) as self =
 
         Seq.initInfinite (fun i -> $"untitled:Script{i + 1}.fsx")
         |> Seq.find (fun uri -> not (inUse.Contains uri))
+
+    /// The stable URI the Welcome tab always opens/reopens under — see
+    /// `welcomeUri`'s own doc comment above for why both the composition
+    /// root's startup call and `MainWindow`'s Help-menu handler must go
+    /// through this member rather than a re-typed literal.
+    member _.WelcomeUri = welcomeUri
 
     /// Closes the tab for `uri`, prompting via `ConfirmDiscardDirtyDocument`
     /// first if it's dirty. Returns whether the tab was actually closed.

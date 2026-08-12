@@ -1173,3 +1173,30 @@ let ``PropertyChanged does not fire for Result when a background document's resu
     background.Result.Apply(canned ResultKind.Scalar "ignored")
 
     Assert.DoesNotContain("Result", raisedFor)
+
+[<Fact>]
+let ``OpenDocument with WelcomeUri seeds real guide content and activates it`` () =
+    let vm = ShellViewModel()
+
+    let welcomeDoc = vm.OpenDocument(vm.WelcomeUri)
+
+    Assert.Equal(vm.WelcomeUri, vm.ActiveDocument.Uri)
+    Assert.Same(welcomeDoc, vm.ActiveDocument)
+    Assert.Contains("RUNNING SCRIPTS", welcomeDoc.Text)
+
+[<Fact>]
+let ``OpenDocument with an ordinary script URI still seeds the blank script content`` () =
+    let vm = ShellViewModel()
+
+    let doc = vm.OpenDocument("untitled:Script2.fsx")
+
+    Assert.Contains("Hello from F# Query Studio!", doc.Text)
+    Assert.DoesNotContain("RUNNING SCRIPTS", doc.Text)
+
+[<Fact>]
+let ``WelcomeUri is the same stable constant across separate ShellViewModel instances`` () =
+    let first = ShellViewModel()
+    let second = ShellViewModel()
+
+    Assert.Equal(first.WelcomeUri, second.WelcomeUri)
+    Assert.Equal("untitled:Welcome.fsx", first.WelcomeUri)
