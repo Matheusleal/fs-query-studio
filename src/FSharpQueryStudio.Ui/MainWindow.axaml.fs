@@ -562,6 +562,9 @@ type MainWindow() as this =
                 window.Closed.Add(fun _ -> logViewerWindow <- None)
                 window.Show(this))
 
+        this.FindControl<MenuItem>("WelcomeMenuItem").Click.Add(fun _ ->
+            shellViewModel.OpenDocument(shellViewModel.WelcomeUri) |> ignore)
+
         // The open-tab strip, rebuilt by hand from
         // `shellViewModel.Documents` (a plain
         // snapshot, not an observable collection) every time the set of

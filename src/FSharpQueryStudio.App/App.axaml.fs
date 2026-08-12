@@ -130,6 +130,15 @@ type App() =
 
             mainWindow.ShellViewModel.SeedConnections(FSharpQueryStudio.Storage.Workspace.readConnections workspaceDir)
 
+            // Every fresh session opens with the Welcome tab active (and
+            // the usual blank Script1.fsx open behind it, from
+            // ShellViewModel's own constructor) — see
+            // docs/superpowers/specs/2026-08-12-welcome-page-design.md.
+            // `OpenDocument`'s existing open-or-activate logic does all
+            // the real work here; this is just the one call that
+            // triggers it at the right point in startup.
+            mainWindow.ShellViewModel.OpenDocument(mainWindow.ShellViewModel.WelcomeUri) |> ignore
+
             // D.7's packaged-artifact test launches the real published exe
             // as a black box - it has no way to assert on rendered window
             // content, so this log line is the signal it waits on to know
