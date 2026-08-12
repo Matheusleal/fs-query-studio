@@ -197,3 +197,29 @@ let ``table on a tuple sequence without columnNames throws the tuple-specific er
     let ex = Assert.Throws<exn>(fun () -> Results.table (box pairs) None |> ignore)
 
     Assert.Contains("columnNames", ex.Message)
+
+[<Fact>]
+let ``table on a Map sequence infers union-of-keys columns in first-seen order`` () =
+    Results.reset ()
+
+    let rows =
+        [ Map.ofList [ ("id", box 1); ("name", box "Ada") ]
+          Map.ofList [ ("id", box 2); ("extra", box "x") ] ]
+
+    Results.table (box rows) None |> ignore
+
+    let envelope = (Results.currentEnvelope 0L []).Value
+    Assert.Equal<string list>([ "id"; "name"; "extra" ], envelope.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal<obj array>([| box 1; box "Ada"; null |], envelope.Rows.[0])
+    Assert.Equal<obj array>([| box 2; null; box "x" |], envelope.Rows.[1])
+
+[<Fact>]
+let ``table on a Map sequence with columnNames overrides the headers positionally`` () =
+    Results.reset ()
+
+    let rows = [ Map.ofList [ ("id", box 1); ("name", box "Ada") ] ]
+
+    Results.table (box rows) (Some [ "identifier"; "full name" ]) |> ignore
+
+    let envelope = (Results.currentEnvelope 0L []).Value
+    Assert.Equal<string list>([ "identifier"; "full name" ], envelope.Schema |> List.map (fun c -> c.Name))

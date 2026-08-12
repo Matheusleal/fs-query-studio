@@ -102,6 +102,32 @@ module Results =
                     let width = if dataRows.Length = 0 then names.Length else dataRows.[0].Length
                     let headers = resolveHeaders (List.replicate width "") (Some names)
                     (headers |> List.map (fun n -> { Name = n; DisplayType = "obj" })), dataRows
+            | :? System.Collections.Generic.IDictionary<string, obj> ->
+                let dicts = rows |> Array.map (fun r -> r :?> System.Collections.Generic.IDictionary<string, obj>)
+
+                let keysInFirstSeenOrder =
+                    let seen = HashSet<string>()
+                    let ordered = ResizeArray<string>()
+
+                    for d in dicts do
+                        for key in d.Keys do
+                            let k = string key
+
+                            if seen.Add(k) then
+                                ordered.Add(k)
+
+                    ordered |> List.ofSeq
+
+                let headers = resolveHeaders keysInFirstSeenOrder columnNames
+
+                let dataRows =
+                    dicts
+                    |> Array.map (fun d ->
+                        keysInFirstSeenOrder
+                        |> List.map (fun k -> if d.ContainsKey(k) then d.[k] else null)
+                        |> Array.ofList)
+
+                (headers |> List.map (fun n -> { Name = n; DisplayType = "obj" })), dataRows
             | _ -> failwith "Results.table: unrecognized element shape."
 
     /// New generalized entry point — accepts any collection (records,
