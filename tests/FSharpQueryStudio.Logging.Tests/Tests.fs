@@ -7,6 +7,9 @@ open Serilog.Events
 open Xunit
 open FSharpQueryStudio.Logging
 
+[<assembly: Xunit.CollectionBehavior(DisableTestParallelization = true)>]
+do ()
+
 type private CollectingSink(events: List<LogEvent>) =
     interface ILogEventSink with
         member _.Emit(logEvent) = events.Add(logEvent)
