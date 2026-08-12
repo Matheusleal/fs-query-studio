@@ -313,3 +313,29 @@ let ``table on a seq of strings renders as scalars, one column, not exploded int
     Assert.Equal<string list>([ "Value" ], envelope.Schema |> List.map (fun c -> c.Name))
     Assert.Equal(2, envelope.Rows.Length)
     Assert.Equal<obj array>([| box "Ada" |], envelope.Rows.[0])
+
+[<Fact>]
+let ``table on a scalar sequence defaults to a single Value column`` () =
+    Results.reset ()
+
+    let numbers = [ 1; 2; 3 ]
+
+    Results.table (box numbers) None |> ignore
+
+    let envelope = (Results.currentEnvelope 0L []).Value
+    Assert.Equal<string list>([ "Value" ], envelope.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal(3, envelope.Rows.Length)
+    Assert.Equal<obj array>([| box 1 |], envelope.Rows.[0])
+    Assert.Equal<obj array>([| box 2 |], envelope.Rows.[1])
+    Assert.Equal<obj array>([| box 3 |], envelope.Rows.[2])
+
+[<Fact>]
+let ``table on a scalar sequence with columnNames uses it as the single header`` () =
+    Results.reset ()
+
+    let numbers = [ 1; 2 ]
+
+    Results.table (box numbers) (Some [ "n" ]) |> ignore
+
+    let envelope = (Results.currentEnvelope 0L []).Value
+    Assert.Equal<string list>([ "n" ], envelope.Schema |> List.map (fun c -> c.Name))

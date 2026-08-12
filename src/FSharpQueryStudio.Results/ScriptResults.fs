@@ -292,7 +292,10 @@ module Results =
                 let dataRows = dataRawRows |> Array.map padOrTruncate
 
                 (headers |> List.map (fun n -> { Name = n; DisplayType = "obj" })), dataRows
-            | _ -> failwith "Results.table: unrecognized element shape."
+            | _ ->
+                let headers = resolveHeaders [ "Value" ] columnNames
+                let dataRows = rows |> Array.map (fun r -> [| r |])
+                (headers |> List.map (fun n -> { Name = n; DisplayType = "obj" })), dataRows
 
     /// New generalized entry point — accepts any collection (records,
     /// tuples, nested collections, Map/IDictionary, or flat scalars) and
