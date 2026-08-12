@@ -174,3 +174,26 @@ let ``table returns its input unchanged (pass-through)`` () =
     let returned = Results.table input None
 
     Assert.Same(input, returned)
+
+[<Fact>]
+let ``table on a tuple sequence with columnNames maps each element to its own column positionally`` () =
+    Results.reset ()
+
+    let pairs = [ (1, "Ada"); (2, "Grace") ]
+
+    Results.table (box pairs) (Some [ "id"; "name" ]) |> ignore
+
+    let envelope = (Results.currentEnvelope 0L []).Value
+    Assert.Equal<string list>([ "id"; "name" ], envelope.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal<obj array>([| box 1; box "Ada" |], envelope.Rows.[0])
+    Assert.Equal<obj array>([| box 2; box "Grace" |], envelope.Rows.[1])
+
+[<Fact>]
+let ``table on a tuple sequence without columnNames throws the tuple-specific error`` () =
+    Results.reset ()
+
+    let pairs = [ (1, "Ada") ]
+
+    let ex = Assert.Throws<exn>(fun () -> Results.table (box pairs) None |> ignore)
+
+    Assert.Contains("columnNames", ex.Message)

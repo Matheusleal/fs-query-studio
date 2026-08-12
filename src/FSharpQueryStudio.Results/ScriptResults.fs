@@ -92,6 +92,16 @@ module Results =
                     |> Array.map (fun r -> FSharpValue.GetRecordFields(r, allFlags))
 
                 (headers |> List.map (fun n -> { Name = n; DisplayType = "obj" })), dataRows
+            | _ when first <> null && FSharpType.IsTuple(first.GetType()) ->
+                match columnNames with
+                | None -> failwith "Results.table requires columnNames for tuple sequences."
+                | Some names ->
+                    let dataRows =
+                        rows |> Array.map (fun r -> FSharpValue.GetTupleFields(r))
+
+                    let width = if dataRows.Length = 0 then names.Length else dataRows.[0].Length
+                    let headers = resolveHeaders (List.replicate width "") (Some names)
+                    (headers |> List.map (fun n -> { Name = n; DisplayType = "obj" })), dataRows
             | _ -> failwith "Results.table: unrecognized element shape."
 
     /// New generalized entry point — accepts any collection (records,
