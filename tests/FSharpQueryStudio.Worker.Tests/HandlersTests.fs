@@ -848,7 +848,7 @@ let ``execution/evaluate shows Results.table's push even when the script's own l
             let script =
                 "let result = Connections.csv \"test1\"\n"
                 + "let rows = result.Rows |> Seq.toArray\n"
-                + "Results.table result |> ignore\n"
+                + "Results.raw result |> ignore\n"
                 + "printfn \"%A\" rows.[1]"
 
             let! evalResponse = Handlers.dispatch (evaluateRequest "eval1" script)
@@ -890,7 +890,7 @@ let ``execution/evaluate committing a Results.table push, then results/exportCsv
 
             let! _ = Handlers.dispatch registerRequest
 
-            let script = "Connections.csv \"test1\" |> Results.table |> ignore"
+            let script = "Connections.csv \"test1\" |> Results.raw |> ignore"
 
             let! evalResponse = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Export1.fsx" script)
             Assert.True(evalResponse.Error.IsNone)
@@ -918,10 +918,10 @@ let ``a second execution/evaluate under the same DocumentUri overwrites the tab'
             Directory.CreateDirectory tempDir |> ignore
 
             let firstScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.table |> ignore"
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.raw |> ignore"
 
             let secondScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 2 |]; yield [| box 3 |] } }: ConnectorQueryResult) |> Results.table |> ignore"
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 2 |]; yield [| box 3 |] } }: ConnectorQueryResult) |> Results.raw |> ignore"
 
             let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Overwrite1.fsx" firstScript)
             let! _ = Handlers.dispatch (evaluateRequestFor "eval2" "untitled:Overwrite1.fsx" secondScript)
@@ -949,7 +949,7 @@ let ``an evaluate that doesn't push a table leaves the tab's existing retained r
             Directory.CreateDirectory tempDir |> ignore
 
             let tableScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.table |> ignore"
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.raw |> ignore"
 
             let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Untouched1.fsx" tableScript)
             let! _ = Handlers.dispatch (evaluateRequestFor "eval2" "untitled:Untouched1.fsx" "printfn \"no table here\"")
@@ -988,7 +988,7 @@ let ``results/discard removes a retained result, and a repeat call is a no-op`` 
             Directory.CreateDirectory tempDir |> ignore
 
             let tableScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.table |> ignore"
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.raw |> ignore"
 
             let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Discard1.fsx" tableScript)
 
@@ -1023,7 +1023,7 @@ let ``a later generic-projection Table run under the same DocumentUri discards t
             Directory.CreateDirectory tempDir |> ignore
 
             let tableScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.table |> ignore"
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.raw |> ignore"
 
             // A generic FSI-tail-value script - no `Results.table` push -
             // whose last expression is still an `IEnumerable`, which
