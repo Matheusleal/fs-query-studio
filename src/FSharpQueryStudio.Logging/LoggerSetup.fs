@@ -4,6 +4,7 @@ open System
 open System.IO
 open Serilog
 open Serilog.Events
+open Serilog.Formatting.Json
 
 /// Builds the shared Serilog configuration used by both composition roots
 /// (App and Worker) — see Section 15. A daily-rolling file at Information,
@@ -47,9 +48,11 @@ module LoggerSetup =
         |> fun config ->
             config
                 .WriteTo.File(
+                    JsonFormatter(renderMessage = true),
                     Path.Combine(logsDirectory, $"{filePrefix}-.log"),
                     restrictedToMinimumLevel = LogEventLevel.Information,
                     rollingInterval = RollingInterval.Day,
-                    retainedFileCountLimit = Nullable(14)
+                    retainedFileCountLimit = Nullable(14),
+                    shared = true
                 )
                 .CreateLogger()
