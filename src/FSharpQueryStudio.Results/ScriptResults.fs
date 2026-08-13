@@ -14,12 +14,14 @@ open System.Reflection
 /// produces no "it" value at all, which used to render as a bare,
 /// confusing "null" (previously "Some(null)" — see `ResultViewModel`'s
 /// own fix) in the Results pane no matter what the script actually
-/// computed earlier. `raw`/`table`/`text` all return their input
-/// unchanged, so they compose in a pipeline without disturbing the
-/// script's own logic; whichever was called most recently wins for this
-/// evaluation. `raw` accepts only a `ConnectorQueryResult`; `table`
-/// accepts any other collection (records, tuples, nested collections,
-/// Map/IDictionary, or flat scalars) and infers columns from its shape.
+/// computed earlier. `raw`/`table`/`tableWithColumns`/`text` all return
+/// their input unchanged, so they compose in a pipeline without
+/// disturbing the script's own logic; whichever was called most recently
+/// wins for this evaluation. `raw` accepts only a `ConnectorQueryResult`;
+/// `table` accepts any other collection (records, tuples, nested
+/// collections, Map/IDictionary, or flat scalars) and infers columns
+/// from its shape; `tableWithColumns` is `table` with an explicit
+/// column-names override.
 module Results =
 
     type private Explicit =
@@ -308,13 +310,7 @@ module Results =
                 let dataRows = rows |> Array.map (fun r -> [| r |])
                 (headers |> List.map (fun n -> { Name = n; DisplayType = "obj" })), dataRows
 
-    /// New generalized entry point — accepts any collection (records,
-    /// tuples, nested collections, Map/IDictionary, or flat scalars) and
-    /// renders it as a real table, inferring columns from the data's own
-    /// shape wherever possible. `columnNames`, when given, always wins as
-    /// the final headers, applied positionally. See
-    /// docs/superpowers/specs/2026-08-12-results-table-generalization-design.md.
-    let table (data: obj) (columnNames: string list option) : obj =
+    let private tableImpl (data: obj) (columnNames: string list option) : obj =
         match data with
         | :? ConnectorQueryResult ->
             failwith "Results.table does not accept ConnectorQueryResult — use Results.raw."
@@ -327,6 +323,25 @@ module Results =
             data
         | _ ->
             failwith "Results.table expects a collection; got a single value — wrap it, e.g. [value]."
+
+    /// Generalized entry point — accepts any collection (records, tuples,
+    /// nested collections, Map/IDictionary, or flat scalars) and renders
+    /// it as a real table, inferring columns from the data's own shape.
+    /// A single required argument, matching `raw`/`text`'s convention —
+    /// F# silently curries a partially-applied function on a missing
+    /// argument rather than erroring, so a `data -> columnNames option ->
+    /// obj` shape here would let a script author who forgot the second
+    /// argument get back a function value (which FSI then prints as an
+    /// opaque closure name) instead of a table, with no error at all. See
+    /// docs/superpowers/specs/2026-08-12-results-table-generalization-design.md.
+    let table (data: obj) : obj = tableImpl data None
+
+    /// Same as `table`, but with an explicit column-names override,
+    /// applied positionally over whatever columns were inferred — the
+    /// count must match exactly, or this throws. Required (not optional)
+    /// for tuple sequences, since tuples carry no field names to infer
+    /// headers from.
+    let tableWithColumns (data: obj) (columnNames: string list) : obj = tableImpl data (Some columnNames)
 
     /// Explicitly shows `value`'s structured-printed form (F#'s own `%A`,
     /// the same formatting FSI's own REPL echo uses) as text in the

@@ -96,7 +96,7 @@ let ``table on a record sequence infers columns from reflected field names in de
 
     let people = [ { Id = 1; Name = "Ada" }; { Id = 2; Name = "Grace" } ]
 
-    let returned = Results.table (box people) None
+    let returned = Results.table (box people)
     Assert.Same(box people, returned)
 
     let envelope = (Results.currentEnvelope 0L []).Value
@@ -108,25 +108,39 @@ let ``table on a record sequence infers columns from reflected field names in de
     Assert.Equal<obj array>([| box 2; box "Grace" |], envelope.Rows.[1])
 
 [<Fact>]
-let ``table on a record sequence with columnNames overrides the headers positionally`` () =
+let ``table called with only its data argument returns the table, never a partially-applied function`` () =
     Results.reset ()
 
     let people = [ { Id = 1; Name = "Ada" } ]
 
-    Results.table (box people) (Some [ "identifier"; "full name" ]) |> ignore
+    let returned = Results.table (box people)
+
+    Assert.IsNotType<System.Delegate>(returned) |> ignore
+    Assert.Same(box people, returned)
+
+    let envelope = (Results.currentEnvelope 0L []).Value
+    Assert.Equal(ResultKind.Table, envelope.Kind)
+
+[<Fact>]
+let ``tableWithColumns on a record sequence overrides the headers positionally`` () =
+    Results.reset ()
+
+    let people = [ { Id = 1; Name = "Ada" } ]
+
+    Results.tableWithColumns (box people) [ "identifier"; "full name" ] |> ignore
 
     let envelope = (Results.currentEnvelope 0L []).Value
     Assert.Equal<string list>([ "identifier"; "full name" ], envelope.Schema |> List.map (fun c -> c.Name))
     Assert.Equal<obj array>([| box 1; box "Ada" |], envelope.Rows.[0])
 
 [<Fact>]
-let ``table throws naming both counts when columnNames count does not match inferred column count`` () =
+let ``tableWithColumns throws naming both counts when columnNames count does not match inferred column count`` () =
     Results.reset ()
 
     let people = [ { Id = 1; Name = "Ada" } ]
 
     let ex =
-        Assert.Throws<exn>(fun () -> Results.table (box people) (Some [ "only-one" ]) |> ignore)
+        Assert.Throws<exn>(fun () -> Results.tableWithColumns (box people) [ "only-one" ] |> ignore)
 
     Assert.Contains("1", ex.Message)
     Assert.Contains("2", ex.Message)
@@ -137,7 +151,7 @@ let ``table throws referencing Results.raw when passed a ConnectorQueryResult di
 
     let query: ConnectorQueryResult = { Columns = [ "id" ]; Rows = Seq.empty }
 
-    let ex = Assert.Throws<exn>(fun () -> Results.table (box query) None |> ignore)
+    let ex = Assert.Throws<exn>(fun () -> Results.table (box query) |> ignore)
 
     Assert.Contains("Results.raw", ex.Message)
 
@@ -145,21 +159,21 @@ let ``table throws referencing Results.raw when passed a ConnectorQueryResult di
 let ``table throws a wrap-it error when data is not a collection at all`` () =
     Results.reset ()
 
-    let ex = Assert.Throws<exn>(fun () -> Results.table (box 42) None |> ignore)
+    let ex = Assert.Throws<exn>(fun () -> Results.table (box 42) |> ignore)
 
     Assert.Contains("wrap it", ex.Message)
 
 [<Fact>]
-let ``table on an empty sequence produces zero rows and columns from columnNames if given`` () =
+let ``table on an empty sequence produces zero rows, and tableWithColumns produces columns from columnNames`` () =
     Results.reset ()
 
-    Results.table (box (List.empty<Person>)) (Some [ "a"; "b" ]) |> ignore
+    Results.tableWithColumns (box (List.empty<Person>)) [ "a"; "b" ] |> ignore
     let withNames = (Results.currentEnvelope 0L []).Value
     Assert.Equal<string list>([ "a"; "b" ], withNames.Schema |> List.map (fun c -> c.Name))
     Assert.Empty(withNames.Rows)
 
     Results.reset ()
-    Results.table (box (List.empty<Person>)) None |> ignore
+    Results.table (box (List.empty<Person>)) |> ignore
     let noNames = (Results.currentEnvelope 0L []).Value
     Assert.Empty(noNames.Schema)
     Assert.Empty(noNames.Rows)
@@ -171,17 +185,17 @@ let ``table returns its input unchanged (pass-through)`` () =
     let people = [ { Id = 1; Name = "Ada" } ]
     let input = box people
 
-    let returned = Results.table input None
+    let returned = Results.table input
 
     Assert.Same(input, returned)
 
 [<Fact>]
-let ``table on a tuple sequence with columnNames maps each element to its own column positionally`` () =
+let ``tableWithColumns on a tuple sequence maps each element to its own column positionally`` () =
     Results.reset ()
 
     let pairs = [ (1, "Ada"); (2, "Grace") ]
 
-    Results.table (box pairs) (Some [ "id"; "name" ]) |> ignore
+    Results.tableWithColumns (box pairs) [ "id"; "name" ] |> ignore
 
     let envelope = (Results.currentEnvelope 0L []).Value
     Assert.Equal<string list>([ "id"; "name" ], envelope.Schema |> List.map (fun c -> c.Name))
@@ -194,7 +208,7 @@ let ``table on a tuple sequence without columnNames throws the tuple-specific er
 
     let pairs = [ (1, "Ada") ]
 
-    let ex = Assert.Throws<exn>(fun () -> Results.table (box pairs) None |> ignore)
+    let ex = Assert.Throws<exn>(fun () -> Results.table (box pairs) |> ignore)
 
     Assert.Contains("columnNames", ex.Message)
 
@@ -206,7 +220,7 @@ let ``table on a Map sequence infers union-of-keys columns in first-seen order``
         [ Map.ofList [ ("id", box 1); ("name", box "Ada") ]
           Map.ofList [ ("id", box 2); ("extra", box "x") ] ]
 
-    Results.table (box rows) None |> ignore
+    Results.table (box rows) |> ignore
 
     let envelope = (Results.currentEnvelope 0L []).Value
     Assert.Equal<string list>([ "id"; "name"; "extra" ], envelope.Schema |> List.map (fun c -> c.Name))
@@ -214,12 +228,12 @@ let ``table on a Map sequence infers union-of-keys columns in first-seen order``
     Assert.Equal<obj array>([| box 2; null; box "x" |], envelope.Rows.[1])
 
 [<Fact>]
-let ``table on a Map sequence with columnNames overrides the headers positionally`` () =
+let ``tableWithColumns on a Map sequence overrides the headers positionally`` () =
     Results.reset ()
 
     let rows = [ Map.ofList [ ("id", box 1); ("name", box "Ada") ] ]
 
-    Results.table (box rows) (Some [ "identifier"; "full name" ]) |> ignore
+    Results.tableWithColumns (box rows) [ "identifier"; "full name" ] |> ignore
 
     let envelope = (Results.currentEnvelope 0L []).Value
     Assert.Equal<string list>([ "identifier"; "full name" ], envelope.Schema |> List.map (fun c -> c.Name))
@@ -232,7 +246,7 @@ let ``table on a Map<string,int> sequence infers columns correctly`` () =
         [ Map.ofList [ ("id", 1); ("count", 5) ]
           Map.ofList [ ("id", 2); ("extra", 10) ] ]
 
-    Results.table (box rows) None |> ignore
+    Results.table (box rows) |> ignore
 
     let envelope = (Results.currentEnvelope 0L []).Value
     // Maps maintain keys in sorted order: row1 has ["count", "id"], row2 has ["extra", "id"]
@@ -253,7 +267,7 @@ let ``table on a plain Dictionary<string,obj> sequence infers union-of-keys colu
     dict2.Add("id", box 2)
     dict2.Add("age", box 30)
 
-    Results.table (box [ dict1; dict2 ]) None |> ignore
+    Results.table (box [ dict1; dict2 ]) |> ignore
 
     let envelope = (Results.currentEnvelope 0L []).Value
     Assert.Equal<string list>([ "id"; "name"; "age" ], envelope.Schema |> List.map (fun c -> c.Name))
@@ -261,12 +275,12 @@ let ``table on a plain Dictionary<string,obj> sequence infers union-of-keys colu
     Assert.Equal<obj array>([| box 2; null; box 30 |], envelope.Rows.[1])
 
 [<Fact>]
-let ``table on a nested collection without columnNames consumes row 0 as headers`` () =
+let ``table on a nested collection consumes row 0 as headers`` () =
     Results.reset ()
 
     let grid = [ [| "id"; "name" |]; [| "1"; "Ada" |]; [| "2"; "Grace" |] ]
 
-    Results.table (box grid) None |> ignore
+    Results.table (box grid) |> ignore
 
     let envelope = (Results.currentEnvelope 0L []).Value
     Assert.Equal<string list>([ "id"; "name" ], envelope.Schema |> List.map (fun c -> c.Name))
@@ -274,12 +288,12 @@ let ``table on a nested collection without columnNames consumes row 0 as headers
     Assert.Equal<obj array>([| box "1"; box "Ada" |], envelope.Rows.[0])
 
 [<Fact>]
-let ``table on a nested collection with columnNames treats every row as data`` () =
+let ``tableWithColumns on a nested collection treats every row as data`` () =
     Results.reset ()
 
     let grid = [ [| "1"; "Ada" |]; [| "2"; "Grace" |] ]
 
-    Results.table (box grid) (Some [ "id"; "name" ]) |> ignore
+    Results.tableWithColumns (box grid) [ "id"; "name" ] |> ignore
 
     let envelope = (Results.currentEnvelope 0L []).Value
     Assert.Equal(2, envelope.Rows.Length)
@@ -294,7 +308,7 @@ let ``table on ragged nested-collection rows pads short rows blank and truncates
           [| box 1 |]
           [| box 2; box 3; box 4; box 5 |] ]
 
-    Results.table (box grid) None |> ignore
+    Results.table (box grid) |> ignore
 
     let envelope = (Results.currentEnvelope 0L []).Value
     Assert.Equal<string list>([ "a"; "b"; "c" ], envelope.Schema |> List.map (fun c -> c.Name))
@@ -302,16 +316,14 @@ let ``table on ragged nested-collection rows pads short rows blank and truncates
     Assert.Equal<obj array>([| box 2; box 3; box 4 |], envelope.Rows.[0 + 1])
 
 [<Fact>]
-let ``table on a nested collection with columnNames throws when the count does not match the first row's width``
-    ()
-    =
+let ``tableWithColumns on a nested collection throws when the count does not match the first row's width`` () =
     Results.reset ()
 
     let grid: obj array list =
         [ [| box "1"; box "Ada" |]; [| box "2"; box "Grace" |] ]
 
     let ex =
-        Assert.Throws<exn>(fun () -> Results.table (box grid) (Some [ "only-one" ]) |> ignore)
+        Assert.Throws<exn>(fun () -> Results.tableWithColumns (box grid) [ "only-one" ] |> ignore)
 
     Assert.Contains("1", ex.Message)
     Assert.Contains("2", ex.Message)
@@ -322,7 +334,7 @@ let ``table on a seq of strings renders as scalars, one column, not exploded int
 
     let names = [ "Ada"; "Grace" ]
 
-    Results.table (box names) None |> ignore
+    Results.table (box names) |> ignore
 
     let envelope = (Results.currentEnvelope 0L []).Value
     Assert.Equal<string list>([ "Value" ], envelope.Schema |> List.map (fun c -> c.Name))
@@ -335,7 +347,7 @@ let ``table on a scalar sequence defaults to a single Value column`` () =
 
     let numbers = [ 1; 2; 3 ]
 
-    Results.table (box numbers) None |> ignore
+    Results.table (box numbers) |> ignore
 
     let envelope = (Results.currentEnvelope 0L []).Value
     Assert.Equal<string list>([ "Value" ], envelope.Schema |> List.map (fun c -> c.Name))
@@ -345,12 +357,12 @@ let ``table on a scalar sequence defaults to a single Value column`` () =
     Assert.Equal<obj array>([| box 3 |], envelope.Rows.[2])
 
 [<Fact>]
-let ``table on a scalar sequence with columnNames uses it as the single header`` () =
+let ``tableWithColumns on a scalar sequence uses it as the single header`` () =
     Results.reset ()
 
     let numbers = [ 1; 2 ]
 
-    Results.table (box numbers) (Some [ "n" ]) |> ignore
+    Results.tableWithColumns (box numbers) [ "n" ] |> ignore
 
     let envelope = (Results.currentEnvelope 0L []).Value
     Assert.Equal<string list>([ "n" ], envelope.Schema |> List.map (fun c -> c.Name))
@@ -364,6 +376,6 @@ let ``table dispatches on the first element's shape; a later row of a different 
     let mixed: obj list = [ box (1, "Ada"); box { Id = 2; Name = "Grace" } ]
 
     let ex =
-        Assert.ThrowsAny<exn>(fun () -> Results.table (box mixed) (Some [ "id"; "name" ]) |> ignore)
+        Assert.ThrowsAny<exn>(fun () -> Results.tableWithColumns (box mixed) [ "id"; "name" ] |> ignore)
 
     Assert.NotNull(ex.Message)
