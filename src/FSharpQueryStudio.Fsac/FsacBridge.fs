@@ -35,8 +35,27 @@ module FsacBridge =
         let decoded = Uri.UnescapeDataString(uri)
         Regex.Replace(decoded, "^file:///[A-Za-z]:/", "file:///", RegexOptions.IgnoreCase)
 
+    /// Keyed on `(canonicalized uri, version)`, same as before - but now
+    /// holding every waiter currently pending for that key, not just the
+    /// most recent one. `check` and `hover` each register their own
+    /// `TaskCompletionSource` here (via `awaitDocumentAnalyzed` below)
+    /// while waiting for FSAC to finish parsing a document, and
+    /// `Worker.Program.fs` backgrounds `analysis/check`/`analysis/hover`
+    /// independently with no serialization between them - so a real
+    /// concurrent `check` + `hover` call for the same document/version is
+    /// entirely realistic. A plain indexer assignment (`.[key] <- tcs`)
+    /// would silently evict whichever waiter registered first the moment
+    /// a second one registers for the same key, leaving the evicted
+    /// waiter's `Task.WhenAny` to always fall through to the timeout -
+    /// for `check`, that means silently returning `[]` for a document
+    /// that may genuinely have diagnostics. `registerWaiter`'s
+    /// `AddOrUpdate` prepends instead, so every registered waiter is kept
+    /// and resolved.
     let private diagnosticsPending =
-        ConcurrentDictionary<struct (string * int), TaskCompletionSource<Diagnostic list>>()
+        ConcurrentDictionary<struct (string * int), TaskCompletionSource<Diagnostic list> list>()
+
+    let private registerWaiter (key: struct (string * int)) (tcs: TaskCompletionSource<Diagnostic list>) : unit =
+        diagnosticsPending.AddOrUpdate(key, [ tcs ], (fun _ existing -> tcs :: existing)) |> ignore
 
     /// The most recent `publishDiagnostics` push for each (canonicalized)
     /// uri. FSAC's own pushes carry no `version` — see
@@ -119,13 +138,20 @@ module FsacBridge =
 
                 match diagnosticsPending.TryRemove(struct (uri, version)) with
                 | false, _ -> ()
-                | true, tcs ->
+                | true, waiters ->
                     let diagnostics =
                         match latestDiagnosticsByUri.TryGetValue(uri) with
                         | true, d -> d
                         | false, _ -> []
 
-                    tcs.TrySetResult(diagnostics) |> ignore
+                    // Every waiter currently registered for this key gets
+                    // the same result - not just the one that happened to
+                    // register first. A waiter that already gave up and
+                    // fell through to its own timeout is harmless to
+                    // resolve again here: `TrySetResult` on an
+                    // already-completed `TaskCompletionSource` just
+                    // returns `false`.
+                    waiters |> List.iter (fun tcs -> tcs.TrySetResult(diagnostics) |> ignore)
         )
 
     /// Every `documentUri` this Worker process has ever `didOpen`'d, so
@@ -137,6 +163,26 @@ module FsacBridge =
     let private openDocuments = ConcurrentDictionary<string, bool>()
 
     let mutable private lastKnownClient: LspClient option = None
+
+    /// Guards the "detect a respawned client, reset stale state, decide
+    /// open-vs-change" sequence in `syncDocument` below as one atomic
+    /// step. Confirmed as a real (not just theoretical) bug during this
+    /// task: `check` and `hover` racing for *different* documents against
+    /// the same `sharedProcess` (the same scenario Finding 1 above fixed
+    /// for `diagnosticsPending`) can both observe `isNewClient client =
+    /// true` right after a respawn, since the read of `lastKnownClient`
+    /// and its eventual write are two separate steps with no
+    /// synchronization between them. Without this lock, two such callers
+    /// interleave their own `openDocuments.Clear()`/`TryAdd` calls
+    /// unpredictably - one caller's `Clear()` can run after another's
+    /// `TryAdd()`, silently forgetting that other document was ever
+    /// opened. `registerDiagnosticsHandler` re-registering on the same
+    /// client twice is harmless (both registrations are functionally
+    /// identical closures over the same shared state), so only the
+    /// state-mutating steps need to be atomic, not the notification send
+    /// itself - the lock is released before `SendNotification` so no
+    /// I/O ever happens while it's held.
+    let private syncLock = obj ()
 
     /// True exactly when `client` is a different instance than the one
     /// this module last saw — i.e. `FsacProcess.EnsureClient()` has
@@ -158,12 +204,16 @@ module FsacBridge =
     /// forgetting stale `didOpen` state) is handled once here rather than
     /// duplicated in every method that needs it.
     let syncDocument (client: LspClient) (documentUri: string) (version: int) (checkedSource: string) : Task =
-        if isNewClient client then
-            openDocuments.Clear()
-            registerDiagnosticsHandler client
-            lastKnownClient <- Some client
+        let isFirstOpenForThisDocument =
+            lock syncLock (fun () ->
+                if isNewClient client then
+                    openDocuments.Clear()
+                    registerDiagnosticsHandler client
+                    lastKnownClient <- Some client
 
-        if openDocuments.TryAdd(documentUri, true) then
+                openDocuments.TryAdd(documentUri, true))
+
+        if isFirstOpenForThisDocument then
             client.SendNotification(
                 "textDocument/didOpen",
                 {| textDocument =
@@ -179,34 +229,74 @@ module FsacBridge =
                    contentChanges = [ {| text = checkedSource |} ] |}
             )
 
-    let check (documentUri: string) (version: int) (source: string) : Task<Diagnostic list> =
+    /// Sends `checkedSource` to FSAC (via `syncDocument`) and waits for
+    /// `fsharp/documentAnalyzed` to confirm `(documentUri, version)` has
+    /// actually been parsed, returning the diagnostics from that parse -
+    /// `None` on the same 10-second timeout `check` always used, `Some`
+    /// otherwise. This is the one place every current (`check`) and
+    /// future (`hover`, Tasks 8-11) method waits for FSAC's initial parse
+    /// of a document: `check` reads its `Diagnostic list` back directly,
+    /// while a method that only needs the readiness signal (like `hover`)
+    /// uses the `Option`'s presence alone and discards the payload on
+    /// `Some`. Concurrent callers for the same `(documentUri, version)`
+    /// (e.g. a `check` and a `hover` racing for the same document -
+    /// `Worker.Program.fs` backgrounds them independently, so this is a
+    /// real scenario, not a contrived one) are each registered via
+    /// `registerWaiter` and each resolved individually when
+    /// `documentAnalyzed` fires - see `diagnosticsPending`'s doc comment.
+    let private awaitDocumentAnalyzed
+        (client: LspClient)
+        (documentUri: string)
+        (version: int)
+        (checkedSource: string)
+        : Task<Diagnostic list option> =
         task {
-            let! client = sharedProcess.EnsureClient()
-
             let tcs = TaskCompletionSource<Diagnostic list>(TaskCreationOptions.RunContinuationsAsynchronously)
             let pendingKey = struct (canonicalizeUri documentUri, version)
-            diagnosticsPending.[pendingKey] <- tcs
+            registerWaiter pendingKey tcs
 
-            do! syncDocument client documentUri version (Prologue.sourceForCheck source)
+            do! syncDocument client documentUri version checkedSource
 
             let! winner = Task.WhenAny(tcs.Task :> Task, Task.Delay(TimeSpan.FromSeconds 10.0))
 
             if winner = (tcs.Task :> Task) then
-                return! tcs.Task
+                let! diagnostics = tcs.Task
+                return Some diagnostics
             else
-                diagnosticsPending.TryRemove(pendingKey) |> ignore
-                return []
+                return None
         }
 
-    let private markupText (contentsEl: JsonElement) : string =
-        match contentsEl.ValueKind with
-        | JsonValueKind.Object -> contentsEl.GetProperty("value").GetString()
-        | JsonValueKind.String -> contentsEl.GetString()
-        | JsonValueKind.Array ->
-            contentsEl.EnumerateArray()
-            |> Seq.map (fun el -> if el.ValueKind = JsonValueKind.String then el.GetString() else el.GetProperty("value").GetString())
-            |> String.concat "\n"
+    let check (documentUri: string) (version: int) (source: string) : Task<Diagnostic list> =
+        task {
+            let! client = sharedProcess.EnsureClient()
+            let! diagnostics = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+            return diagnostics |> Option.defaultValue []
+        }
+
+    /// A single `contents` array element's own text, independent of
+    /// whether FSAC sent it as a plain markdown string or a
+    /// `{language, value}` code-block object.
+    let private elementText (el: JsonElement) : string =
+        match el.ValueKind with
+        | JsonValueKind.Object -> el.GetProperty("value").GetString()
+        | JsonValueKind.String -> el.GetString()
         | _ -> ""
+
+    /// `contents`, one text per array element - `[elementText contentsEl]`
+    /// when `contents` isn't the array form FSAC always actually sends
+    /// (a lone object/string instead), so callers don't need to
+    /// special-case that shape separately.
+    let private contentsElements (contentsEl: JsonElement) : string list =
+        match contentsEl.ValueKind with
+        | JsonValueKind.Array -> contentsEl.EnumerateArray() |> Seq.map elementText |> List.ofSeq
+        | _ -> [ elementText contentsEl ]
+
+    /// FSAC always appends this boilerplate to a hover response's later
+    /// `contents` elements - the "Open the documentation" command link,
+    /// and the "Full name"/"Assembly" footer lines - none of which is
+    /// genuine XML-doc prose.
+    let private isBoilerplateLine (line: string) : bool =
+        line.StartsWith("<a href") || line.StartsWith("*Full name:") || line.StartsWith("*Assembly:")
 
     /// FSAC's signature block always leads with one of these keywords
     /// before the symbol's own name - confirmed against real
@@ -229,52 +319,57 @@ module FsacBridge =
         | Some prefix -> signature.Substring(prefix.Length)
         | None -> signature
 
-    /// Best-effort split of FSAC's single markdown hover blob into this
-    /// app's `DisplayName`/`Type`/`Signature`/`XmlDoc` shape. Confirmed
-    /// against real fsautocomplete 0.83.0 during this task: unlike the
-    /// plan's original assumption of a single-line `name: type` first
-    /// line, FSAC's own first content block is a keyword-prefixed
-    /// (`val `/`member `/...) signature that can itself span several
-    /// lines - one per curried parameter, for a function/method (e.g.
-    /// `Connections.sql`'s `val sql:\n   name: string ->\n   ...`).
-    /// Every line up to the first blank line is treated as that
-    /// signature; everything after is candidate documentation, with
-    /// FSAC's own boilerplate footer (the "Open the documentation" link,
-    /// "Full name"/"Assembly" lines) filtered back out since none of it
-    /// is genuine XML-doc prose.
-    let private parseHoverMarkdown (markdown: string) : HoverInfo =
-        let lines = markdown.Replace("\r\n", "\n").Split('\n') |> Array.toList
+    /// Best-effort split of FSAC's hover response into this app's
+    /// `DisplayName`/`Type`/`Signature`/`XmlDoc` shape. Confirmed against
+    /// real fsautocomplete 0.83.0 during this task: `contents` is a JSON
+    /// array whose element 0 is always the `{language, value}` code
+    /// block holding the symbol's own signature - itself keyword-prefixed
+    /// (`val `/`member `/...) and, for a curried function/method,
+    /// spanning several lines (one per parameter, e.g. `Connections.sql`'s
+    /// `val sql:\n   name: string ->\n   ...`) - with any later elements
+    /// being separate markdown strings (description prose, then FSAC's
+    /// own boilerplate footer).
+    ///
+    /// An earlier revision of this function flattened the whole array
+    /// into one string and re-derived the signature/doc boundary by
+    /// scanning for a blank line. Real FSAC responses don't reliably put
+    /// a blank line between the signature and the next array element -
+    /// `Connections.sql`'s `"**Description**"` element sits directly
+    /// adjacent to the signature's last line with no separator - so that
+    /// re-derived boundary silently swallowed `"**Description**"` into
+    /// the signature, corrupting `Type`/`Signature` with a trailing
+    /// `"**Description**"` and dropping that heading from `XmlDoc`
+    /// entirely. Using the array's own element boundaries instead of
+    /// re-deriving them from whitespace avoids that: element 0 is always
+    /// the signature, full stop, regardless of what markdown its
+    /// neighbors happen to start with.
+    let private parseHoverMarkdown (contentsEl: JsonElement) : HoverInfo =
+        let signatureElement, docElements =
+            match contentsElements contentsEl with
+            | [] -> "", []
+            | first :: rest -> first, rest
 
         let signatureText =
-            lines
-            |> List.takeWhile (fun l -> not (String.IsNullOrWhiteSpace l))
-            |> List.map (fun l -> l.Trim())
+            signatureElement.Replace("\r\n", "\n").Split('\n')
+            |> Array.map (fun l -> l.Trim())
+            |> Array.filter (fun l -> not (String.IsNullOrWhiteSpace l))
             |> String.concat " "
             |> fun s -> s.Trim('`', ' ')
 
         let docLines =
-            lines
-            |> List.skipWhile (fun l -> not (String.IsNullOrWhiteSpace l))
-            |> List.skipWhile String.IsNullOrWhiteSpace
+            docElements
+            |> List.collect (fun el -> el.Replace("\r\n", "\n").Split('\n') |> Array.toList)
             |> List.filter (fun l -> not (String.IsNullOrWhiteSpace l))
-            |> List.filter (fun l ->
-                not (l.StartsWith("<a href"))
-                && not (l.StartsWith("*Full name:"))
-                && not (l.StartsWith("*Assembly:")))
+            |> List.filter (fun l -> not (isBoilerplateLine l))
 
-        let nameTypeSplit = (stripSymbolKind signatureText).Split([| ':' |], 2)
+        let strippedSignature = stripSymbolKind signatureText
+        let nameTypeSplit = strippedSignature.Split([| ':' |], 2)
 
         let displayName =
-            if nameTypeSplit.Length = 2 then
-                nameTypeSplit.[0].Trim()
-            else
-                (stripSymbolKind signatureText).Trim()
+            if nameTypeSplit.Length = 2 then nameTypeSplit.[0].Trim() else strippedSignature.Trim()
 
         let typeText =
-            if nameTypeSplit.Length = 2 then
-                nameTypeSplit.[1].Trim()
-            else
-                signatureText
+            if nameTypeSplit.Length = 2 then nameTypeSplit.[1].Trim() else signatureText
 
         { DisplayName = displayName
           Type = typeText
@@ -292,22 +387,11 @@ module FsacBridge =
             // brand-new uri failed with "No line in <path> at position
             // ..." even though the document's full (prologue-prefixed)
             // text had genuinely already been sent, because FSAC hadn't
-            // finished its own background parse of it yet. `check` already
-            // solved this exact problem for diagnostics by waiting on
-            // `fsharp/documentAnalyzed`; hover reuses that same signal (via
-            // the shared `diagnosticsPending` map) purely as a "the
-            // document is parsed" gate, ignoring the diagnostics payload
-            // itself.
-            let tcs = TaskCompletionSource<Diagnostic list>(TaskCreationOptions.RunContinuationsAsynchronously)
-            let pendingKey = struct (canonicalizeUri documentUri, version)
-            diagnosticsPending.[pendingKey] <- tcs
-
-            do! syncDocument client documentUri version (Prologue.sourceForCheck source)
-
-            let! winner = Task.WhenAny(tcs.Task :> Task, Task.Delay(TimeSpan.FromSeconds 10.0))
-
-            if winner <> (tcs.Task :> Task) then
-                diagnosticsPending.TryRemove(pendingKey) |> ignore
+            // finished its own background parse of it yet. `awaitDocumentAnalyzed`
+            // (shared with `check`, which needed the same wait for its own
+            // diagnostics) is used here purely as a "the document is
+            // parsed" gate - the diagnostics it returns are discarded.
+            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
 
             let! result =
                 client.SendRequest(
@@ -319,5 +403,5 @@ module FsacBridge =
             match result with
             | LspFail _ -> return None
             | LspOk resultEl when resultEl.ValueKind = JsonValueKind.Null -> return None
-            | LspOk resultEl -> return Some(parseHoverMarkdown (markupText (resultEl.GetProperty("contents"))))
+            | LspOk resultEl -> return Some(parseHoverMarkdown (resultEl.GetProperty("contents")))
         }
