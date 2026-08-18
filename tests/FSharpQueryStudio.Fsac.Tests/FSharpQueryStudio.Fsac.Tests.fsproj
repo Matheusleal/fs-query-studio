@@ -10,6 +10,7 @@
     <Compile Include="LspClientTests.fs" />
     <Compile Include="FsacProcessTests.fs" />
     <Compile Include="PrologueTests.fs" />
+    <Compile Include="FsacBridgeCheckTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

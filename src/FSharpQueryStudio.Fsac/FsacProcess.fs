@@ -40,7 +40,19 @@ type FsacProcess(fsautocompleteDllPath: string) =
                     "initialize",
                     {| processId = System.Diagnostics.Process.GetCurrentProcess().Id
                        rootUri = null
-                       capabilities = {| |} |}
+                       // Declaring `textDocument.publishDiagnostics` client
+                       // capability is required for real fsautocomplete
+                       // 0.83.0 to push `textDocument/publishDiagnostics`
+                       // notifications at all - confirmed during Task 6
+                       // (FsacBridge.check, the first task to round-trip
+                       // real diagnostics): with an empty `capabilities`
+                       // object, FSAC ran analysis (its own
+                       // `fsharp/documentAnalyzed`/`fsharp/fileParsed`
+                       // notifications still fired) but never sent a single
+                       // `publishDiagnostics` push, even after 45s.
+                       capabilities =
+                        {| textDocument =
+                            {| publishDiagnostics = {| relatedInformation = true |} |} |} |}
                 )
 
             do! client.SendNotification("initialized", {| |})

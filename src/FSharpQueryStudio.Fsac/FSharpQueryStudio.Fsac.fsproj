@@ -5,6 +5,7 @@
     <Compile Include="LspClient.fs" />
     <Compile Include="FsacProcess.fs" />
     <Compile Include="Prologue.fs" />
+    <Compile Include="FsacBridge.fs" />
     <Compile Include="AssemblyInfo.fs" />
   </ItemGroup>
 
