@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <Compile Include="LspTransport.fs" />
     <Compile Include="AssemblyInfo.fs" />
   </ItemGroup>
 

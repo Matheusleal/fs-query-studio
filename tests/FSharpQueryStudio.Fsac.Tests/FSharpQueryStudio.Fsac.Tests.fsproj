@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <Compile Include="PackagingTests.fs" />
+    <Compile Include="LspTransportTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
