@@ -94,3 +94,28 @@ let ``OnNotification fires for a matching server-initiated notification`` () =
         let! uri = received.Task
         Assert.Equal("file:///a.fsx", uri)
     }
+
+[<Fact>]
+let ``a throwing notification handler does not stop the reader loop from dispatching later notifications`` () =
+    task {
+        use loopback = makeLoopback ()
+        let received = TaskCompletionSource<string>()
+
+        loopback.OurClient.OnNotification("test/throws", (fun _ -> failwith "boom"))
+
+        loopback.OurClient.OnNotification(
+            "test/succeeds",
+            fun paramsEl -> received.TrySetResult(paramsEl.GetProperty("value").GetString()) |> ignore
+        )
+
+        let throwingNotification = """{"jsonrpc":"2.0","method":"test/throws","params":{}}"""
+
+        let succeedingNotification =
+            """{"jsonrpc":"2.0","method":"test/succeeds","params":{"value":"still alive"}}"""
+
+        do! LspTransport.writeMessage loopback.ServerWrite throwingNotification
+        do! LspTransport.writeMessage loopback.ServerWrite succeedingNotification
+
+        let! value = received.Task
+        Assert.Equal("still alive", value)
+    }

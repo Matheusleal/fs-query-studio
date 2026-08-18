@@ -5,6 +5,7 @@ open System.IO
 open System.Text.Json
 open System.Threading
 open System.Threading.Tasks
+open Serilog
 open FSharpQueryStudio.Protocol
 
 type LspError = { Code: int; Message: string }
@@ -60,7 +61,14 @@ type LspClient(input: Stream, output: Stream) =
                     tcs.TrySetResult(LspOk result) |> ignore
         | None, Some method_ ->
             match notificationHandlers.TryGetValue(method_) with
-            | true, handler -> handler (tryGetElement "params" |> Option.defaultValue nullElement)
+            | true, handler ->
+                try
+                    handler (tryGetElement "params" |> Option.defaultValue nullElement)
+                with ex ->
+                    // A misbehaving handler must not fault the reader loop's background
+                    // Task — that would silently stop all future reads, hanging every
+                    // pending and future SendRequest forever with no signal.
+                    Log.Warning(ex, "Notification handler for {Method} threw; continuing", method_)
             | false, _ -> () // nobody registered for this notification
         | None, None -> () // not a valid LSP message - ignored rather than crashing the reader loop
 
