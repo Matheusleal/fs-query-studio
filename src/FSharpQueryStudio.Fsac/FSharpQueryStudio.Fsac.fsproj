@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <Compile Include="LspTransport.fs" />
+    <Compile Include="LspClient.fs" />
     <Compile Include="AssemblyInfo.fs" />
   </ItemGroup>
 
