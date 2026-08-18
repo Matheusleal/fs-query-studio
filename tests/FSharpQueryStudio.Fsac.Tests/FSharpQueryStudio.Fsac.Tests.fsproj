@@ -9,6 +9,7 @@
     <Compile Include="LspTransportTests.fs" />
     <Compile Include="LspClientTests.fs" />
     <Compile Include="FsacProcessTests.fs" />
+    <Compile Include="PrologueTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -20,6 +21,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Fsac\FSharpQueryStudio.Fsac.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors\FSharpQueryStudio.Connectors.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Results\FSharpQueryStudio.Results.fsproj" />
   </ItemGroup>
 
 </Project>
