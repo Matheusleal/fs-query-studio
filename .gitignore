@@ -21,6 +21,9 @@ secrets.json
 *.key
 /logs/
 
+# Restored dotnet tool, not source - see Directory.Build.targets
+**/FsacTool/
+
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 

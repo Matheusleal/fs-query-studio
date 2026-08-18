@@ -1,0 +1,27 @@
+<Project>
+
+  <!-- Restores the bundled fsautocomplete (FSAC) dotnet tool straight into
+       the output directory of whichever project spawns it directly:
+       FSharpQueryStudio.Fsac.Tests (integration tests) and, once wired in
+       a later task, FSharpQueryStudio.Worker (the real running app).
+       `dotnet tool update` (not `install`) is idempotent — it installs
+       fresh into an empty tool-path, or is a no-op exit-0 if the pinned
+       version is already there, so repeated local builds and CI don't
+       fail on a second run. -->
+  <!-- `dotnet tool update` with a tool-path only ever drops a native shim
+       (fsautocomplete.exe) at the tool-path root; the real assemblies
+       land nested under .store\fsautocomplete\<version>\fsautocomplete\<version>\tools\<tfm>\any\.
+       That's stock `dotnet tool` layout, not an SDK-version quirk, so callers
+       that want to launch fsautocomplete.dll directly (rather than shelling
+       out to the shim exe) need it flattened to the tool-path root, hence
+       the Copy step below. -->
+  <Target Name="RestoreFsautocomplete" AfterTargets="Build"
+          Condition="'$(MSBuildProjectName)' == 'FSharpQueryStudio.Fsac.Tests'">
+    <Exec Command="dotnet tool update --tool-path &quot;$(OutDir)FsacTool&quot; fsautocomplete" />
+    <ItemGroup>
+      <FsautocompleteToolFiles Include="$(OutDir)FsacTool\.store\fsautocomplete\**\tools\$(TargetFramework)\any\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(FsautocompleteToolFiles)" DestinationFolder="$(OutDir)FsacTool" SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>
