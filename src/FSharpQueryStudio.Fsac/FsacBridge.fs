@@ -197,3 +197,127 @@ module FsacBridge =
                 diagnosticsPending.TryRemove(pendingKey) |> ignore
                 return []
         }
+
+    let private markupText (contentsEl: JsonElement) : string =
+        match contentsEl.ValueKind with
+        | JsonValueKind.Object -> contentsEl.GetProperty("value").GetString()
+        | JsonValueKind.String -> contentsEl.GetString()
+        | JsonValueKind.Array ->
+            contentsEl.EnumerateArray()
+            |> Seq.map (fun el -> if el.ValueKind = JsonValueKind.String then el.GetString() else el.GetProperty("value").GetString())
+            |> String.concat "\n"
+        | _ -> ""
+
+    /// FSAC's signature block always leads with one of these keywords
+    /// before the symbol's own name - confirmed against real
+    /// fsautocomplete during this task (e.g. `val total: int`, `val sql:
+    /// name: string -> ...`). Longer, multi-word prefixes are listed
+    /// before the single-word ones they'd otherwise be shadowed by.
+    let private symbolKindPrefixes =
+        [ "static member "
+          "abstract member "
+          "active pattern "
+          "member "
+          "property "
+          "val "
+          "type "
+          "module "
+          "namespace " ]
+
+    let private stripSymbolKind (signature: string) : string =
+        match symbolKindPrefixes |> List.tryFind signature.StartsWith with
+        | Some prefix -> signature.Substring(prefix.Length)
+        | None -> signature
+
+    /// Best-effort split of FSAC's single markdown hover blob into this
+    /// app's `DisplayName`/`Type`/`Signature`/`XmlDoc` shape. Confirmed
+    /// against real fsautocomplete 0.83.0 during this task: unlike the
+    /// plan's original assumption of a single-line `name: type` first
+    /// line, FSAC's own first content block is a keyword-prefixed
+    /// (`val `/`member `/...) signature that can itself span several
+    /// lines - one per curried parameter, for a function/method (e.g.
+    /// `Connections.sql`'s `val sql:\n   name: string ->\n   ...`).
+    /// Every line up to the first blank line is treated as that
+    /// signature; everything after is candidate documentation, with
+    /// FSAC's own boilerplate footer (the "Open the documentation" link,
+    /// "Full name"/"Assembly" lines) filtered back out since none of it
+    /// is genuine XML-doc prose.
+    let private parseHoverMarkdown (markdown: string) : HoverInfo =
+        let lines = markdown.Replace("\r\n", "\n").Split('\n') |> Array.toList
+
+        let signatureText =
+            lines
+            |> List.takeWhile (fun l -> not (String.IsNullOrWhiteSpace l))
+            |> List.map (fun l -> l.Trim())
+            |> String.concat " "
+            |> fun s -> s.Trim('`', ' ')
+
+        let docLines =
+            lines
+            |> List.skipWhile (fun l -> not (String.IsNullOrWhiteSpace l))
+            |> List.skipWhile String.IsNullOrWhiteSpace
+            |> List.filter (fun l -> not (String.IsNullOrWhiteSpace l))
+            |> List.filter (fun l ->
+                not (l.StartsWith("<a href"))
+                && not (l.StartsWith("*Full name:"))
+                && not (l.StartsWith("*Assembly:")))
+
+        let nameTypeSplit = (stripSymbolKind signatureText).Split([| ':' |], 2)
+
+        let displayName =
+            if nameTypeSplit.Length = 2 then
+                nameTypeSplit.[0].Trim()
+            else
+                (stripSymbolKind signatureText).Trim()
+
+        let typeText =
+            if nameTypeSplit.Length = 2 then
+                nameTypeSplit.[1].Trim()
+            else
+                signatureText
+
+        { DisplayName = displayName
+          Type = typeText
+          Signature = if signatureText.Contains("->") then Some signatureText else None
+          XmlDoc = if docLines.IsEmpty then None else Some(docLines |> String.concat "\n") }
+
+    let hover (documentUri: string) (version: int) (source: string) (line: int) (column: int) : Task<HoverInfo option> =
+        task {
+            let! client = sharedProcess.EnsureClient()
+
+            // FSAC's response to `textDocument/hover` sent immediately
+            // after a fresh `didOpen` reflects a not-yet-parsed document -
+            // confirmed against real fsautocomplete during this task: a
+            // hover request sent right after `syncDocument` for a
+            // brand-new uri failed with "No line in <path> at position
+            // ..." even though the document's full (prologue-prefixed)
+            // text had genuinely already been sent, because FSAC hadn't
+            // finished its own background parse of it yet. `check` already
+            // solved this exact problem for diagnostics by waiting on
+            // `fsharp/documentAnalyzed`; hover reuses that same signal (via
+            // the shared `diagnosticsPending` map) purely as a "the
+            // document is parsed" gate, ignoring the diagnostics payload
+            // itself.
+            let tcs = TaskCompletionSource<Diagnostic list>(TaskCreationOptions.RunContinuationsAsynchronously)
+            let pendingKey = struct (canonicalizeUri documentUri, version)
+            diagnosticsPending.[pendingKey] <- tcs
+
+            do! syncDocument client documentUri version (Prologue.sourceForCheck source)
+
+            let! winner = Task.WhenAny(tcs.Task :> Task, Task.Delay(TimeSpan.FromSeconds 10.0))
+
+            if winner <> (tcs.Task :> Task) then
+                diagnosticsPending.TryRemove(pendingKey) |> ignore
+
+            let! result =
+                client.SendRequest(
+                    "textDocument/hover",
+                    {| textDocument = {| uri = documentUri |}
+                       position = {| line = Prologue.shiftUp line - 1; character = column |} |}
+                )
+
+            match result with
+            | LspFail _ -> return None
+            | LspOk resultEl when resultEl.ValueKind = JsonValueKind.Null -> return None
+            | LspOk resultEl -> return Some(parseHoverMarkdown (markupText (resultEl.GetProperty("contents"))))
+        }
