@@ -27,3 +27,11 @@ let ``sourceForCheck prepends the prologue ahead of the real source`` () =
 let ``shiftUp then shiftDown is the identity`` () =
     let original = 4
     Assert.Equal(original, Prologue.shiftDown (Prologue.shiftUp original))
+
+[<Fact>]
+let ``shiftUp and shiftDown use the real prologue's actual line count`` () =
+    // build() is 4 real lines: two #r lines, two open lines. A caller's
+    // real line 1 should land on line 5 in the prologue-prefixed
+    // document, and an FSAC-reported line 5 should shift back to 1.
+    Assert.Equal(5, Prologue.shiftUp 1)
+    Assert.Equal(1, Prologue.shiftDown 5)
