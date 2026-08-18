@@ -8,6 +8,7 @@
     <Compile Include="PackagingTests.fs" />
     <Compile Include="LspTransportTests.fs" />
     <Compile Include="LspClientTests.fs" />
+    <Compile Include="FsacProcessTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
