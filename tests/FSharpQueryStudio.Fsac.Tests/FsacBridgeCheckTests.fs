@@ -35,3 +35,27 @@ let ``a later check for the same documentUri and a newer version reflects the ne
         let! second = FsacBridge.check uri 2 "let x = 1"
         Assert.Empty(second)
     }
+
+[<Fact>]
+let ``check recovers after the underlying fsautocomplete process is killed and respawned`` () =
+    task {
+        let baselineUri = $"file:///check-test-{Guid.NewGuid()}.fsx"
+        // Establish a working client (and its registered notification
+        // handlers) before killing the process out from under it.
+        let! baseline = FsacBridge.check baselineUri 1 "let x : int = \"bad\""
+        Assert.NotEmpty(baseline)
+
+        FsacBridge.sharedProcess.KillForTests()
+
+        // EnsureClient() respawns fsautocomplete and hands back a brand
+        // new LspClient instance. Without re-registering the diagnostics
+        // handler and forgetting stale didOpen state for the new client,
+        // this would silently time out and return [] instead of a real
+        // diagnostic.
+        let uri = $"file:///check-test-{Guid.NewGuid()}.fsx"
+        let! diagnostics = FsacBridge.check uri 1 "let x : int = \"not an int\""
+
+        Assert.NotEmpty(diagnostics)
+        Assert.Equal(0, diagnostics.[0].StartLine)
+        Assert.Equal(DiagnosticSeverity.Error, diagnostics.[0].Severity)
+    }

@@ -21,29 +21,6 @@ module FsacBridge =
     /// "one long-lived instance" shape as `AnalysisContext.checker`.
     let sharedProcess = FsacProcess(fsacDllPath ())
 
-    /// Every `documentUri` this Worker process has ever `didOpen`'d, so
-    /// the next sync for that same uri sends `didChange` instead of a
-    /// second `didOpen` (which LSP servers, including FSAC, reject for an
-    /// already-open document).
-    let private openDocuments = ConcurrentDictionary<string, bool>()
-
-    let syncDocument (client: LspClient) (documentUri: string) (version: int) (checkedSource: string) : Task =
-        if openDocuments.TryAdd(documentUri, true) then
-            client.SendNotification(
-                "textDocument/didOpen",
-                {| textDocument =
-                    {| uri = documentUri
-                       languageId = "fsharp"
-                       version = version
-                       text = checkedSource |} |}
-            )
-        else
-            client.SendNotification(
-                "textDocument/didChange",
-                {| textDocument = {| uri = documentUri; version = version |}
-                   contentChanges = [ {| text = checkedSource |} ] |}
-            )
-
     /// FSAC round-trips whatever `documentUri` this module sends in
     /// `didOpen`/`didChange` through its own absolute-path normalization
     /// before echoing it back in `publishDiagnostics` — confirmed against
@@ -101,11 +78,12 @@ module FsacBridge =
               Code = code })
         |> List.ofSeq
 
-    /// Registered once, the first time any `FsacBridge` function runs
-    /// against a live client — `EnsureClient` always returns the *same*
-    /// `LspClient` instance while the underlying process is alive, so a
-    /// second registration would just overwrite the first with an
-    /// identical handler pair.
+    /// Registered once per live `LspClient` — see `isNewClient`/
+    /// `syncDocument` below, which are what actually decide when a
+    /// (re-)registration is needed, since `FsacProcess.EnsureClient()`
+    /// can hand back a brand new `LspClient` instance (with its own
+    /// private `notificationHandlers`, unrelated to any previous one's)
+    /// after a respawn.
     ///
     /// The brief's original design correlated a pending `check` directly
     /// off `textDocument/publishDiagnostics`'s own `(uri, version)`. Real
@@ -150,15 +128,60 @@ module FsacBridge =
                     tcs.TrySetResult(diagnostics) |> ignore
         )
 
-    let mutable private handlerRegistered = false
+    /// Every `documentUri` this Worker process has ever `didOpen`'d, so
+    /// the next sync for that same uri sends `didChange` instead of a
+    /// second `didOpen` (which LSP servers, including FSAC, reject for an
+    /// already-open document). Cleared whenever `syncDocument` detects a
+    /// respawned `LspClient` — see `isNewClient` — since a new FSAC
+    /// process has no memory of any previously `didOpen`'d document.
+    let private openDocuments = ConcurrentDictionary<string, bool>()
+
+    let mutable private lastKnownClient: LspClient option = None
+
+    /// True exactly when `client` is a different instance than the one
+    /// this module last saw — i.e. `FsacProcess.EnsureClient()` has
+    /// respawned after a crash (Task 4's recovery path, exercised by
+    /// `FsacProcessTests`'s "respawns after the process is killed" test).
+    /// Prior document-open state and any notification handlers registered
+    /// on the old, now-dead `LspClient` are stale in that case (each
+    /// `LspClient` owns its own private `notificationHandlers`) and must
+    /// be re-established for the new one.
+    let private isNewClient (client: LspClient) : bool =
+        match lastKnownClient with
+        | Some c -> not (obj.ReferenceEquals(box c, box client))
+        | None -> true
+
+    /// The one chokepoint every current (`check`) and future (Tasks
+    /// 7-11's `hover`/`definition`/`signatureHelp`/`complete`/`rename`)
+    /// method calls right after obtaining a client from `EnsureClient()`
+    /// — so respawn recovery (re-registering notification handlers,
+    /// forgetting stale `didOpen` state) is handled once here rather than
+    /// duplicated in every method that needs it.
+    let syncDocument (client: LspClient) (documentUri: string) (version: int) (checkedSource: string) : Task =
+        if isNewClient client then
+            openDocuments.Clear()
+            registerDiagnosticsHandler client
+            lastKnownClient <- Some client
+
+        if openDocuments.TryAdd(documentUri, true) then
+            client.SendNotification(
+                "textDocument/didOpen",
+                {| textDocument =
+                    {| uri = documentUri
+                       languageId = "fsharp"
+                       version = version
+                       text = checkedSource |} |}
+            )
+        else
+            client.SendNotification(
+                "textDocument/didChange",
+                {| textDocument = {| uri = documentUri; version = version |}
+                   contentChanges = [ {| text = checkedSource |} ] |}
+            )
 
     let check (documentUri: string) (version: int) (source: string) : Task<Diagnostic list> =
         task {
             let! client = sharedProcess.EnsureClient()
-
-            if not handlerRegistered then
-                registerDiagnosticsHandler client
-                handlerRegistered <- true
 
             let tcs = TaskCompletionSource<Diagnostic list>(TaskCreationOptions.RunContinuationsAsynchronously)
             let pendingKey = struct (canonicalizeUri documentUri, version)
