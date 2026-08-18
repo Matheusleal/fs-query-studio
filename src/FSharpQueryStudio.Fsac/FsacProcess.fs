@@ -1,5 +1,6 @@
 namespace FSharpQueryStudio.Fsac
 
+open System
 open System.Diagnostics
 open System.Threading
 open System.Threading.Tasks
@@ -60,9 +61,32 @@ type FsacProcess(fsautocompleteDllPath: string) =
                 | Some(proc, client) when not proc.HasExited -> return client
                 | _ ->
                     let proc, client = spawn ()
-                    do! initializeHandshake client
-                    current <- Some(proc, client)
-                    return client
+                    let handshakeTask = initializeHandshake client
+                    let! winner = Task.WhenAny(handshakeTask, Task.Delay(TimeSpan.FromSeconds 15.0))
+
+                    if winner <> handshakeTask then
+                        try
+                            if not proc.HasExited then
+                                proc.Kill()
+                        with _ ->
+                            ()
+
+                        current <- None
+                        return failwith "fsautocomplete did not complete the initialize handshake within 15s"
+                    else
+                        try
+                            do! handshakeTask
+                            current <- Some(proc, client)
+                            return client
+                        with ex ->
+                            try
+                                if not proc.HasExited then
+                                    proc.Kill()
+                            with _ ->
+                                ()
+
+                            current <- None
+                            return raise ex
             finally
                 startLock.Release() |> ignore
         }
