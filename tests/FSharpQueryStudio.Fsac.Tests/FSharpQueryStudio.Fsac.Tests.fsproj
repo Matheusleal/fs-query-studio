@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="AssemblyInfo.fs" />
     <Compile Include="PackagingTests.fs" />
     <Compile Include="LspTransportTests.fs" />
     <Compile Include="LspClientTests.fs" />
@@ -12,6 +13,7 @@
     <Compile Include="PrologueTests.fs" />
     <Compile Include="FsacBridgeCheckTests.fs" />
     <Compile Include="FsacBridgeHoverTests.fs" />
+    <Compile Include="FsacBridgeDefinitionTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

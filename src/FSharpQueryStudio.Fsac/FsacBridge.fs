@@ -405,3 +405,100 @@ module FsacBridge =
             | LspOk resultEl when resultEl.ValueKind = JsonValueKind.Null -> return None
             | LspOk resultEl -> return Some(parseHoverMarkdown (resultEl.GetProperty("contents")))
         }
+
+    /// LSP's `textDocument/definition` result is `Location | Location[] |
+    /// LocationLink[] | null` - parses defensively and takes the first
+    /// hit, matching today's "one resolved declaration" behavior.
+    let private parseFirstLocation (resultEl: JsonElement) : (string * JsonElement) option =
+        match resultEl.ValueKind with
+        | JsonValueKind.Null -> None
+        | JsonValueKind.Array when resultEl.GetArrayLength() = 0 -> None
+        | JsonValueKind.Array ->
+            let first = resultEl.[0]
+
+            let rangeEl =
+                match first.TryGetProperty("range") with
+                | true, r -> r
+                | false, _ -> first.GetProperty("targetRange") // LocationLink shape
+
+            let uri =
+                match first.TryGetProperty("uri") with
+                | true, u -> u.GetString()
+                | false, _ -> first.GetProperty("targetUri").GetString()
+
+            Some(uri, rangeEl)
+        | JsonValueKind.Object -> Some(resultEl.GetProperty("uri").GetString(), resultEl.GetProperty("range"))
+        | _ -> None
+
+    let definition
+        (documentUri: string)
+        (version: int)
+        (source: string)
+        (line: int)
+        (column: int)
+        : Task<DefinitionLocation option> =
+        task {
+            let! client = sharedProcess.EnsureClient()
+
+            // Same race as `hover` (see its own comment above): a
+            // `textDocument/definition` sent right after `syncDocument`
+            // can land before FSAC's background parse of the just-synced
+            // document finishes, producing a "No line in <path> at
+            // position ..." LSP error even though the position math here
+            // is correct. `awaitDocumentAnalyzed` is reused here purely as
+            // that readiness gate - the diagnostics it returns are
+            // discarded.
+            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+
+            let! result =
+                client.SendRequest(
+                    "textDocument/definition",
+                    {| textDocument = {| uri = documentUri |}
+                       position = {| line = Prologue.shiftUp line - 1; character = column |} |}
+                )
+
+            match result with
+            | LspFail _ -> return None
+            | LspOk resultEl ->
+                match parseFirstLocation resultEl with
+                | None -> return None
+                | Some(resolvedUri, range) ->
+                    let start = range.GetProperty("start")
+                    let end_ = range.GetProperty("end")
+
+                    // Only a declaration inside *this* checked document was
+                    // ever shifted by the prologue - one FSAC resolves in a
+                    // different file (FSharp.Core, another script) has its
+                    // own real, unshifted lines. `resolvedUri` for a
+                    // same-file result is FSAC's own internal identity for
+                    // `documentUri` (it always echoes back the uri we
+                    // `didOpen`'d it under), so comparing against
+                    // `documentUri` itself is the right same-file check -
+                    // but, same as `registerDiagnosticsHandler`'s own uri
+                    // comparisons, only once both sides are run through
+                    // `canonicalizeUri`: confirmed against real
+                    // fsautocomplete during this task, `resolvedUri` comes
+                    // back drive-letter-qualified and percent-encoded
+                    // (`file:///d%3A/foo.fsx`) even when `documentUri` was
+                    // sent as the driveless `file:///foo.fsx` this task's
+                    // own tests use, so a raw string comparison here always
+                    // fails same-file detection. On a same-file match, the
+                    // location returned to the caller still carries the
+                    // caller's own original `documentUri` (not FSAC's
+                    // echoed form) as `FilePath`.
+                    let filePath, lineAdjustment =
+                        if canonicalizeUri resolvedUri = canonicalizeUri documentUri then
+                            documentUri, true
+                        else
+                            resolvedUri, false
+
+                    let shift l = if lineAdjustment then Prologue.shiftDown (l + 1) - 1 else l
+
+                    return
+                        Some
+                            { FilePath = filePath
+                              StartLine = shift (start.GetProperty("line").GetInt32())
+                              StartColumn = start.GetProperty("character").GetInt32()
+                              EndLine = shift (end_.GetProperty("line").GetInt32())
+                              EndColumn = end_.GetProperty("character").GetInt32() }
+        }
