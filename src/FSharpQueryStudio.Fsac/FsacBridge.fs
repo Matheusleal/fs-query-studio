@@ -502,3 +502,95 @@ module FsacBridge =
                               EndLine = shift (end_.GetProperty("line").GetInt32())
                               EndColumn = end_.GetProperty("character").GetInt32() }
         }
+
+    let signatureHelp
+        (documentUri: string)
+        (version: int)
+        (source: string)
+        (line: int)
+        (column: int)
+        : Task<SignatureHelpInfo option> =
+        task {
+            let! client = sharedProcess.EnsureClient()
+
+            // Same race as `hover`/`definition` (see their own comments
+            // above): a `textDocument/signatureHelp` sent right after
+            // `syncDocument` can land before FSAC's background parse of
+            // the just-synced document finishes. `awaitDocumentAnalyzed`
+            // is reused here purely as that readiness gate - the
+            // diagnostics it returns are discarded.
+            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+
+            let! result =
+                client.SendRequest(
+                    "textDocument/signatureHelp",
+                    {| textDocument = {| uri = documentUri |}
+                       position = {| line = Prologue.shiftUp line - 1; character = column |} |}
+                )
+
+            match result with
+            | LspFail _ -> return None
+            | LspOk resultEl when resultEl.ValueKind = JsonValueKind.Null -> return None
+            | LspOk resultEl ->
+                let signatures = resultEl.GetProperty("signatures")
+
+                if signatures.GetArrayLength() = 0 then
+                    return None
+                else
+                    let sig_ = signatures.[0]
+                    let label = sig_.GetProperty("label").GetString()
+
+                    // FSAC's `label` for a function/value signature is its
+                    // full curried type text - confirmed against real
+                    // fsautocomplete 0.83.0: querying inside a call to
+                    // `let add (x: int) (y: int) : int = x + y` returns
+                    // `label = "val add: x: int -> y: int -> int"`,
+                    // keyword-prefixed the same way `hover`'s signature
+                    // text is (`stripSymbolKind`), not the parenthesized
+                    // `name(p1: T1, p2: T2) -> TReturn` shape this module
+                    // originally assumed. The response's own structured
+                    // `parameters` array turned out to only ever carry the
+                    // single argument position closest to the request's
+                    // cursor (e.g. querying right after `add ` returned
+                    // just `[{label = "x"}]`, never `y` too, even though
+                    // `add` takes two) rather than every parameter the
+                    // function takes, so it's unusable for a "give me the
+                    // whole signature" result - every parameter is instead
+                    // recovered by splitting `label`'s curried arrow-type
+                    // text on `"->"` ourselves. (This naive split doesn't
+                    // handle a parameter that is itself a function type,
+                    // e.g. `f: (int -> int) -> int` - out of scope for
+                    // this task.)
+                    let stripped = stripSymbolKind label
+                    let nameTypeSplit = stripped.Split([| ':' |], 2)
+
+                    let displayName =
+                        if nameTypeSplit.Length = 2 then
+                            nameTypeSplit.[0].Trim()
+                        else
+                            stripped.Trim()
+
+                    let typeText =
+                        if nameTypeSplit.Length = 2 then
+                            nameTypeSplit.[1].Trim()
+                        else
+                            stripped.Trim()
+
+                    let arrowSegments =
+                        typeText.Split([| "->" |], StringSplitOptions.None) |> Array.map (fun s -> s.Trim())
+
+                    if arrowSegments.Length < 2 then
+                        // A resolved-but-not-callable symbol (its type has
+                        // no `->` at all) - treat the same as "not
+                        // callable".
+                        return None
+                    else
+                        let parameters = arrowSegments.[.. arrowSegments.Length - 2] |> List.ofArray
+                        let returnType = arrowSegments.[arrowSegments.Length - 1]
+
+                        return
+                            Some
+                                { DisplayName = displayName
+                                  Parameters = parameters
+                                  ReturnType = returnType }
+        }
