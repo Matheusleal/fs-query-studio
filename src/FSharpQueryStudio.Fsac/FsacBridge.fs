@@ -691,3 +691,67 @@ module FsacBridge =
             | LspFail _ -> return []
             | LspOk resultEl -> return parseCompletionLabels resultEl |> List.distinct
         }
+
+    let rename (documentUri: string) (version: int) (source: string) (line: int) (column: int) : Task<RenameEdit list option> =
+        task {
+            let! client = sharedProcess.EnsureClient()
+
+            // Same race as `hover`/`definition`/`signatureHelp`/`complete`
+            // (see their own comments above): a `textDocument/references`
+            // sent right after `syncDocument` can land before FSAC's
+            // background parse of the just-synced document finishes -
+            // confirmed as a real (not just theoretical) flake during this
+            // task: calling `syncDocument` directly here (skipping this
+            // readiness wait, as the brief's own snippet does) made the
+            // "returns every use" test intermittently fail with "expected
+            // reference edits" (a `None` result) on roughly 1 in 3 runs.
+            // `awaitDocumentAnalyzed` is reused here purely as that
+            // readiness gate - the diagnostics it returns are discarded.
+            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+
+            let! result =
+                client.SendRequest(
+                    "textDocument/references",
+                    {| textDocument = {| uri = documentUri |}
+                       position = {| line = Prologue.shiftUp line - 1; character = column |}
+                       context = {| includeDeclaration = true |} |}
+                )
+
+            match result with
+            | LspFail _ -> return None
+            | LspOk resultEl when resultEl.ValueKind = JsonValueKind.Null -> return None
+            | LspOk resultEl when resultEl.GetArrayLength() = 0 -> return None
+            | LspOk resultEl ->
+                // Each returned location's `uri` is FSAC's own echoed form
+                // of whatever uri we `didOpen`'d it under, not necessarily
+                // the exact string this module passed in - same as
+                // `definition`'s `resolvedUri` (see its own comment above),
+                // confirmed against real fsautocomplete during this task:
+                // a driveless `documentUri` (`file:///foo.fsx`) comes back
+                // drive-letter-qualified and percent-encoded
+                // (`file:///d%3A/foo.fsx`) in every location's `uri`. A raw
+                // string comparison against `documentUri` here would always
+                // fail this same-file filter, silently producing an empty
+                // (`Some []`, not even caught by the `Null`/empty-array
+                // guards above since the top-level array is non-empty)
+                // result instead of the real per-file reference set. Both
+                // sides go through `canonicalizeUri` so they compare equal
+                // regardless of which form either happens to use.
+                let canonicalDocumentUri = canonicalizeUri documentUri
+
+                let edits =
+                    resultEl.EnumerateArray()
+                    |> Seq.filter (fun loc -> canonicalizeUri (loc.GetProperty("uri").GetString()) = canonicalDocumentUri)
+                    |> Seq.map (fun loc ->
+                        let range = loc.GetProperty("range")
+                        let start = range.GetProperty("start")
+                        let end_ = range.GetProperty("end")
+
+                        { StartLine = Prologue.shiftDown (start.GetProperty("line").GetInt32() + 1) - 1
+                          StartColumn = start.GetProperty("character").GetInt32()
+                          EndLine = Prologue.shiftDown (end_.GetProperty("line").GetInt32() + 1) - 1
+                          EndColumn = end_.GetProperty("character").GetInt32() })
+                    |> List.ofSeq
+
+                return Some edits
+        }
