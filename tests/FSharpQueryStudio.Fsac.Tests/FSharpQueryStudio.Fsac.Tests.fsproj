@@ -15,6 +15,7 @@
     <Compile Include="FsacBridgeHoverTests.fs" />
     <Compile Include="FsacBridgeDefinitionTests.fs" />
     <Compile Include="FsacBridgeSignatureHelpTests.fs" />
+    <Compile Include="FsacBridgeCompletionTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

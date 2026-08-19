@@ -647,3 +647,47 @@ module FsacBridge =
                                   Parameters = parameters
                                   ReturnType = returnType }
         }
+
+    /// LSP's `textDocument/completion` result is `CompletionItem[] |
+    /// CompletionList | null` - parses defensively, then keeps only each
+    /// item's `label` (see the spec's Non-goals: richer `kind`/`detail`
+    /// isn't consumed by `Protocol.AnalysisCompletionResult` yet).
+    let private parseCompletionLabels (resultEl: JsonElement) : string list =
+        match resultEl.ValueKind with
+        | JsonValueKind.Null -> []
+        | JsonValueKind.Array ->
+            resultEl.EnumerateArray() |> Seq.map (fun i -> i.GetProperty("label").GetString()) |> List.ofSeq
+        | JsonValueKind.Object ->
+            resultEl.GetProperty("items").EnumerateArray()
+            |> Seq.map (fun i -> i.GetProperty("label").GetString())
+            |> List.ofSeq
+        | _ -> []
+
+    let complete (documentUri: string) (version: int) (source: string) (line: int) (column: int) : Task<string list> =
+        task {
+            let! client = sharedProcess.EnsureClient()
+
+            // Same race as `hover`/`definition`/`signatureHelp` (see their
+            // own comments above): a `textDocument/completion` sent right
+            // after `syncDocument` can land before FSAC's background parse
+            // of the just-synced document finishes. Unlike the
+            // position-based methods above, this doesn't come back as an
+            // outright LSP error - it comes back as a *thin* or empty
+            // completion list (confirmed against real fsautocomplete
+            // 0.83.0 during this task) rather than the full member set,
+            // which is silently wrong instead of loudly failing.
+            // `awaitDocumentAnalyzed` is reused here purely as that
+            // readiness gate - the diagnostics it returns are discarded.
+            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+
+            let! result =
+                client.SendRequest(
+                    "textDocument/completion",
+                    {| textDocument = {| uri = documentUri |}
+                       position = {| line = Prologue.shiftUp line - 1; character = column |} |}
+                )
+
+            match result with
+            | LspFail _ -> return []
+            | LspOk resultEl -> return parseCompletionLabels resultEl |> List.distinct
+        }
