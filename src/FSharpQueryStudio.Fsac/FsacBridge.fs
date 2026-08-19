@@ -503,6 +503,45 @@ module FsacBridge =
                               EndColumn = end_.GetProperty("character").GetInt32() }
         }
 
+    /// Splits `text` on a top-level `"->"` only - one not nested inside
+    /// parentheses - rather than every literal `"->"` occurrence. A naive
+    /// split breaks on *every* `"->"`, which fragments a parameter that is
+    /// itself a function type: for `apply`'s real signature-help label
+    /// `"f: (int -> int) -> x: int -> int"`, a plain
+    /// `Split([|"->"|], ...)` produces `["f: (int"; "int)"; "x: int";
+    /// "int"]` - the higher-order parameter `f: (int -> int)` torn in two
+    /// - rather than the correct `["f: (int -> int)"; "x: int"; "int"]`.
+    /// This is not an exotic case: any callback-taking API (`List.map`,
+    /// `Seq.filter`, `Array.iter`, ...) has exactly this shape. Tracking
+    /// paren depth while scanning left to right and only treating `"->"`
+    /// as a separator at depth 0 keeps a parenthesized function-type
+    /// parameter intact as one segment.
+    let private splitTopLevelArrows (text: string) : string list =
+        let segments = ResizeArray<string>()
+        let current = System.Text.StringBuilder()
+        let mutable depth = 0
+        let mutable i = 0
+
+        while i < text.Length do
+            if text.[i] = '(' then
+                depth <- depth + 1
+                current.Append(text.[i]) |> ignore
+                i <- i + 1
+            elif text.[i] = ')' then
+                depth <- depth - 1
+                current.Append(text.[i]) |> ignore
+                i <- i + 1
+            elif depth = 0 && i + 1 < text.Length && text.[i] = '-' && text.[i + 1] = '>' then
+                segments.Add(current.ToString())
+                current.Clear() |> ignore
+                i <- i + 2
+            else
+                current.Append(text.[i]) |> ignore
+                i <- i + 1
+
+        segments.Add(current.ToString())
+        segments |> Seq.map (fun s -> s.Trim()) |> List.ofSeq
+
     let signatureHelp
         (documentUri: string)
         (version: int)
@@ -557,10 +596,10 @@ module FsacBridge =
                     // function takes, so it's unusable for a "give me the
                     // whole signature" result - every parameter is instead
                     // recovered by splitting `label`'s curried arrow-type
-                    // text on `"->"` ourselves. (This naive split doesn't
-                    // handle a parameter that is itself a function type,
-                    // e.g. `f: (int -> int) -> int` - out of scope for
-                    // this task.)
+                    // text on top-level `"->"` ourselves
+                    // (`splitTopLevelArrows` above - a plain `Split` breaks
+                    // on a higher-order parameter's own `"->"`, e.g.
+                    // `apply`'s real `"f: (int -> int) -> x: int -> int"`).
                     let stripped = stripSymbolKind label
                     let nameTypeSplit = stripped.Split([| ':' |], 2)
 
@@ -576,17 +615,31 @@ module FsacBridge =
                         else
                             stripped.Trim()
 
-                    let arrowSegments =
-                        typeText.Split([| "->" |], StringSplitOptions.None) |> Array.map (fun s -> s.Trim())
+                    let arrowSegments = splitTopLevelArrows typeText
 
                     if arrowSegments.Length < 2 then
                         // A resolved-but-not-callable symbol (its type has
-                        // no `->` at all) - treat the same as "not
-                        // callable".
+                        // no top-level `->` at all) would land here - but
+                        // real fsautocomplete 0.83.0 appears to never
+                        // actually produce that shape: it only returns a
+                        // non-null `signatureHelp` result at all once the
+                        // callee genuinely resolves to a function/method
+                        // type at that call site. Confirmed against two
+                        // real non-callable-application attempts during
+                        // this task - a plain value applied like a call
+                        // (`total 1` on `let total = 42`) and an
+                        // over-application of an already-fully-applied
+                        // curried function (`add 1 2 3` on a two-arg
+                        // `add`) - both came back `null` (caught by the
+                        // branch above), never a non-null response with an
+                        // arrow-less `label`. This branch is kept purely
+                        // as defensive coding against that assumption ever
+                        // turning out wrong in some FSAC version/scenario
+                        // not exercised here.
                         return None
                     else
-                        let parameters = arrowSegments.[.. arrowSegments.Length - 2] |> List.ofArray
-                        let returnType = arrowSegments.[arrowSegments.Length - 1]
+                        let parameters = arrowSegments |> List.take (arrowSegments.Length - 1)
+                        let returnType = arrowSegments |> List.last
 
                         return
                             Some

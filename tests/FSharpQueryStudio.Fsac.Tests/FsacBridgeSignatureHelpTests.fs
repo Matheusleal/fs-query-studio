@@ -29,6 +29,32 @@ let ``signatureHelp on a function symbol returns its parameters and return type`
     }
 
 [<Fact>]
+let ``signatureHelp on a higher-order function doesn't fragment a function-typed parameter`` () =
+    task {
+        let uri = $"file:///sighelp-test-{Guid.NewGuid()}.fsx"
+
+        // `apply`'s real fsautocomplete 0.83.0 signature-help label is
+        // `"val apply: f: (int -> int) -> x: int -> int"` - a naive split
+        // on every literal "->" tears the parenthesized `f: (int -> int)`
+        // parameter in two (`["f: (int"; "int)"; "x: int"; "int"]`
+        // instead of `["f: (int -> int)"; "x: int"; "int"]`), producing
+        // `Parameters.Length = 3` instead of the correct 2 and a mangled
+        // first parameter's text. Position here is right after `apply `
+        // on line 2 (before the `(fun ...)` argument).
+        let source = "let apply (f: int -> int) (x: int) = f x\nlet r = apply (fun n -> n + 1) 5"
+        let! result = FsacBridge.signatureHelp uri 1 source 2 14
+
+        match result with
+        | None -> failwith "expected signature help"
+        | Some info ->
+            Assert.Equal("apply", info.DisplayName)
+            Assert.Equal(2, info.Parameters.Length)
+            Assert.Equal("f: (int -> int)", info.Parameters.[0])
+            Assert.Equal("x: int", info.Parameters.[1])
+            Assert.Equal("int", info.ReturnType)
+    }
+
+[<Fact>]
 let ``signatureHelp on a non-callable symbol returns None`` () =
     task {
         let uri = $"file:///sighelp-test-{Guid.NewGuid()}.fsx"
