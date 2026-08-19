@@ -59,3 +59,22 @@ let ``check recovers after the underlying fsautocomplete process is killed and r
         Assert.Equal(0, diagnostics.[0].StartLine)
         Assert.Equal(DiagnosticSeverity.Error, diagnostics.[0].Severity)
     }
+
+[<Fact>]
+let ``check on an untitled-scheme documentUri (this app's own default for every new script tab) reports a real diagnostic`` () =
+    task {
+        // "untitled:ScriptN.fsx" is Monaco's convention for an unsaved
+        // buffer, and this app's own default identity for every freshly
+        // opened script - see `ShellViewModel.createDocument
+        // "untitled:Script1.fsx"`. Real fsautocomplete rewrites a
+        // non-file:// uri into a synthetic file:// path of its own
+        // devising when echoing it back in publishDiagnostics/
+        // documentAnalyzed - `fsacUriFor` exists so this module's own
+        // correlation keys agree with FSAC's echo regardless.
+        let uri = $"untitled:Script-{Guid.NewGuid():N}.fsx"
+        let! diagnostics = FsacBridge.check uri 1 "let x : int = \"not an int\""
+
+        Assert.NotEmpty(diagnostics)
+        Assert.Equal(0, diagnostics.[0].StartLine)
+        Assert.Equal(DiagnosticSeverity.Error, diagnostics.[0].Severity)
+    }

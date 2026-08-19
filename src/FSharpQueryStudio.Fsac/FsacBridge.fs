@@ -36,6 +36,66 @@ module FsacBridge =
         let decoded = Uri.UnescapeDataString(uri)
         Regex.Replace(decoded, "^file:///[A-Za-z]:/", "file:///", RegexOptions.IgnoreCase)
 
+    /// A this-Worker-process-unique base directory synthetic FSAC-facing
+    /// uris (see `fsacUriFor`) are namespaced under, so two different
+    /// Worker processes - or two callers who happen to name a document
+    /// the same thing - never collide.
+    let private untitledUriRoot =
+        Path.Combine(Path.GetTempPath(), "fqs-fsac-untitled-" + Guid.NewGuid().ToString("N"))
+
+    /// FSAC only round-trips a `file://` document identity predictably
+    /// (see `canonicalizeUri`'s own drive-letter case above). A
+    /// non-`file://` uri - in practice always `untitled:<name>` here,
+    /// Monaco's own convention for an unsaved buffer and this app's own
+    /// default identity for *every* freshly opened script tab
+    /// (`ShellViewModel.createDocument "untitled:Script1.fsx"`) - gets
+    /// silently rewritten by FSAC into an unrelated synthetic `file://`
+    /// path of its own devising: confirmed against real fsautocomplete
+    /// 0.83.0, `didOpen`ing `untitled:Script1.fsx` produced
+    /// `publishDiagnostics`/`documentAnalyzed` notifications echoing back
+    /// `file:///<fsac's own cwd>/Script1.fsx.fsx` (note the doubled
+    /// `.fsx.fsx` - FSAC's own untitled-buffer naming, not anything this
+    /// module controls). Nothing about that transform is derivable from
+    /// the caller's own uri string - it depends on FSAC's own working
+    /// directory and internal naming - so `canonicalizeUri` (built for
+    /// the file://-drive-letter-echo case, where the echoed uri really
+    /// is a deterministic function of the one sent) can never bridge it.
+    /// Left alone, every `diagnosticsPending`/`awaitDocumentAnalyzed`
+    /// wait keyed on the caller's own `untitled:...` uri never sees
+    /// FSAC's differently-shaped echo match, so every `analysis/*` call
+    /// against any not-yet-saved script - this app's own default state
+    /// on every fresh launch and every "new script" action - always
+    /// times out, not just intermittently.
+    ///
+    /// Fix: never hand FSAC anything but a `file://` uri this module
+    /// controls end to end. For a non-`file://` caller uri, synthesize
+    /// one of our own - deterministic (the same caller uri always maps
+    /// to the same synthetic path, so a later `didChange` lands on the
+    /// same document FSAC already has open) and namespaced under
+    /// `untitledUriRoot`. Everywhere this module talks to FSAC about a
+    /// document's identity - the wire `uri` in a request, and every
+    /// `diagnosticsPending`/`canonicalizeUri` correlation key - goes
+    /// through this first. The *caller's* own original uri is what ever
+    /// reaches the wire back out (`DefinitionLocation.FilePath`, etc.);
+    /// this synthetic identity never leaks past this module.
+    let private fsacUriFor (documentUri: string) : string =
+        if documentUri.StartsWith("file:", StringComparison.OrdinalIgnoreCase) then
+            documentUri
+        else
+            let name =
+                match documentUri.IndexOf(':') with
+                | -1 -> documentUri
+                | i -> documentUri.Substring(i + 1)
+
+            let invalidChars = Path.GetInvalidFileNameChars()
+
+            let safeChars =
+                name.ToCharArray() |> Array.map (fun c -> if Array.contains c invalidChars then '_' else c)
+
+            let safeName = String(safeChars)
+            let fullPath = Path.Combine(untitledUriRoot, safeName).Replace('\\', '/')
+            $"file:///{fullPath.TrimStart('/')}"
+
     /// Keyed on `(canonicalized uri, version)`, same as before - but now
     /// holding every waiter currently pending for that key, not just the
     /// most recent one. `check` and `hover` each register their own
@@ -205,6 +265,14 @@ module FsacBridge =
     /// forgetting stale `didOpen` state) is handled once here rather than
     /// duplicated in every method that needs it.
     let syncDocument (client: LspClient) (documentUri: string) (version: int) (checkedSource: string) : Task =
+        // `openDocuments` is keyed on the caller's own `documentUri`, not
+        // the FSAC-facing `wireUri` - `fsacUriFor` is a pure, deterministic
+        // function of `documentUri`, so tracking "have we opened *this*
+        // caller identity yet" this way still correctly decides
+        // didOpen-vs-didChange without needing to track the synthetic
+        // identity separately.
+        let wireUri = fsacUriFor documentUri
+
         let isFirstOpenForThisDocument =
             lock syncLock (fun () ->
                 if isNewClient client then
@@ -218,7 +286,7 @@ module FsacBridge =
             client.SendNotification(
                 "textDocument/didOpen",
                 {| textDocument =
-                    {| uri = documentUri
+                    {| uri = wireUri
                        languageId = "fsharp"
                        version = version
                        text = checkedSource |} |}
@@ -226,7 +294,7 @@ module FsacBridge =
         else
             client.SendNotification(
                 "textDocument/didChange",
-                {| textDocument = {| uri = documentUri; version = version |}
+                {| textDocument = {| uri = wireUri; version = version |}
                    contentChanges = [ {| text = checkedSource |} ] |}
             )
 
@@ -253,7 +321,11 @@ module FsacBridge =
         : Task<Diagnostic list option> =
         task {
             let tcs = TaskCompletionSource<Diagnostic list>(TaskCreationOptions.RunContinuationsAsynchronously)
-            let pendingKey = struct (canonicalizeUri documentUri, version)
+            // Keyed on the FSAC-facing identity (`fsacUriFor`), not the
+            // caller's own `documentUri` - `documentAnalyzed`'s own uri
+            // always canonicalizes to the same thing, so the two must
+            // agree here or this wait can never resolve except by timeout.
+            let pendingKey = struct (canonicalizeUri (fsacUriFor documentUri), version)
             registerWaiter pendingKey tcs
 
             do! syncDocument client documentUri version checkedSource
@@ -447,7 +519,7 @@ module FsacBridge =
                 sendRequestWithTimeout
                     client
                     "textDocument/hover"
-                    {| textDocument = {| uri = documentUri |}
+                    {| textDocument = {| uri = fsacUriFor documentUri |}
                        position = {| line = Prologue.shiftUp line - 1; character = column |} |}
 
             match result with
@@ -514,7 +586,7 @@ module FsacBridge =
                 sendRequestWithTimeout
                     client
                     "textDocument/definition"
-                    {| textDocument = {| uri = documentUri |}
+                    {| textDocument = {| uri = fsacUriFor documentUri |}
                        position = {| line = Prologue.shiftUp line - 1; character = column |} |}
 
             match result with
@@ -557,7 +629,7 @@ module FsacBridge =
                     // caller's own original `documentUri` (not FSAC's
                     // echoed form) as `FilePath`.
                     let filePath, lineAdjustment =
-                        if canonicalizeUri resolvedUri = canonicalizeUri documentUri then
+                        if canonicalizeUri resolvedUri = canonicalizeUri (fsacUriFor documentUri) then
                             documentUri, true
                         else
                             resolvedUri, false
@@ -634,7 +706,7 @@ module FsacBridge =
                 sendRequestWithTimeout
                     client
                     "textDocument/signatureHelp"
-                    {| textDocument = {| uri = documentUri |}
+                    {| textDocument = {| uri = fsacUriFor documentUri |}
                        position = {| line = Prologue.shiftUp line - 1; character = column |} |}
 
             match result with
@@ -764,7 +836,7 @@ module FsacBridge =
                 sendRequestWithTimeout
                     client
                     "textDocument/completion"
-                    {| textDocument = {| uri = documentUri |}
+                    {| textDocument = {| uri = fsacUriFor documentUri |}
                        position = {| line = Prologue.shiftUp line - 1; character = column |} |}
 
             match result with
@@ -803,7 +875,7 @@ module FsacBridge =
                 sendRequestWithTimeout
                     client
                     "textDocument/references"
-                    {| textDocument = {| uri = documentUri |}
+                    {| textDocument = {| uri = fsacUriFor documentUri |}
                        position = {| line = Prologue.shiftUp line - 1; character = column |}
                        context = {| includeDeclaration = true |} |}
 
@@ -837,7 +909,7 @@ module FsacBridge =
                 // result instead of the real per-file reference set. Both
                 // sides go through `canonicalizeUri` so they compare equal
                 // regardless of which form either happens to use.
-                let canonicalDocumentUri = canonicalizeUri documentUri
+                let canonicalDocumentUri = canonicalizeUri (fsacUriFor documentUri)
 
                 let edits =
                     resultEl.EnumerateArray()
