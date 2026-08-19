@@ -10,6 +10,21 @@ open FSharpQueryStudio.Execution
 open FSharpQueryStudio.Storage
 open FSharpQueryStudio.Worker
 
+/// FSAC tracks each `analysis/*` document by `(documentUri, version)`
+/// (Task 12's cutover from FCS's own per-request, stateless
+/// `AnalysisContext`) — a strictly increasing `version` per uri, the same
+/// convention every `FsacBridge.Tests` test already follows (see
+/// `FsacBridgeCheckTests.fs`'s "a later check ... reflects the newer
+/// source" test). Every analysis test below sends `Version = 1`, so each
+/// one needs its own uri: reusing one uri with the same version across
+/// tests that send genuinely different source text is untested,
+/// unsupported territory (FSAC's own `fsharp/documentAnalyzed` is not
+/// guaranteed to refire for a repeat version), not a real scenario the
+/// Worker itself ever produces (the App always bumps `Version` on an
+/// edit).
+let private uniqueDocumentUri (label: string) : string =
+    $"file:///workspace/{label}-{Guid.NewGuid()}.fsx"
+
 let private emptyParamsRequest (id: string) (method_: string) : WorkerRequestFrame =
     { Id = id
       Method = method_
@@ -69,12 +84,12 @@ let private resultsDiscardRequest (id: string) (documentUri: string) : WorkerReq
             Serialization.options
         ) }
 
-let private analysisCheckRequest (id: string) (source: string) : WorkerRequestFrame =
+let private analysisCheckRequest (id: string) (documentUri: string) (source: string) : WorkerRequestFrame =
     { Id = id
       Method = "analysis/check"
       Params =
         JsonSerializer.SerializeToElement<AnalysisCheckParams>(
-            { DocumentUri = "file:///workspace/sales.fsx"
+            { DocumentUri = documentUri
               Version = 1
               Source = source },
             Serialization.options
@@ -89,12 +104,18 @@ let private resultsPageRequest (id: string) (sessionId: string) (token: string) 
             Serialization.options
         ) }
 
-let private analysisHoverRequest (id: string) (source: string) (line: int) (column: int) : WorkerRequestFrame =
+let private analysisHoverRequest
+    (id: string)
+    (documentUri: string)
+    (source: string)
+    (line: int)
+    (column: int)
+    : WorkerRequestFrame =
     { Id = id
       Method = "analysis/hover"
       Params =
         JsonSerializer.SerializeToElement<AnalysisHoverParams>(
-            ({ DocumentUri = "file:///workspace/sales.fsx"
+            ({ DocumentUri = documentUri
                Version = 1
                Source = source
                Line = line
@@ -102,12 +123,18 @@ let private analysisHoverRequest (id: string) (source: string) (line: int) (colu
             Serialization.options
         ) }
 
-let private analysisDefinitionRequest (id: string) (source: string) (line: int) (column: int) : WorkerRequestFrame =
+let private analysisDefinitionRequest
+    (id: string)
+    (documentUri: string)
+    (source: string)
+    (line: int)
+    (column: int)
+    : WorkerRequestFrame =
     { Id = id
       Method = "analysis/definition"
       Params =
         JsonSerializer.SerializeToElement<AnalysisDefinitionParams>(
-            ({ DocumentUri = "file:///workspace/sales.fsx"
+            ({ DocumentUri = documentUri
                Version = 1
                Source = source
                Line = line
@@ -115,12 +142,18 @@ let private analysisDefinitionRequest (id: string) (source: string) (line: int) 
             Serialization.options
         ) }
 
-let private analysisSignatureHelpRequest (id: string) (source: string) (line: int) (column: int) : WorkerRequestFrame =
+let private analysisSignatureHelpRequest
+    (id: string)
+    (documentUri: string)
+    (source: string)
+    (line: int)
+    (column: int)
+    : WorkerRequestFrame =
     { Id = id
       Method = "analysis/signatureHelp"
       Params =
         JsonSerializer.SerializeToElement<AnalysisSignatureHelpParams>(
-            ({ DocumentUri = "file:///workspace/sales.fsx"
+            ({ DocumentUri = documentUri
                Version = 1
                Source = source
                Line = line
@@ -128,12 +161,18 @@ let private analysisSignatureHelpRequest (id: string) (source: string) (line: in
             Serialization.options
         ) }
 
-let private completionRequest (id: string) (source: string) (line: int) (column: int) : WorkerRequestFrame =
+let private completionRequest
+    (id: string)
+    (documentUri: string)
+    (source: string)
+    (line: int)
+    (column: int)
+    : WorkerRequestFrame =
     { Id = id
       Method = "analysis/complete"
       Params =
         JsonSerializer.SerializeToElement<AnalysisCompletionParams>(
-            ({ DocumentUri = "untitled:Script1.fsx"
+            ({ DocumentUri = documentUri
                Version = 1
                Source = source
                Line = line
@@ -141,12 +180,18 @@ let private completionRequest (id: string) (source: string) (line: int) (column:
             Serialization.options
         ) }
 
-let private renameRequest (id: string) (source: string) (line: int) (column: int) : WorkerRequestFrame =
+let private renameRequest
+    (id: string)
+    (documentUri: string)
+    (source: string)
+    (line: int)
+    (column: int)
+    : WorkerRequestFrame =
     { Id = id
       Method = "analysis/rename"
       Params =
         JsonSerializer.SerializeToElement<AnalysisRenameParams>(
-            ({ DocumentUri = "untitled:Script1.fsx"
+            ({ DocumentUri = documentUri
                Version = 1
                Source = source
                Line = line
@@ -157,11 +202,12 @@ let private renameRequest (id: string) (source: string) (line: int) (column: int
 [<Fact>]
 let ``dispatch on analysis/rename finds every reference to the symbol at the given position`` () =
     task {
+        let documentUri = uniqueDocumentUri "rename"
         let source = "let value = 1\nlet total = value + value"
         // "value" ends at column 9 (0-based) on line 1: "let value = 1" -
         // same end-of-identifier convention as the hover/definition/
         // signatureHelp requests above.
-        let! response = Handlers.dispatch (renameRequest "rn1" source 1 9)
+        let! response = Handlers.dispatch (renameRequest "rn1" documentUri source 1 9)
 
         Assert.True(response.Error.IsNone)
         let result = JsonSerializer.Deserialize<AnalysisRenameResult>(response.Result.Value, Serialization.options)
@@ -172,7 +218,8 @@ let ``dispatch on analysis/rename finds every reference to the symbol at the giv
 [<Fact>]
 let ``dispatch on analysis/rename returns no edits for a position with no resolvable symbol`` () =
     task {
-        let! response = Handlers.dispatch (renameRequest "rn2" "// just a comment" 1 5)
+        let documentUri = uniqueDocumentUri "rename"
+        let! response = Handlers.dispatch (renameRequest "rn2" documentUri "// just a comment" 1 5)
 
         Assert.True(response.Error.IsNone)
         let result = JsonSerializer.Deserialize<AnalysisRenameResult>(response.Result.Value, Serialization.options)
@@ -393,7 +440,8 @@ let ``session/reset actually drops a Persistent-mode session's bindings`` () =
 [<Fact>]
 let ``dispatch on analysis/check returns at least one diagnostic for a script with a type error`` () =
     task {
-        let! response = Handlers.handleAnalysisCheck (analysisCheckRequest "a1" "let x : int = \"not an int\"")
+        let documentUri = uniqueDocumentUri "check"
+        let! response = Handlers.handleAnalysisCheck (analysisCheckRequest "a1" documentUri "let x : int = \"not an int\"")
 
         Assert.True(response.Result.IsSome)
         let result = JsonSerializer.Deserialize<AnalysisCheckResult>(response.Result.Value, Serialization.options)
@@ -404,8 +452,9 @@ let ``dispatch on analysis/check returns at least one diagnostic for a script wi
 [<Fact>]
 let ``dispatch on analysis/hover returns the display name and type for a local binding`` () =
     task {
+        let documentUri = uniqueDocumentUri "hover"
         // "total" ends at column 9 (0-based) on line 1: "let total = 42".
-        let! response = Handlers.handleAnalysisHover (analysisHoverRequest "h1" "let total = 42" 1 9)
+        let! response = Handlers.handleAnalysisHover (analysisHoverRequest "h1" documentUri "let total = 42" 1 9)
 
         Assert.True(response.Result.IsSome)
         let result = JsonSerializer.Deserialize<AnalysisHoverResult>(response.Result.Value, Serialization.options)
@@ -420,9 +469,10 @@ let ``dispatch on analysis/hover returns the display name and type for a local b
 [<Fact>]
 let ``dispatch on analysis/definition resolves a use site back to its own declaration`` () =
     task {
+        let documentUri = uniqueDocumentUri "definition"
         let source = "let helper (x: int) : int = x + 1\n\nlet total = helper 41\n"
         // "helper" ends at column 18 (0-based) on line 3: "let total = helper 41".
-        let! response = Handlers.dispatch (analysisDefinitionRequest "d1" source 3 18)
+        let! response = Handlers.dispatch (analysisDefinitionRequest "d1" documentUri source 3 18)
 
         Assert.True(response.Result.IsSome)
 
@@ -435,10 +485,11 @@ let ``dispatch on analysis/definition resolves a use site back to its own declar
     }
 
 [<Fact>]
-let ``dispatch on analysis/definition reports a same-file declaration against the requesting document, not the analysis context's temp script`` () =
+let ``dispatch on analysis/definition reports a same-file declaration against the requesting document, not FSAC's own internal identity`` () =
     task {
+        let documentUri = uniqueDocumentUri "definition"
         let source = "let helper (x: int) : int = x + 1\n\nlet total = helper 41\n"
-        let! response = Handlers.dispatch (analysisDefinitionRequest "d3" source 3 18)
+        let! response = Handlers.dispatch (analysisDefinitionRequest "d3" documentUri source 3 18)
 
         let result =
             JsonSerializer.Deserialize<AnalysisDefinitionResult>(response.Result.Value, Serialization.options)
@@ -446,20 +497,23 @@ let ``dispatch on analysis/definition reports a same-file declaration against th
         match result.Location with
         | None -> failwith "expected a definition location"
         | Some location ->
-            // FCS answers with the throwaway fqs-analysis-<guid> script the
-            // context was anchored at, which is a different path on every
-            // request and matches nothing the editor knows about. The
-            // handler rewrites it to the URI the request came from so the
-            // editor's same-document check can actually succeed.
-            Assert.Equal("file:///workspace/sales.fsx", location.FilePath)
-            Assert.DoesNotContain("fqs-analysis-", location.FilePath)
+            // FSAC echoes back its own (drive-letter-qualified,
+            // percent-encoded) identity for the uri it was `didOpen`'d
+            // under, which is meaningless to the editor and can never
+            // equal the document URI the request came from. FsacBridge
+            // rewrites a same-file result to the caller's own
+            // `documentUri` so the editor's same-document check can
+            // actually succeed - this is that rewrite, not a workaround
+            // this handler does itself.
+            Assert.Equal(documentUri, location.FilePath)
     }
 
 [<Fact>]
 let ``dispatch on analysis/definition at a position with no resolvable symbol returns a Result with no location`` () =
     task {
+        let documentUri = uniqueDocumentUri "definition"
         let source = "let helper (x: int) : int = x + 1\n\nlet total = helper 41\n"
-        let! response = Handlers.dispatch (analysisDefinitionRequest "d2" source 2 0)
+        let! response = Handlers.dispatch (analysisDefinitionRequest "d2" documentUri source 2 0)
 
         Assert.True(response.Result.IsSome)
 
@@ -472,9 +526,15 @@ let ``dispatch on analysis/definition at a position with no resolvable symbol re
 [<Fact>]
 let ``dispatch on analysis/signatureHelp returns the parameter and return types for a function`` () =
     task {
-        let source = "let add (x: int) (y: int) : int = x + y\n"
-        // "add" ends at column 6 (0-based) on line 1.
-        let! response = Handlers.dispatch (analysisSignatureHelpRequest "s1" source 1 6)
+        let documentUri = uniqueDocumentUri "signatureHelp"
+        let source = "let add (x: int) (y: int) : int = x + y\nlet result = add 1 2"
+        // Real fsautocomplete 0.83.0 only returns a non-null
+        // `textDocument/signatureHelp` result when the cursor sits inside
+        // a call's argument list - confirmed during this task: querying
+        // `add`'s own name (the definition site, or a call site's name
+        // before any argument) always came back null. Column 17 on line 2
+        // is on the first argument's own "1" in "let result = add 1 2".
+        let! response = Handlers.dispatch (analysisSignatureHelpRequest "s1" documentUri source 2 17)
 
         Assert.True(response.Result.IsSome)
 
@@ -490,33 +550,38 @@ let ``dispatch on analysis/signatureHelp returns the parameter and return types 
     }
 
 [<Fact>]
-let ``dispatch on analysis/signatureHelp resolves from the called function's own end column, not the open-paren the trigger fired on`` () =
+let ``dispatch on analysis/signatureHelp resolves only from inside a call's argument list, not merely at the callee's own name`` () =
     task {
-        let source = "let add (x: int) (y: int) : int = x + y\nadd("
-        // Line 2 is "add(". Column 4 is where Monaco's "(" trigger fires;
-        // column 3 is the end of "add" itself. The backend resolves the
-        // single symbol at the requested position, so only the latter
-        // finds anything - which is why the editor scans back to the
-        // function name before asking.
-        let! atName = Handlers.dispatch (analysisSignatureHelpRequest "s3" source 2 3)
-        let! atParen = Handlers.dispatch (analysisSignatureHelpRequest "s4" source 2 4)
+        let documentUri = uniqueDocumentUri "signatureHelp"
+        let source = "let add (x: int) (y: int) : int = x + y\nlet result = add 1 2"
+        // Column 17 on line 2 sits on the first argument's own "1" -
+        // genuinely inside the call's argument list. Column 14 sits right
+        // after "add" itself, before any argument - real fsautocomplete
+        // 0.83.0 returns null there (confirmed during this task), the same
+        // "callee's own name" null Fsac.Tests' own signatureHelp tests
+        // document. Both requests share one uri/version deliberately -
+        // it's the same unchanged document queried at two positions, not
+        // an edit.
+        let! insideArgs = Handlers.dispatch (analysisSignatureHelpRequest "s3" documentUri source 2 17)
+        let! atCalleeName = Handlers.dispatch (analysisSignatureHelpRequest "s4" documentUri source 2 14)
 
         let parse (r: WorkerResponseFrame) =
             JsonSerializer.Deserialize<AnalysisSignatureHelpResult>(r.Result.Value, Serialization.options)
 
-        match (parse atName).SignatureHelp with
-        | None -> failwith "expected signature help at the function name's end column"
+        match (parse insideArgs).SignatureHelp with
+        | None -> failwith "expected signature help inside the call's argument list"
         | Some info -> Assert.Equal("add", info.DisplayName)
 
-        Assert.Equal(None, (parse atParen).SignatureHelp)
+        Assert.Equal(None, (parse atCalleeName).SignatureHelp)
     }
 
 [<Fact>]
 let ``dispatch on analysis/signatureHelp on a non-callable symbol returns a Result with no signature`` () =
     task {
+        let documentUri = uniqueDocumentUri "signatureHelp"
         let source = "let total = 42\n"
         // "total" ends at column 9 (0-based) on line 1.
-        let! response = Handlers.dispatch (analysisSignatureHelpRequest "s2" source 1 9)
+        let! response = Handlers.dispatch (analysisSignatureHelpRequest "s2" documentUri source 1 9)
 
         Assert.True(response.Result.IsSome)
 
@@ -527,24 +592,32 @@ let ``dispatch on analysis/signatureHelp on a non-callable symbol returns a Resu
     }
 
 [<Fact>]
-let ``dispatch on analysis/complete returns tier-1 keyword and connector-helper names regardless of cursor position`` () =
+let ``dispatch on analysis/complete on an empty document returns the connector-helper names in scope from the prologue`` () =
     task {
-        let! response = Handlers.dispatch (completionRequest "cmp1" "" 1 0)
+        let documentUri = uniqueDocumentUri "complete"
+        let! response = Handlers.dispatch (completionRequest "cmp1" documentUri "" 1 0)
 
         Assert.True(response.Error.IsNone)
         let result = JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)
-        Assert.Contains("let", result.Items)
-        Assert.Contains("Connections.sql", result.Items)
+        // FSAC's own top-level-scope completion offers "Connections" (the
+        // type itself, brought into scope by the prologue's `open
+        // FSharpQueryStudio.Connectors`) - not the dotted "Connections.sql"
+        // the old FCS-direct handler's static tier-1 list used to include
+        // unconditionally. A member like "sql" only shows up once the
+        // caller is actually completing after "Connections." - see the
+        // dotted-position tests below.
+        Assert.Contains("Connections", result.Items)
     }
 
 [<Fact>]
-let ``dispatch on analysis/complete includes tier-2 semantic completions at the cursor position`` () =
+let ``dispatch on analysis/complete includes semantic completions at the cursor position`` () =
     task {
+        let documentUri = uniqueDocumentUri "complete"
         let source = "let myLocalValue = 1\nmyLocal"
         // Line 2 is "myLocal", 7 characters — column 7 is the end-of-line
         // caret a completion is actually requested from, and the largest
         // in-range value for this line. (The earlier 8 was past the end.)
-        let! response = Handlers.dispatch (completionRequest "cmp2" source 2 7)
+        let! response = Handlers.dispatch (completionRequest "cmp2" documentUri source 2 7)
 
         Assert.True(response.Error.IsNone)
         let result = JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)
@@ -555,12 +628,13 @@ let ``dispatch on analysis/complete includes tier-2 semantic completions at the 
 let ``dispatch on analysis/complete returns the members of the qualifier at a dotted position, not the whole top-level scope`` () =
     task {
         // The caret sits at the end of "s.Sub", the shape Monaco actually
-        // asks about while a member name is being typed. FCS never
+        // asks about while a member name is being typed. FSAC never
         // prefix-filters (the editor does), so the useful assertion is
         // that the list is String's *members* rather than everything in
         // top-level scope - the failure mode when the qualifier is lost.
+        let documentUri = uniqueDocumentUri "complete"
         let source = "let s = \"abc\"\ns.Sub"
-        let! response = Handlers.dispatch (completionRequest "cmp3" source 2 5)
+        let! response = Handlers.dispatch (completionRequest "cmp3" documentUri source 2 5)
 
         Assert.True(response.Error.IsNone)
         let result = JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)
@@ -569,9 +643,8 @@ let ``dispatch on analysis/complete returns the members of the qualifier at a do
         Assert.Contains("Length", result.Items)
         Assert.Contains("ToUpper", result.Items)
 
-        // Tier 1 is merged in unconditionally, so its presence proves
-        // nothing - but a top-level-scope dump would also carry names like
-        // these, and a real member list must not.
+        // A top-level-scope dump would also carry names like these, and a
+        // real member list must not.
         Assert.DoesNotContain("Choice1Of2", result.Items)
         Assert.DoesNotContain("printfn", result.Items)
     }
@@ -579,8 +652,9 @@ let ``dispatch on analysis/complete returns the members of the qualifier at a do
 [<Fact>]
 let ``dispatch on analysis/complete at a bare trailing dot returns the qualifier's members`` () =
     task {
+        let documentUri = uniqueDocumentUri "complete"
         let source = "let s = \"abc\"\ns."
-        let! response = Handlers.dispatch (completionRequest "cmp4" source 2 2)
+        let! response = Handlers.dispatch (completionRequest "cmp4" documentUri source 2 2)
 
         Assert.True(response.Error.IsNone)
         let result = JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)

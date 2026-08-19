@@ -109,4 +109,5 @@ let main _argv =
         Log.Information("F# Query Studio worker stopping")
         0
     finally
+        FSharpQueryStudio.Fsac.FsacBridge.sharedProcess.Shutdown()
         Log.CloseAndFlush()

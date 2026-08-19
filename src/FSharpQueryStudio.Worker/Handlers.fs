@@ -11,7 +11,7 @@ open Serilog
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Execution
 open FSharpQueryStudio.Results
-open FSharpQueryStudio.Analysis
+open FSharpQueryStudio.Fsac
 open FSharpQueryStudio.Storage
 open FSharpQueryStudio.Connectors
 open FSharpQueryStudio.Security
@@ -261,56 +261,28 @@ module Handlers =
           Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
           Error = None }
 
-    /// Every `analysis/*` handler anchors its throwaway `AnalysisContext`
-    /// at a fresh temp directory. Nothing is ever written into it (the
-    /// source is handed to FCS as a `SourceText`, never as a file), but
-    /// the directory itself has to exist for `GetProjectOptionsFromScript`
-    /// to resolve against it — so it is created per request and, unlike
-    /// before, deleted again when the request finishes.
-    let private createAnalysisWorkDir () : string =
-        let workDir =
-            Path.Combine(Path.GetTempPath(), "fqs-analysis-" + Guid.NewGuid().ToString("N"))
-
-        Directory.CreateDirectory(workDir) |> ignore
-        workDir
-
-    /// Best-effort cleanup: a failed delete (a locked file, a racing
-    /// antivirus scan) must never mask the analysis result or throw past
-    /// the handler's own `finally`.
-    let private deleteAnalysisWorkDir (workDir: string) : unit =
-        try
-            Directory.Delete(workDir, true)
-        with ex ->
-            Log.Debug(ex, "Could not delete the analysis working directory {WorkingDirectory}", workDir)
-
-    /// Parses/type-checks the request's source snapshot via FCS, in a fresh
-    /// analysis context per call (Section 8, step 3-4) — the context is
-    /// cheap to (re)build and this stays stateless, unlike `runEvaluate`'s
-    /// process-wide FSI session.
+    /// Parses/type-checks the request's source snapshot via FSAC, over the
+    /// shared `FsacBridge.sharedProcess` LSP connection (Section 8, step
+    /// 3-4). Unlike the old FCS-direct handler, this has no per-request
+    /// working directory to create or clean up — FSAC tracks the document
+    /// in memory, keyed by `DocumentUri`/`Version`, the same way the old
+    /// `AnalysisContext` tracked it as a `SourceText`.
     let handleAnalysisCheck (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
             let checkParams =
                 JsonSerializer.Deserialize<AnalysisCheckParams>(request.Params, Serialization.options)
 
-            let workDir = createAnalysisWorkDir ()
+            let! diagnostics = FsacBridge.check checkParams.DocumentUri checkParams.Version checkParams.Source
+            let result: AnalysisCheckResult = { Diagnostics = diagnostics }
 
-            try
-                let context = AnalysisContext.build workDir
-                let! diagnostics = Checker.check context checkParams.Source
-
-                let result: AnalysisCheckResult =
-                    { Diagnostics = diagnostics |> Array.map DiagnosticMapping.map |> Array.toList }
-
-                return
-                    { Id = request.Id
-                      Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                      Error = None }
-            finally
-                deleteAnalysisWorkDir workDir
+            return
+                { Id = request.Id
+                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                  Error = None }
         }
 
-    /// Answers `analysis/hover` from the request's own source snapshot, in
-    /// a fresh analysis context per call — same stateless shape as
+    /// Answers `analysis/hover` from the request's own source snapshot, via
+    /// `FsacBridge.hover` — same stateless-to-the-caller shape as
     /// `handleAnalysisCheck`. `Hover = None` (nothing at that position) is
     /// a normal, successful `Result`, never an `Error`.
     let handleAnalysisHover (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
@@ -318,170 +290,126 @@ module Handlers =
             let hoverParams =
                 JsonSerializer.Deserialize<AnalysisHoverParams>(request.Params, Serialization.options)
 
-            let workDir = createAnalysisWorkDir ()
+            let! hover =
+                FsacBridge.hover
+                    hoverParams.DocumentUri
+                    hoverParams.Version
+                    hoverParams.Source
+                    hoverParams.Line
+                    hoverParams.Column
 
-            try
-                let context = AnalysisContext.build workDir
-                let! hover = Hover.hover context hoverParams.Source hoverParams.Line hoverParams.Column
+            let result: AnalysisHoverResult = { Hover = hover }
 
-                let result: AnalysisHoverResult = { Hover = hover }
-
-                return
-                    { Id = request.Id
-                      Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                      Error = None }
-            finally
-                deleteAnalysisWorkDir workDir
+            return
+                { Id = request.Id
+                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                  Error = None }
         }
 
     /// Answers `analysis/definition` from the request's own source
-    /// snapshot, in a fresh analysis context per call — same stateless
-    /// shape as `handleAnalysisHover`. `Location = None` (nothing
-    /// resolvable at that position) is a normal, successful `Result`,
-    /// never an `Error`.
+    /// snapshot, via `FsacBridge.definition` — same shape as
+    /// `handleAnalysisHover`. `Location = None` (nothing resolvable at
+    /// that position) is a normal, successful `Result`, never an `Error`.
+    /// The same-file `FilePath` rewrite the old FCS-direct handler did by
+    /// hand (mapping the analysis context's own throwaway script path back
+    /// to the requesting document's URI) now happens inside
+    /// `FsacBridge.definition` itself, so this handler doesn't need it.
     let handleAnalysisDefinition (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
             let definitionParams =
                 JsonSerializer.Deserialize<AnalysisDefinitionParams>(request.Params, Serialization.options)
 
-            let workDir = createAnalysisWorkDir ()
+            let! location =
+                FsacBridge.definition
+                    definitionParams.DocumentUri
+                    definitionParams.Version
+                    definitionParams.Source
+                    definitionParams.Line
+                    definitionParams.Column
 
-            try
-                let context = AnalysisContext.build workDir
+            let result: AnalysisDefinitionResult = { Location = location }
 
-                let! location =
-                    GoToDefinition.findDefinition
-                        context
-                        definitionParams.Source
-                        definitionParams.Line
-                        definitionParams.Column
-
-                // A same-file declaration comes back carrying the analysis
-                // context's own throwaway script path (a per-request
-                // fqs-analysis-<guid> temp file that never existed on disk
-                // and is deleted below). That path is meaningless to the
-                // UI and can never equal the document URI the request came
-                // from, so the editor's "is this the document I'm looking
-                // at?" check could never match. Rewriting it here keeps
-                // that temp identity off the wire entirely.
-                let location =
-                    location
-                    |> Option.map (fun l ->
-                        if l.FilePath = context.ScriptPath then
-                            { l with FilePath = definitionParams.DocumentUri }
-                        else
-                            l)
-
-                let result: AnalysisDefinitionResult = { Location = location }
-
-                return
-                    { Id = request.Id
-                      Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                      Error = None }
-            finally
-                deleteAnalysisWorkDir workDir
+            return
+                { Id = request.Id
+                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                  Error = None }
         }
 
     /// Answers `analysis/signatureHelp` from the request's own source
-    /// snapshot, in a fresh analysis context per call — same stateless
-    /// shape as `handleAnalysisHover`/`handleAnalysisDefinition`.
-    /// `SignatureHelp = None` (not a callable symbol, or nothing
-    /// resolvable there) is a normal, successful `Result`, never an
-    /// `Error`.
+    /// snapshot, via `FsacBridge.signatureHelp` — same shape as
+    /// `handleAnalysisHover`/`handleAnalysisDefinition`. `SignatureHelp =
+    /// None` (not a callable symbol, or nothing resolvable there) is a
+    /// normal, successful `Result`, never an `Error`.
     let handleAnalysisSignatureHelp (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
             let signatureHelpParams =
                 JsonSerializer.Deserialize<AnalysisSignatureHelpParams>(request.Params, Serialization.options)
 
-            let workDir = createAnalysisWorkDir ()
+            let! signatureHelp =
+                FsacBridge.signatureHelp
+                    signatureHelpParams.DocumentUri
+                    signatureHelpParams.Version
+                    signatureHelpParams.Source
+                    signatureHelpParams.Line
+                    signatureHelpParams.Column
 
-            try
-                let context = AnalysisContext.build workDir
+            let result: AnalysisSignatureHelpResult = { SignatureHelp = signatureHelp }
 
-                let! signatureHelp =
-                    SignatureHelp.signatureHelp
-                        context
-                        signatureHelpParams.Source
-                        signatureHelpParams.Line
-                        signatureHelpParams.Column
-
-                let result: AnalysisSignatureHelpResult = { SignatureHelp = signatureHelp }
-
-                return
-                    { Id = request.Id
-                      Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                      Error = None }
-            finally
-                deleteAnalysisWorkDir workDir
+            return
+                { Id = request.Id
+                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                  Error = None }
         }
 
-    /// `analysis/complete` — Milestone B.10/B.11. Merges tier 1 (static,
-    /// position-insensitive) and tier 2 (semantic, FCS-derived at the
-    /// cursor) into one de-duplicated list. `recentNames` (tier 1's
-    /// "names from the most recent successful check") is `[]` here —
-    /// nothing upstream tracks a document's last-checked declared names
-    /// yet; tracked as a known, accepted limitation, not silently
-    /// dropped scope (see this plan's Self-Review Notes).
+    /// `analysis/complete` — Milestone B.10/B.11, now answered entirely by
+    /// `FsacBridge.complete` (FSAC's own `textDocument/completion`, which
+    /// already merges keyword/static and semantic/cursor-derived
+    /// completions server-side). The old tier-1/tier-2 merge this handler
+    /// used to do by hand against `AnalysisContext` is gone with it.
     let handleAnalysisComplete (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
             let completionParams =
                 JsonSerializer.Deserialize<AnalysisCompletionParams>(request.Params, Serialization.options)
 
-            let workDir = createAnalysisWorkDir ()
+            let! items =
+                FsacBridge.complete
+                    completionParams.DocumentUri
+                    completionParams.Version
+                    completionParams.Source
+                    completionParams.Line
+                    completionParams.Column
 
-            try
-                let context = AnalysisContext.build workDir
+            let result: AnalysisCompletionResult = { Items = items }
 
-                let! semantic =
-                    Completions.completeAtPosition
-                        context
-                        completionParams.Source
-                        completionParams.Line
-                        completionParams.Column
-
-                let items = (Completions.complete [] @ semantic) |> List.distinct
-                let result: AnalysisCompletionResult = { Items = items }
-
-                return
-                    { Id = request.Id
-                      Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                      Error = None }
-            finally
-                deleteAnalysisWorkDir workDir
+            return
+                { Id = request.Id
+                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                  Error = None }
         }
 
-    /// `analysis/rename` — Milestone E.8. `Analysis.Rename` only locates
-    /// references; this handler's own job is mapping its internal
-    /// `RenameEdit` to the protocol-level one, the same separation
-    /// `DiagnosticMapping` keeps for `analysis/check`.
-    let private toProtocolRenameEdit (edit: FSharpQueryStudio.Analysis.Rename.RenameEdit) : RenameEdit =
-        { StartLine = edit.StartLine
-          StartColumn = edit.StartColumn
-          EndLine = edit.EndLine
-          EndColumn = edit.EndColumn }
-
+    /// `analysis/rename` — Milestone E.8, now answered by
+    /// `FsacBridge.rename` (FSAC's `textDocument/references`), which
+    /// already returns the protocol-level `RenameEdit` list directly — no
+    /// separate internal-to-protocol mapping step is needed any more.
     let handleAnalysisRename (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
             let renameParams =
                 JsonSerializer.Deserialize<AnalysisRenameParams>(request.Params, Serialization.options)
 
-            let workDir = createAnalysisWorkDir ()
+            let! edits =
+                FsacBridge.rename
+                    renameParams.DocumentUri
+                    renameParams.Version
+                    renameParams.Source
+                    renameParams.Line
+                    renameParams.Column
 
-            try
-                let context = AnalysisContext.build workDir
+            let result: AnalysisRenameResult = { Edits = edits }
 
-                let! edits =
-                    Rename.findReferences context renameParams.Source renameParams.Line renameParams.Column
-
-                let result: AnalysisRenameResult =
-                    { Edits = edits |> Option.map (List.map toProtocolRenameEdit) }
-
-                return
-                    { Id = request.Id
-                      Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                      Error = None }
-            finally
-                deleteAnalysisWorkDir workDir
+            return
+                { Id = request.Id
+                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                  Error = None }
         }
 
     /// `results/page` — Section 7. An unknown or expired

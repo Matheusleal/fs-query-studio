@@ -1,4 +1,4 @@
-namespace FSharpQueryStudio.Analysis
+namespace FSharpQueryStudio.Execution
 
 /// Notebook-style `// %%` cell parsing — see the architecture doc's
 /// "Preparing for persistent sessions" table's Notebook/cell session row.
@@ -6,8 +6,8 @@ namespace FSharpQueryStudio.Analysis
 /// a persistent session is `SessionStore.appendFragment`'s job.
 module NotebookCells =
 
-    /// `StartLine` is 0-based, matching `Diagnostic`'s Monaco-facing
-    /// convention elsewhere in this project (see `DiagnosticMapping`).
+    /// `StartLine` is 0-based, matching the Monaco-facing convention used
+    /// elsewhere in this project.
     type Cell = { Text: string; StartLine: int }
 
     /// A cell boundary marker: a line that, trimmed, is exactly `// %%`

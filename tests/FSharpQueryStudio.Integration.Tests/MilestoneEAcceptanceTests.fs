@@ -3,11 +3,9 @@ module MilestoneEAcceptanceTests
 open System
 open System.IO
 open Xunit
-open FSharpQueryStudio.Analysis
 open FSharpQueryStudio.App
 open FSharpQueryStudio.Execution
 open FSharpQueryStudio.Protocol
-open FSharpQueryStudio.Storage
 open FSharpQueryStudio.Ui
 open TestHelpers
 
@@ -25,13 +23,22 @@ let private cleanupWorkingDirectory (dir: string) =
 
 /// Milestone E's synthesized acceptance criterion (no verbatim spec
 /// wording exists for this milestone - see the development plan's E.10
-/// row) has four parts. Three are genuinely behavioral and covered here,
-/// each through the real mechanism its own milestone task built rather
-/// than a fresh one invented for this test - same reuse-only-what-exists
-/// approach as D.9's own acceptance test. The fourth ("the UI runs on at
-/// least one non-Windows platform in CI") isn't a unit-testable claim:
-/// it's E.9's Linux CI matrix addition (`Ui.Tests`/`Editor.Tests` now run
-/// there), verified against a real GitHub Actions run, not a test here.
+/// row) originally had four parts, three genuinely behavioral. One of
+/// those three - E.5's `Storage.FsProj` feeding FCS's own
+/// `AnalysisContext.buildForProject` for a real multi-file `.fsproj`
+/// workspace - was retired along with the rest of
+/// `FSharpQueryStudio.Analysis` when the FSAC cutover replaced the
+/// interactive `analysis/*` methods (Task 12 of the FSAC backend plan):
+/// FSAC's own multi-file project analysis was never built as part of that
+/// migration (an accepted non-goal, not an oversight), so nothing in the
+/// running app exercises that path any more, and the test that proved it
+/// went with it. The two behavioral parts still covered here are each
+/// through the real mechanism its own milestone task built rather than a
+/// fresh one invented for this test - same reuse-only-what-exists approach
+/// as D.9's own acceptance test. The fourth ("the UI runs on at least one
+/// non-Windows platform in CI") isn't a unit-testable claim: it's E.9's
+/// Linux CI matrix addition (`Ui.Tests`/`Editor.Tests` now run there),
+/// verified against a real GitHub Actions run, not a test here.
 [<Fact>]
 let ``a persistent-mode session retains bindings across executions until Reset Session clears them`` () =
     task {
@@ -113,53 +120,3 @@ let ``a notebook script runs cell-by-cell, later cells seeing earlier cells' bin
             SessionStore.reset key
             cleanupWorkingDirectory workDir
     }
-
-/// E.5's `Storage.FsProj`/`Analysis.AnalysisContext.buildForProject`, run
-/// against real files on disk end to end: a project file listing two
-/// real `.fs` files, one referencing the other, opened and type-checked
-/// successfully purely because of `.fsproj` compile order.
-[<Fact>]
-let ``a multi-file fsproj workspace opens and analyzes correctly`` () =
-    let dir = tempDir "fqs-milestone-e-multifile"
-
-    try
-        let pathA = Path.Combine(dir, "A.fs")
-        let pathB = Path.Combine(dir, "B.fs")
-        File.WriteAllText(pathA, "module A\nlet value = 42")
-        let sourceB = "module B\nlet result = A.value + 1"
-        File.WriteAllText(pathB, sourceB)
-
-        let fsprojPath = Path.Combine(dir, "Project.fsproj")
-
-        File.WriteAllText(
-            fsprojPath,
-            """<Project Sdk="Microsoft.NET.Sdk">
-                 <ItemGroup>
-                   <Compile Include="A.fs" />
-                   <Compile Include="B.fs" />
-                 </ItemGroup>
-               </Project>"""
-        )
-
-        let project = FsProj.load fsprojPath
-        Assert.Equal<string list>([ "A.fs"; "B.fs" ], project.Files)
-
-        let context =
-            { AnalysisContext.buildForProject dir (FsProj.resolvedFilePaths project) with
-                ScriptPath = pathB }
-
-        let _parseResults, checkAnswer =
-            AnalysisContext.checker.ParseAndCheckFileInProject(
-                pathB,
-                0,
-                FSharp.Compiler.Text.SourceText.ofString sourceB,
-                context.ProjectOptions
-            )
-            |> Async.RunSynchronously
-
-        match checkAnswer with
-        | FSharp.Compiler.CodeAnalysis.FSharpCheckFileAnswer.Aborted -> failwith "expected the check to complete"
-        | FSharp.Compiler.CodeAnalysis.FSharpCheckFileAnswer.Succeeded results ->
-            Assert.Empty(results.Diagnostics)
-    finally
-        Directory.Delete(dir, true)

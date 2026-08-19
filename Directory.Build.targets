@@ -1,9 +1,22 @@
 <Project>
 
   <!-- Restores the bundled fsautocomplete (FSAC) dotnet tool straight into
-       the output directory of whichever project spawns it directly:
-       FSharpQueryStudio.Fsac.Tests (integration tests) and, once wired in
-       a later task, FSharpQueryStudio.Worker (the real running app).
+       the output directory of whichever project spawns it directly (or, for
+       a xunit test project, whichever project's output directory the test
+       host process itself runs from — `AppContext.BaseDirectory` is the
+       test host's own bin folder, not the referenced project's):
+       FSharpQueryStudio.Fsac.Tests (Fsac's own integration tests),
+       FSharpQueryStudio.Worker (the real running app),
+       FSharpQueryStudio.Worker.Tests (Handlers' analysis/* tests, which
+       call FsacBridge in-process rather than spawning Worker.exe), and
+       FSharpQueryStudio.Integration.Tests (which spawns a *copy* of
+       Worker.dll from its own output directory via `workerDllPath()` -
+       confirmed as a real, not just theoretical, gap during Task 12:
+       without this, `MilestoneBAcceptanceTests`'s real end-to-end hover
+       test spawns a worker that can never find `fsautocomplete.dll`,
+       `FsacBridge.hover` faults inside the worker's fire-and-forget
+       `Task.Run` for `analysis/*` with no response ever written back, and
+       the test hangs rather than failing fast).
        `dotnet tool update` (not `install`) is idempotent — it installs
        fresh into an empty tool-path, or is a no-op exit-0 if the pinned
        version is already there, so repeated local builds and CI don't
@@ -16,7 +29,7 @@
        out to the shim exe) need it flattened to the tool-path root, hence
        the Copy step below. -->
   <Target Name="RestoreFsautocomplete" AfterTargets="Build"
-          Condition="'$(MSBuildProjectName)' == 'FSharpQueryStudio.Fsac.Tests'">
+          Condition="'$(MSBuildProjectName)' == 'FSharpQueryStudio.Fsac.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Worker' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Worker.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Integration.Tests'">
     <Exec Command="dotnet tool update --tool-path &quot;$(OutDir)FsacTool&quot; fsautocomplete" />
     <ItemGroup>
       <FsautocompleteToolFiles Include="$(OutDir)FsacTool\.store\fsautocomplete\**\tools\$(TargetFramework)\any\**\*" />

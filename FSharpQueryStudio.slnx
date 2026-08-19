@@ -5,7 +5,6 @@
     <File Path="docs/fs-studio-plan.md" />
   </Folder>
   <Folder Name="/src/">
-    <Project Path="src/FSharpQueryStudio.Analysis/FSharpQueryStudio.Analysis.fsproj" />
     <Project Path="src/FSharpQueryStudio.App/FSharpQueryStudio.App.fsproj" />
     <Project Path="src/FSharpQueryStudio.Connectors/FSharpQueryStudio.Connectors.fsproj" />
     <Project Path="src/FSharpQueryStudio.Editor/FSharpQueryStudio.Editor.fsproj" />
@@ -20,7 +19,6 @@
     <Project Path="src/FSharpQueryStudio.Worker/FSharpQueryStudio.Worker.fsproj" />
   </Folder>
   <Folder Name="/tests/">
-    <Project Path="tests/FSharpQueryStudio.Analysis.Tests/FSharpQueryStudio.Analysis.Tests.fsproj" />
     <Project Path="tests/FSharpQueryStudio.Connectors.Tests/FSharpQueryStudio.Connectors.Tests.fsproj" />
     <Project Path="tests/FSharpQueryStudio.Editor.Tests/FSharpQueryStudio.Editor.Tests.fsproj" />
     <Project Path="tests/FSharpQueryStudio.Execution.Tests/FSharpQueryStudio.Execution.Tests.fsproj" />

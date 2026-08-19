@@ -62,7 +62,7 @@ jobs:
       matrix:
         project:
           - tests/FSharpQueryStudio.Protocol.Tests/FSharpQueryStudio.Protocol.Tests.fsproj
-          - tests/FSharpQueryStudio.Analysis.Tests/FSharpQueryStudio.Analysis.Tests.fsproj
+          - tests/FSharpQueryStudio.Fsac.Tests/FSharpQueryStudio.Fsac.Tests.fsproj
           - tests/FSharpQueryStudio.Execution.Tests/FSharpQueryStudio.Execution.Tests.fsproj
           - tests/FSharpQueryStudio.Results.Tests/FSharpQueryStudio.Results.Tests.fsproj
           - tests/FSharpQueryStudio.Connectors.Tests/FSharpQueryStudio.Connectors.Tests.fsproj
