@@ -84,8 +84,33 @@ let rec private loop (stdin: TextReader) (stdout: TextWriter) =
                 (task {
                     use _ = Correlation.pushCorrelationId request.Id
                     Log.Debug("Handling request {Method}", request.Method)
-                    let! response = Handlers.dispatch request
-                    do! writeResponse stdout response
+
+                    // `Handlers.dispatch` for an `analysis/*`/`results/exportCsv`
+                    // method can genuinely throw here (unguarded
+                    // `JsonElement.GetProperty`/`GetArrayLength` calls against a
+                    // possibly-unexpected FSAC response shape, an `IOException`
+                    // writing to a dead process's stdin, ...) — this whole
+                    // dispatch is fire-and-forget `Task.Run(...) |> ignore`, so
+                    // without this try/with an exception here vanishes
+                    // silently: no response frame is ever written back, and the
+                    // caller just hangs until its own client-side timeout, with
+                    // nothing in the log to say why. A structured error
+                    // response, same shape as the other error responses this
+                    // codebase already returns (e.g. `Handlers.handleConnectionSchema`'s
+                    // `connection/schemaFailed`), turns that into a fast,
+                    // diagnosable failure instead.
+                    try
+                        let! response = Handlers.dispatch request
+                        do! writeResponse stdout response
+                    with ex ->
+                        Log.Error(ex, "Unhandled exception dispatching {Method}", request.Method)
+
+                        do!
+                            writeResponse
+                                stdout
+                                { Id = request.Id
+                                  Result = None
+                                  Error = Some { Code = "worker/requestFailed"; Message = ex.Message } }
                 })
                 :> Task)
             |> ignore

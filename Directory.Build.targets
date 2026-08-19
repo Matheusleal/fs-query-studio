@@ -8,7 +8,7 @@
        FSharpQueryStudio.Fsac.Tests (Fsac's own integration tests),
        FSharpQueryStudio.Worker (the real running app),
        FSharpQueryStudio.Worker.Tests (Handlers' analysis/* tests, which
-       call FsacBridge in-process rather than spawning Worker.exe), and
+       call FsacBridge in-process rather than spawning Worker.exe),
        FSharpQueryStudio.Integration.Tests (which spawns a *copy* of
        Worker.dll from its own output directory via `workerDllPath()` -
        confirmed as a real, not just theoretical, gap during Task 12:
@@ -16,25 +16,91 @@
        test spawns a worker that can never find `fsautocomplete.dll`,
        `FsacBridge.hover` faults inside the worker's fire-and-forget
        `Task.Run` for `analysis/*` with no response ever written back, and
-       the test hangs rather than failing fast).
+       the test hangs rather than failing fast), and FSharpQueryStudio.App
+       (the actual shipped app — `App.axaml.fs` spawns the Worker as
+       `AppContext.BaseDirectory/FSharpQueryStudio.Worker.dll`, i.e. the
+       Worker runs from the *App's* output directory, not its own, so
+       `FsacBridge.fsacDllPath()` resolves `FsacTool` against the App's
+       directory at runtime — confirmed as a real, not just theoretical,
+       gap during the final review: every test project above already had
+       its own `FsacTool` because every test project was itself in this
+       Condition, so nothing ever exercised the App's real layout).
        `dotnet tool update` (not `install`) is idempotent — it installs
        fresh into an empty tool-path, or is a no-op exit-0 if the pinned
        version is already there, so repeated local builds and CI don't
-       fail on a second run. -->
+       fail on a second run. Pinned to a specific version (the explicit
+       `version` flag below) rather than "whatever's newest on NuGet
+       today": `FsacBridge.fs`
+       hardcodes parsing logic reverse-engineered against this exact
+       fsautocomplete release's response shapes (hover markdown structure,
+       signatureHelp's curried-arrow label format, publishDiagnostics
+       carrying no `version`, uri echo format, ...) — an unpinned restore
+       could silently pick up a newer FSAC release that changes any of
+       that with no corresponding source change to blame. Bumping this
+       version is a deliberate, source-visible act that should come with
+       re-verifying `FsacBridge.fs`'s parsing against the new release. -->
   <!-- `dotnet tool update` with a tool-path only ever drops a native shim
        (fsautocomplete.exe) at the tool-path root; the real assemblies
        land nested under .store\fsautocomplete\<version>\fsautocomplete\<version>\tools\<tfm>\any\.
        That's stock `dotnet tool` layout, not an SDK-version quirk, so callers
        that want to launch fsautocomplete.dll directly (rather than shelling
        out to the shim exe) need it flattened to the tool-path root, hence
-       the Copy step below. -->
+       the Copy step below. The target is Conditioned on the flattened
+       `fsautocomplete.dll` not already existing so an incremental build
+       with the tool already restored/flattened is a genuine no-network
+       no-op, not just an idempotent-but-still-network-hitting `dotnet tool
+       update` call every single build. -->
+  <PropertyGroup>
+    <FsautocompleteVersion>0.83.0</FsautocompleteVersion>
+    <!-- MSBuild's condition parser can't cleanly reuse a property whose own
+         value is itself a compound `or`-chained boolean expression when it's
+         combined with a further `and` in the consuming Condition (wrapping
+         it in parens still failed with MSB4100 "expected to evaluate to a
+         boolean" during the final review) - so the project-name check below
+         is duplicated verbatim on both targets rather than factored into one
+         shared property. -->
+  </PropertyGroup>
+
   <Target Name="RestoreFsautocomplete" AfterTargets="Build"
-          Condition="'$(MSBuildProjectName)' == 'FSharpQueryStudio.Fsac.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Worker' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Worker.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Integration.Tests'">
-    <Exec Command="dotnet tool update --tool-path &quot;$(OutDir)FsacTool&quot; fsautocomplete" />
+          Condition="('$(MSBuildProjectName)' == 'FSharpQueryStudio.Fsac.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Worker' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Worker.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Integration.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.App') and !Exists('$(OutDir)FsacTool\fsautocomplete.dll')">
+    <Exec Command="dotnet tool update --tool-path &quot;$(OutDir)FsacTool&quot; --version $(FsautocompleteVersion) fsautocomplete" />
     <ItemGroup>
       <FsautocompleteToolFiles Include="$(OutDir)FsacTool\.store\fsautocomplete\**\tools\$(TargetFramework)\any\**\*" />
     </ItemGroup>
     <Copy SourceFiles="@(FsautocompleteToolFiles)" DestinationFolder="$(OutDir)FsacTool" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- `dotnet publish`'s flattening step above only ever touches
+       `$(OutDir)` (the ordinary build output directory), which does not
+       participate in `dotnet publish` at all — `$(OutDir)` and
+       `$(PublishDir)` are different directories, and nothing copies one
+       into the other by default. Unlike `FSharpQueryStudio.Editor`'s
+       `EditorAssets` (a `Content` item glob evaluated at project-load
+       time, which MSBuild's publish pipeline picks up automatically via
+       its implicit `CopyToPublishDirectory`), the flattened `FsacTool`
+       payload doesn't exist yet at project-load time — it's created by
+       the `RestoreFsautocomplete` Target above, during the Build that
+       precedes Publish — so a static `Content`/`None` item glob would
+       need to be evaluated *after* that Target runs, which a plain
+       load-time `ItemGroup` can't do. Simplest robust fix: a second Copy
+       step that runs `AfterTargets="Publish"` (so it runs after the
+       ordinary `dotnet publish` build, by which point
+       `RestoreFsautocomplete` has already flattened `$(OutDir)FsacTool`)
+       and copies that already-flattened folder straight into
+       `$(PublishDir)FsacTool`. Verified against a real
+       `dotnet publish src/FSharpQueryStudio.App` during the final review:
+       `FsacTool\fsautocomplete.dll` lands in the publish output. -->
+  <Target Name="PublishFsautocomplete" AfterTargets="Publish"
+          Condition="'$(MSBuildProjectName)' == 'FSharpQueryStudio.Fsac.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Worker' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Worker.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Integration.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.App'">
+    <ItemGroup>
+      <!-- Non-recursive `\*` deliberately excludes `FsacTool\.store\**`
+           (the raw `dotnet tool install` layout, only needed to produce
+           the flattened copy above, never read directly at runtime) —
+           only the flattened files sitting right at `FsacTool`'s own root
+           are what `FsacBridge.fsacDllPath()` and its neighbors resolve. -->
+      <FsautocompletePublishFiles Include="$(OutDir)FsacTool\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(FsautocompletePublishFiles)" DestinationFolder="$(PublishDir)FsacTool" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>

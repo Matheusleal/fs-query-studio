@@ -29,48 +29,68 @@ type LspClient(input: Stream, output: Stream) =
     let writeLock = new SemaphoreSlim(1, 1)
     let nullElement = JsonDocument.Parse("null").RootElement
 
+    // Flips to `false` exactly once, the moment the reader loop below stops
+    // (for any reason — genuine stream EOF or an unrecoverable framing
+    // error). Independent of the child `Process`'s own `HasExited`:
+    // `FsacProcess.EnsureClient` gates its respawn decision on
+    // `proc.HasExited`, which stays `false` for a process that is still
+    // alive but has left this client's reader loop dead — reading this
+    // flag too is what lets `EnsureClient` detect and respawn out of that
+    // state instead of handing back a permanently unresponsive client.
+    let mutable alive = 1
+
     let handleIncoming (json: string) =
-        let root = JsonDocument.Parse(json).RootElement
+        try
+            let root = JsonDocument.Parse(json).RootElement
 
-        let tryGetInt (name: string) =
-            match root.TryGetProperty(name) with
-            | true, el when el.ValueKind = JsonValueKind.Number -> Some(el.GetInt32())
-            | _ -> None
+            let tryGetInt (name: string) =
+                match root.TryGetProperty(name) with
+                | true, el when el.ValueKind = JsonValueKind.Number -> Some(el.GetInt32())
+                | _ -> None
 
-        let tryGetString (name: string) =
-            match root.TryGetProperty(name) with
-            | true, el when el.ValueKind = JsonValueKind.String -> Some(el.GetString())
-            | _ -> None
+            let tryGetString (name: string) =
+                match root.TryGetProperty(name) with
+                | true, el when el.ValueKind = JsonValueKind.String -> Some(el.GetString())
+                | _ -> None
 
-        let tryGetElement (name: string) =
-            match root.TryGetProperty(name) with
-            | true, el -> Some el
-            | false, _ -> None
+            let tryGetElement (name: string) =
+                match root.TryGetProperty(name) with
+                | true, el -> Some el
+                | false, _ -> None
 
-        match tryGetInt "id", tryGetString "method" with
-        | Some id, _ ->
-            match pending.TryRemove(id) with
-            | false, _ -> () // no one is waiting on this id anymore
-            | true, tcs ->
-                match tryGetElement "error" with
-                | Some errEl ->
-                    let err = JsonSerializer.Deserialize<LspError>(errEl.GetRawText(), Serialization.options)
-                    tcs.TrySetResult(LspFail err) |> ignore
-                | None ->
-                    let result = tryGetElement "result" |> Option.defaultValue nullElement
-                    tcs.TrySetResult(LspOk result) |> ignore
-        | None, Some method_ ->
-            match notificationHandlers.TryGetValue(method_) with
-            | true, handler ->
-                try
-                    handler (tryGetElement "params" |> Option.defaultValue nullElement)
-                with ex ->
-                    // A misbehaving handler must not fault the reader loop's background
-                    // Task — that would silently stop all future reads, hanging every
-                    // pending and future SendRequest forever with no signal.
-                    Log.Warning(ex, "Notification handler for {Method} threw; continuing", method_)
-            | false, _ -> () // nobody registered for this notification
-        | None, None -> () // not a valid LSP message - ignored rather than crashing the reader loop
+            match tryGetInt "id", tryGetString "method" with
+            | Some id, _ ->
+                match pending.TryRemove(id) with
+                | false, _ -> () // no one is waiting on this id anymore
+                | true, tcs ->
+                    match tryGetElement "error" with
+                    | Some errEl ->
+                        let err = JsonSerializer.Deserialize<LspError>(errEl.GetRawText(), Serialization.options)
+                        tcs.TrySetResult(LspFail err) |> ignore
+                    | None ->
+                        let result = tryGetElement "result" |> Option.defaultValue nullElement
+                        tcs.TrySetResult(LspOk result) |> ignore
+            | None, Some method_ ->
+                match notificationHandlers.TryGetValue(method_) with
+                | true, handler ->
+                    try
+                        handler (tryGetElement "params" |> Option.defaultValue nullElement)
+                    with ex ->
+                        // A misbehaving handler must not fault the reader loop's background
+                        // Task — that would silently stop all future reads, hanging every
+                        // pending and future SendRequest forever with no signal.
+                        Log.Warning(ex, "Notification handler for {Method} threw; continuing", method_)
+                | false, _ -> () // nobody registered for this notification
+            | None, None -> () // not a valid LSP message - ignored rather than crashing the reader loop
+        with ex ->
+            // `JsonDocument.Parse` faulting on a malformed frame body used to
+            // sit outside any try/catch, faulting the reader loop's
+            // background `Task` (silently `|> ignore`'d at the call site
+            // below) and leaving every pending — and every future —
+            // `SendRequest` hanging forever with no signal. Same "log and
+            // don't fault the loop" treatment as the notification-handler
+            // dispatch just above.
+            Log.Warning(ex, "Failed to parse or handle an incoming LSP message; ignoring it. Raw: {Json}", json)
 
     let startReaderLoop () =
         Task.Run(fun () ->
@@ -83,6 +103,7 @@ type LspClient(input: Stream, output: Stream) =
                     match message with
                     | None ->
                         keepGoing <- false
+                        Interlocked.Exchange(&alive, 0) |> ignore
 
                         for id in pending.Keys |> Seq.toList do
                             match pending.TryRemove(id) with
@@ -107,6 +128,12 @@ type LspClient(input: Stream, output: Stream) =
             finally
                 writeLock.Release() |> ignore
         }
+
+    /// `false` once the reader loop has stopped for any reason — see the
+    /// `alive` field's own doc comment above. A dead-but-still-`true`-look
+    /// `Process.HasExited` client is exactly the state `FsacProcess.EnsureClient`
+    /// needs this to detect and respawn out of.
+    member _.IsAlive: bool = Volatile.Read(&alive) = 1
 
     /// Registers `handler` for every future `method_`-named notification.
     /// Must be called before the notification of interest can arrive.

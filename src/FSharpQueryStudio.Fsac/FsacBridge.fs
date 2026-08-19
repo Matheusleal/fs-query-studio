@@ -6,6 +6,7 @@ open System.IO
 open System.Text.Json
 open System.Text.RegularExpressions
 open System.Threading.Tasks
+open Serilog
 open FSharpQueryStudio.Protocol
 
 /// Translates the Worker's existing `analysis/*` payloads into LSP calls
@@ -263,7 +264,56 @@ module FsacBridge =
                 let! diagnostics = tcs.Task
                 return Some diagnostics
             else
+                // Logged here rather than at each of this function's callers
+                // (`check` reads the `None` back directly; `hover`/
+                // `definition`/`signatureHelp`/`complete`/`rename` only use
+                // this as a readiness gate and discard the result) so every
+                // caller's silent "nothing came back" gets one warning, not
+                // zero or five duplicated ones.
+                Log.Warning(
+                    "Timed out after 10s waiting for FSAC to finish parsing {DocumentUri} (version {Version})",
+                    documentUri,
+                    version
+                )
+
                 return None
+        }
+
+    /// A reasonable upper bound on how long a live-but-stuck `fsautocomplete`
+    /// (one that hasn't crashed — `HasExited` still `false` — but also isn't
+    /// answering) is allowed to leave a request pending, consistent with
+    /// `awaitDocumentAnalyzed`'s own 10s bound and `FsacProcess.EnsureClient`'s
+    /// 15s handshake bound just above it in the same pipeline. A crashed
+    /// process is already handled without this (the reader loop detects
+    /// stdout EOF and resolves every pending request with `LspFail` as soon
+    /// as it happens); this bound only ever matters for a process that's
+    /// alive but unresponsive.
+    let private requestTimeout = TimeSpan.FromSeconds 15.0
+
+    /// Wraps `client.SendRequest` with `requestTimeout` so a hung-but-alive
+    /// FSAC can't leave a caller waiting forever - the five methods below
+    /// that call an actual `textDocument/*` request (`check` doesn't; its
+    /// only wait is `awaitDocumentAnalyzed`'s own bound above) all go
+    /// through this rather than calling `client.SendRequest` directly.
+    let private sendRequestWithTimeout
+        (client: LspClient)
+        (method_: string)
+        (requestParams: 'TParams)
+        : Task<LspResult> =
+        task {
+            let requestTask = client.SendRequest(method_, requestParams)
+            let! winner = Task.WhenAny(requestTask, Task.Delay(requestTimeout))
+
+            if winner = (requestTask :> Task) then
+                return! requestTask
+            else
+                Log.Warning(
+                    "FSAC request {Method} timed out after {TimeoutSeconds}s",
+                    method_,
+                    requestTimeout.TotalSeconds
+                )
+
+                return LspFail { Code = -1; Message = $"FSAC request '{method_}' timed out after {requestTimeout.TotalSeconds}s" }
         }
 
     let check (documentUri: string) (version: int) (source: string) : Task<Diagnostic list> =
@@ -394,14 +444,24 @@ module FsacBridge =
             let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
 
             let! result =
-                client.SendRequest(
-                    "textDocument/hover",
+                sendRequestWithTimeout
+                    client
+                    "textDocument/hover"
                     {| textDocument = {| uri = documentUri |}
                        position = {| line = Prologue.shiftUp line - 1; character = column |} |}
-                )
 
             match result with
-            | LspFail _ -> return None
+            | LspFail err ->
+                Log.Warning(
+                    "FSAC hover failed for {DocumentUri} at ({Line},{Column}): [{Code}] {Message}",
+                    documentUri,
+                    line,
+                    column,
+                    err.Code,
+                    err.Message
+                )
+
+                return None
             | LspOk resultEl when resultEl.ValueKind = JsonValueKind.Null -> return None
             | LspOk resultEl -> return Some(parseHoverMarkdown (resultEl.GetProperty("contents")))
         }
@@ -451,14 +511,24 @@ module FsacBridge =
             let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
 
             let! result =
-                client.SendRequest(
-                    "textDocument/definition",
+                sendRequestWithTimeout
+                    client
+                    "textDocument/definition"
                     {| textDocument = {| uri = documentUri |}
                        position = {| line = Prologue.shiftUp line - 1; character = column |} |}
-                )
 
             match result with
-            | LspFail _ -> return None
+            | LspFail err ->
+                Log.Warning(
+                    "FSAC definition lookup failed for {DocumentUri} at ({Line},{Column}): [{Code}] {Message}",
+                    documentUri,
+                    line,
+                    column,
+                    err.Code,
+                    err.Message
+                )
+
+                return None
             | LspOk resultEl ->
                 match parseFirstLocation resultEl with
                 | None -> return None
@@ -561,14 +631,24 @@ module FsacBridge =
             let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
 
             let! result =
-                client.SendRequest(
-                    "textDocument/signatureHelp",
+                sendRequestWithTimeout
+                    client
+                    "textDocument/signatureHelp"
                     {| textDocument = {| uri = documentUri |}
                        position = {| line = Prologue.shiftUp line - 1; character = column |} |}
-                )
 
             match result with
-            | LspFail _ -> return None
+            | LspFail err ->
+                Log.Warning(
+                    "FSAC signatureHelp failed for {DocumentUri} at ({Line},{Column}): [{Code}] {Message}",
+                    documentUri,
+                    line,
+                    column,
+                    err.Code,
+                    err.Message
+                )
+
+                return None
             | LspOk resultEl when resultEl.ValueKind = JsonValueKind.Null -> return None
             | LspOk resultEl ->
                 let signatures = resultEl.GetProperty("signatures")
@@ -681,14 +761,24 @@ module FsacBridge =
             let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
 
             let! result =
-                client.SendRequest(
-                    "textDocument/completion",
+                sendRequestWithTimeout
+                    client
+                    "textDocument/completion"
                     {| textDocument = {| uri = documentUri |}
                        position = {| line = Prologue.shiftUp line - 1; character = column |} |}
-                )
 
             match result with
-            | LspFail _ -> return []
+            | LspFail err ->
+                Log.Warning(
+                    "FSAC completion failed for {DocumentUri} at ({Line},{Column}): [{Code}] {Message}",
+                    documentUri,
+                    line,
+                    column,
+                    err.Code,
+                    err.Message
+                )
+
+                return []
             | LspOk resultEl -> return parseCompletionLabels resultEl |> List.distinct
         }
 
@@ -710,15 +800,25 @@ module FsacBridge =
             let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
 
             let! result =
-                client.SendRequest(
-                    "textDocument/references",
+                sendRequestWithTimeout
+                    client
+                    "textDocument/references"
                     {| textDocument = {| uri = documentUri |}
                        position = {| line = Prologue.shiftUp line - 1; character = column |}
                        context = {| includeDeclaration = true |} |}
-                )
 
             match result with
-            | LspFail _ -> return None
+            | LspFail err ->
+                Log.Warning(
+                    "FSAC rename (references) lookup failed for {DocumentUri} at ({Line},{Column}): [{Code}] {Message}",
+                    documentUri,
+                    line,
+                    column,
+                    err.Code,
+                    err.Message
+                )
+
+                return None
             | LspOk resultEl when resultEl.ValueKind = JsonValueKind.Null -> return None
             | LspOk resultEl when resultEl.GetArrayLength() = 0 -> return None
             | LspOk resultEl ->

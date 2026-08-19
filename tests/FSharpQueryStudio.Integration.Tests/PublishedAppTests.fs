@@ -4,7 +4,10 @@ open System
 open System.Diagnostics
 open System.IO
 open System.Threading
+open System.Threading.Tasks
 open Xunit
+open FSharpQueryStudio.App
+open TestHelpers
 
 /// tests/FSharpQueryStudio.Integration.Tests/bin/{Debug|Release}/net10.0
 /// -> repo root, five levels up from the test assembly's own output dir.
@@ -124,3 +127,76 @@ let ``a self-contained win-x64 publish of App launches and reaches a ready state
                 Directory.Delete(publishDir, true)
         with _ ->
             ()
+
+/// C1's own regression test: `App.axaml.fs` spawns the Worker from
+/// `AppContext.BaseDirectory` — the *App's own* output directory, not the
+/// Worker's — so `FsacBridge.fsacDllPath()` resolves `FsacTool` against
+/// wherever the App actually runs from. Before C1's `Directory.Build.targets`
+/// fix, `FSharpQueryStudio.App` was never in `RestoreFsautocomplete`'s
+/// Condition, so a real publish of the App shipped with no `FsacTool` at
+/// all — every `analysis/*` request would fault inside the worker's
+/// fire-and-forget dispatch (see Program.fs) with no response ever written
+/// back, hanging the caller rather than failing fast. This spawns the
+/// Worker exactly the way the App does in production
+/// (`dotnet <workerDllPath>`, see `WorkerClient.startProcess`) but pointed
+/// at a real `dotnet publish` output directory instead of a `dotnet build`
+/// one, and round-trips a genuine `analysis/hover` request through it —
+/// the same real end-to-end path `MilestoneBAcceptanceTests`'s "hovering a
+/// local symbol shows its type" test exercises against a `dotnet build`
+/// output, just against a publish output here. A lighter framework-
+/// dependent publish (no `-r`/`--self-contained`) is enough — this test
+/// isn't exercising the native host, only whether a published Worker can
+/// find its own `FsacTool` payload.
+[<Fact>]
+[<Trait("Category", "RequiresPublish")>]
+let ``a published App's worker answers a real analysis/hover request via FSAC`` () =
+    task {
+        let publishDir = Path.Combine(Path.GetTempPath(), "fqs-publish-analysis-test-" + Guid.NewGuid().ToString("N"))
+        let appProject = Path.Combine(repoRoot, "src", "FSharpQueryStudio.App", "FSharpQueryStudio.App.fsproj")
+
+        try
+            let exitCode, output =
+                runProcess "dotnet" $"publish \"{appProject}\" -c Release -o \"{publishDir}\"" repoRoot
+
+            Assert.True((exitCode = 0), $"publish failed:\n{output}")
+
+            // Direct filesystem assertion (the fallback the final review
+            // itself allows if a full round trip weren't practical here) -
+            // kept alongside the real round trip below, not instead of it,
+            // since the round trip is what actually proves the worker can
+            // *use* the tool, not merely that the file exists.
+            let fsacDllPath = Path.Combine(publishDir, "FsacTool", "fsautocomplete.dll")
+
+            Assert.True(
+                File.Exists fsacDllPath,
+                $"expected the flattened fsautocomplete.dll in the publish output at {fsacDllPath}"
+            )
+
+            let workerDllPath = Path.Combine(publishDir, "FSharpQueryStudio.Worker.dll")
+            Assert.True(File.Exists workerDllPath, $"expected the published worker dll at {workerDllPath}")
+
+            let client = WorkerClient(workerDllPath)
+            let source = "let total = 42"
+
+            // "total" ends at column 9 (0-based) on line 1 - same request
+            // shape as MilestoneBAcceptanceTests' "hovering a local symbol
+            // shows its type". `withTimeout` matters here specifically:
+            // before C1's fix this scenario hung rather than failing fast,
+            // so a bounded wait is what turns "test hangs forever" into "test
+            // fails with a clear message".
+            let! hover =
+                AnalysisService.hover client "file:///published-hover-test.fsx" 1 source 1 9
+                |> withTimeout 30.0
+
+            match hover with
+            | None -> failwith "expected hover info from a worker launched from a published output directory"
+            | Some info ->
+                Assert.Equal("total", info.DisplayName)
+                Assert.Equal("int", info.Type)
+        finally
+            try
+                if Directory.Exists publishDir then
+                    Directory.Delete(publishDir, true)
+            with _ ->
+                ()
+    }
