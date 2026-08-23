@@ -1,8 +1,8 @@
 module NotebookCellsTests
 
 open Xunit
-open FSharpQueryStudio.Analysis
-open FSharpQueryStudio.Analysis.NotebookCells
+open FSharpQueryStudio.Execution
+open FSharpQueryStudio.Execution.NotebookCells
 
 [<Fact>]
 let ``a script with no boundary markers is a single cell holding everything`` () =

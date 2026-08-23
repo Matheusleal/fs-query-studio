@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <Compile Include="LspTransport.fs" />
+    <Compile Include="LspClient.fs" />
+    <Compile Include="FsacProcess.fs" />
+    <Compile Include="Prologue.fs" />
+    <Compile Include="FsacBridge.fs" />
+    <Compile Include="AssemblyInfo.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Serilog" Version="4.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Connectors\FSharpQueryStudio.Connectors.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Results\FSharpQueryStudio.Results.fsproj" />
+  </ItemGroup>
+
+</Project>

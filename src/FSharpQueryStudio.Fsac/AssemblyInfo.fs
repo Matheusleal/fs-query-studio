@@ -1,0 +1,1 @@
+module FSharpQueryStudio.Fsac.AssemblyInfo

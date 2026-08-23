@@ -10,6 +10,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="NotebookCells.fs" />
     <Compile Include="CancellationSignal.fs" />
     <Compile Include="FsiSession.fs" />
     <Compile Include="SessionStore.fs" />

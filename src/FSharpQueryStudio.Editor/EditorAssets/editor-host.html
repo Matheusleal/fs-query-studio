@@ -387,40 +387,14 @@
           }
         });
 
-        // The column to ask about for signature help. The trigger
-        // characters below fire the provider with the caret sitting
-        // *inside* the argument list, right after "(" or ",", but the
-        // backend (Analysis/SignatureHelp.fs) resolves the single symbol
-        // at the requested position — the click-on-the-identifier model —
-        // and there is no symbol at a paren. So scan back over the text
-        // before the caret for "name(" and ask about the end of that name
-        // instead. `match.index + match[1].length` is already the 0-based
-        // column just past the name's last character: for "add(" the match
-        // starts at 0, the name is 3 long, and 3 is exactly the exclusive
-        // end of "add". Returns null when the caret isn't in that shape,
-        // so the caller can fall back.
-        function calledFunctionEndColumn(model, position) {
-          var lineContent = model.getLineContent(position.lineNumber);
-          var beforeCursor = lineContent.substring(0, position.column - 1);
-          var match = beforeCursor.match(/([A-Za-z_][A-Za-z0-9_.]*)\s*\($/);
-          return match ? match.index + match[1].length : null;
-        }
-
         monaco.languages.registerSignatureHelpProvider("fsharp", {
-          // "," is kept as a trigger character, but the backward scan below
-          // only matches "name(" — at a comma there's no trailing "name("
-          // to match, so the lookup falls back to fcsColumnAt(model,
-          // position) on a non-word position, resolves nothing, and Monaco
-          // *dismisses* the hint widget rather than re-showing it. The
-          // backend also has no active-parameter tracking, so even the one
-          // case that does resolve ("just typed name(") always highlights
-          // the first parameter. Both are known, deliberately out-of-scope
-          // limitations — see docs/DEVLOG.md.
+          // "," is kept as a trigger character alongside "(" so the popup
+          // re-triggers as the caret moves on to the next argument. The
+          // backend has no active-parameter tracking, so even a successful
+          // lookup always highlights the first parameter — a known,
+          // deliberately out-of-scope limitation — see docs/DEVLOG.md.
           signatureHelpTriggerCharacters: ["(", ","],
           provideSignatureHelp: function (model, position) {
-            var nameEnd = calledFunctionEndColumn(model, position);
-            var lookupColumn = nameEnd !== null ? nameEnd : fcsColumnAt(model, position);
-
             return new Promise(function (resolve) {
               var id = crypto.randomUUID();
               pendingSignatureHelpResolvers[id] = resolve;
@@ -429,7 +403,26 @@
                 documentUri: documentUri,
                 version: currentVersion,
                 line: position.lineNumber,
-                column: lookupColumn
+                // FSAC's textDocument/signatureHelp (unlike the old
+                // FCS-direct backend this provider originally targeted)
+                // needs a position genuinely *inside* the call's
+                // argument-list token span — not the end column of the
+                // callee's own name. Confirmed by Worker.Tests'
+                // "resolves only from inside a call's argument list, not
+                // merely at the callee's own name" test: the identical
+                // request sent at the callee-name-end column gets `null`
+                // back from real fsautocomplete, while a position inside
+                // the argument list (e.g. on the first argument itself)
+                // resolves. This provider used to scan backward over the
+                // line for "name(" and send the end of that name instead
+                // of the real caret (a leftover of the old click-on-the-
+                // identifier convention) — that made every real signature-
+                // help request land exactly on the position FSAC now
+                // returns null for, so the hint widget never appeared.
+                // Sending the caret's own raw column (0-based, matching
+                // every other wire position) is what Monaco is already
+                // tracking when this provider fires.
+                column: position.column - 1
               });
             });
           }

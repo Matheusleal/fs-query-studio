@@ -4,7 +4,6 @@ open System
 open System.IO
 open System.Threading.Tasks
 open Xunit
-open FSharpQueryStudio.Analysis
 open FSharpQueryStudio.Execution
 open TestHelpers
 
@@ -25,8 +24,8 @@ let private cleanupWorkingDirectory (dir: string) =
 /// resolvable if the cell that runs it shares a live session with cell 1.
 let private notebookScript = "let x = 41\n// %%\nx + 1"
 
-/// E.4's acceptance shape, integrating `Analysis.NotebookCells.parse`
-/// with `Execution.SessionStore.appendFragment`: real cell-boundary
+/// E.4's acceptance shape, integrating `NotebookCells.parse`
+/// with `SessionStore.appendFragment`: real cell-boundary
 /// parsing feeding real ordered, incremental FSI execution - not a stand-
 /// in for either piece tested alone (see `NotebookCellsTests.fs` for the
 /// pure parser and `SessionStoreTests.fs` for the pure store behavior).
