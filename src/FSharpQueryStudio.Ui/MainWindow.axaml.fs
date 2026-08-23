@@ -14,6 +14,8 @@ open Avalonia.Media
 open Avalonia.Platform.Storage
 open Avalonia.Styling
 open Avalonia.Threading
+open Material.Icons
+open Material.Icons.Avalonia
 open Serilog
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Editor
@@ -598,8 +600,10 @@ type MainWindow() as this =
 
             let activeTabBrush = findBrush "WindowBackgroundBrush"
             let inactiveTabBrush = findBrush "ChromeBackgroundBrush"
-            let tabBorderBrush = findBrush "BorderBrush"
-            let tabTextBrush = findBrush "PrimaryTextBrush"
+            let hoverTabBrush = findBrush "HoverBackgroundBrush"
+            let accentBrush = findBrush "AccentBrush"
+            let activeTextBrush = findBrush "PrimaryTextBrush"
+            let inactiveTextBrush = findBrush "SecondaryTextBrush"
 
             tabStripPanel.Children.Clear()
 
@@ -612,6 +616,7 @@ type MainWindow() as this =
 
                 let uri = doc.Uri
                 let isActive = obj.ReferenceEquals(doc, shellViewModel.ActiveDocument)
+                let tabTextBrush = if isActive then activeTextBrush else inactiveTextBrush
 
                 let displayName =
                     match uri.LastIndexOfAny([| '/'; '\\' |]) with
@@ -622,16 +627,16 @@ type MainWindow() as this =
                     TextBlock(
                         Text = displayName + (if doc.IsDirty then " *" else ""),
                         Foreground = tabTextBrush,
+                        FontWeight = (if isActive then FontWeight.SemiBold else FontWeight.Normal),
                         VerticalAlignment = VerticalAlignment.Center
                     )
 
                 let closeButton =
                     Button(
-                        Content = "x",
-                        Padding = Thickness(4.0, 0.0),
-                        Background = Brushes.Transparent,
-                        BorderThickness = Thickness(0.0),
-                        Foreground = tabTextBrush
+                        Padding = Thickness(3.0),
+                        Width = 22.0,
+                        Height = 22.0,
+                        Content = MaterialIcon(Kind = MaterialIconKind.Close, Width = 12.0, Height = 12.0)
                     )
 
                 closeButton.Click.Add(fun args ->
@@ -639,19 +644,28 @@ type MainWindow() as this =
                     shellViewModel.CloseDocument(uri) |> ignore
                     rebuildTabs ())
 
-                let content = StackPanel(Orientation = Orientation.Horizontal, Spacing = 6.0)
+                let content = StackPanel(Orientation = Orientation.Horizontal, Spacing = 4.0, VerticalAlignment = VerticalAlignment.Center)
                 content.Children.Add(label)
                 content.Children.Add(closeButton)
 
+                // The bottom 2px strip doubles as the active tab's accent
+                // indicator (Transparent when inactive, so the tab strip's
+                // own bottom border reads as one continuous line instead).
                 let tab =
                     Border(
                         Background = (if isActive then activeTabBrush else inactiveTabBrush),
-                        BorderBrush = tabBorderBrush,
-                        BorderThickness = Thickness(0.0, 0.0, 1.0, 0.0),
-                        Padding = Thickness(10.0, 6.0),
+                        BorderBrush = (if isActive then accentBrush else Brushes.Transparent),
+                        BorderThickness = Thickness(0.0, 0.0, 0.0, 2.0),
+                        CornerRadius = CornerRadius(6.0, 6.0, 0.0, 0.0),
+                        Padding = Thickness(10.0, 6.0, 6.0, 6.0),
+                        Margin = Thickness(2.0, 4.0, 0.0, 0.0),
                         Cursor = new Cursor(StandardCursorType.Hand),
                         Child = content
                     )
+
+                if not isActive then
+                    tab.PointerEntered.Add(fun _ -> tab.Background <- hoverTabBrush)
+                    tab.PointerExited.Add(fun _ -> tab.Background <- inactiveTabBrush)
 
                 tab.PointerPressed.Add(fun _ ->
                     if not (obj.ReferenceEquals(doc, shellViewModel.ActiveDocument)) then

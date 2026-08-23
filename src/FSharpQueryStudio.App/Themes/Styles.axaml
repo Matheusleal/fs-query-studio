@@ -1,0 +1,97 @@
+<!--
+  src/FSharpQueryStudio.App/Themes/Styles.axaml
+
+  Global control restyling layered on top of FluentTheme, so the app reads
+  as one deliberate visual language instead of raw Fluent defaults. Two
+  mechanisms are used, both confirmed against the installed
+  Avalonia.Themes.Fluent 12.1.1 binary (its resource key names, extracted
+  via UTF-16 string search since its XAML is compiled to IL rather than
+  shipped as loose markup) rather than guessed:
+
+    1. FluentTheme's own per-control-state resource keys
+       (ButtonBackgroundPointerOver, TabItemHeaderBackgroundSelected, …)
+       are re-defined in Styles.Resources below, each as a SolidColorBrush
+       whose Color is itself a DynamicResource into this app's own theme
+       tokens (VsDark.axaml/VsLight.axaml) — this is the only reliable way
+       to reskin hover/pressed/selected states, since FluentTheme's
+       internal templates swap brushes by resource key rather than
+       re-reading the control's own Background property. Being declared
+       after <FluentTheme/> in App.axaml's Application.Styles is what lets
+       these win the key lookup.
+    2. Real styled properties every FluentTheme control template binds via
+       TemplateBinding (CornerRadius, Padding, Background/Foreground on
+       simple header/cell controls) are set via ordinary <Style> selectors.
+
+  SystemAccentColor and its Light1-3/Dark1-3 variants (set in
+  VsDark.axaml/VsLight.axaml) cover everything else FluentTheme derives
+  from the accent color for free (ComboBox focus, CheckBox, selection
+  pipes, etc.) without this file needing to know those controls' template
+  internals.
+-->
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+  <Styles.Resources>
+    <!-- Button: flat by default, subtle hover/pressed fill instead of
+         Fluent's boxed/bordered look — matches the toolbar icon-button
+         style used throughout MainWindow. -->
+    <SolidColorBrush x:Key="ButtonBackground" Color="Transparent" />
+    <SolidColorBrush x:Key="ButtonBackgroundPointerOver" Color="{DynamicResource HoverBackgroundColor}" />
+    <SolidColorBrush x:Key="ButtonBackgroundPressed" Color="{DynamicResource AccentMutedColor}" />
+    <SolidColorBrush x:Key="ButtonBackgroundDisabled" Color="Transparent" />
+    <SolidColorBrush x:Key="ButtonBorderBrush" Color="Transparent" />
+    <SolidColorBrush x:Key="ButtonBorderBrushPointerOver" Color="Transparent" />
+    <SolidColorBrush x:Key="ButtonBorderBrushPressed" Color="Transparent" />
+    <SolidColorBrush x:Key="ButtonForeground" Color="{DynamicResource PrimaryTextColor}" />
+    <SolidColorBrush x:Key="ButtonForegroundPointerOver" Color="{DynamicResource PrimaryTextColor}" />
+    <SolidColorBrush x:Key="ButtonForegroundPressed" Color="{DynamicResource PrimaryTextColor}" />
+
+    <!-- TabItem (ResultsView's Results/Output/Problems/Schema strip): flat
+         unselected/hover/selected backgrounds; the selected tab reads via
+         accent-colored text plus FluentTheme's own selection pipe (which
+         already follows SystemAccentColor) instead of a boxed-in tab. -->
+    <SolidColorBrush x:Key="TabItemHeaderBackgroundUnselected" Color="Transparent" />
+    <SolidColorBrush x:Key="TabItemHeaderBackgroundUnselectedPointerOver" Color="{DynamicResource HoverBackgroundColor}" />
+    <SolidColorBrush x:Key="TabItemHeaderBackgroundUnselectedPressed" Color="{DynamicResource HoverBackgroundColor}" />
+    <SolidColorBrush x:Key="TabItemHeaderBackgroundSelected" Color="Transparent" />
+    <SolidColorBrush x:Key="TabItemHeaderBackgroundSelectedPointerOver" Color="Transparent" />
+    <SolidColorBrush x:Key="TabItemHeaderBackgroundSelectedPressed" Color="Transparent" />
+    <SolidColorBrush x:Key="TabItemHeaderForegroundUnselected" Color="{DynamicResource SecondaryTextColor}" />
+    <SolidColorBrush x:Key="TabItemHeaderForegroundSelected" Color="{DynamicResource AccentColor}" />
+  </Styles.Resources>
+
+  <Style Selector="Button">
+    <Setter Property="CornerRadius" Value="5" />
+    <Setter Property="Padding" Value="8,4" />
+  </Style>
+
+  <Style Selector="ComboBox">
+    <Setter Property="CornerRadius" Value="5" />
+  </Style>
+
+  <Style Selector="TextBox">
+    <Setter Property="CornerRadius" Value="5" />
+  </Style>
+
+  <Style Selector="Expander">
+    <Setter Property="CornerRadius" Value="4" />
+  </Style>
+
+  <Style Selector="ListBoxItem">
+    <Setter Property="CornerRadius" Value="4" />
+  </Style>
+
+  <Style Selector="DataGrid">
+    <Setter Property="Background" Value="{DynamicResource PanelBackgroundBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource BorderBrush}" />
+    <Setter Property="VerticalGridLinesBrush" Value="{DynamicResource BorderBrush}" />
+    <Setter Property="RowBackground" Value="Transparent" />
+  </Style>
+  <Style Selector="DataGridColumnHeader">
+    <Setter Property="Background" Value="{DynamicResource ChromeBackgroundBrush}" />
+    <Setter Property="Foreground" Value="{DynamicResource SecondaryTextBrush}" />
+    <Setter Property="Padding" Value="8,6" />
+  </Style>
+
+</Styles>

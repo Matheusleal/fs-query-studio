@@ -1,17 +1,38 @@
 <!-- src/FSharpQueryStudio.App/Themes/VsLight.axaml -->
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <Color x:Key="WindowBackgroundColor">#F3F3F3</Color>
+  <Color x:Key="WindowBackgroundColor">#F5F5F7</Color>
   <Color x:Key="PanelBackgroundColor">#FFFFFF</Color>
-  <Color x:Key="ChromeBackgroundColor">#F0F0F0</Color>
-  <Color x:Key="AccentColor">#007ACC</Color>
-  <Color x:Key="PrimaryTextColor">#1E1E1E</Color>
-  <Color x:Key="BorderColor">#D6D6D6</Color>
+  <Color x:Key="ChromeBackgroundColor">#ECECF1</Color>
+  <Color x:Key="HoverBackgroundColor">#E2E2EA</Color>
+  <Color x:Key="SelectionBackgroundColor">#E5E1FB</Color>
+  <Color x:Key="AccentColor">#6C5CE7</Color>
+  <Color x:Key="AccentHoverColor">#5A4BD1</Color>
+  <Color x:Key="AccentMutedColor">#296C5CE7</Color>
+
+  <!-- See VsDark.axaml's comment: reskins FluentTheme's own accent-derived chrome. -->
+  <Color x:Key="SystemAccentColor">#6C5CE7</Color>
+  <Color x:Key="SystemAccentColorLight1">#8274EB</Color>
+  <Color x:Key="SystemAccentColorLight2">#988DEE</Color>
+  <Color x:Key="SystemAccentColorLight3">#AEA5F2</Color>
+  <Color x:Key="SystemAccentColorDark1">#5C4EC4</Color>
+  <Color x:Key="SystemAccentColorDark2">#4C40A2</Color>
+  <Color x:Key="SystemAccentColorDark3">#3B337F</Color>
+  <Color x:Key="PrimaryTextColor">#1E1E24</Color>
+  <Color x:Key="SecondaryTextColor">#6B6B76</Color>
+  <Color x:Key="BorderColor">#DADAE2</Color>
+  <Color x:Key="ErrorTextColor">#C4373F</Color>
 
   <SolidColorBrush x:Key="WindowBackgroundBrush" Color="{StaticResource WindowBackgroundColor}" />
   <SolidColorBrush x:Key="PanelBackgroundBrush" Color="{StaticResource PanelBackgroundColor}" />
   <SolidColorBrush x:Key="ChromeBackgroundBrush" Color="{StaticResource ChromeBackgroundColor}" />
+  <SolidColorBrush x:Key="HoverBackgroundBrush" Color="{StaticResource HoverBackgroundColor}" />
+  <SolidColorBrush x:Key="SelectionBackgroundBrush" Color="{StaticResource SelectionBackgroundColor}" />
   <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource AccentColor}" />
+  <SolidColorBrush x:Key="AccentHoverBrush" Color="{StaticResource AccentHoverColor}" />
+  <SolidColorBrush x:Key="AccentMutedBrush" Color="{StaticResource AccentMutedColor}" />
   <SolidColorBrush x:Key="PrimaryTextBrush" Color="{StaticResource PrimaryTextColor}" />
+  <SolidColorBrush x:Key="SecondaryTextBrush" Color="{StaticResource SecondaryTextColor}" />
   <SolidColorBrush x:Key="BorderBrush" Color="{StaticResource BorderColor}" />
+  <SolidColorBrush x:Key="ErrorTextBrush" Color="{StaticResource ErrorTextColor}" />
 </ResourceDictionary>

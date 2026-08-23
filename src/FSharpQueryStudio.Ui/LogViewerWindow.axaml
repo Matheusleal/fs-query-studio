@@ -4,8 +4,9 @@
         x:CompileBindings="False"
         Title="F# Query Studio — Logs"
         Width="900"
-        Height="500">
-  <DockPanel Margin="8">
+        Height="500"
+        Background="{DynamicResource WindowBackgroundBrush}">
+  <DockPanel Margin="12">
     <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,8">
       <TextBlock Text="Date" VerticalAlignment="Center" />
       <ComboBox Name="DateCombo" ItemsSource="{Binding AvailableDates}" SelectedItem="{Binding SelectedDate}" Width="120" />
