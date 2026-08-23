@@ -313,7 +313,15 @@
           value: "",
           language: "fsharp",
           automaticLayout: true,
-          theme: initialTheme
+          theme: initialTheme,
+          // `strings: true` is what lets the completion dropdown pop on
+          // its own right after typing the opening quote of a
+          // Connections.sql/csv/excel/rest call — Monaco's default is
+          // false, since suggesting inside an arbitrary string literal is
+          // usually noise, but here it's exactly where the host's own
+          // connection-name completion (see completionRequested handling
+          // below) is meant to fire.
+          quickSuggestions: { other: true, comments: false, strings: true }
         });
 
         var documentUri = "untitled:Script1.fsx";
@@ -429,10 +437,12 @@
         });
 
         monaco.languages.registerCompletionItemProvider("fsharp", {
-          // Without this Monaco only invokes the provider on word
-          // characters, so a bare "s." never popped the member list until
-          // another character was typed.
-          triggerCharacters: ["."],
+          // "." is for a bare "s." popping the member list without
+          // needing another character typed first; `"` is for the
+          // connection-name completion inside Connections.sql/csv/excel/
+          // rest's first argument, so the dropdown appears the instant
+          // that string literal opens.
+          triggerCharacters: [".", "\""],
           provideCompletionItems: function (model, position) {
             // The already-typed partial word at the cursor (e.g. "myLoc"
             // of "myLocalValue") — without this, every accepted

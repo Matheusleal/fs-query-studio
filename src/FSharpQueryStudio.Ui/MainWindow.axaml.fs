@@ -197,16 +197,31 @@ type MainWindow() as this =
                             return SignatureHelpResolved(envelope.Id, documentUri, info)
                         })
             | Ok(CompletionRequested(documentUri, version, line, column)) ->
-                resolveEditorRequest
-                    "completion"
-                    (CompletionResolved(envelope.Id, documentUri, []))
-                    (shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri),
-                     shellViewModel.CompleteAsync)
-                    (fun doc complete ->
-                        task {
-                            let! items = complete (documentUri, version, doc.Text, line, column)
-                            return CompletionResolved(envelope.Id, documentUri, items)
-                        })
+                let doc = shellViewModel.Documents |> List.tryFind (fun d -> d.Uri = documentUri)
+
+                match doc with
+                // Inside `Connections.sql/csv/excel/rest "..`: this app's
+                // own registered connection names are the useful
+                // completion source here, not FSAC's identifier
+                // completion (which has nothing to say inside a string
+                // literal). Answered directly, without a worker round
+                // trip.
+                | Some doc when ConnectionNameCompletion.isInsideConnectionNameArgument doc.Text line column ->
+                    let names = shellViewModel.Connections |> List.map (fun c -> c.Name)
+
+                    postToEditor
+                        webView
+                        (EditorBridge.encodeNotification (CompletionResolved(envelope.Id, documentUri, names)))
+                | _ ->
+                    resolveEditorRequest
+                        "completion"
+                        (CompletionResolved(envelope.Id, documentUri, []))
+                        (doc, shellViewModel.CompleteAsync)
+                        (fun doc complete ->
+                            task {
+                                let! items = complete (documentUri, version, doc.Text, line, column)
+                                return CompletionResolved(envelope.Id, documentUri, items)
+                            })
             | Ok(RenameRequested(documentUri, version, line, column, newName)) ->
                 resolveEditorRequest
                     "rename"

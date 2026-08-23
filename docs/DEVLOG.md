@@ -1663,3 +1663,17 @@ Unrelated to this work but hit while updating `main` beforehand: `dotnet test` o
 
 Files changed: `src/FSharpQueryStudio.App/App.axaml`, `src/FSharpQueryStudio.App/Themes/VsDark.axaml`, `src/FSharpQueryStudio.App/Themes/VsLight.axaml`, `src/FSharpQueryStudio.App/Themes/Styles.axaml` (new), `src/FSharpQueryStudio.Ui/MainWindow.axaml`, `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`, `src/FSharpQueryStudio.Ui/LogViewerWindow.axaml`.
 
+## 2026-08-24 — Feature: connection-name autocomplete inside `Connections.sql/csv/excel/rest`
+
+Scripts pick a registered connection by name as a bare string literal (`Connections.sql "Sales" "select ..."`, Section 10) — typo-prone and impossible to discover from the editor, since FSAC has no idea this app's workspace connections even exist. Asked to make this selectable "sem precisar escrever o nome" (without having to type the name); brainstormed (bounded path) to editor autocomplete over the alternatives (an explicit insert-connection command, or a fully-typed `Connections.Named.X` surface) as the option that reuses the completion UI already in place for every other identifier.
+
+TDD'd `FSharpQueryStudio.Ui.ConnectionNameCompletion.isInsideConnectionNameArgument` (`ConnectionNameCompletion.fs`, 8 tests) — a pure, Avalonia-free regex check for "is this line/column position inside the first, still-open string-literal argument of a `Connections.sql/csv/excel/rest` call", covering the parenthesized-call spelling, an already-open call with no quote yet, a closed string (should no longer match), an unrelated string literal, and an out-of-range line/column (must return `false`, not throw — a stale request racing a document edit shouldn't crash the handler).
+
+Wired into `MainWindow.axaml.fs`'s existing `CompletionRequested` handling: when the check matches, answers directly with `shellViewModel.Connections`' names (`CompletionResolved`, no worker round trip) instead of falling through to FSAC's `CompleteAsync` — FSAC has nothing useful to say inside a string literal, and reusing the same `CompletionResolved`/Monaco-suggestions plumbing every other completion already goes through meant zero Protocol or Worker changes. Two small `editor-host.html` tweaks make the dropdown pop on its own rather than needing Ctrl+Space: added `"` to the completion provider's `triggerCharacters`, and turned on `quickSuggestions.strings` (Monaco's default suppresses quick-suggest inside string literals generally, for good reason elsewhere, but it's exactly where this feature needs to fire).
+
+**Not independently verified** — same gap as the UI pass above: no way to screenshot/drive the native Monaco editor in this environment, so the dropdown's actual appearance and behavior (does it filter as you type, does accepting a suggestion insert cleanly) is unconfirmed beyond the pure-function tests and a clean build.
+
+Verified: `dotnet build FSharpQueryStudio.slnx` — 0 warnings/errors, all 24 projects. `Ui.Tests` 177/177 (including the 8 new tests, watched fail first for the expected "not defined" reason before implementing).
+
+Files changed: `src/FSharpQueryStudio.Ui/ConnectionNameCompletion.fs` (new), `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`, `src/FSharpQueryStudio.Ui/FSharpQueryStudio.Ui.fsproj`, `src/FSharpQueryStudio.Editor/EditorAssets/editor-host.html`, `tests/FSharpQueryStudio.Ui.Tests/ConnectionNameCompletionTests.fs` (new), `tests/FSharpQueryStudio.Ui.Tests/FSharpQueryStudio.Ui.Tests.fsproj`.
+

@@ -13,6 +13,7 @@
     <Compile Include="DocumentViewModelTests.fs" />
     <Compile Include="ResultViewModelTests.fs" />
     <Compile Include="ResultGridColumnsTests.fs" />
+    <Compile Include="ConnectionNameCompletionTests.fs" />
     <Compile Include="WorkspaceConnectionViewModelTests.fs" />
     <Compile Include="LogViewerViewModelTests.fs" />
     <Compile Include="ShellViewModelTests.fs" />
