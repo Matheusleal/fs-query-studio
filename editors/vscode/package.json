@@ -1,0 +1,35 @@
+{
+  "name": "fs-query-studio",
+  "publisher": "fs-query-studio",
+  "displayName": "F# Query Studio",
+  "description": "Write, analyze, and run F# query scripts against SQL, files, and REST APIs.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=20"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onCommand:fs-query-studio.checkWorker"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "fs-query-studio.checkWorker",
+        "title": "F# Query Studio: Check Worker"
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc --noEmit && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "esbuild": "^0.23.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

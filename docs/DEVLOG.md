@@ -1677,3 +1677,7 @@ Verified: `dotnet build FSharpQueryStudio.slnx` — 0 warnings/errors, all 24 pr
 
 Files changed: `src/FSharpQueryStudio.Ui/ConnectionNameCompletion.fs` (new), `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`, `src/FSharpQueryStudio.Ui/FSharpQueryStudio.Ui.fsproj`, `src/FSharpQueryStudio.Editor/EditorAssets/editor-host.html`, `tests/FSharpQueryStudio.Ui.Tests/ConnectionNameCompletionTests.fs` (new), `tests/FSharpQueryStudio.Ui.Tests/FSharpQueryStudio.Ui.Tests.fsproj`.
 
+## 2026-09-03 — F1.1: editors/vscode/ npm project scaffold
+
+Created the TypeScript project for the VS Code extension: package.json (command `fs-query-studio.checkWorker`, command-only activation), tsconfig (Node16 modules, strict), esbuild bundle to `dist/extension.js`, vitest with a `vscode` module stub. `passWithNoTests` on so the harness is green before Task 2 adds the first real test. No behavior yet — activate/deactivate are no-ops.
+
