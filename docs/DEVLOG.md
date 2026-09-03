@@ -1681,3 +1681,7 @@ Files changed: `src/FSharpQueryStudio.Ui/ConnectionNameCompletion.fs` (new), `sr
 
 Created the TypeScript project for the VS Code extension: package.json (command `fs-query-studio.checkWorker`, command-only activation), tsconfig (Node16 modules, strict), esbuild bundle to `dist/extension.js`, vitest with a `vscode` module stub. `passWithNoTests` on so the harness is green before Task 2 adds the first real test. No behavior yet — activate/deactivate are no-ops.
 
+## 2026-09-03 — F1.2: TypeScript mirror of the worker protocol frames
+
+`protocol.ts`: hand-written `WorkerRequestFrame`/`WorkerResponseFrame`/`WorkerErrorInfo`/`HealthInfo` (camelCase, matching the F# `JsonNamingPolicy.CamelCase`), plus `isWorkerVersionSupported` (accepts worker major 0–1) and `newRequestId`.
+
