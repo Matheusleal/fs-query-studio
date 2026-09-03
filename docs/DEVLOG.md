@@ -1705,3 +1705,7 @@ Created the TypeScript project for the VS Code extension: package.json (command 
 
 On worker stdout close / process exit, every pending request settles with a `worker/crashed` error frame and the pending map clears; the next `send` spawns a fresh process. Optional `onCrash` callback. Mirrors the crash-and-restart ownership in `App/WorkerClient.fs` (no automatic retry of the dead request).
 
+## 2026-09-03 — F1.8: WorkerClient — cooperative-then-forced cancel
+
+`cancel(requestId, gracePeriodMs)`: fires `execution/cancel`, waits out the grace period for the original request to settle, otherwise kills the process and force-settles it with `execution/forciblyStopped`. Ports Section 9's two-step cancellation from `App/WorkerClient.fs`, but does **not** await the cancel ack (the F# `_ack`) — awaiting it would hang the TS client if the worker never acks, and the ack carries nothing the grace-period race needs.
+

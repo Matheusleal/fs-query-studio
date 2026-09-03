@@ -102,3 +102,49 @@ describe("WorkerClient crash + restart", () => {
     expect(crashes).toBe(1);
   });
 });
+
+describe("WorkerClient cancel", () => {
+  it("does not kill the process when the request settles within the grace period", async () => {
+    const child = createFakeChild();
+    let killed = false;
+    const proc = { ...child.process, kill: () => (killed = true) };
+    const client = new WorkerClient({ spawn: () => proc });
+
+    const pending = client.send({ id: "run-1", method: "execution/evaluate", params: {} });
+    await new Promise((r) => setTimeout(r, 5));
+
+    const cancelling = client.cancel("run-1", 200);
+    child.reply({ id: "run-1", error: { code: "execution/cancelled", message: "Cancelled." } });
+    await cancelling;
+    await pending;
+
+    expect(killed).toBe(false);
+  });
+
+  it("kills the process and force-settles when the grace period elapses", async () => {
+    const child = createFakeChild();
+    let killed = false;
+    const proc = { ...child.process, kill: () => (killed = true) };
+    const client = new WorkerClient({ spawn: () => proc });
+
+    const pending = client.send({ id: "run-2", method: "execution/evaluate", params: {} });
+    await new Promise((r) => setTimeout(r, 5));
+
+    await client.cancel("run-2", 20);
+    const response = await pending;
+
+    expect(killed).toBe(true);
+    expect(response.error?.code).toBe("execution/forciblyStopped");
+  });
+
+  it("sends an execution/cancel frame", async () => {
+    const child = createFakeChild();
+    const client = new WorkerClient({ spawn: () => child.process });
+    client.send({ id: "run-3", method: "execution/evaluate", params: {} });
+    await new Promise((r) => setTimeout(r, 5));
+    void client.cancel("run-3", 20);
+    await new Promise((r) => setTimeout(r, 5));
+    const methods = child.sentFrames.map((f) => (f as { method: string }).method);
+    expect(methods).toContain("execution/cancel");
+  });
+});

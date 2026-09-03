@@ -1,5 +1,5 @@
 import { readFrames, writeFrame } from "./ndjson";
-import type { WorkerRequestFrame, WorkerResponseFrame } from "../protocol";
+import { newRequestId, type WorkerRequestFrame, type WorkerResponseFrame } from "../protocol";
 
 export interface WorkerProcess {
   stdin: NodeJS.WritableStream;
@@ -52,6 +52,44 @@ export class WorkerClient {
           /* a failed write surfaces as an exit via readFrames onEnd */
         });
     });
+  }
+
+  async cancel(requestId: string, gracePeriodMs: number): Promise<void> {
+    // Fire the cooperative cancel and move on — the ack frame carries nothing
+    // the grace-period race needs, and awaiting it would hang if the worker
+    // never acks. Mirrors `App/WorkerClient.fs` minus the discarded `_ack`.
+    void this.send({ id: newRequestId(), method: "execution/cancel", params: {} });
+
+    const waiter = this.pending.get(requestId);
+    if (!waiter) {
+      return;
+    }
+
+    const settled = new Promise<"settled">((resolve) => {
+      const original = waiter.resolve;
+      waiter.resolve = (frame) => {
+        original(frame);
+        resolve("settled");
+      };
+    });
+    const timedOut = new Promise<"timeout">((resolve) =>
+      setTimeout(() => resolve("timeout"), gracePeriodMs),
+    );
+
+    const outcome = await Promise.race([settled, timedOut]);
+    if (outcome === "timeout" && this.pending.has(requestId)) {
+      const stillPending = this.pending.get(requestId)!;
+      this.pending.delete(requestId);
+      this.current?.kill();
+      stillPending.resolve({
+        id: requestId,
+        error: {
+          code: "execution/forciblyStopped",
+          message:
+            "The worker did not stop cooperatively within the grace period and was terminated.",
+        },
+      });
+    }
   }
 
   dispose(): void {
