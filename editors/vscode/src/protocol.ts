@@ -13,8 +13,11 @@ export interface WorkerErrorInfo {
 
 export interface WorkerResponseFrame {
   id: string;
+  // The worker (FSharp.SystemTextJson) serializes an absent value as an
+  // explicit JSON `null`, not by omitting the key — so both `null` and
+  // `undefined` mean "not present". Consumers must treat them the same.
   result?: unknown;
-  error?: WorkerErrorInfo;
+  error?: WorkerErrorInfo | null;
 }
 
 export interface HealthInfo {

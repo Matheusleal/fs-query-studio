@@ -1713,3 +1713,9 @@ On worker stdout close / process exit, every pending request settles with a `wor
 
 `spawn.ts` wraps `child_process.spawn("dotnet", [dll])` into the `WorkerProcess` shape. `extension.ts`: `runHealthCheck` (dependency-injected, fully unit-tested — dotnet-missing / dotnet-old / worker-missing / version-unsupported / error / ok) drives the `fs-query-studio.checkWorker` command, logging to an "F# Query Studio" output channel and surfacing an actionable "Install .NET" error where relevant. Full suite: 34 unit tests green.
 
+## 2026-09-03 — F1.10: real-worker handshake integration test + dev README
+
+`handshake.integration.test.ts` spawns the actual published worker and asserts a `worker/health` round-trip; skipped (green) when no worker dll is resolvable so `npm test` works without a `dotnet publish`. `editors/vscode/README.md` documents the dev loop.
+
+Finding while wiring it: the worker (FSharp.SystemTextJson) serializes an absent `error`/`result` as an explicit JSON `null`, not by omitting the key — raw frame is `{"id":...,"result":{...},"error":null}`. `WorkerResponseFrame.error` typed `WorkerErrorInfo | null`; consumers already use truthy checks so `null` and `undefined` are handled the same. Worker reports version `1.0.0.0` — inside the supported `0..1` major range.
+
