@@ -1689,3 +1689,7 @@ Created the TypeScript project for the VS Code extension: package.json (command 
 
 `worker/ndjson.ts`: `writeFrame` (JSON + `\n`) and `readFrames` (buffered split on `\n`, `JSON.parse` per line, chunk reassembly, unparseable lines surfaced as `{__parseError}` rather than thrown). Mirrors `src/FSharpQueryStudio.Worker/NdjsonStream.fs`.
 
+## 2026-09-03 — F1.4: dotnet resolution with a .NET 10 floor
+
+`worker/dotnet.ts`: `resolveDotnet` runs `dotnet --version` (honouring `DOTNET_ROOT`), throwing `DotnetNotFoundError` (spawn failure / non-zero exit) or `DotnetTooOldError` (major < 10). Both errors carry a `userMessage` for a notification. Injectable `run` for tests.
+
