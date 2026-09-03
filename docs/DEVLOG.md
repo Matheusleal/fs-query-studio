@@ -1709,3 +1709,7 @@ On worker stdout close / process exit, every pending request settles with a `wor
 
 `cancel(requestId, gracePeriodMs)`: fires `execution/cancel`, waits out the grace period for the original request to settle, otherwise kills the process and force-settles it with `execution/forciblyStopped`. Ports Section 9's two-step cancellation from `App/WorkerClient.fs`, but does **not** await the cancel ack (the F# `_ack`) — awaiting it would hang the TS client if the worker never acks, and the ack carries nothing the grace-period race needs.
 
+## 2026-09-03 — F1.9: extension activation + `fs-query-studio.checkWorker`
+
+`spawn.ts` wraps `child_process.spawn("dotnet", [dll])` into the `WorkerProcess` shape. `extension.ts`: `runHealthCheck` (dependency-injected, fully unit-tested — dotnet-missing / dotnet-old / worker-missing / version-unsupported / error / ok) drives the `fs-query-studio.checkWorker` command, logging to an "F# Query Studio" output channel and surfacing an actionable "Install .NET" error where relevant. Full suite: 34 unit tests green.
+
