@@ -57,3 +57,48 @@ describe("WorkerClient send + correlation", () => {
     expect(spawnCount).toBe(1);
   });
 });
+
+describe("WorkerClient crash + restart", () => {
+  it("settles pending requests with worker/crashed on exit", async () => {
+    const child = createFakeChild();
+    const client = new WorkerClient({ spawn: () => child.process });
+
+    const pending = client.send({ id: "x", method: "m", params: {} });
+    await new Promise((r) => setTimeout(r, 5));
+    child.emitExit();
+
+    const response = await pending;
+    expect(response).toEqual({
+      id: "x",
+      error: { code: "worker/crashed", message: "The worker process exited before responding." },
+    });
+  });
+
+  it("spawns a fresh process on the next send after a crash", async () => {
+    let spawnCount = 0;
+    const children = [createFakeChild(), createFakeChild()];
+    const client = new WorkerClient({
+      spawn: () => children[spawnCount++].process,
+    });
+
+    client.send({ id: "a", method: "m", params: {} });
+    await new Promise((r) => setTimeout(r, 5));
+    children[0].emitExit();
+    await new Promise((r) => setTimeout(r, 5));
+
+    client.send({ id: "b", method: "m", params: {} });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(spawnCount).toBe(2);
+  });
+
+  it("invokes onCrash once", async () => {
+    const child = createFakeChild();
+    let crashes = 0;
+    const client = new WorkerClient({ spawn: () => child.process, onCrash: () => crashes++ });
+    client.send({ id: "a", method: "m", params: {} });
+    await new Promise((r) => setTimeout(r, 5));
+    child.emitExit();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(crashes).toBe(1);
+  });
+});

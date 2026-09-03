@@ -1701,3 +1701,7 @@ Created the TypeScript project for the VS Code extension: package.json (command 
 
 `worker/client.ts`: lazy single spawn, `send` registers the request id as pending and resolves on the matching response frame (order-independent), stdin writes serialized behind a promise chain (the `writeLock` equivalent from `App/WorkerClient.fs`). `SpawnWorker` is injected; `test/fake-child.ts` scripts a process for the unit tests.
 
+## 2026-09-03 — F1.7: WorkerClient — crash detection and restart
+
+On worker stdout close / process exit, every pending request settles with a `worker/crashed` error frame and the pending map clears; the next `send` spawns a fresh process. Optional `onCrash` callback. Mirrors the crash-and-restart ownership in `App/WorkerClient.fs` (no automatic retry of the dead request).
+

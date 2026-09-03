@@ -14,7 +14,13 @@ export type SpawnWorker = () => WorkerProcess;
 
 export interface WorkerClientOptions {
   spawn: SpawnWorker;
+  onCrash?: () => void;
 }
+
+const CRASHED_ERROR = {
+  code: "worker/crashed",
+  message: "The worker process exited before responding.",
+} as const;
 
 interface Pending {
   resolve: (frame: WorkerResponseFrame) => void;
@@ -22,12 +28,14 @@ interface Pending {
 
 export class WorkerClient {
   private readonly spawn: SpawnWorker;
+  private readonly onCrash?: () => void;
   private current: WorkerProcess | undefined;
   private readonly pending = new Map<string, Pending>();
   private writeChain: Promise<void> = Promise.resolve();
 
   constructor(options: WorkerClientOptions) {
     this.spawn = options.spawn;
+    this.onCrash = options.onCrash;
   }
 
   get currentPid(): number | undefined {
@@ -77,8 +85,16 @@ export class WorkerClient {
     }
   }
 
-  // Replaced with real crash handling in Task 7.
   protected onExit(): void {
+    if (!this.current) {
+      return;
+    }
     this.current = undefined;
+    for (const [id, waiter] of this.pending) {
+      waiter.resolve({ id, error: { ...CRASHED_ERROR } });
+    }
+    this.pending.clear();
+    this.writeChain = Promise.resolve();
+    this.onCrash?.();
   }
 }
