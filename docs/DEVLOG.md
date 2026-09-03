@@ -1693,3 +1693,7 @@ Created the TypeScript project for the VS Code extension: package.json (command 
 
 `worker/dotnet.ts`: `resolveDotnet` runs `dotnet --version` (honouring `DOTNET_ROOT`), throwing `DotnetNotFoundError` (spawn failure / non-zero exit) or `DotnetTooOldError` (major < 10). Both errors carry a `userMessage` for a notification. Injectable `run` for tests.
 
+## 2026-09-03 — F1.5: worker DLL path resolution
+
+`worker/worker-path.ts`: `resolveWorkerDll` returns `FSQS_WORKER_DLL` (dev override) or the bundled `dist/worker/FSharpQueryStudio.Worker.dll`, throwing `WorkerDllNotFoundError` (with an actionable `userMessage`) if neither exists.
+
