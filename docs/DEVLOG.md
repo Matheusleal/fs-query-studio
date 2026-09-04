@@ -1737,3 +1737,7 @@ Four specs, all green locally: extension activates; `fs-query-studio.checkWorker
 
 Behaviour change from the finding: `resolveWorkerDll` now treats `FSQS_WORKER_DLL` as authoritative — set-but-missing throws `WorkerDllNotFoundError` instead of silently falling back to the bundled worker (new unit test covers it). CI: unit + extension-host tests on all three OSes, Linux under `xvfb-run`.
 
+## 2026-09-05 — Fix: `npm run compile` broken by the base tsconfig picking up the mocha specs
+
+`tsconfig.json`'s `include: ["src", "test"]` swept in `test/integration/extension.test.ts` too, but its `types` list has no `"mocha"` — `tsc --noEmit` (plain `compile`, not `pretest:vscode`) failed on every mocha global (`describe`/`it`/`afterEach`/`this`). Never caught in the F1.12 session because `compile` wasn't re-run after the integration spec was added — only `pretest:vscode` (which targets `tsconfig.integration.json`, `types: ["node","mocha"]`) and vitest were. Fix: `tsconfig.json` gets `"exclude": ["test/integration"]`; `tsconfig.integration.json` already declares its own `exclude` so it's unaffected. Re-verified: `compile`, `pretest:vscode` + vitest (36 passing), `test:vscode` (4 passing) all green.
+
