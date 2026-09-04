@@ -6,7 +6,7 @@
 
 **Architecture:** A new npm project under `editors/vscode/` compiled by `tsc` and bundled by `esbuild`. A hand-written mirror of the worker's NDJSON protocol frames in TypeScript. A `WorkerClient` class that is a direct port of `src/FSharpQueryStudio.App/WorkerClient.fs` — spawn `dotnet <worker>.dll`, correlate responses to requests by `id`, tolerate out-of-order responses, restart the process on unexpected exit, serialize stdin writes, and support cooperative-then-forced cancellation. `activate()` wires `resolveDotnet` + `resolveWorkerDll` + `WorkerClient` and exposes one command that runs the health handshake and logs the result to an `OutputChannel`.
 
-**Tech Stack:** TypeScript 5, Node 24 (`node:child_process`, `node:stream`), `esbuild` (bundle), `vitest` (unit tests), `@types/vscode`. No `@vscode/test-electron` in this phase — `vscode` is stubbed in unit tests.
+**Tech Stack:** TypeScript 5, Node 24 (`node:child_process`, `node:stream`), `esbuild` (bundle), `vitest` (unit tests, with `vscode` stubbed), `@types/vscode`. Tasks 1–12 use no real VS Code; Task 13 (added during execution) brings in `@vscode/test-cli` + `@vscode/test-electron` for extension-host tests against a real downloaded VS Code.
 
 **Spec:** `docs/superpowers/specs/2026-09-03-vscode-extension-migration-design.md`
 
@@ -1934,6 +1934,64 @@ git commit -m "docs: F1 scaffold phase complete"
 
 ---
 
+### Task 13: Extension-host integration tests in a real VS Code (added during execution)
+
+Added after Task 12 at the user's request — "create automated tests to verify in VS Code if it's actually working" — which replaces the manual F5 smoke that Task 12 Step 3 left pending. Same branch, same phase.
+
+**Files:**
+- Modify: `editors/vscode/package.json` (dev deps `@vscode/test-cli`, `@vscode/test-electron`, `mocha`, `@types/mocha`; scripts `pretest:vscode`, `test:vscode`, `test:all`)
+- Create: `editors/vscode/.vscode-test.mjs` (`defineConfig({ files: "out/test/integration/**/*.test.js", version: "stable", mocha: { ui: "bdd", timeout: 60000 } })`)
+- Create: `editors/vscode/tsconfig.integration.json` (extends base; `noEmit:false`, `rootDir:"."`, `outDir:"out"`, `types:["node","mocha"]`; include `src/**/*.ts` + `test/integration/**/*.ts`; exclude `src/**/*.test.ts`)
+- Create: `editors/vscode/test/integration/extension.test.ts`
+- Modify: `editors/vscode/src/extension.ts` — the `fs-query-studio.checkWorker` handler returns its `HealthCheckResult` (was implicitly `void`) so specs assert on it via `executeCommand`
+- Modify: `editors/vscode/src/worker/worker-path.ts` + `worker-path.test.ts` — `FSQS_WORKER_DLL` is authoritative: set-but-missing throws `WorkerDllNotFoundError` instead of falling back to the bundled worker (new unit test)
+- Modify: `.github/workflows/vscode-extension.yml` — `pretest:vscode` + `test:vscode` steps in the `build-test` job, Linux under `xvfb-run`
+- Modify: `editors/vscode/.vscodeignore` (`.vscode-test/**`, `.vscode-test.mjs`, `tsconfig.integration.json`), `editors/vscode/.gitignore` (`.vscode-test/`)
+- Modify: `editors/vscode/README.md` (document `test:vscode` / `test:all`)
+
+**Specs (`test/integration/extension.test.ts`, Mocha BDD, real `vscode` module):**
+- `activates` — `vscode.extensions.getExtension("fs-query-studio.fs-query-studio")` then `.activate()`, assert `isActive`.
+- `registers the checkWorker command` — `vscode.commands.getCommands(true)` includes `fs-query-studio.checkWorker`.
+- `reports worker-missing for a bogus FSQS_WORKER_DLL` — set the env var to a nonexistent path, `executeCommand` the command, assert `result.ok === false && result.kind === "worker-missing"`; `afterEach` clears the env var.
+- `completes a real worker/health check against the bundled worker` — `it.skip` when `dist/worker/FSharpQueryStudio.Worker.dll` is absent; otherwise `executeCommand` and assert `result.ok` with a `\d+\.`-shaped `version` and an array `capabilities`. Spawns the .NET worker from inside the extension host.
+
+- [x] **Step 1: Add dev deps and scripts**
+
+`npm install --save-dev @vscode/test-cli @vscode/test-electron mocha @types/mocha`; add `pretest:vscode` (`tsc -p tsconfig.integration.json && node esbuild.mjs`), `test:vscode` (`vscode-test`), `test:all` (`npm test && npm run test:vscode`).
+
+- [x] **Step 2: Write `.vscode-test.mjs` and `tsconfig.integration.json`** (see Files).
+
+- [x] **Step 3: Make the command return its result**
+
+In `src/extension.ts`, lift the command body into `const runCheck = async (): Promise<HealthCheckResult> => { ...; return result; }` and register that.
+
+- [x] **Step 4: Write the failing spec** (`test/integration/extension.test.ts`, all four `it`s above).
+
+- [x] **Step 5: Run — one spec fails**
+
+`npm run pretest:vscode && npm run test:vscode` → `reports worker-missing` fails: a bogus `FSQS_WORKER_DLL` still resolved because `resolveWorkerDll` fell through to the bundled worker.
+
+- [x] **Step 6: Make `FSQS_WORKER_DLL` authoritative**
+
+`worker-path.ts`: when the override is set but the file is missing, `throw new WorkerDllNotFoundError([override])` instead of continuing to the bundled path. Add the vitest case `throws when FSQS_WORKER_DLL is set but the file is missing, ignoring the bundled fallback`.
+
+- [x] **Step 7: Run — all green**
+
+`npx vitest run` → 36 passing. `npm run pretest:vscode && npm run test:vscode` → 4 passing.
+
+- [x] **Step 8: CI + ignore + README** (see Files). Validate the workflow YAML.
+
+- [x] **Step 9: DEVLOG entry** (`## 2026-09-04 — F1.12: extension-host integration tests (real VS Code)`).
+
+- [x] **Step 10: Commit**
+
+```bash
+git add -A
+git commit -m "test(vscode): extension-host integration tests in a real VS Code"
+```
+
+---
+
 ## Self-Review
 
 **1. Spec coverage (F1 scope only — the umbrella spec's F1 row: "editors/vscode/ compiles; activate; worker/client.ts + tests; dotnet resolution; health check. No notebook yet."):**
@@ -1950,10 +2008,11 @@ git commit -m "docs: F1 scaffold phase complete"
 | worker DLL location (spec: "Bundled worker location: `editors/vscode/dist/worker/...`") | Task 5 (`resolveWorkerDll`) |
 | `OutputChannel` "F# Query Studio" (spec component `log/channel.ts` — the worker-status half) | Task 9 |
 | actionable "Install .NET" error (spec error table row `dotnet missing / < 10`) | Task 9 |
-| CI (spec Testing: "GitHub Actions, matrix win/linux/mac ... `npm test` ... `vsce package` as an artifact") | Task 11 |
-| dev README / `dotnet publish` step (spec Packaging) | Task 10 |
+| CI (spec Testing: "GitHub Actions, matrix win/linux/mac ... `npm test` ... `vsce package` as an artifact") | Task 11, extended in Task 13 |
+| dev README / `dotnet publish` step (spec Packaging) | Task 10, updated in Task 13 |
+| extension-host tests in a real VS Code (spec Testing: "Extension host" row) | Task 13 (added during execution — activation, command registration, `worker-missing`, real `worker/health`) |
 
-Deferred to later phases by design (not F1 gaps): notebook serializer/controller/renderer (F2/F3), `analysis/*` providers (F4), connections tree + secret bridge (F5), `BridgeSecretStore` worker change (F5), `@vscode/test-electron` extension-host tests (F2+), self-contained VSIX (F7).
+Deferred to later phases by design (not F1 gaps): notebook serializer/controller/renderer (F2/F3), `analysis/*` providers (F4), connections tree + secret bridge (F5), `BridgeSecretStore` worker change (F5), self-contained VSIX (F7). The extension-host **test harness** landed in F1 (Task 13); the notebook/cell/connection scenarios it will run are added with their phases.
 
 **2. Placeholder scan:** No "TBD"/"TODO"/"handle edge cases"/"similar to Task N". Every code step has a full code block. Task 7 Step 3 gives an explicit edit (interface + method replacement) rather than a full-file rewrite because it modifies a file created in Task 6 that the executor has in front of them; the exact new method body is spelled out. Task 11 Step 1 asks the executor to look at existing workflows for house style — that is an inspection instruction, not a deferred decision (the full workflow file follows in Step 2).
 
