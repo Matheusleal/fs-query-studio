@@ -18,8 +18,16 @@ dotnet publish ../../src/FSharpQueryStudio.Worker/FSharpQueryStudio.Worker.fspro
   -c Release -o dist/worker
 
 npm run compile        # type-check + bundle to dist/extension.js
-npm test               # unit tests (vitest); integration test runs if dist/worker exists
+npm test               # unit tests (vitest); worker handshake runs if dist/worker exists
+npm run test:vscode    # extension-host tests inside a real downloaded VS Code
+npm run test:all       # both of the above
 ```
+
+`test:vscode` downloads a VS Code build on first run, loads this folder as a
+development extension, and drives the `fs-query-studio.checkWorker` command
+end to end (including spawning the published worker). Needs `dist/worker`
+present and `dotnet` on `PATH`; on Linux it needs a display, so CI runs it
+under `xvfb-run`.
 
 Press F5 in VS Code to launch an Extension Development Host, then run the
 **F# Query Studio: Check Worker** command from the palette.

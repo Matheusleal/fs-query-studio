@@ -9,7 +9,9 @@
     "url": "https://github.com/Matheusleal/fs-query-studio.git",
     "directory": "editors/vscode"
   },
-  "categories": ["Other"],
+  "categories": [
+    "Other"
+  ],
   "engines": {
     "vscode": "^1.90.0",
     "node": ">=20"
@@ -29,12 +31,19 @@
   "scripts": {
     "compile": "tsc --noEmit && node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
-    "test": "vitest run"
+    "test": "vitest run",
+    "pretest:vscode": "tsc -p tsconfig.integration.json && node esbuild.mjs",
+    "test:vscode": "vscode-test",
+    "test:all": "npm test && npm run test:vscode"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.90.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.5.2",
     "esbuild": "^0.23.0",
+    "mocha": "^10.8.2",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
   }

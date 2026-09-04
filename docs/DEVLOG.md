@@ -1729,3 +1729,11 @@ Finding while wiring it: the worker (FSharp.SystemTextJson) serializes an absent
 
 Still pending (interactive, cannot run headless): the F5 Extension Development Host smoke — open `editors/vscode` in VS Code, press F5, run **F# Query Studio: Check Worker**, confirm the output channel shows `Worker healthy: version 1.0.0.0`.
 
+## 2026-09-04 — F1.13: extension-host integration tests (real VS Code)
+
+Automates the F5 smoke. `@vscode/test-cli` + `@vscode/test-electron` download a real VS Code, load `editors/vscode` as a development extension, and run Mocha specs (`test/integration/**`, compiled by `tsconfig.integration.json` to `out/`, config in `.vscode-test.mjs`). Separate from vitest (`npm test` unchanged; new `test:vscode` / `test:all`).
+
+Four specs, all green locally: extension activates; `fs-query-studio.checkWorker` is registered; a bogus `FSQS_WORKER_DLL` yields `worker-missing` without throwing; the command completes a real `worker/health` check against the bundled worker (spawns the .NET worker from inside the extension host). The command handler now returns its `HealthCheckResult` so specs can assert on it directly.
+
+Behaviour change from the finding: `resolveWorkerDll` now treats `FSQS_WORKER_DLL` as authoritative — set-but-missing throws `WorkerDllNotFoundError` instead of silently falling back to the bundled worker (new unit test covers it). CI: unit + extension-host tests on all three OSes, Linux under `xvfb-run`.
+

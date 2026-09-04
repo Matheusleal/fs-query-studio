@@ -14,12 +14,16 @@ export class WorkerDllNotFoundError extends Error {
 export function resolveWorkerDll(extensionRoot: string, env: NodeJS.ProcessEnv = process.env): string {
   const checked: string[] = [];
 
+  // An explicit override is authoritative: if it's set but points nowhere,
+  // that's a configuration error worth surfacing, not a reason to fall back
+  // to the bundled worker.
   const override = env.FSQS_WORKER_DLL;
   if (override) {
     checked.push(override);
     if (fs.existsSync(override)) {
       return override;
     }
+    throw new WorkerDllNotFoundError(checked);
   }
 
   const bundled = path.join(extensionRoot, "dist", "worker", "FSharpQueryStudio.Worker.dll");

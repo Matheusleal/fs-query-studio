@@ -86,7 +86,7 @@ let outputChannel: vscode.OutputChannel | undefined;
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
   outputChannel = vscode.window.createOutputChannel("F# Query Studio");
 
-  const command = vscode.commands.registerCommand("fs-query-studio.checkWorker", async () => {
+  const runCheck = async (): Promise<HealthCheckResult> => {
     outputChannel!.show(true);
     const result = await runHealthCheck({
       extensionRoot: context.extensionPath,
@@ -112,7 +112,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     } else {
       void vscode.window.showErrorMessage(result.message);
     }
-  });
+
+    return result;
+  };
+
+  const command = vscode.commands.registerCommand("fs-query-studio.checkWorker", runCheck);
 
   context.subscriptions.push(command, outputChannel);
 }

@@ -44,9 +44,23 @@ jobs:
         working-directory: editors/vscode
         run: npm run compile
 
-      - name: Test
+      - name: Test (unit)
         working-directory: editors/vscode
         run: npm test
+
+      - name: Compile integration specs
+        working-directory: editors/vscode
+        run: npm run pretest:vscode
+
+      - name: Test (VS Code extension host, Linux)
+        if: runner.os == 'Linux'
+        working-directory: editors/vscode
+        run: xvfb-run -a npm run test:vscode
+
+      - name: Test (VS Code extension host, non-Linux)
+        if: runner.os != 'Linux'
+        working-directory: editors/vscode
+        run: npm run test:vscode
 
       - name: Package VSIX
         if: matrix.os == 'ubuntu-latest'
