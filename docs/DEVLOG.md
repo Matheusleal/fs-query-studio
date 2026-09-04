@@ -1723,3 +1723,9 @@ Finding while wiring it: the worker (FSharp.SystemTextJson) serializes an absent
 
 `.github/workflows/vscode-extension.yml`: on changes under `editors/vscode/` or the worker/protocol projects, publishes the worker, then compiles and tests the extension on Ubuntu/Windows/macOS, and uploads a `.vsix` artifact from the Ubuntu job. Local `vsce package` smoke: exits 0, 70.75 MB VSIX (framework-dependent worker, 257 files) — only a non-fatal "LICENSE not found" warning. Added `repository` to `package.json` and `.gitignore` to `.vscodeignore`.
 
+## 2026-09-03 — F1 complete: VS Code extension scaffold
+
+`editors/vscode/` compiles (`tsc --noEmit` + esbuild bundle) and its full suite is green: 34 unit tests + 1 real-worker integration test (`worker/health` round-trip against a `dotnet publish`ed worker). A dependency-injected `WorkerClient` — NDJSON framing, response correlation, crash/restart, cooperative-then-forced cancel, ported from `App/WorkerClient.fs` — spawns the existing F# worker and negotiates protocol version, surfaced through the `fs-query-studio.checkWorker` command and an "F# Query Studio" output channel. Tri-OS CI added. No notebook UI yet — that is F2. The Avalonia app is untouched.
+
+Still pending (interactive, cannot run headless): the F5 Extension Development Host smoke — open `editors/vscode` in VS Code, press F5, run **F# Query Studio: Check Worker**, confirm the output channel shows `Worker healthy: version 1.0.0.0`.
+
