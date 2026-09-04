@@ -3,6 +3,7 @@ src/**
 test/**
 out/**
 node_modules/**
+.gitignore
 esbuild.mjs
 vitest.config.ts
 tsconfig.json

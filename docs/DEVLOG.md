@@ -1719,3 +1719,7 @@ On worker stdout close / process exit, every pending request settles with a `wor
 
 Finding while wiring it: the worker (FSharp.SystemTextJson) serializes an absent `error`/`result` as an explicit JSON `null`, not by omitting the key — raw frame is `{"id":...,"result":{...},"error":null}`. `WorkerResponseFrame.error` typed `WorkerErrorInfo | null`; consumers already use truthy checks so `null` and `undefined` are handled the same. Worker reports version `1.0.0.0` — inside the supported `0..1` major range.
 
+## 2026-09-03 — F1.11: CI for the VS Code extension
+
+`.github/workflows/vscode-extension.yml`: on changes under `editors/vscode/` or the worker/protocol projects, publishes the worker, then compiles and tests the extension on Ubuntu/Windows/macOS, and uploads a `.vsix` artifact from the Ubuntu job. Local `vsce package` smoke: exits 0, 70.75 MB VSIX (framework-dependent worker, 257 files) — only a non-fatal "LICENSE not found" warning. Added `repository` to `package.json` and `.gitignore` to `.vscodeignore`.
+

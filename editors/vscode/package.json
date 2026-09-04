@@ -4,6 +4,12 @@
   "displayName": "F# Query Studio",
   "description": "Write, analyze, and run F# query scripts against SQL, files, and REST APIs.",
   "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Matheusleal/fs-query-studio.git",
+    "directory": "editors/vscode"
+  },
+  "categories": ["Other"],
   "engines": {
     "vscode": "^1.90.0",
     "node": ">=20"

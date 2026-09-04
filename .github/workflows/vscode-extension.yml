@@ -1,0 +1,61 @@
+name: vscode-extension
+
+on:
+  push:
+    paths:
+      - "editors/vscode/**"
+      - "src/FSharpQueryStudio.Worker/**"
+      - "src/FSharpQueryStudio.Protocol/**"
+      - ".github/workflows/vscode-extension.yml"
+  pull_request:
+    paths:
+      - "editors/vscode/**"
+      - "src/**"
+      - ".github/workflows/vscode-extension.yml"
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Publish worker
+        run: >
+          dotnet publish src/FSharpQueryStudio.Worker/FSharpQueryStudio.Worker.fsproj
+          -c Release -o editors/vscode/dist/worker
+
+      - name: Install extension deps
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Compile
+        working-directory: editors/vscode
+        run: npm run compile
+
+      - name: Test
+        working-directory: editors/vscode
+        run: npm test
+
+      - name: Package VSIX
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: editors/vscode
+        run: npx --yes @vscode/vsce package --out fs-query-studio.vsix
+
+      - name: Upload VSIX
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fs-query-studio-vsix
+          path: editors/vscode/fs-query-studio.vsix
