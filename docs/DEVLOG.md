@@ -1753,3 +1753,7 @@ Behaviour change from the finding: `resolveWorkerDll` now treats `FSQS_WORKER_DL
 ## 2026-09-05 — F2.3: NotebookSerializer adapter for `.fsqnb`
 
 `notebook/serializer.ts`: `FsqnbSerializer` wraps the codec into `vscode.NotebookSerializer` (`Uint8Array` ↔ `NotebookData`, code → `Code` cell / markdown → `Markup` cell, language defaulting to `fsharp`). `FSQNB_NOTEBOOK_TYPE = "fsquery-notebook"`. `test/vscode-stub.ts` gains `NotebookCellKind` / `NotebookCellData` / `NotebookData`.
+
+## 2026-09-05 — F2.4: ResultEnvelope → cell-output mapper
+
+`notebook/result.ts`: pure `mapEnvelope` turns a worker `ResultEnvelope` into ordered `OutputItemSpec`s — stdout/stderr lines first, then the value by `kind`: `Error` → an error item (uses `displayText`), `Table` → `formatTextTable` (aligned monospace grid + `(N rows · Mms)` + an F3 truncation note), `NoValue` → nothing unless it carries `displayText`, everything else → the `displayText` string. No renderer yet — that is F3.
