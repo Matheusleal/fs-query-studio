@@ -1769,3 +1769,7 @@ Behaviour change from the finding: `resolveWorkerDll` now treats `FSQS_WORKER_DL
 ## 2026-09-05 — F2.7: register the notebook — serializer, controller, restart command
 
 `package.json`: `contributes.notebooks` (`fsquery-notebook`, `*.fsqnb`), the `onNotebook:fsquery-notebook` activation event, and a `fs-query-studio.restartKernel` command. `extension.ts` `activate` now registers `FsqnbSerializer`, `createFsQueryController` (fed a `getWorker` that resolves the window's shared `getWorkerSession`), and the restart command (no-ops with a hint when the active editor isn't an `.fsqnb`); `deactivate` disposes the worker session. `checkWorker` and `runHealthCheck` are unchanged.
+
+## 2026-09-05 — F2.8: extension-host integration test for the notebook
+
+`test/integration/notebook.test.ts` + `fixtures/sample.fsqnb`: a real downloaded VS Code opens the fixture as an `fsquery-notebook` (asserts type, cell count, kinds, `fsharp` language), then — only when a bundled worker dll is present — runs cell 2 and asserts captured stdout + tail value, runs cell 3 and asserts the `(3 rows · Nms)` text-grid footer, and runs `fs-query-studio.restartKernel`. The command-based path (`openNotebookDocument` + `notebook.cell.execute`) shipped as-is — no `_test` export hook was needed, `src/` untouched. Worker-backed specs skip green with no `dotnet publish`, matching the F1 pattern (this env: 1 notebook spec runs, 3 skip).
