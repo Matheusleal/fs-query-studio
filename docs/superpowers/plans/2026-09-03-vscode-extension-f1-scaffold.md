@@ -6,7 +6,7 @@
 
 **Architecture:** A new npm project under `editors/vscode/` compiled by `tsc` and bundled by `esbuild`. A hand-written mirror of the worker's NDJSON protocol frames in TypeScript. A `WorkerClient` class that is a direct port of `src/FSharpQueryStudio.App/WorkerClient.fs` — spawn `dotnet <worker>.dll`, correlate responses to requests by `id`, tolerate out-of-order responses, restart the process on unexpected exit, serialize stdin writes, and support cooperative-then-forced cancellation. `activate()` wires `resolveDotnet` + `resolveWorkerDll` + `WorkerClient` and exposes one command that runs the health handshake and logs the result to an `OutputChannel`.
 
-**Tech Stack:** TypeScript 5, Node 24 (`node:child_process`, `node:stream`), `esbuild` (bundle), `vitest` (unit tests), `@types/vscode`. No `@vscode/test-electron` in this phase — `vscode` is stubbed in unit tests.
+**Tech Stack:** TypeScript 5, Node 24 (`node:child_process`, `node:stream`), `esbuild` (bundle), `vitest` (unit tests, with `vscode` stubbed), `@types/vscode`. Tasks 1–12 use no real VS Code; Task 13 (added during execution) brings in `@vscode/test-cli` + `@vscode/test-electron` for extension-host tests against a real downloaded VS Code.
 
 **Spec:** `docs/superpowers/specs/2026-09-03-vscode-extension-migration-design.md`
 
@@ -46,7 +46,7 @@
   - npm scripts: `compile` (`tsc --noEmit` + `node esbuild.mjs`), `test` (`vitest run`), `watch` (`node esbuild.mjs --watch`).
   - `test/vscode-stub.ts` default-exports an object usable as the `vscode` module in unit tests; vitest aliases `vscode` to it.
 
-- [ ] **Step 1: Write `editors/vscode/package.json`**
+- [x] **Step 1: Write `editors/vscode/package.json`**
 
 ```json
 {
@@ -86,7 +86,7 @@
 }
 ```
 
-- [ ] **Step 2: Write `editors/vscode/tsconfig.json`**
+- [x] **Step 2: Write `editors/vscode/tsconfig.json`**
 
 ```json
 {
@@ -106,7 +106,7 @@
 }
 ```
 
-- [ ] **Step 3: Write `editors/vscode/esbuild.mjs`**
+- [x] **Step 3: Write `editors/vscode/esbuild.mjs`**
 
 ```js
 import * as esbuild from "esbuild";
@@ -133,7 +133,7 @@ if (watch) {
 }
 ```
 
-- [ ] **Step 4: Write `editors/vscode/vitest.config.ts`**
+- [x] **Step 4: Write `editors/vscode/vitest.config.ts`**
 
 ```ts
 import { defineConfig } from "vitest/config";
@@ -152,7 +152,7 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 5: Write `editors/vscode/test/vscode-stub.ts`**
+- [x] **Step 5: Write `editors/vscode/test/vscode-stub.ts`**
 
 ```ts
 // Minimal stand-in for the `vscode` module in unit tests. Only the surface
@@ -190,7 +190,7 @@ export const Uri = { parse: (s: string) => ({ toString: () => s }) };
 export default { window, commands, env, Uri };
 ```
 
-- [ ] **Step 6: Write `editors/vscode/src/extension.ts` (stub)**
+- [x] **Step 6: Write `editors/vscode/src/extension.ts` (stub)**
 
 ```ts
 import * as vscode from "vscode";
@@ -204,7 +204,7 @@ export async function deactivate(): Promise<void> {
 }
 ```
 
-- [ ] **Step 7: Write `editors/vscode/.gitignore`**
+- [x] **Step 7: Write `editors/vscode/.gitignore`**
 
 ```gitignore
 node_modules/
@@ -213,7 +213,7 @@ out/
 *.vsix
 ```
 
-- [ ] **Step 8: Write `editors/vscode/.vscodeignore`**
+- [x] **Step 8: Write `editors/vscode/.vscodeignore`**
 
 ```
 .vscode/**
@@ -228,7 +228,7 @@ tsconfig.json
 **/*.map
 ```
 
-- [ ] **Step 9: Append repo-root `.gitignore` entries**
+- [x] **Step 9: Append repo-root `.gitignore` entries**
 
 Add these lines to the end of `.gitignore` at the repo root:
 
@@ -241,7 +241,7 @@ editors/vscode/out/
 editors/vscode/*.vsix
 ```
 
-- [ ] **Step 10: Install and compile**
+- [x] **Step 10: Install and compile**
 
 Run:
 ```bash
@@ -249,12 +249,12 @@ cd editors/vscode && npm install && npm run compile
 ```
 Expected: `npm install` completes; `tsc --noEmit` reports no errors; `esbuild` writes `dist/extension.js`.
 
-- [ ] **Step 11: Run the test harness (no tests yet)**
+- [x] **Step 11: Run the test harness (no tests yet)**
 
 Run: `cd editors/vscode && npm test`
 Expected: vitest exits 0 with "No test files found" (not an error — the harness is wired).
 
-- [ ] **Step 12: DEVLOG entry**
+- [x] **Step 12: DEVLOG entry**
 
 Append to `docs/DEVLOG.md`:
 ```markdown
@@ -263,7 +263,7 @@ Append to `docs/DEVLOG.md`:
 Created the TypeScript project for the VS Code extension: package.json (command `fs-query-studio.checkWorker`, command-only activation), tsconfig (Node16 modules, strict), esbuild bundle to `dist/extension.js`, vitest with a `vscode` module stub. No behavior yet — activate/deactivate are no-ops.
 ```
 
-- [ ] **Step 13: Commit**
+- [x] **Step 13: Commit**
 
 ```bash
 git add editors/vscode .gitignore docs/DEVLOG.md
@@ -289,7 +289,7 @@ git commit -m "feat(vscode): scaffold editors/vscode TypeScript project"
   - `function isWorkerVersionSupported(version: string): boolean` — parses the leading integer of a dotted version string; supported when `SUPPORTED_WORKER_MAJOR <= major <= SUPPORTED_WORKER_MAJOR_MAX`. Non-numeric / empty → `false`.
   - `function newRequestId(): string` — returns `crypto.randomUUID()`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `editors/vscode/src/protocol.test.ts`:
 ```ts
@@ -319,12 +319,12 @@ describe("newRequestId", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd editors/vscode && npx vitest run src/protocol.test.ts`
 Expected: FAIL — `Cannot find module './protocol'`.
 
-- [ ] **Step 3: Write `editors/vscode/src/protocol.ts`**
+- [x] **Step 3: Write `editors/vscode/src/protocol.ts`**
 
 ```ts
 import { randomUUID } from "node:crypto";
@@ -368,12 +368,12 @@ export function newRequestId(): string {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd editors/vscode && npx vitest run src/protocol.test.ts`
 Expected: PASS (6 assertions).
 
-- [ ] **Step 5: DEVLOG entry**
+- [x] **Step 5: DEVLOG entry**
 
 Append to `docs/DEVLOG.md`:
 ```markdown
@@ -382,7 +382,7 @@ Append to `docs/DEVLOG.md`:
 `protocol.ts`: hand-written `WorkerRequestFrame`/`WorkerResponseFrame`/`WorkerErrorInfo`/`HealthInfo` (camelCase, matching the F# `JsonNamingPolicy.CamelCase`), plus `isWorkerVersionSupported` (accepts worker major 0–1) and `newRequestId`.
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add editors/vscode/src/protocol.ts editors/vscode/src/protocol.test.ts docs/DEVLOG.md
@@ -403,7 +403,7 @@ git commit -m "feat(vscode): protocol frame types and worker version check"
   - `function writeFrame(stream: NodeJS.WritableStream, frame: unknown): Promise<void>` — JSON-stringifies `frame`, writes it followed by `"\n"`, resolves when the write is flushed to the stream's buffer.
   - `function readFrames(stream: NodeJS.ReadableStream, handlers: { onFrame: (frame: unknown) => void; onEnd: () => void }): void` — buffers incoming UTF-8 data, splits on `"\n"`, `JSON.parse`s each complete line and calls `onFrame`; calls `onEnd` once on stream `end`/`close`. A blank line is skipped. A line that fails `JSON.parse` is passed to `onFrame` as `{ __parseError: true, raw: string }` (never throws out of the reader).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `editors/vscode/src/worker/ndjson.test.ts`:
 ```ts
@@ -455,12 +455,12 @@ describe("writeFrame / readFrames", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd editors/vscode && npx vitest run src/worker/ndjson.test.ts`
 Expected: FAIL — `Cannot find module './ndjson'`.
 
-- [ ] **Step 3: Write `editors/vscode/src/worker/ndjson.ts`**
+- [x] **Step 3: Write `editors/vscode/src/worker/ndjson.ts`**
 
 ```ts
 export function writeFrame(stream: NodeJS.WritableStream, frame: unknown): Promise<void> {
@@ -509,12 +509,12 @@ export function readFrames(stream: NodeJS.ReadableStream, handlers: FrameHandler
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd editors/vscode && npx vitest run src/worker/ndjson.test.ts`
 Expected: PASS (3 tests).
 
-- [ ] **Step 5: DEVLOG entry**
+- [x] **Step 5: DEVLOG entry**
 
 Append to `docs/DEVLOG.md`:
 ```markdown
@@ -523,7 +523,7 @@ Append to `docs/DEVLOG.md`:
 `worker/ndjson.ts`: `writeFrame` (JSON + `\n`) and `readFrames` (buffered split on `\n`, `JSON.parse` per line, chunk reassembly, unparseable lines surfaced as `{__parseError}` rather than thrown). Mirrors `src/FSharpQueryStudio.Worker/NdjsonStream.fs`.
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add editors/vscode/src/worker/ndjson.ts editors/vscode/src/worker/ndjson.test.ts docs/DEVLOG.md
@@ -548,7 +548,7 @@ git commit -m "feat(vscode): NDJSON frame reader/writer for the worker transport
   - `const MINIMUM_DOTNET_MAJOR = 10`
   - `async function resolveDotnet(opts?: { run?: RunCommand; env?: NodeJS.ProcessEnv }): Promise<DotnetInfo>` — runs `<command> --version`, where `<command>` is `${env.DOTNET_ROOT}/dotnet` if `DOTNET_ROOT` is set and that file exists, else `"dotnet"`. Throws `DotnetNotFoundError` if the process cannot be spawned (`run` rejects) or exits non-zero. Parses the leading integer of stdout; throws `DotnetTooOldError` if `< MINIMUM_DOTNET_MAJOR`. Otherwise resolves `{ command, version: stdout.trim() }`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `editors/vscode/src/worker/dotnet.test.ts`:
 ```ts
@@ -589,12 +589,12 @@ describe("resolveDotnet", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd editors/vscode && npx vitest run src/worker/dotnet.test.ts`
 Expected: FAIL — `Cannot find module './dotnet'`.
 
-- [ ] **Step 3: Write `editors/vscode/src/worker/dotnet.ts`**
+- [x] **Step 3: Write `editors/vscode/src/worker/dotnet.ts`**
 
 ```ts
 import { execFile } from "node:child_process";
@@ -683,12 +683,12 @@ export async function resolveDotnet(opts?: {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd editors/vscode && npx vitest run src/worker/dotnet.test.ts`
 Expected: PASS (5 tests).
 
-- [ ] **Step 5: DEVLOG entry**
+- [x] **Step 5: DEVLOG entry**
 
 Append to `docs/DEVLOG.md`:
 ```markdown
@@ -697,7 +697,7 @@ Append to `docs/DEVLOG.md`:
 `worker/dotnet.ts`: `resolveDotnet` runs `dotnet --version` (honouring `DOTNET_ROOT`), throwing `DotnetNotFoundError` (spawn failure / non-zero exit) or `DotnetTooOldError` (major < 10). Both errors carry a `userMessage` for a notification. Injectable `run` for tests.
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add editors/vscode/src/worker/dotnet.ts editors/vscode/src/worker/dotnet.test.ts docs/DEVLOG.md
@@ -718,7 +718,7 @@ git commit -m "feat(vscode): resolve dotnet and enforce the .NET 10 floor"
   - `class WorkerDllNotFoundError extends Error` — `readonly userMessage: string`, lists the paths that were checked.
   - `function resolveWorkerDll(extensionRoot: string, env?: NodeJS.ProcessEnv): string` — returns the first existing path of: (1) `env.FSQS_WORKER_DLL` if set, (2) `${extensionRoot}/dist/worker/FSharpQueryStudio.Worker.dll`. Throws `WorkerDllNotFoundError` if none exist.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 `editors/vscode/src/worker/worker-path.test.ts`:
 ```ts
@@ -758,12 +758,12 @@ describe("resolveWorkerDll", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd editors/vscode && npx vitest run src/worker/worker-path.test.ts`
 Expected: FAIL — `Cannot find module './worker-path'`.
 
-- [ ] **Step 3: Write `editors/vscode/src/worker/worker-path.ts`**
+- [x] **Step 3: Write `editors/vscode/src/worker/worker-path.ts`**
 
 ```ts
 import * as fs from "node:fs";
@@ -800,12 +800,12 @@ export function resolveWorkerDll(extensionRoot: string, env: NodeJS.ProcessEnv =
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd editors/vscode && npx vitest run src/worker/worker-path.test.ts`
 Expected: PASS (3 tests).
 
-- [ ] **Step 5: DEVLOG entry**
+- [x] **Step 5: DEVLOG entry**
 
 Append to `docs/DEVLOG.md`:
 ```markdown
@@ -814,7 +814,7 @@ Append to `docs/DEVLOG.md`:
 `worker/worker-path.ts`: `resolveWorkerDll` returns `FSQS_WORKER_DLL` (dev override) or the bundled `dist/worker/FSharpQueryStudio.Worker.dll`, throwing `WorkerDllNotFoundError` (with an actionable `userMessage`) if neither exists.
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add editors/vscode/src/worker/worker-path.ts editors/vscode/src/worker/worker-path.test.ts docs/DEVLOG.md
@@ -843,7 +843,7 @@ git commit -m "feat(vscode): resolve the bundled or dev-override worker dll path
     - `dispose(): void` — kills the process if running and rejects/settles nothing further.
   - `test/fake-child.ts` exports `createFakeChild()` returning `{ process: WorkerProcess, sentFrames: unknown[], reply(frame: WorkerResponseFrame): void, emitExit(): void, rawStdinLines: string[] }`.
 
-- [ ] **Step 1: Write `editors/vscode/test/fake-child.ts`**
+- [x] **Step 1: Write `editors/vscode/test/fake-child.ts`**
 
 ```ts
 import { PassThrough } from "node:stream";
@@ -894,7 +894,7 @@ export function createFakeChild() {
 }
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 `editors/vscode/src/worker/client.test.ts`:
 ```ts
@@ -959,12 +959,12 @@ describe("WorkerClient send + correlation", () => {
 });
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `cd editors/vscode && npx vitest run src/worker/client.test.ts`
 Expected: FAIL — `Cannot find module './client'`.
 
-- [ ] **Step 4: Write `editors/vscode/src/worker/client.ts`**
+- [x] **Step 4: Write `editors/vscode/src/worker/client.ts`**
 
 ```ts
 import { readFrames, writeFrame } from "./ndjson";
@@ -1051,12 +1051,12 @@ export class WorkerClient {
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `cd editors/vscode && npx vitest run src/worker/client.test.ts`
 Expected: PASS (4 tests).
 
-- [ ] **Step 6: DEVLOG entry**
+- [x] **Step 6: DEVLOG entry**
 
 Append to `docs/DEVLOG.md`:
 ```markdown
@@ -1065,7 +1065,7 @@ Append to `docs/DEVLOG.md`:
 `worker/client.ts`: lazy single spawn, `send` registers the request id as pending and resolves on the matching response frame (order-independent), stdin writes serialized behind a promise chain (the `writeLock` equivalent from `App/WorkerClient.fs`). `SpawnWorker` is injected; `test/fake-child.ts` scripts a process for the unit tests.
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add editors/vscode/src/worker/client.ts editors/vscode/src/worker/client.test.ts editors/vscode/test/fake-child.ts docs/DEVLOG.md
@@ -1087,7 +1087,7 @@ git commit -m "feat(vscode): WorkerClient spawn + send + response correlation"
   - The next `send()` after an exit spawns a fresh process.
   - New optional option: `WorkerClientOptions.onCrash?: () => void` — called once per crash, after pending requests are settled.
 
-- [ ] **Step 1: Write the failing test (append to `client.test.ts`)**
+- [x] **Step 1: Write the failing test (append to `client.test.ts`)**
 
 ```ts
 import { WorkerClient as WC } from "./client";
@@ -1138,12 +1138,12 @@ describe("WorkerClient crash + restart", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd editors/vscode && npx vitest run src/worker/client.test.ts`
 Expected: FAIL — the first new test hangs/fails (pending never settles); `onCrash` is not a known option.
 
-- [ ] **Step 3: Update `editors/vscode/src/worker/client.ts`**
+- [x] **Step 3: Update `editors/vscode/src/worker/client.ts`**
 
 Replace the `WorkerClientOptions` interface and the `onExit` method, and add a `crashResponse` helper:
 
@@ -1189,12 +1189,12 @@ Replace `onExit`:
 
 (The `crashed` array is not strictly required; if you prefer, settle inside the loop only. Keep the loop body's two identical error objects or hoist a local `const err = () => ({ code: ..., message: ... })`.)
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd editors/vscode && npx vitest run src/worker/client.test.ts`
 Expected: PASS (all Task 6 + Task 7 tests).
 
-- [ ] **Step 5: DEVLOG entry**
+- [x] **Step 5: DEVLOG entry**
 
 Append to `docs/DEVLOG.md`:
 ```markdown
@@ -1203,7 +1203,7 @@ Append to `docs/DEVLOG.md`:
 On worker stdout close / process exit, every pending request settles with a `worker/crashed` error frame and the pending map clears; the next `send` spawns a fresh process. Optional `onCrash` callback. Mirrors the crash-and-restart ownership in `App/WorkerClient.fs` (no automatic retry of the dead request).
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add editors/vscode/src/worker/client.ts editors/vscode/src/worker/client.test.ts docs/DEVLOG.md
@@ -1223,7 +1223,7 @@ git commit -m "feat(vscode): WorkerClient crash detection and restart"
 - Produces:
   - `cancel(requestId: string, gracePeriodMs: number): Promise<void>` on `WorkerClient` — sends a `{ id: newRequestId(), method: "execution/cancel", params: {} }` request, then waits up to `gracePeriodMs` for the original `requestId` to settle. If it does not, calls `kill()` on the process and settles the original with `{ id: requestId, error: { code: "execution/forciblyStopped", message: "The worker did not stop cooperatively within the grace period and was terminated." } }`. If `requestId` is not pending (already done) it returns after sending the cancel.
 
-- [ ] **Step 1: Write the failing test (append to `client.test.ts`)**
+- [x] **Step 1: Write the failing test (append to `client.test.ts`)**
 
 ```ts
 describe("WorkerClient cancel", () => {
@@ -1273,12 +1273,12 @@ describe("WorkerClient cancel", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `cd editors/vscode && npx vitest run src/worker/client.test.ts`
 Expected: FAIL — `client.cancel is not a function`.
 
-- [ ] **Step 3: Update `editors/vscode/src/worker/client.ts`**
+- [x] **Step 3: Update `editors/vscode/src/worker/client.ts`**
 
 Add the import:
 ```ts
@@ -1325,12 +1325,12 @@ Add the method to `WorkerClient`:
 
 Note: this wraps `waiter.resolve` in place, so the existing `Pending` interface must allow reassignment — it already does (`resolve` is a plain property). No other change needed.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `cd editors/vscode && npx vitest run src/worker/client.test.ts`
 Expected: PASS (all Task 6–8 tests).
 
-- [ ] **Step 5: DEVLOG entry**
+- [x] **Step 5: DEVLOG entry**
 
 Append to `docs/DEVLOG.md`:
 ```markdown
@@ -1339,7 +1339,7 @@ Append to `docs/DEVLOG.md`:
 `cancel(requestId, gracePeriodMs)`: sends `execution/cancel`, waits out the grace period for the original request to settle, otherwise kills the process and force-settles it with `execution/forciblyStopped`. Ports Section 9's two-step cancellation from `App/WorkerClient.fs`.
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add editors/vscode/src/worker/client.ts editors/vscode/src/worker/client.test.ts docs/DEVLOG.md
@@ -1367,7 +1367,7 @@ git commit -m "feat(vscode): WorkerClient cooperative-then-forced cancel"
     - `interface HealthCheckDeps { extensionRoot: string; env: NodeJS.ProcessEnv; log: (line: string) => void; resolveDotnet: typeof resolveDotnet; resolveWorkerDll: typeof resolveWorkerDll; makeClient: (dotnetCommand: string, dll: string) => { send: WorkerClient["send"]; dispose: () => void }; }`
     - `type HealthCheckResult = { ok: true; version: string; capabilities: string[] } | { ok: false; kind: "dotnet-missing" | "dotnet-old" | "worker-missing" | "version-unsupported" | "error"; message: string }`
 
-- [ ] **Step 1: Write `editors/vscode/src/worker/spawn.ts`**
+- [x] **Step 1: Write `editors/vscode/src/worker/spawn.ts`**
 
 ```ts
 import { spawn } from "node:child_process";
@@ -1393,7 +1393,7 @@ export function spawnWorkerProcess(dotnetCommand: string, workerDllPath: string)
 }
 ```
 
-- [ ] **Step 2: Write the failing test**
+- [x] **Step 2: Write the failing test**
 
 `editors/vscode/src/extension.test.ts`:
 ```ts
@@ -1503,12 +1503,12 @@ describe("runHealthCheck", () => {
 });
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [x] **Step 3: Run test to verify it fails**
 
 Run: `cd editors/vscode && npx vitest run src/extension.test.ts`
 Expected: FAIL — `runHealthCheck` is not exported.
 
-- [ ] **Step 4: Write `editors/vscode/src/extension.ts`**
+- [x] **Step 4: Write `editors/vscode/src/extension.ts`**
 
 ```ts
 import * as vscode from "vscode";
@@ -1637,17 +1637,17 @@ export async function deactivate(): Promise<void> {
 }
 ```
 
-- [ ] **Step 5: Run test to verify it passes**
+- [x] **Step 5: Run test to verify it passes**
 
 Run: `cd editors/vscode && npx vitest run src/extension.test.ts`
 Expected: PASS (9 tests).
 
-- [ ] **Step 6: Compile the bundle**
+- [x] **Step 6: Compile the bundle**
 
 Run: `cd editors/vscode && npm run compile`
 Expected: `tsc --noEmit` clean; `dist/extension.js` rebuilt.
 
-- [ ] **Step 7: DEVLOG entry**
+- [x] **Step 7: DEVLOG entry**
 
 Append to `docs/DEVLOG.md`:
 ```markdown
@@ -1656,7 +1656,7 @@ Append to `docs/DEVLOG.md`:
 `spawn.ts` wraps `child_process.spawn("dotnet", [dll])` into the `WorkerProcess` shape. `extension.ts`: `runHealthCheck` (dependency-injected, fully unit-tested — dotnet-missing / dotnet-old / worker-missing / version-unsupported / error / ok) drives the `fs-query-studio.checkWorker` command, logging to an "F# Query Studio" output channel and surfacing an actionable "Install .NET" error where relevant.
 ```
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add editors/vscode/src docs/DEVLOG.md
@@ -1675,7 +1675,7 @@ git commit -m "feat(vscode): worker spawn helper and health-check activation com
 - Consumes: `resolveDotnet` from `./dotnet`, `resolveWorkerDll` from `./worker-path`, `WorkerClient` + `spawnWorkerProcess`, `newRequestId` from `../protocol`.
 - Produces: a test that is **skipped** unless a real worker dll is resolvable (`FSQS_WORKER_DLL` set, or `dist/worker/FSharpQueryStudio.Worker.dll` present), otherwise spawns the real worker and asserts a `worker/health` round-trip.
 
-- [ ] **Step 1: Write the integration test**
+- [x] **Step 1: Write the integration test**
 
 `editors/vscode/src/worker/handshake.integration.test.ts`:
 ```ts
@@ -1720,7 +1720,7 @@ describe.skipIf(!workerDll)("real worker handshake", () => {
 });
 ```
 
-- [ ] **Step 2: Build the worker and run the test**
+- [x] **Step 2: Build the worker and run the test**
 
 Run:
 ```bash
@@ -1729,7 +1729,7 @@ cd editors/vscode && npx vitest run src/worker/handshake.integration.test.ts
 ```
 Expected: PASS (1 test). If `dotnet publish` is not run, expected: the `describe` block is skipped (still green).
 
-- [ ] **Step 3: Write `editors/vscode/README.md`**
+- [x] **Step 3: Write `editors/vscode/README.md`**
 
 ```markdown
 # F# Query Studio — VS Code extension
@@ -1761,7 +1761,7 @@ Set `FSQS_WORKER_DLL` to point at a `FSharpQueryStudio.Worker.dll` built
 elsewhere instead of publishing into `dist/worker`.
 ```
 
-- [ ] **Step 4: DEVLOG entry**
+- [x] **Step 4: DEVLOG entry**
 
 Append to `docs/DEVLOG.md`:
 ```markdown
@@ -1770,7 +1770,7 @@ Append to `docs/DEVLOG.md`:
 `handshake.integration.test.ts` spawns the actual published worker and asserts a `worker/health` round-trip; skipped (green) when no worker dll is resolvable so `npm test` works without a `dotnet publish`. `editors/vscode/README.md` documents the dev loop.
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add editors/vscode/src/worker/handshake.integration.test.ts editors/vscode/README.md docs/DEVLOG.md
@@ -1788,11 +1788,11 @@ git commit -m "test(vscode): real-worker worker/health handshake integration tes
 - Consumes: the `editors/vscode` npm scripts (`compile`, `test`) and the worker publish command.
 - Produces: a GitHub Actions workflow that builds the worker, compiles and tests the extension on Ubuntu / Windows / macOS, and uploads a `.vsix` artifact from the Ubuntu job.
 
-- [ ] **Step 1: Inspect existing workflows for conventions**
+- [x] **Step 1: Inspect existing workflows for conventions**
 
 Run: `ls .github/workflows` and open any existing file. Match its `on:` triggers and action versions where reasonable. If `.github/workflows` does not exist, create it.
 
-- [ ] **Step 2: Write `.github/workflows/vscode-extension.yml`**
+- [x] **Step 2: Write `.github/workflows/vscode-extension.yml`**
 
 ```yaml
 name: vscode-extension
@@ -1860,12 +1860,12 @@ jobs:
 
 Note: `npm ci` requires a `package-lock.json`. If Task 1's `npm install` did not commit one, run `npm install` in `editors/vscode` now and `git add editors/vscode/package-lock.json` in this task's commit.
 
-- [ ] **Step 3: Validate the YAML locally**
+- [x] **Step 3: Validate the YAML locally**
 
 Run: `node -e "require('js-yaml')" 2>/dev/null || npx --yes js-yaml .github/workflows/vscode-extension.yml`
 Expected: the file parses (prints the parsed document). If `js-yaml` is unavailable, visually confirm indentation.
 
-- [ ] **Step 4: DEVLOG entry**
+- [x] **Step 4: DEVLOG entry**
 
 Append to `docs/DEVLOG.md`:
 ```markdown
@@ -1874,7 +1874,7 @@ Append to `docs/DEVLOG.md`:
 `.github/workflows/vscode-extension.yml`: on changes under `editors/vscode/` or the worker/protocol projects, publishes the worker, then compiles and tests the extension on Ubuntu/Windows/macOS, and uploads a `.vsix` artifact from the Ubuntu job.
 ```
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add .github/workflows/vscode-extension.yml editors/vscode/package-lock.json docs/DEVLOG.md
@@ -1893,12 +1893,12 @@ git commit -m "ci(vscode): build, test, and package the extension on three OSes"
 - Consumes: all prior tasks.
 - Produces: a green full test run and a phase-summary DEVLOG entry.
 
-- [ ] **Step 1: Full type-check + unit test run**
+- [x] **Step 1: Full type-check + unit test run**
 
 Run: `cd editors/vscode && npm run compile && npm test`
 Expected: `tsc --noEmit` clean; all vitest unit tests pass; the integration test either passes (if `dist/worker` was published) or is reported skipped.
 
-- [ ] **Step 2: Full integration run**
+- [x] **Step 2: Full integration run**
 
 Run:
 ```bash
@@ -1907,12 +1907,12 @@ cd editors/vscode && npm test
 ```
 Expected: the `real worker handshake` test now runs and passes.
 
-- [ ] **Step 3: Manual smoke in the Extension Development Host**
+- [x] **Step 3: Manual smoke in the Extension Development Host**
 
 In VS Code, open `editors/vscode` as the workspace root, press F5, and in the dev host run **F# Query Studio: Check Worker** from the command palette.
 Expected: the "F# Query Studio" output channel shows `Using dotnet ...`, `Worker dll: ...`, `Worker healthy: version ...`; an information message appears.
 
-- [ ] **Step 4: DEVLOG phase-summary entry**
+- [x] **Step 4: DEVLOG phase-summary entry**
 
 Append to `docs/DEVLOG.md`:
 ```markdown
@@ -1921,15 +1921,73 @@ Append to `docs/DEVLOG.md`:
 `editors/vscode/` compiles and tests on three OSes in CI. A dependency-injected `WorkerClient` (NDJSON framing, response correlation, crash/restart, cooperative-then-forced cancel — ported from `App/WorkerClient.fs`) spawns the existing F# worker and completes a `worker/health` handshake with protocol-version negotiation, surfaced through the `fs-query-studio.checkWorker` command. No notebook UI yet — that is F2. The Avalonia app is untouched.
 ```
 
-- [ ] **Step 5: Tick every checkbox in this plan file**
+- [x] **Step 5: Tick every checkbox in this plan file**
 
 Go through `docs/superpowers/plans/2026-09-03-vscode-extension-f1-scaffold.md` and change every `- [ ]` that is done to `- [x]`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add docs/DEVLOG.md docs/superpowers/plans/2026-09-03-vscode-extension-f1-scaffold.md
 git commit -m "docs: F1 scaffold phase complete"
+```
+
+---
+
+### Task 13: Extension-host integration tests in a real VS Code (added during execution)
+
+Added after Task 12 at the user's request — "create automated tests to verify in VS Code if it's actually working" — which replaces the manual F5 smoke that Task 12 Step 3 left pending. Same branch, same phase.
+
+**Files:**
+- Modify: `editors/vscode/package.json` (dev deps `@vscode/test-cli`, `@vscode/test-electron`, `mocha`, `@types/mocha`; scripts `pretest:vscode`, `test:vscode`, `test:all`)
+- Create: `editors/vscode/.vscode-test.mjs` (`defineConfig({ files: "out/test/integration/**/*.test.js", version: "stable", mocha: { ui: "bdd", timeout: 60000 } })`)
+- Create: `editors/vscode/tsconfig.integration.json` (extends base; `noEmit:false`, `rootDir:"."`, `outDir:"out"`, `types:["node","mocha"]`; include `src/**/*.ts` + `test/integration/**/*.ts`; exclude `src/**/*.test.ts`)
+- Create: `editors/vscode/test/integration/extension.test.ts`
+- Modify: `editors/vscode/src/extension.ts` — the `fs-query-studio.checkWorker` handler returns its `HealthCheckResult` (was implicitly `void`) so specs assert on it via `executeCommand`
+- Modify: `editors/vscode/src/worker/worker-path.ts` + `worker-path.test.ts` — `FSQS_WORKER_DLL` is authoritative: set-but-missing throws `WorkerDllNotFoundError` instead of falling back to the bundled worker (new unit test)
+- Modify: `.github/workflows/vscode-extension.yml` — `pretest:vscode` + `test:vscode` steps in the `build-test` job, Linux under `xvfb-run`
+- Modify: `editors/vscode/.vscodeignore` (`.vscode-test/**`, `.vscode-test.mjs`, `tsconfig.integration.json`), `editors/vscode/.gitignore` (`.vscode-test/`)
+- Modify: `editors/vscode/README.md` (document `test:vscode` / `test:all`)
+
+**Specs (`test/integration/extension.test.ts`, Mocha BDD, real `vscode` module):**
+- `activates` — `vscode.extensions.getExtension("fs-query-studio.fs-query-studio")` then `.activate()`, assert `isActive`.
+- `registers the checkWorker command` — `vscode.commands.getCommands(true)` includes `fs-query-studio.checkWorker`.
+- `reports worker-missing for a bogus FSQS_WORKER_DLL` — set the env var to a nonexistent path, `executeCommand` the command, assert `result.ok === false && result.kind === "worker-missing"`; `afterEach` clears the env var.
+- `completes a real worker/health check against the bundled worker` — `it.skip` when `dist/worker/FSharpQueryStudio.Worker.dll` is absent; otherwise `executeCommand` and assert `result.ok` with a `\d+\.`-shaped `version` and an array `capabilities`. Spawns the .NET worker from inside the extension host.
+
+- [x] **Step 1: Add dev deps and scripts**
+
+`npm install --save-dev @vscode/test-cli @vscode/test-electron mocha @types/mocha`; add `pretest:vscode` (`tsc -p tsconfig.integration.json && node esbuild.mjs`), `test:vscode` (`vscode-test`), `test:all` (`npm test && npm run test:vscode`).
+
+- [x] **Step 2: Write `.vscode-test.mjs` and `tsconfig.integration.json`** (see Files).
+
+- [x] **Step 3: Make the command return its result**
+
+In `src/extension.ts`, lift the command body into `const runCheck = async (): Promise<HealthCheckResult> => { ...; return result; }` and register that.
+
+- [x] **Step 4: Write the failing spec** (`test/integration/extension.test.ts`, all four `it`s above).
+
+- [x] **Step 5: Run — one spec fails**
+
+`npm run pretest:vscode && npm run test:vscode` → `reports worker-missing` fails: a bogus `FSQS_WORKER_DLL` still resolved because `resolveWorkerDll` fell through to the bundled worker.
+
+- [x] **Step 6: Make `FSQS_WORKER_DLL` authoritative**
+
+`worker-path.ts`: when the override is set but the file is missing, `throw new WorkerDllNotFoundError([override])` instead of continuing to the bundled path. Add the vitest case `throws when FSQS_WORKER_DLL is set but the file is missing, ignoring the bundled fallback`.
+
+- [x] **Step 7: Run — all green**
+
+`npx vitest run` → 36 passing. `npm run pretest:vscode && npm run test:vscode` → 4 passing.
+
+- [x] **Step 8: CI + ignore + README** (see Files). Validate the workflow YAML.
+
+- [x] **Step 9: DEVLOG entry** (`## 2026-09-04 — F1.12: extension-host integration tests (real VS Code)`).
+
+- [x] **Step 10: Commit**
+
+```bash
+git add -A
+git commit -m "test(vscode): extension-host integration tests in a real VS Code"
 ```
 
 ---
@@ -1950,10 +2008,11 @@ git commit -m "docs: F1 scaffold phase complete"
 | worker DLL location (spec: "Bundled worker location: `editors/vscode/dist/worker/...`") | Task 5 (`resolveWorkerDll`) |
 | `OutputChannel` "F# Query Studio" (spec component `log/channel.ts` — the worker-status half) | Task 9 |
 | actionable "Install .NET" error (spec error table row `dotnet missing / < 10`) | Task 9 |
-| CI (spec Testing: "GitHub Actions, matrix win/linux/mac ... `npm test` ... `vsce package` as an artifact") | Task 11 |
-| dev README / `dotnet publish` step (spec Packaging) | Task 10 |
+| CI (spec Testing: "GitHub Actions, matrix win/linux/mac ... `npm test` ... `vsce package` as an artifact") | Task 11, extended in Task 13 |
+| dev README / `dotnet publish` step (spec Packaging) | Task 10, updated in Task 13 |
+| extension-host tests in a real VS Code (spec Testing: "Extension host" row) | Task 13 (added during execution — activation, command registration, `worker-missing`, real `worker/health`) |
 
-Deferred to later phases by design (not F1 gaps): notebook serializer/controller/renderer (F2/F3), `analysis/*` providers (F4), connections tree + secret bridge (F5), `BridgeSecretStore` worker change (F5), `@vscode/test-electron` extension-host tests (F2+), self-contained VSIX (F7).
+Deferred to later phases by design (not F1 gaps): notebook serializer/controller/renderer (F2/F3), `analysis/*` providers (F4), connections tree + secret bridge (F5), `BridgeSecretStore` worker change (F5), self-contained VSIX (F7). The extension-host **test harness** landed in F1 (Task 13); the notebook/cell/connection scenarios it will run are added with their phases.
 
 **2. Placeholder scan:** No "TBD"/"TODO"/"handle edge cases"/"similar to Task N". Every code step has a full code block. Task 7 Step 3 gives an explicit edit (interface + method replacement) rather than a full-file rewrite because it modifies a file created in Task 6 that the executor has in front of them; the exact new method body is spelled out. Task 11 Step 1 asks the executor to look at existing workflows for house style — that is an inspection instruction, not a deferred decision (the full workflow file follows in Step 2).
 

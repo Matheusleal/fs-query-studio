@@ -1677,3 +1677,67 @@ Verified: `dotnet build FSharpQueryStudio.slnx` — 0 warnings/errors, all 24 pr
 
 Files changed: `src/FSharpQueryStudio.Ui/ConnectionNameCompletion.fs` (new), `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`, `src/FSharpQueryStudio.Ui/FSharpQueryStudio.Ui.fsproj`, `src/FSharpQueryStudio.Editor/EditorAssets/editor-host.html`, `tests/FSharpQueryStudio.Ui.Tests/ConnectionNameCompletionTests.fs` (new), `tests/FSharpQueryStudio.Ui.Tests/FSharpQueryStudio.Ui.Tests.fsproj`.
 
+## 2026-09-03 — F1.1: editors/vscode/ npm project scaffold
+
+Created the TypeScript project for the VS Code extension: package.json (command `fs-query-studio.checkWorker`, command-only activation), tsconfig (Node16 modules, strict), esbuild bundle to `dist/extension.js`, vitest with a `vscode` module stub. `passWithNoTests` on so the harness is green before Task 2 adds the first real test. No behavior yet — activate/deactivate are no-ops.
+
+## 2026-09-03 — F1.2: TypeScript mirror of the worker protocol frames
+
+`protocol.ts`: hand-written `WorkerRequestFrame`/`WorkerResponseFrame`/`WorkerErrorInfo`/`HealthInfo` (camelCase, matching the F# `JsonNamingPolicy.CamelCase`), plus `isWorkerVersionSupported` (accepts worker major 0–1) and `newRequestId`.
+
+## 2026-09-03 — F1.3: NDJSON framing for the worker transport (TS side)
+
+`worker/ndjson.ts`: `writeFrame` (JSON + `\n`) and `readFrames` (buffered split on `\n`, `JSON.parse` per line, chunk reassembly, unparseable lines surfaced as `{__parseError}` rather than thrown). Mirrors `src/FSharpQueryStudio.Worker/NdjsonStream.fs`.
+
+## 2026-09-03 — F1.4: dotnet resolution with a .NET 10 floor
+
+`worker/dotnet.ts`: `resolveDotnet` runs `dotnet --version` (honouring `DOTNET_ROOT`), throwing `DotnetNotFoundError` (spawn failure / non-zero exit) or `DotnetTooOldError` (major < 10). Both errors carry a `userMessage` for a notification. Injectable `run` for tests.
+
+## 2026-09-03 — F1.5: worker DLL path resolution
+
+`worker/worker-path.ts`: `resolveWorkerDll` returns `FSQS_WORKER_DLL` (dev override) or the bundled `dist/worker/FSharpQueryStudio.Worker.dll`, throwing `WorkerDllNotFoundError` (with an actionable `userMessage`) if neither exists.
+
+## 2026-09-03 — F1.6: WorkerClient — spawn, send, response correlation
+
+`worker/client.ts`: lazy single spawn, `send` registers the request id as pending and resolves on the matching response frame (order-independent), stdin writes serialized behind a promise chain (the `writeLock` equivalent from `App/WorkerClient.fs`). `SpawnWorker` is injected; `test/fake-child.ts` scripts a process for the unit tests.
+
+## 2026-09-03 — F1.7: WorkerClient — crash detection and restart
+
+On worker stdout close / process exit, every pending request settles with a `worker/crashed` error frame and the pending map clears; the next `send` spawns a fresh process. Optional `onCrash` callback. Mirrors the crash-and-restart ownership in `App/WorkerClient.fs` (no automatic retry of the dead request).
+
+## 2026-09-03 — F1.8: WorkerClient — cooperative-then-forced cancel
+
+`cancel(requestId, gracePeriodMs)`: fires `execution/cancel`, waits out the grace period for the original request to settle, otherwise kills the process and force-settles it with `execution/forciblyStopped`. Ports Section 9's two-step cancellation from `App/WorkerClient.fs`, but does **not** await the cancel ack (the F# `_ack`) — awaiting it would hang the TS client if the worker never acks, and the ack carries nothing the grace-period race needs.
+
+## 2026-09-03 — F1.9: extension activation + `fs-query-studio.checkWorker`
+
+`spawn.ts` wraps `child_process.spawn("dotnet", [dll])` into the `WorkerProcess` shape. `extension.ts`: `runHealthCheck` (dependency-injected, fully unit-tested — dotnet-missing / dotnet-old / worker-missing / version-unsupported / error / ok) drives the `fs-query-studio.checkWorker` command, logging to an "F# Query Studio" output channel and surfacing an actionable "Install .NET" error where relevant. Full suite: 34 unit tests green.
+
+## 2026-09-03 — F1.10: real-worker handshake integration test + dev README
+
+`handshake.integration.test.ts` spawns the actual published worker and asserts a `worker/health` round-trip; skipped (green) when no worker dll is resolvable so `npm test` works without a `dotnet publish`. `editors/vscode/README.md` documents the dev loop.
+
+Finding while wiring it: the worker (FSharp.SystemTextJson) serializes an absent `error`/`result` as an explicit JSON `null`, not by omitting the key — raw frame is `{"id":...,"result":{...},"error":null}`. `WorkerResponseFrame.error` typed `WorkerErrorInfo | null`; consumers already use truthy checks so `null` and `undefined` are handled the same. Worker reports version `1.0.0.0` — inside the supported `0..1` major range.
+
+## 2026-09-03 — F1.11: CI for the VS Code extension
+
+`.github/workflows/vscode-extension.yml`: on changes under `editors/vscode/` or the worker/protocol projects, publishes the worker, then compiles and tests the extension on Ubuntu/Windows/macOS, and uploads a `.vsix` artifact from the Ubuntu job. Local `vsce package` smoke: exits 0, 70.75 MB VSIX (framework-dependent worker, 257 files) — only a non-fatal "LICENSE not found" warning. Added `repository` to `package.json` and `.gitignore` to `.vscodeignore`.
+
+## 2026-09-03 — F1 complete: VS Code extension scaffold
+
+`editors/vscode/` compiles (`tsc --noEmit` + esbuild bundle) and its full suite is green: 34 unit tests + 1 real-worker integration test (`worker/health` round-trip against a `dotnet publish`ed worker). A dependency-injected `WorkerClient` — NDJSON framing, response correlation, crash/restart, cooperative-then-forced cancel, ported from `App/WorkerClient.fs` — spawns the existing F# worker and negotiates protocol version, surfaced through the `fs-query-studio.checkWorker` command and an "F# Query Studio" output channel. Tri-OS CI added. No notebook UI yet — that is F2. The Avalonia app is untouched.
+
+Still pending (interactive, cannot run headless): the F5 Extension Development Host smoke — open `editors/vscode` in VS Code, press F5, run **F# Query Studio: Check Worker**, confirm the output channel shows `Worker healthy: version 1.0.0.0`.
+
+## 2026-09-04 — F1.12: extension-host integration tests (real VS Code)
+
+Automates the F5 smoke. `@vscode/test-cli` + `@vscode/test-electron` download a real VS Code, load `editors/vscode` as a development extension, and run Mocha specs (`test/integration/**`, compiled by `tsconfig.integration.json` to `out/`, config in `.vscode-test.mjs`). Separate from vitest (`npm test` unchanged; new `test:vscode` / `test:all`).
+
+Four specs, all green locally: extension activates; `fs-query-studio.checkWorker` is registered; a bogus `FSQS_WORKER_DLL` yields `worker-missing` without throwing; the command completes a real `worker/health` check against the bundled worker (spawns the .NET worker from inside the extension host). The command handler now returns its `HealthCheckResult` so specs can assert on it directly.
+
+Behaviour change from the finding: `resolveWorkerDll` now treats `FSQS_WORKER_DLL` as authoritative — set-but-missing throws `WorkerDllNotFoundError` instead of silently falling back to the bundled worker (new unit test covers it). CI: unit + extension-host tests on all three OSes, Linux under `xvfb-run`.
+
+## 2026-09-05 — Fix: `npm run compile` broken by the base tsconfig picking up the mocha specs
+
+`tsconfig.json`'s `include: ["src", "test"]` swept in `test/integration/extension.test.ts` too, but its `types` list has no `"mocha"` — `tsc --noEmit` (plain `compile`, not `pretest:vscode`) failed on every mocha global (`describe`/`it`/`afterEach`/`this`). Never caught in the F1.12 session because `compile` wasn't re-run after the integration spec was added — only `pretest:vscode` (which targets `tsconfig.integration.json`, `types: ["node","mocha"]`) and vitest were. Fix: `tsconfig.json` gets `"exclude": ["test/integration"]`; `tsconfig.integration.json` already declares its own `exclude` so it's unaffected. Re-verified: `compile`, `pretest:vscode` + vitest (36 passing), `test:vscode` (4 passing) all green.
+

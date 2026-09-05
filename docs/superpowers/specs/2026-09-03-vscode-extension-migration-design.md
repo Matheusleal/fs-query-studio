@@ -225,8 +225,10 @@ The renderer draws the grid from the mime item. "Load more" -> extension command
 | `serializer.ts` | Unit TS, round-trip `.fsqnb` <-> NotebookData | format, no persisted output |
 | `lang/providers.ts` | Unit TS, mock `WorkerClient` | cell concatenation, position offset, debounce |
 | `secrets/bridge.ts` | Unit TS, fake `context.secrets` | get/set/delete, missing key |
-| Integration | `@vscode/test-electron` — headless VS Code, extension + real worker, Ionide not installed | open `.fsqnb`, run a cell, see the tabular mime, cancel, restart kernel, add a connection and resolve its secret |
+| Extension host | `@vscode/test-cli` + `@vscode/test-electron` — a real downloaded VS Code loads `editors/vscode` as a development extension; Mocha specs in `test/integration/**`, compiled by `tsconfig.integration.json`, config in `.vscode-test.mjs`. Ionide not installed. | **Landed in F1:** activation, command registration, `worker-missing` on a bogus `FSQS_WORKER_DLL`, a real `worker/health` check that spawns the .NET worker from inside the host. **Grows per phase:** open `.fsqnb` + run a cell + tabular mime (F2/F3), cancel / restart kernel (F2), add a connection and resolve its secret (F5). |
 | Renderer | Unit TS (jsdom) of the grid | render schema + rows, "load more", CSV export |
+
+CI runs the unit suite and the extension-host suite on all three OSes; Linux runs the extension host under `xvfb-run`.
 
 **Not automated (accepted, noted here):** renderer appearance, real completion interaction in the VS Code UI, side-by-side behavior with Ionide installed — all on the manual release checklist.
 
