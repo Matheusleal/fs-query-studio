@@ -1745,3 +1745,7 @@ Behaviour change from the finding: `resolveWorkerDll` now treats `FSQS_WORKER_DL
 ## 2026-09-05 — F2.1: protocol types for execution/evaluate + ResultEnvelope
 
 `protocol.ts` gains the F2 wire types: `EvaluateParams`, `SessionResetParams`, `ResultEnvelope` (+ `Column`, `OutputLine`), and `UnionTag` / `readUnionTag` / `makeUnionTag` / `SESSION_MODE_PERSISTENT` for FSharp.SystemTextJson's `{"Case":"..."}` adjacent-tag encoding (fieldless F# union cases are not unwrapped — confirmed against the worker integration tests).
+
+## 2026-09-05 — F2.2: `.fsqnb` JSON codec
+
+`notebook/fsqnb.ts`: pure `deserializeFsqnb` / `serializeFsqnb` over an in-memory `FsqnbDocument` (version 1, code + markdown cells, `metadata`). Empty input → empty notebook; unknown `version` → `FsqnbVersionError` (hard failure, no best-effort); non-JSON / non-object root → `FsqnbError`. Serialize is deterministic (2-space, trailing newline) and round-trip-stable. No VS Code dependency.
