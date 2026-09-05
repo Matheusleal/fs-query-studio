@@ -22,3 +22,31 @@ describe("newRequestId", () => {
     expect(newRequestId()).not.toEqual(newRequestId());
   });
 });
+
+import {
+  readUnionTag,
+  makeUnionTag,
+  SESSION_MODE_PERSISTENT,
+} from "./protocol";
+
+describe("union tag helpers", () => {
+  it("reads a Case tag from a union-shaped value", () => {
+    expect(readUnionTag({ Case: "Table" })).toBe("Table");
+  });
+
+  it("returns undefined for values that are not union-shaped", () => {
+    expect(readUnionTag(null)).toBeUndefined();
+    expect(readUnionTag(undefined)).toBeUndefined();
+    expect(readUnionTag({})).toBeUndefined();
+    expect(readUnionTag("Table")).toBeUndefined();
+    expect(readUnionTag({ Case: 3 })).toBeUndefined();
+  });
+
+  it("round-trips through make/read", () => {
+    expect(readUnionTag(makeUnionTag("Persistent"))).toBe("Persistent");
+  });
+
+  it("SESSION_MODE_PERSISTENT serializes to the worker's adjacent-tag shape", () => {
+    expect(JSON.stringify(SESSION_MODE_PERSISTENT)).toBe('{"Case":"Persistent"}');
+  });
+});

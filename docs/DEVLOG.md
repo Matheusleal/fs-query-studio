@@ -1741,3 +1741,7 @@ Behaviour change from the finding: `resolveWorkerDll` now treats `FSQS_WORKER_DL
 
 `tsconfig.json`'s `include: ["src", "test"]` swept in `test/integration/extension.test.ts` too, but its `types` list has no `"mocha"` — `tsc --noEmit` (plain `compile`, not `pretest:vscode`) failed on every mocha global (`describe`/`it`/`afterEach`/`this`). Never caught in the F1.12 session because `compile` wasn't re-run after the integration spec was added — only `pretest:vscode` (which targets `tsconfig.integration.json`, `types: ["node","mocha"]`) and vitest were. Fix: `tsconfig.json` gets `"exclude": ["test/integration"]`; `tsconfig.integration.json` already declares its own `exclude` so it's unaffected. Re-verified: `compile`, `pretest:vscode` + vitest (36 passing), `test:vscode` (4 passing) all green.
 
+
+## 2026-09-05 — F2.1: protocol types for execution/evaluate + ResultEnvelope
+
+`protocol.ts` gains the F2 wire types: `EvaluateParams`, `SessionResetParams`, `ResultEnvelope` (+ `Column`, `OutputLine`), and `UnionTag` / `readUnionTag` / `makeUnionTag` / `SESSION_MODE_PERSISTENT` for FSharp.SystemTextJson's `{"Case":"..."}` adjacent-tag encoding (fieldless F# union cases are not unwrapped — confirmed against the worker integration tests).
