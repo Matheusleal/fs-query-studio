@@ -64,6 +64,13 @@ export function createFsQueryController(deps: ControllerDeps): vscode.NotebookCo
   let executionOrder = 0;
   let inFlightRequestId: string | undefined;
   let worker: WorkerLike | undefined;
+  // Serializes `executeHandler` invocations. VS Code calls `executeHandler`
+  // again while a prior batch is still awaiting `client.send`, so without a
+  // queue two `execution/evaluate`s race (the worker's `Interlocked` guard
+  // then returns `execution/busy`) and the shared `inFlightRequestId` gets
+  // overwritten so Interrupt cancels the wrong request. Chaining every batch
+  // onto this promise keeps the worker strictly one-eval-at-a-time.
+  let runQueue: Promise<void> = Promise.resolve();
 
   controller.interruptHandler = async () => {
     if (worker && inFlightRequestId) {
@@ -71,7 +78,10 @@ export function createFsQueryController(deps: ControllerDeps): vscode.NotebookCo
     }
   };
 
-  controller.executeHandler = async (cells, notebook) => {
+  async function runBatch(
+    cells: vscode.NotebookCell[],
+    notebook: vscode.NotebookDocument,
+  ): Promise<void> {
     const sessionId = notebook.uri.toString();
 
     let client: WorkerLike;
@@ -98,7 +108,6 @@ export function createFsQueryController(deps: ControllerDeps): vscode.NotebookCo
       exec.start(Date.now());
 
       const requestId = newRequestId();
-      inFlightRequestId = requestId;
       const params: EvaluateParams = {
         source: cell.document.getText(),
         sessionId,
@@ -107,6 +116,10 @@ export function createFsQueryController(deps: ControllerDeps): vscode.NotebookCo
       };
 
       let response: WorkerResponseFrame;
+      // The id belongs to the batch that is actually running now; a
+      // queued-but-not-started batch never sets it, so Interrupt can only
+      // cancel the request that is in flight at this moment.
+      inFlightRequestId = requestId;
       try {
         response = await client.send({ id: requestId, method: "execution/evaluate", params });
       } catch (err) {
@@ -117,26 +130,40 @@ export function createFsQueryController(deps: ControllerDeps): vscode.NotebookCo
       }
       inFlightRequestId = undefined;
 
-      if (response.error) {
-        const message =
-          response.error.code === "worker/crashed"
-            ? "The worker exited before responding. The FSI session was lost; it restarts on the next run."
-            : response.error.message;
-        exec.replaceOutput(errorOutput(response.error.code, message));
+      // Everything from here on — envelope mapping, `toOutputItem`,
+      // `replaceOutput` — can throw (e.g. a `null`/absent `result`). Wrap it
+      // so no path leaves the execution "running" forever.
+      try {
+        if (response.error) {
+          const message =
+            response.error.code === "worker/crashed"
+              ? "The worker exited before responding. The FSI session was lost; it restarts on the next run."
+              : response.error.message;
+          exec.replaceOutput(errorOutput(response.error.code, message));
+          exec.end(false, Date.now());
+          break;
+        }
+
+        const envelope = response.result as ResultEnvelope | null | undefined;
+        const items = mapEnvelope(envelope).map(toOutputItem);
+        exec.replaceOutput(new vscode.NotebookCellOutput(items));
+
+        const isError = !envelope || readUnionTag(envelope.kind) === "Error";
+        exec.end(!isError, Date.now());
+        if (isError) {
+          break;
+        }
+      } catch (err) {
+        exec.replaceOutput(errorOutput("InternalError", (err as Error).message));
         exec.end(false, Date.now());
         break;
       }
-
-      const envelope = response.result as ResultEnvelope;
-      const items = mapEnvelope(envelope).map(toOutputItem);
-      exec.replaceOutput(new vscode.NotebookCellOutput(items));
-
-      const isError = readUnionTag(envelope.kind) === "Error";
-      exec.end(!isError, Date.now());
-      if (isError) {
-        break;
-      }
     }
+  }
+
+  controller.executeHandler = (cells, notebook) => {
+    runQueue = runQueue.then(() => runBatch(cells, notebook)).catch(() => {});
+    return runQueue;
   };
 
   return controller;
@@ -148,5 +175,8 @@ export async function restartKernel(
 ): Promise<void> {
   const client = await getWorker();
   const params: SessionResetParams = { sessionId: notebookUri };
-  await client.send({ id: newRequestId(), method: "session/reset", params });
+  const response = await client.send({ id: newRequestId(), method: "session/reset", params });
+  if (response.error) {
+    throw new Error(`${response.error.code}: ${response.error.message}`);
+  }
 }

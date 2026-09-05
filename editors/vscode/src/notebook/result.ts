@@ -13,6 +13,8 @@ export type OutputItemSpec =
   | { kind: "error"; name: string; message: string };
 
 const MAX_CELL_WIDTH = 60;
+/** Cap on rows rendered into the text grid, independent of `isTruncated`. */
+const MAX_RENDERED_ROWS = 500;
 
 function renderCell(value: unknown): string {
   if (value === null || value === undefined) {
@@ -40,11 +42,15 @@ export function formatTextTable(
   isTruncated: boolean,
 ): string {
   const headers = schema.map((c) => c.name);
-  const body = rows.map((row) => row.map(renderCell));
+  // Only the rendered slice is materialised — a huge `rows` (Results.table
+  // pushes the full set with `isTruncated: false`) must not be mapped in full.
+  const body = rows.slice(0, MAX_RENDERED_ROWS).map((row) => row.map(renderCell));
+  // `reduce`, not `Math.max(...spread)` — a spread of one argument per row
+  // throws `RangeError: Maximum call stack size exceeded` around ~65k rows.
   const widths = headers.map((header, i) =>
     Math.min(
       MAX_CELL_WIDTH,
-      Math.max(header.length, ...body.map((row) => (row[i] ?? "").length), 0),
+      body.reduce((max, row) => Math.max(max, (row[i] ?? "").length), header.length),
     ),
   );
   const line = (cells: string[]) =>
@@ -58,13 +64,22 @@ export function formatTextTable(
   }
   out.push("");
   out.push(`(${rows.length} row${rows.length === 1 ? "" : "s"} · ${elapsedMs}ms)`);
+  if (rows.length > MAX_RENDERED_ROWS) {
+    out.push(`(showing ${MAX_RENDERED_ROWS} of ${rows.length} rows)`);
+  }
   if (isTruncated) {
     out.push("(truncated — full grid and paging arrive in F3)");
   }
   return out.join("\n");
 }
 
-export function mapEnvelope(env: ResultEnvelope): OutputItemSpec[] {
+export function mapEnvelope(env: ResultEnvelope | null | undefined): OutputItemSpec[] {
+  if (env === null || env === undefined) {
+    return [
+      { kind: "error", name: "WorkerProtocolError", message: "The worker returned no result." },
+    ];
+  }
+
   const specs: OutputItemSpec[] = [];
 
   for (const line of env.output ?? []) {

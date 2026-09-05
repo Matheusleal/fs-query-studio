@@ -57,6 +57,22 @@ describe("formatTextTable", () => {
     const text = formatTextTable([{ name: "x", displayType: "int" }], [[1]], 1, false);
     expect(text).toContain("(1 row · 1ms)");
   });
+
+  it("caps the rendered rows at 500 and notes how many were hidden", () => {
+    const rows = Array.from({ length: 1000 }, (_, i) => [i]);
+    const text = formatTextTable([{ name: "n", displayType: "int" }], rows, 9, false);
+    const lines = text.split("\n");
+    expect(lines.length).toBeLessThanOrEqual(506);
+    expect(text).toContain("(showing 500 of 1000 rows)");
+    expect(text).toContain("(1000 rows · 9ms)");
+  });
+
+  it("does not blow the stack on a very large row set", () => {
+    const rows = Array.from({ length: 100_000 }, (_, i) => [i]);
+    expect(() =>
+      formatTextTable([{ name: "n", displayType: "int" }], rows, 1, false),
+    ).not.toThrow();
+  });
 });
 
 describe("mapEnvelope", () => {

@@ -21,7 +21,9 @@ export class FsqnbSerializer implements vscode.NotebookSerializer {
       const languageId = c.kind === "markdown" ? "markdown" : c.language || "fsharp";
       return new vscode.NotebookCellData(kind, c.value, languageId);
     });
-    return new vscode.NotebookData(cells);
+    const data = new vscode.NotebookData(cells);
+    data.metadata = doc.metadata;
+    return data;
   }
 
   serializeNotebook(data: vscode.NotebookData): Uint8Array {
@@ -32,7 +34,7 @@ export class FsqnbSerializer implements vscode.NotebookSerializer {
           ? { kind: "markdown", language: "markdown", value: c.value }
           : { kind: "code", language: c.languageId || "fsharp", value: c.value },
       ),
-      metadata: {},
+      metadata: (data.metadata as Record<string, unknown>) ?? {},
     };
     return new TextEncoder().encode(serializeFsqnb(doc));
   }

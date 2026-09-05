@@ -51,4 +51,20 @@ describe("FsqnbSerializer.serializeNotebook", () => {
     const bytes = s.serializeNotebook(s.deserializeNotebook(enc("")));
     expect(JSON.parse(dec(bytes)).version).toBe(1);
   });
+
+  it("round-trips document-level metadata through deserialize/serialize", () => {
+    const s = new FsqnbSerializer();
+    const original = enc(
+      JSON.stringify({
+        version: 1,
+        cells: [{ kind: "code", language: "fsharp", value: "let x = 1" }],
+        metadata: { defaultConnection: "db1" },
+      }),
+    );
+    const data = s.deserializeNotebook(original);
+    expect(data.metadata).toEqual({ defaultConnection: "db1" });
+
+    const back = s.serializeNotebook(data);
+    expect(JSON.parse(dec(back)).metadata).toEqual({ defaultConnection: "db1" });
+  });
 });

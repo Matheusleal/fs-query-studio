@@ -1220,6 +1220,8 @@ git commit -m "feat(vscode): window-lifetime worker session singleton with healt
 - Test: `editors/vscode/src/notebook/controller.test.ts`
 - Modify: `editors/vscode/test/vscode-stub.ts`
 
+> Note (F2 final-review fix wave): `executeHandler` was changed from a bare `async` handler to a per-controller promise-chain (`runQueue = runQueue.then(() => runBatch(cells, notebook))`) so cell runs serialize *across* re-entrant `executeHandler` invocations, not just within one batch; the per-cell body now also runs inside a `try/catch` that always ends the execution.
+
 **Interfaces:**
 - Consumes: `FSQNB_NOTEBOOK_TYPE` from `./serializer`; `mapEnvelope`, `OutputItemSpec` from `./result`; `newRequestId`, `readUnionTag`, `SESSION_MODE_PERSISTENT`, `EvaluateParams`, `ResultEnvelope`, `SessionResetParams`, `WorkerResponseFrame` from `../protocol`.
 - Produces:
