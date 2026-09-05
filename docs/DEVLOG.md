@@ -1757,3 +1757,7 @@ Behaviour change from the finding: `resolveWorkerDll` now treats `FSQS_WORKER_DL
 ## 2026-09-05 — F2.4: ResultEnvelope → cell-output mapper
 
 `notebook/result.ts`: pure `mapEnvelope` turns a worker `ResultEnvelope` into ordered `OutputItemSpec`s — stdout/stderr lines first, then the value by `kind`: `Error` → an error item (uses `displayText`), `Table` → `formatTextTable` (aligned monospace grid + `(N rows · Mms)` + an F3 truncation note), `NoValue` → nothing unless it carries `displayText`, everything else → the `displayText` string. No renderer yet — that is F3.
+
+## 2026-09-05 — F2.5: window-lifetime worker session singleton
+
+`worker/session.ts`: `resolveWorkerSession` resolves dotnet + the worker dll, spawns one `WorkerClient`, and gates it behind a `worker/health` version check, collapsing every failure into a typed `WorkerUnavailableError` (`dotnet-missing` / `dotnet-old` / `worker-missing` / `version-unsupported` / `error`) with a `userMessage`. `getWorkerSession` memoises the first success (failures clear the memo so a later run retries); `disposeWorkerSession` tears it down for `deactivate`. Dependency-injected `resolveDotnet` / `resolveWorkerDll` / `makeClient` for tests.
