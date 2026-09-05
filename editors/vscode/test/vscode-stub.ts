@@ -31,4 +31,24 @@ export const commands = {
 export const env = { openExternal: async (_uri: unknown) => true };
 export const Uri = { parse: (s: string) => ({ toString: () => s }) };
 
-export default { window, commands, env, Uri };
+// --- notebook document model (F2) ---
+export enum NotebookCellKind {
+  Markup = 1,
+  Code = 2,
+}
+
+export class NotebookCellData {
+  metadata?: Record<string, unknown>;
+  constructor(
+    public kind: NotebookCellKind,
+    public value: string,
+    public languageId: string,
+  ) {}
+}
+
+export class NotebookData {
+  metadata?: Record<string, unknown>;
+  constructor(public cells: NotebookCellData[]) {}
+}
+
+export default { window, commands, env, Uri, NotebookCellKind, NotebookCellData, NotebookData };

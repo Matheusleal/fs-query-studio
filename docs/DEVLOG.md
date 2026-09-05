@@ -1749,3 +1749,7 @@ Behaviour change from the finding: `resolveWorkerDll` now treats `FSQS_WORKER_DL
 ## 2026-09-05 — F2.2: `.fsqnb` JSON codec
 
 `notebook/fsqnb.ts`: pure `deserializeFsqnb` / `serializeFsqnb` over an in-memory `FsqnbDocument` (version 1, code + markdown cells, `metadata`). Empty input → empty notebook; unknown `version` → `FsqnbVersionError` (hard failure, no best-effort); non-JSON / non-object root → `FsqnbError`. Serialize is deterministic (2-space, trailing newline) and round-trip-stable. No VS Code dependency.
+
+## 2026-09-05 — F2.3: NotebookSerializer adapter for `.fsqnb`
+
+`notebook/serializer.ts`: `FsqnbSerializer` wraps the codec into `vscode.NotebookSerializer` (`Uint8Array` ↔ `NotebookData`, code → `Code` cell / markdown → `Markup` cell, language defaulting to `fsharp`). `FSQNB_NOTEBOOK_TYPE = "fsquery-notebook"`. `test/vscode-stub.ts` gains `NotebookCellKind` / `NotebookCellData` / `NotebookData`.
