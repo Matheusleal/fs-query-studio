@@ -51,4 +51,84 @@ export class NotebookData {
   constructor(public cells: NotebookCellData[]) {}
 }
 
-export default { window, commands, env, Uri, NotebookCellKind, NotebookCellData, NotebookData };
+// --- notebook execution model (F2) ---
+export class NotebookCellOutputItem {
+  constructor(
+    public data: unknown,
+    public mime: string,
+  ) {}
+  static stdout(value: string) {
+    return new NotebookCellOutputItem(value, "application/vnd.code.notebook.stdout");
+  }
+  static stderr(value: string) {
+    return new NotebookCellOutputItem(value, "application/vnd.code.notebook.stderr");
+  }
+  static text(value: string, mime = "text/plain") {
+    return new NotebookCellOutputItem(value, mime);
+  }
+  static error(err: { name: string; message: string }) {
+    return new NotebookCellOutputItem(err, "application/vnd.code.notebook.error");
+  }
+}
+
+export class NotebookCellOutput {
+  constructor(public items: NotebookCellOutputItem[]) {}
+}
+
+export const notebooks = {
+  _controllers: [] as unknown[],
+  createNotebookController(id: string, notebookType: string, label: string) {
+    const executions: Array<Record<string, unknown>> = [];
+    const controller: Record<string, unknown> = {
+      id,
+      notebookType,
+      label,
+      supportedLanguages: [] as string[],
+      supportsExecutionOrder: false,
+      description: "",
+      executeHandler: undefined,
+      interruptHandler: undefined,
+      _executions: executions,
+      createNotebookCellExecution(cell: unknown) {
+        const exec: Record<string, unknown> = {
+          cell,
+          executionOrder: 0,
+          outputs: [] as unknown[],
+          started: false,
+          ended: undefined as boolean | undefined,
+          start() {
+            (this as { started: boolean }).started = true;
+          },
+          end(ok?: boolean) {
+            (this as { ended: boolean | undefined }).ended = ok;
+          },
+          replaceOutput(out: unknown) {
+            (this as { outputs: unknown[] }).outputs = Array.isArray(out) ? out : [out];
+          },
+          clearOutput() {
+            (this as { outputs: unknown[] }).outputs = [];
+          },
+          token: { isCancellationRequested: false },
+        };
+        executions.push(exec);
+        return exec;
+      },
+      dispose() {},
+    };
+    this._controllers.push(controller);
+    return controller;
+  },
+};
+
+export default {
+  window,
+  commands,
+  env,
+  Uri,
+  NotebookCellKind,
+  NotebookCellData,
+  NotebookData,
+  NotebookCellOutputItem,
+  NotebookCellOutput,
+  notebooks,
+};
