@@ -5,6 +5,9 @@ import { resolveWorkerDll, WorkerDllNotFoundError } from "./worker/worker-path";
 import { WorkerClient } from "./worker/client";
 import { spawnWorkerProcess } from "./worker/spawn";
 import { isWorkerVersionSupported, type HealthInfo, type WorkerResponseFrame } from "./protocol";
+import { FsqnbSerializer, FSQNB_NOTEBOOK_TYPE } from "./notebook/serializer";
+import { createFsQueryController, restartKernel } from "./notebook/controller";
+import { getWorkerSession, disposeWorkerSession } from "./worker/session";
 
 export interface HealthCheckDeps {
   extensionRoot: string;
@@ -118,10 +121,57 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const command = vscode.commands.registerCommand("fs-query-studio.checkWorker", runCheck);
 
-  context.subscriptions.push(command, outputChannel);
+  const getWorker = async () => {
+    const session = await getWorkerSession({
+      extensionRoot: context.extensionPath,
+      env: process.env,
+      log: (line) => outputChannel!.appendLine(line),
+    });
+    return session.client;
+  };
+
+  const notebookSerializer = vscode.workspace.registerNotebookSerializer(
+    FSQNB_NOTEBOOK_TYPE,
+    new FsqnbSerializer(),
+  );
+
+  const controller = createFsQueryController({
+    getWorker,
+    log: (line) => outputChannel!.appendLine(line),
+  });
+
+  const restartCommand = vscode.commands.registerCommand(
+    "fs-query-studio.restartKernel",
+    async () => {
+      const active = vscode.window.activeNotebookEditor;
+      if (!active || active.notebook.notebookType !== FSQNB_NOTEBOOK_TYPE) {
+        void vscode.window.showInformationMessage(
+          "Open an .fsqnb notebook to restart its F# session.",
+        );
+        return;
+      }
+      try {
+        await restartKernel(getWorker, active.notebook.uri.toString());
+        void vscode.window.showInformationMessage("F# Query Studio session restarted.");
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Restart failed: ${(err as { userMessage?: string }).userMessage ?? (err as Error).message}`,
+        );
+      }
+    },
+  );
+
+  context.subscriptions.push(
+    command,
+    notebookSerializer,
+    controller,
+    restartCommand,
+    outputChannel,
+  );
 }
 
 export async function deactivate(): Promise<void> {
+  disposeWorkerSession();
   outputChannel?.dispose();
   outputChannel = undefined;
 }

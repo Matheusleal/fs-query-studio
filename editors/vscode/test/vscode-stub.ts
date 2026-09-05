@@ -15,6 +15,13 @@ export const window = {
   showErrorMessage: async (_message: string, ..._items: string[]) => undefined as string | undefined,
   showInformationMessage: async (_message: string, ..._items: string[]) =>
     undefined as string | undefined,
+  activeNotebookEditor: undefined as unknown,
+};
+
+export const workspace = {
+  registerNotebookSerializer(_type: string, _serializer: unknown): Disposable {
+    return { dispose: () => {} };
+  },
 };
 
 export const commands = {
@@ -122,6 +129,7 @@ export const notebooks = {
 
 export default {
   window,
+  workspace,
   commands,
   env,
   Uri,

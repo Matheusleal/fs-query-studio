@@ -1765,3 +1765,7 @@ Behaviour change from the finding: `resolveWorkerDll` now treats `FSQS_WORKER_DL
 ## 2026-09-05 — F2.6: NotebookController — cell queue, evaluate, interrupt, restart
 
 `notebook/controller.ts`: `createFsQueryController` builds the `fs-query-studio-kernel` controller for `fsquery-notebook`. `executeHandler` runs cells **sequentially** (the worker is one-eval-at-a-time), one `execution/evaluate` per cell in `Persistent` mode with `sessionId = documentUri = notebook.uri.toString()`, maps the response envelope through `mapEnvelope`, and stops the batch on the first `Error` result or error frame (`worker/crashed` gets a "session was lost" message). A `getWorker` rejection (WorkerUnavailable) becomes a per-cell error output, no crash. `interruptHandler` → `WorkerClient.cancel(inFlightRequestId, 5000)`. `restartKernel` → `session/reset`. `test/vscode-stub.ts` gains `NotebookCellOutput(Item)` and a fake `notebooks.createNotebookController`.
+
+## 2026-09-05 — F2.7: register the notebook — serializer, controller, restart command
+
+`package.json`: `contributes.notebooks` (`fsquery-notebook`, `*.fsqnb`), the `onNotebook:fsquery-notebook` activation event, and a `fs-query-studio.restartKernel` command. `extension.ts` `activate` now registers `FsqnbSerializer`, `createFsQueryController` (fed a `getWorker` that resolves the window's shared `getWorkerSession`), and the restart command (no-ops with a hint when the active editor isn't an `.fsqnb`); `deactivate` disposes the worker session. `checkWorker` and `runHealthCheck` are unchanged.

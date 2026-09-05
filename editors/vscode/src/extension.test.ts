@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { runHealthCheck, type HealthCheckDeps } from "./extension";
+import { runHealthCheck, type HealthCheckDeps, activate, deactivate } from "./extension";
+import * as vscodeStub from "../test/vscode-stub";
 import { DotnetNotFoundError, DotnetTooOldError } from "./worker/dotnet";
 import { WorkerDllNotFoundError } from "./worker/worker-path";
 
@@ -100,5 +101,43 @@ describe("runHealthCheck", () => {
       }),
     );
     expect(disposed).toBe(true);
+  });
+});
+
+describe("activate — notebook wiring", () => {
+  function fakeContext() {
+    return {
+      extensionPath: "/ext",
+      subscriptions: [] as Array<{ dispose: () => void }>,
+    } as never;
+  }
+
+  it("registers a NotebookSerializer for fsquery-notebook", async () => {
+    const registered: string[] = [];
+    (vscodeStub.workspace as unknown as {
+      registerNotebookSerializer: (t: string, s: unknown) => { dispose: () => void };
+    }).registerNotebookSerializer = (type) => {
+      registered.push(type);
+      return { dispose: () => {} };
+    };
+
+    await activate(fakeContext());
+    expect(registered).toContain("fsquery-notebook");
+    await deactivate();
+  });
+
+  it("registers the restartKernel command", async () => {
+    await activate(fakeContext());
+    const commands = await vscodeStub.commands.executeCommand("fs-query-studio.restartKernel");
+    // handler exists (returns undefined without an active notebook); no throw
+    expect(commands).toBeUndefined();
+    await deactivate();
+  });
+
+  it("creates a notebook controller", async () => {
+    await activate(fakeContext());
+    const made = (vscodeStub.notebooks as unknown as { _controllers: unknown[] })._controllers;
+    expect(made.length).toBeGreaterThan(0);
+    await deactivate();
   });
 });

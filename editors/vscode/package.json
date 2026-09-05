@@ -18,13 +18,27 @@
   },
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onCommand:fs-query-studio.checkWorker"
+    "onCommand:fs-query-studio.checkWorker",
+    "onNotebook:fsquery-notebook"
   ],
   "contributes": {
     "commands": [
       {
         "command": "fs-query-studio.checkWorker",
         "title": "F# Query Studio: Check Worker"
+      },
+      {
+        "command": "fs-query-studio.restartKernel",
+        "title": "F# Query Studio: Restart Notebook Session"
+      }
+    ],
+    "notebooks": [
+      {
+        "type": "fsquery-notebook",
+        "displayName": "F# Query Notebook",
+        "selector": [
+          { "filenamePattern": "*.fsqnb" }
+        ]
       }
     ]
   },
