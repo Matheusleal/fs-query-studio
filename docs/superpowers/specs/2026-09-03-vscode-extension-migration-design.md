@@ -246,6 +246,8 @@ Each phase is its own spec -> plan -> implementation -> DEVLOG entry.
 | **F6 Parity + retire** | Parity checklist vs the app. Remove `App`/`Ui`/`Editor` + `WorkerClient.fs` + themes + `WindowsCredentialStore` from the active path. Clean `.slnx`. Review `installer/`. Marketplace publish. | **deleted** |
 | **F7 Extras (backlog)** | prelude `.fsx` for Ionide on loose scripts; `analysis/definition` + `rename` in-cell; self-contained offline VSIX; parallel multi-worker. | — |
 
+**Status:** F1 Scaffold and F2 Minimal notebook are complete and merged — see the DEVLOG close-out entries (`2026-09-03 — F1 complete`, `2026-09-05 — F2 complete`); F3 Renderer is next.
+
 **Parity criteria (F6):** write and run a query, all six connectors, CSV export, connection-name autocomplete, schema navigation, secrets kept out of files, session persistence. Log viewer -> `OutputChannel` + file sink (accepted downgrade).
 
 ## Open risks
