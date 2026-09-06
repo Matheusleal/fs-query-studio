@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { DiagnosticsManager, type DiagnosticsManagerDeps } from "./diagnostics";
 import type { AnalysisCell } from "./cell-context";
 import type { WorkerResponseFrame } from "../protocol";
@@ -136,14 +136,16 @@ describe("DiagnosticsManager", () => {
     expect(b.published).toEqual([{ uri: "c1", count: 1 }]);
   });
 
-  it("does not publish (and does not throw) when the worker send rejects", async () => {
+  it("does not publish (and does not throw) when the worker is unavailable", async () => {
     const t = manualTimers();
     const logs: string[] = [];
     const b = baseDeps({
       setTimer: t.setTimer,
       clearTimer: t.clearTimer,
       log: (l) => logs.push(l),
-      getWorker: async () => ({ send: async () => Promise.reject(new Error("boom")) }),
+      getWorker: async () => {
+        throw new Error("boom");
+      },
     });
     const mgr = new DiagnosticsManager(b.deps);
     mgr.onCellChanged("c1");

@@ -18,10 +18,10 @@ export interface WorkerLike {
 }
 
 /**
- * Throws on a worker error (letting the caller handle error recovery),
- * returns empty on a null result. The DiagnosticsManager catches throws
- * to avoid publishing stale diagnostics; other callers may swallow the error.
- * Mirrors `App/AnalysisService.fs`.
+ * Every wrapper swallows a worker error into an empty result: a failed
+ * or crashed analysis call must never surface as a thrown provider (VS
+ * Code would show an error toast on every keystroke). Mirrors
+ * `App/AnalysisService.fs`.
  */
 async function call<T>(
   worker: WorkerLike,
@@ -33,8 +33,8 @@ async function call<T>(
   let response: WorkerResponseFrame;
   try {
     response = await worker.send({ id: newRequestId(), method, params });
-  } catch (err) {
-    throw err;
+  } catch {
+    return empty;
   }
   if (response.error || response.result == null) {
     return empty;
