@@ -178,7 +178,11 @@ describe("reverse channel (host-bound requests)", () => {
     await flush();
 
     const written = child.rawStdinLines.map((l) => JSON.parse(l));
-    expect(written).toContainEqual({ id: "host-1", result: { secret: "hunter2" } });
+    const frame = written.find((f) => f.id === "host-1")!;
+    // Every reply frame carries BOTH keys — a missing `error`/`result` key
+    // throws `JsonException` in the worker's `routeResponse` and kills it.
+    expect("error" in frame && "result" in frame).toBe(true);
+    expect(frame).toEqual({ id: "host-1", result: { secret: "hunter2" }, error: null });
   });
 
   it("replies host/unhandled when no handler is set", async () => {
@@ -190,7 +194,10 @@ describe("reverse channel (host-bound requests)", () => {
     await flush();
 
     const written = child.rawStdinLines.map((l) => JSON.parse(l));
-    expect(written.find((f) => f.id === "host-2")?.error?.code).toBe("host/unhandled");
+    const frame = written.find((f) => f.id === "host-2")!;
+    expect("error" in frame && "result" in frame).toBe(true);
+    expect(frame.result).toBeNull();
+    expect(frame.error?.code).toBe("host/unhandled");
   });
 
   it("replies host/threw when the handler rejects", async () => {
@@ -205,8 +212,47 @@ describe("reverse channel (host-bound requests)", () => {
     await flush();
 
     const written = child.rawStdinLines.map((l) => JSON.parse(l));
-    const f = written.find((x) => x.id === "host-3");
-    expect(f?.error).toEqual({ code: "host/threw", message: "boom" });
+    const f = written.find((x) => x.id === "host-3")!;
+    expect("error" in f && "result" in f).toBe(true);
+    expect(f).toEqual({ id: "host-3", result: null, error: { code: "host/threw", message: "boom" } });
+  });
+
+  it("emits both keys when the handler returns { error }", async () => {
+    const child = createFakeChild();
+    const client = new WorkerClient({ spawn: () => child.process });
+    client.setHostRequestHandler(async () => ({
+      error: { code: "host/secretReadFailed", message: "keychain locked" },
+    }));
+    client.send({ id: "warm", method: "worker/health", params: {} });
+
+    emitHostRequest(child, { id: "host-4", method: "secret/get", params: {} });
+    await flush();
+
+    const written = child.rawStdinLines.map((l) => JSON.parse(l));
+    const f = written.find((x) => x.id === "host-4")!;
+    expect("error" in f && "result" in f).toBe(true);
+    expect(f).toEqual({
+      id: "host-4",
+      result: null,
+      error: { code: "host/secretReadFailed", message: "keychain locked" },
+    });
+  });
+
+  it("serialises a non-Error throw with String(err), not undefined", async () => {
+    const child = createFakeChild();
+    const client = new WorkerClient({ spawn: () => child.process });
+    client.setHostRequestHandler(async () => {
+      throw "plain string";
+    });
+    client.send({ id: "warm", method: "worker/health", params: {} });
+
+    emitHostRequest(child, { id: "host-5", method: "secret/get", params: {} });
+    await flush();
+
+    const written = child.rawStdinLines.map((l) => JSON.parse(l));
+    const f = written.find((x) => x.id === "host-5")!;
+    expect("error" in f && "result" in f).toBe(true);
+    expect(f.error.message).toBe("plain string");
   });
 
   it("still correlates a normal response frame by id", async () => {

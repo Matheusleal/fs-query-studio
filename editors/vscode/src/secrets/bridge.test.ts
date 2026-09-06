@@ -41,4 +41,18 @@ describe("registerSecretBridge", () => {
       error: { code: "host/secretReadFailed", message: "keychain locked" },
     });
   });
+
+  it("maps a non-Error throw to an error reply via String(err)", async () => {
+    // A non-Error throw leaves `(err as Error).message` undefined → the key
+    // is dropped by JSON.stringify → the worker's non-optional
+    // `WorkerErrorInfo.Message` throws `JsonException` and exits.
+    const call = harness({
+      get: async () => {
+        throw "locked";
+      },
+    });
+    expect(await call("secret/get", { reference: "x" })).toEqual({
+      error: { code: "host/secretReadFailed", message: "locked" },
+    });
+  });
 });

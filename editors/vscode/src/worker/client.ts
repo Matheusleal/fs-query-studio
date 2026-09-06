@@ -148,15 +148,36 @@ export class WorkerClient {
     if (!proc) {
       return;
     }
+    // Every reply frame MUST carry BOTH `result` and `error` keys, even when
+    // one is null. `JSON.stringify` omits `undefined` properties, and the
+    // worker's `WorkerResponseFrame` (FSharp.SystemTextJson) does NOT default
+    // a missing `option` record field to `None` — a frame with only one of
+    // the two keys throws `JsonException` in `routeResponse` and kills the
+    // worker process. A non-`Error` throw likewise leaves `message`
+    // `undefined` → dropped key → non-optional `WorkerErrorInfo.Message`
+    // throw; `String(err)` keeps it a string.
     let reply: WorkerResponseFrame;
     if (!this.hostRequestHandler) {
-      reply = { id, error: { code: "host/unhandled", message: `No host handler for ${method}` } };
+      reply = {
+        id,
+        result: null,
+        error: { code: "host/unhandled", message: `No host handler for ${method}` },
+      };
     } else {
       try {
         const outcome = await this.hostRequestHandler(method, params);
-        reply = outcome.error ? { id, error: outcome.error } : { id, result: outcome.result };
+        reply = outcome.error
+          ? { id, result: null, error: outcome.error }
+          : { id, result: outcome.result ?? null, error: null };
       } catch (err) {
-        reply = { id, error: { code: "host/threw", message: (err as Error).message } };
+        reply = {
+          id,
+          result: null,
+          error: {
+            code: "host/threw",
+            message: err instanceof Error ? err.message : String(err),
+          },
+        };
       }
     }
     this.writeChain = this.writeChain.then(() => writeFrame(proc.stdin, reply)).catch(() => {

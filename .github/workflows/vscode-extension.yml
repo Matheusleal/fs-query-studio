@@ -2,7 +2,7 @@ name: vscode-extension
 
 on:
   push:
-    branches: [main]
+    branches: [main, main-vscode]
     paths:
       - "editors/vscode/**"
       - "src/FSharpQueryStudio.Worker/**"

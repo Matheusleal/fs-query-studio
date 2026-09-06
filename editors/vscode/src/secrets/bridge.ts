@@ -30,7 +30,15 @@ export function registerSecretBridge(deps: { client: HostRequestClient; secrets:
       const secret = await deps.secrets.get(reference);
       return { result: { secret: secret ?? null } };
     } catch (err) {
-      return { error: { code: "host/secretReadFailed", message: (err as Error).message } };
+      // `String(err)` for a non-`Error` throw: a dropped `message` key becomes
+      // a worker-killing `JsonException` on the non-optional
+      // `WorkerErrorInfo.Message`.
+      return {
+        error: {
+          code: "host/secretReadFailed",
+          message: err instanceof Error ? err.message : String(err),
+        },
+      };
     }
   });
 }
