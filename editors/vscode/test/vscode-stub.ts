@@ -23,6 +23,22 @@ export const workspace = {
   registerNotebookSerializer(_type: string, _serializer: unknown): Disposable {
     return { dispose: () => {} };
   },
+  notebookDocuments: [] as Array<{
+    notebookType: string;
+    getCells: () => unknown[];
+  }>,
+  onDidChangeTextDocument(_fn: (e: unknown) => unknown): Disposable {
+    return { dispose: () => {} };
+  },
+  onDidOpenTextDocument(_fn: (e: unknown) => unknown): Disposable {
+    return { dispose: () => {} };
+  },
+  onDidCloseTextDocument(_fn: (e: unknown) => unknown): Disposable {
+    return { dispose: () => {} };
+  },
+  onDidChangeNotebookDocument(_fn: (e: unknown) => unknown): Disposable {
+    return { dispose: () => {} };
+  },
 };
 
 export const commands = {
@@ -158,6 +174,150 @@ export const notebooks = {
   },
 };
 
+// --- language features (F4) ---
+export class Position {
+  constructor(
+    public line: number,
+    public character: number,
+  ) {}
+}
+
+export class Range {
+  constructor(
+    public startLine: number,
+    public startCharacter: number,
+    public endLine: number,
+    public endCharacter: number,
+  ) {}
+}
+
+export enum DiagnosticSeverity {
+  Error = 0,
+  Warning = 1,
+  Information = 2,
+  Hint = 3,
+}
+
+export class Diagnostic {
+  code: string | number | undefined;
+  source: string | undefined;
+  constructor(
+    public range: Range,
+    public message: string,
+    public severity: DiagnosticSeverity = DiagnosticSeverity.Error,
+  ) {}
+}
+
+export class MarkdownString {
+  value = "";
+  constructor(value?: string) {
+    if (value) this.value = value;
+  }
+  appendText(s: string) {
+    this.value += s;
+    return this;
+  }
+  appendMarkdown(s: string) {
+    this.value += s;
+    return this;
+  }
+  appendCodeblock(code: string, language = "") {
+    this.value += `\n\`\`\`${language}\n${code}\n\`\`\`\n`;
+    return this;
+  }
+}
+
+export class Hover {
+  constructor(
+    public contents: unknown,
+    public range?: Range,
+  ) {}
+}
+
+export enum CompletionItemKind {
+  Text = 0,
+  Method = 1,
+  Function = 2,
+  Field = 4,
+  Variable = 5,
+  Value = 11,
+}
+
+export class CompletionItem {
+  constructor(
+    public label: string,
+    public kind?: CompletionItemKind,
+  ) {}
+}
+
+export class ParameterInformation {
+  constructor(
+    public label: string,
+    public documentation?: string | MarkdownString,
+  ) {}
+}
+
+export class SignatureInformation {
+  parameters: ParameterInformation[] = [];
+  constructor(
+    public label: string,
+    public documentation?: string | MarkdownString,
+  ) {}
+}
+
+export class SignatureHelp {
+  signatures: SignatureInformation[] = [];
+  activeSignature = 0;
+  activeParameter = 0;
+}
+
+export const Disposable = {
+  from: (...items: Array<{ dispose: () => void }>) => ({
+    dispose: () => items.forEach((i) => i.dispose?.()),
+  }),
+};
+
+export const languages = {
+  _completion: [] as Array<{ selector: unknown; provider: unknown; triggers: string[] }>,
+  _hover: [] as Array<{ selector: unknown; provider: unknown }>,
+  _signature: [] as Array<{ selector: unknown; provider: unknown; triggers: string[] }>,
+  _collections: [] as Array<{ name: string; set: unknown }>,
+  registerCompletionItemProvider(
+    selector: unknown,
+    provider: unknown,
+    ...triggers: string[]
+  ): Disposable {
+    this._completion.push({ selector, provider, triggers });
+    return { dispose: () => {} };
+  },
+  registerHoverProvider(selector: unknown, provider: unknown): Disposable {
+    this._hover.push({ selector, provider });
+    return { dispose: () => {} };
+  },
+  registerSignatureHelpProvider(
+    selector: unknown,
+    provider: unknown,
+    ...triggers: string[]
+  ): Disposable {
+    this._signature.push({ selector, provider, triggers });
+    return { dispose: () => {} };
+  },
+  createDiagnosticCollection(name: string) {
+    const map = new Map<string, unknown>();
+    const collection = {
+      name,
+      _map: map,
+      set: (uri: { toString(): string }, diags: unknown) => map.set(uri.toString(), diags),
+      delete: (uri: { toString(): string }) => map.delete(uri.toString()),
+      get: (uri: { toString(): string }) => map.get(uri.toString()),
+      clear: () => map.clear(),
+      dispose: () => map.clear(),
+    };
+    this._collections.push({ name, set: collection.set });
+    return collection;
+  },
+};
+
 export default {
   window,
   workspace,
@@ -170,4 +330,17 @@ export default {
   NotebookCellOutputItem,
   NotebookCellOutput,
   notebooks,
+  languages,
+  Position,
+  Range,
+  DiagnosticSeverity,
+  Diagnostic,
+  MarkdownString,
+  Hover,
+  CompletionItem,
+  CompletionItemKind,
+  SignatureHelp,
+  SignatureInformation,
+  ParameterInformation,
+  Disposable,
 };

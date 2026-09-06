@@ -1,0 +1,113 @@
+import { describe, it, expect } from "vitest";
+// The shared vscode stub is aliased to "vscode" at runtime by vitest; import it
+// directly here so `tsc` sees the stub's test-only surface (`languages._completion`
+// et al.) instead of the real `@types/vscode` namespace.
+import * as vscode from "../../test/vscode-stub";
+import { registerLanguageFeatures } from "./providers";
+import type { WorkerResponseFrame } from "../protocol";
+
+function fsharpCellDoc(uri: string, text: string) {
+  return {
+    uri: { toString: () => uri, scheme: "vscode-notebook-cell" },
+    languageId: "fsharp",
+    getText: () => text,
+    lineCount: text.split("\n").length,
+    version: 1,
+  };
+}
+
+/** Register one fake notebook containing `docs` as its cells. */
+function stageNotebook(cellDocs: ReturnType<typeof fsharpCellDoc>[]) {
+  (vscode.workspace as unknown as { notebookDocuments: unknown[] }).notebookDocuments = [
+    {
+      notebookType: "fsquery-notebook",
+      getCells: () =>
+        cellDocs.map((document, i) => ({
+          kind: 2,
+          document,
+          executionSummary: i === 0 ? { executionOrder: 1 } : undefined,
+        })),
+    },
+  ];
+}
+
+function worker(result: unknown): { getWorker: () => Promise<{ send: () => Promise<WorkerResponseFrame> }> } {
+  return {
+    getWorker: async () => ({ send: async () => ({ id: "1", result }) as WorkerResponseFrame }),
+  };
+}
+
+const token = { isCancellationRequested: false } as never;
+
+describe("registerLanguageFeatures", () => {
+  it("registers one completion, hover, and signature-help provider and a diagnostic collection", () => {
+    const before = {
+      c: vscode.languages._completion.length,
+      h: vscode.languages._hover.length,
+      s: vscode.languages._signature.length,
+      d: vscode.languages._collections.length,
+    };
+    const sub = registerLanguageFeatures({ getWorker: async () => ({ send: async () => ({ id: "1" }) }), log: () => {} });
+    expect(vscode.languages._completion.length).toBe(before.c + 1);
+    expect(vscode.languages._hover.length).toBe(before.h + 1);
+    expect(vscode.languages._signature.length).toBe(before.s + 1);
+    expect(vscode.languages._collections.length).toBe(before.d + 1);
+    sub.dispose();
+  });
+
+  it("completion maps analysis items to CompletionItems", async () => {
+    const cell = fsharpCellDoc("c2", "answ");
+    stageNotebook([fsharpCellDoc("c1", "let answer = 42"), cell]);
+    registerLanguageFeatures({ ...worker({ items: ["answer"] }), log: () => {} });
+    const provider = vscode.languages._completion.at(-1)!.provider as {
+      provideCompletionItems: (d: unknown, p: unknown, t: unknown) => Promise<unknown[]>;
+    };
+    const items = await provider.provideCompletionItems(cell, new vscode.Position(0, 4), token);
+    expect(items.map((i) => (i as vscode.CompletionItem).label)).toEqual(["answer"]);
+  });
+
+  it("completion returns undefined for a document that is not a cell in any notebook", async () => {
+    (vscode.workspace as unknown as { notebookDocuments: unknown[] }).notebookDocuments = [];
+    registerLanguageFeatures({ ...worker({ items: ["x"] }), log: () => {} });
+    const provider = vscode.languages._completion.at(-1)!.provider as {
+      provideCompletionItems: (d: unknown, p: unknown, t: unknown) => Promise<unknown>;
+    };
+    const out = await provider.provideCompletionItems(fsharpCellDoc("orphan", "x"), new vscode.Position(0, 1), token);
+    expect(out).toBeUndefined();
+  });
+
+  it("hover builds a markdown Hover, or undefined when there is nothing", async () => {
+    const cell = fsharpCellDoc("c2", "answer");
+    stageNotebook([fsharpCellDoc("c1", "let answer = 42"), cell]);
+
+    registerLanguageFeatures({
+      ...worker({ hover: { displayName: "answer", type: "int", signature: null, xmlDoc: null } }),
+      log: () => {},
+    });
+    let provider = vscode.languages._hover.at(-1)!.provider as {
+      provideHover: (d: unknown, p: unknown, t: unknown) => Promise<vscode.Hover | undefined>;
+    };
+    const hover = await provider.provideHover(cell, new vscode.Position(0, 3), token);
+    expect((hover!.contents as vscode.MarkdownString).value).toMatch(/answer : int/);
+
+    registerLanguageFeatures({ ...worker({ hover: null }), log: () => {} });
+    provider = vscode.languages._hover.at(-1)!.provider as typeof provider;
+    expect(await provider.provideHover(cell, new vscode.Position(0, 3), token)).toBeUndefined();
+  });
+
+  it("signature help builds one signature with a parameter list", async () => {
+    const cell = fsharpCellDoc("c2", "id (");
+    stageNotebook([fsharpCellDoc("c1", "let id x = x"), cell]);
+    registerLanguageFeatures({
+      ...worker({ signatureHelp: { displayName: "id", parameters: ["x: 'a"], returnType: "'a" } }),
+      log: () => {},
+    });
+    const provider = vscode.languages._signature.at(-1)!.provider as {
+      provideSignatureHelp: (d: unknown, p: unknown, t: unknown) => Promise<vscode.SignatureHelp | undefined>;
+    };
+    const help = await provider.provideSignatureHelp(cell, new vscode.Position(0, 4), token);
+    expect(help!.signatures[0].label).toBe("id(x: 'a) : 'a");
+    expect(help!.signatures[0].parameters.map((p) => p.label)).toEqual(["x: 'a"]);
+    expect(help!.activeParameter).toBe(0);
+  });
+});
