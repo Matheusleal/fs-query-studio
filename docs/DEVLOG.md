@@ -1838,3 +1838,7 @@ Verification (from `editors/vscode`): `npm run compile` green (`tsc --noEmit` cl
 ## 2026-09-06 — F4.6: language providers + registerLanguageFeatures
 
 `src/lang/providers.ts` (the only vscode-bound F4 file): `registerLanguageFeatures` registers completion (`.` trigger), hover, and signature-help providers for `{ language: "fsharp", notebookType: "fsquery-notebook" }`, each resolving the cell + siblings from `workspace.notebookDocuments`, running `buildAnalysisInput`, taking a shared `versionFor(cellUri, source)` version, and mapping the `analysis/*` result to VS Code types (flat `CompletionItem`s, a fenced-fsharp `MarkdownString` hover, one un-indexed `SignatureInformation`). It also owns the `DiagnosticCollection`, wires text/notebook events into a `DiagnosticsManager`, and returns one `Disposable.from(...)`. `test/vscode-stub.ts` gained `languages`, `Position`, `Range`, `Diagnostic`/`DiagnosticSeverity`, `Hover`, `MarkdownString`, `CompletionItem`, `SignatureHelp`/`SignatureInformation`/`ParameterInformation`, `Disposable`, and the `workspace` document events.
+
+## 2026-09-06 — F4.7: activate wires the language providers
+
+`extension.ts`: `activate` now calls `registerLanguageFeatures({ getWorker, log })` (reusing the shared window-lifetime worker session) and disposes it via `context.subscriptions`.

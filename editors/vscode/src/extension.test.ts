@@ -150,4 +150,26 @@ describe("activate — notebook wiring", () => {
     ).toContain("fs-query-studio-table");
     await deactivate();
   });
+
+  it("registers the fsharp cell language providers", async () => {
+    const vscodeStub2 = await import("../test/vscode-stub.js");
+    const langs = vscodeStub2.languages as unknown as {
+      _completion: unknown[];
+      _hover: unknown[];
+      _signature: unknown[];
+      _collections: unknown[];
+    };
+    const before = {
+      c: langs._completion.length,
+      h: langs._hover.length,
+      s: langs._signature.length,
+      d: langs._collections.length,
+    };
+    await activate(fakeContext());
+    expect(langs._completion.length).toBe(before.c + 1);
+    expect(langs._hover.length).toBe(before.h + 1);
+    expect(langs._signature.length).toBe(before.s + 1);
+    expect(langs._collections.length).toBe(before.d + 1);
+    await deactivate();
+  });
 });

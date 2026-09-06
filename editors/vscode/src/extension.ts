@@ -10,6 +10,7 @@ import { createFsQueryController, restartKernel } from "./notebook/controller";
 import { registerRendererHost } from "./notebook/renderer-host";
 import { FSQUERY_RENDERER_ID } from "./renderer/types";
 import { getWorkerSession, disposeWorkerSession } from "./worker/session";
+import { registerLanguageFeatures } from "./lang/providers";
 
 export interface HealthCheckDeps {
   extensionRoot: string;
@@ -157,6 +158,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     log: (line) => outputChannel!.appendLine(line),
   });
 
+  const languageFeatures = registerLanguageFeatures({
+    getWorker,
+    log: (line) => outputChannel!.appendLine(line),
+  });
+
   const restartCommand = vscode.commands.registerCommand(
     "fs-query-studio.restartKernel",
     async () => {
@@ -184,6 +190,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     controller,
     rendererHost,
     restartCommand,
+    languageFeatures,
     outputChannel,
   );
 }
