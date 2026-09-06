@@ -112,8 +112,10 @@ describe("grid renderer", () => {
     expect(schema.hidden).toBe(false);
     expect(schema.textContent).toContain("displayType");
     expect(schema.textContent).toContain("int");
+    expect((el.querySelector(".fsq-head") as HTMLElement).hidden).toBe(true);
     (el.querySelector('[data-view="data"]') as HTMLButtonElement).click();
     expect((el.querySelector(".fsq-schema") as HTMLElement).hidden).toBe(true);
+    expect((el.querySelector(".fsq-head") as HTMLElement).hidden).toBe(false);
   });
 
   it("posts exportCsv on Export click", () => {

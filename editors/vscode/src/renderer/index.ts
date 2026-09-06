@@ -54,6 +54,7 @@ interface Grid {
   view: "data" | "schema";
   els: {
     count: HTMLElement;
+    head: HTMLElement;
     viewport: HTMLElement;
     sizer: HTMLElement;
     rowsHost: HTMLElement;
@@ -142,6 +143,7 @@ export function activate(context: RendererContextLike): {
     grid.view = view;
     grid.els.dataBtn.classList.toggle("active", view === "data");
     grid.els.schemaBtn.classList.toggle("active", view === "schema");
+    grid.els.head.hidden = view !== "data";
     grid.els.viewport.hidden = view !== "data";
     grid.els.schema.hidden = view !== "schema";
   }
@@ -232,7 +234,7 @@ export function activate(context: RendererContextLike): {
       rows: payload.rows.slice(),
       token: payload.continuationToken,
       view: "data",
-      els: { count, viewport, sizer, rowsHost, schema, loadMore, notice, dataBtn, schemaBtn },
+      els: { count, head, viewport, sizer, rowsHost, schema, loadMore, notice, dataBtn, schemaBtn },
     };
 
     count.textContent = countLabel(grid.rows.length);

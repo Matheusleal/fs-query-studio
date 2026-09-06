@@ -43,6 +43,16 @@ function errorMessage(err: unknown): string {
   return (err as { userMessage?: string }).userMessage ?? (err as Error).message;
 }
 
+function postError(
+  deps: RendererHostDeps,
+  outputId: string,
+  scope: "loadMore" | "exportCsv",
+  editor: unknown,
+  message: string,
+): void {
+  void deps.messaging.postMessage({ type: "error", outputId, scope, message }, editor);
+}
+
 export function registerRendererHost(deps: RendererHostDeps): { dispose(): void } {
   const subscription = deps.messaging.onDidReceiveMessage(async ({ editor, message }) => {
     if (!isRendererToHostMessage(message)) {
@@ -57,14 +67,12 @@ export function registerRendererHost(deps: RendererHostDeps): { dispose(): void 
       }
     } catch (err) {
       deps.log(`renderer-host: ${msg.type} failed: ${errorMessage(err)}`);
-      void deps.messaging.postMessage(
-        {
-          type: "error",
-          outputId: msg.outputId,
-          scope: msg.type === "loadMore" ? "loadMore" : "exportCsv",
-          message: errorMessage(err),
-        },
+      postError(
+        deps,
+        msg.outputId,
+        msg.type === "loadMore" ? "loadMore" : "exportCsv",
         editor,
+        errorMessage(err),
       );
     }
   });
@@ -87,10 +95,7 @@ async function handleLoadMore(
   if (response.error) {
     const text =
       response.error.code === "results/unknownToken" ? LOAD_MORE_STALE : response.error.message;
-    void deps.messaging.postMessage(
-      { type: "error", outputId: msg.outputId, scope: "loadMore", message: text },
-      editor,
-    );
+    postError(deps, msg.outputId, "loadMore", editor, text);
     return;
   }
 
@@ -133,10 +138,7 @@ async function handleExportCsv(
       response.error.code === "results/nothingToExport"
         ? EXPORT_UNAVAILABLE
         : response.error.message;
-    void deps.messaging.postMessage(
-      { type: "error", outputId: msg.outputId, scope: "exportCsv", message: text },
-      editor,
-    );
+    postError(deps, msg.outputId, "exportCsv", editor, text);
     return;
   }
 
