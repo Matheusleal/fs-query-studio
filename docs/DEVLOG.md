@@ -1886,3 +1886,7 @@ Verification (from `editors/vscode`): `npm run compile` — tsc clean, esbuild b
 ## 2026-09-07 — F5.7: WorkerClient reverse dispatch
 
 `src/worker/client.ts`: `setHostRequestHandler(fn)` + an `onFrame` branch — a frame passing `isHostRequestFrame` (non-empty `method`) is answered via the handler and the reply written back through `writeChain` (`{ id, result }` / `{ id, error }`); no handler → `host/unhandled`; a throwing/rejecting handler → `host/threw`. Response frames keep the existing id-correlation path untouched.
+
+## 2026-09-07 — F5.8: secrets/bridge.ts
+
+`src/secrets/bridge.ts`: `registerSecretBridge({ client, secrets })` installs the `WorkerClient` host-request handler — `secret/get { reference }` → `{ secret: (context.secrets.get(reference)) ?? null }`; unknown method → `host/unknownMethod`, non-string reference → `host/badParams`, a throwing store → `host/secretReadFailed`. No `vscode` import (deps injected structurally).
