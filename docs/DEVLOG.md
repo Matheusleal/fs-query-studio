@@ -1894,3 +1894,7 @@ Verification (from `editors/vscode`): `npm run compile` — tsc clean, esbuild b
 ## 2026-09-07 — F5.9: connections/definition.ts (pure builder)
 
 `src/connections/definition.ts`: `buildConnectionDefinition(input, existing?)` → `{ definition, secret?, secretReference? }`. Per-kind `configuration` (`{ filePath }` / `{ connectionString }` / `{ url, method:"GET", headers:[], queryParams:[], body:null }`), `kind` as `makeUnionTag`. Secret rules mirror `MainWindow.axaml.fs`: blank password on edit keeps the existing `SecretReference`; a typed password reuses it or mints `fqs-conn-<32 hex>`. `secret` is returned only when newly entered.
+
+## 2026-09-07 — F5.10: connections/schema-cache.ts
+
+`src/connections/schema-cache.ts`: `SchemaCache` — `get` / `set` / `clear` over a `Map<connectionId, SchemaTable[]>`. Session-lived, invalidated only by the Refresh command.
