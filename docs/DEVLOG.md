@@ -1890,3 +1890,7 @@ Verification (from `editors/vscode`): `npm run compile` — tsc clean, esbuild b
 ## 2026-09-07 — F5.8: secrets/bridge.ts
 
 `src/secrets/bridge.ts`: `registerSecretBridge({ client, secrets })` installs the `WorkerClient` host-request handler — `secret/get { reference }` → `{ secret: (context.secrets.get(reference)) ?? null }`; unknown method → `host/unknownMethod`, non-string reference → `host/badParams`, a throwing store → `host/secretReadFailed`. No `vscode` import (deps injected structurally).
+
+## 2026-09-07 — F5.9: connections/definition.ts (pure builder)
+
+`src/connections/definition.ts`: `buildConnectionDefinition(input, existing?)` → `{ definition, secret?, secretReference? }`. Per-kind `configuration` (`{ filePath }` / `{ connectionString }` / `{ url, method:"GET", headers:[], queryParams:[], body:null }`), `kind` as `makeUnionTag`. Secret rules mirror `MainWindow.axaml.fs`: blank password on edit keeps the existing `SecretReference`; a typed password reuses it or mints `fqs-conn-<32 hex>`. `secret` is returned only when newly entered.
