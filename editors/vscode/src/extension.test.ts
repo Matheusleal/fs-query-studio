@@ -173,3 +173,32 @@ describe("activate — notebook wiring", () => {
     await deactivate();
   });
 });
+
+describe("F5 activation wiring", () => {
+  function makeFakeContext() {
+    return {
+      extensionPath: ".",
+      subscriptions: [] as Array<{ dispose: () => void }>,
+      secrets: {
+        get: async () => undefined,
+        store: async () => {},
+        delete: async () => {},
+      },
+    } as never;
+  }
+
+  it("activate returns a connections API and registers the four commands", async () => {
+    const api = await activate(makeFakeContext());
+    expect(api).toBeDefined();
+    expect(typeof api.connections.list).toBe("function");
+    for (const id of [
+      "fs-query-studio.connections.add",
+      "fs-query-studio.connections.edit",
+      "fs-query-studio.connections.remove",
+      "fs-query-studio.connections.refresh",
+    ]) {
+      expect(vscodeStub.commands._handlers.has(id)).toBe(true);
+    }
+    await deactivate();
+  });
+});

@@ -19,7 +19,8 @@
   "main": "./dist/extension.js",
   "activationEvents": [
     "onCommand:fs-query-studio.checkWorker",
-    "onNotebook:fsquery-notebook"
+    "onNotebook:fsquery-notebook",
+    "onView:fsQueryStudioConnections"
   ],
   "contributes": {
     "commands": [
@@ -30,8 +31,76 @@
       {
         "command": "fs-query-studio.restartKernel",
         "title": "F# Query Studio: Restart Notebook Session"
+      },
+      {
+        "command": "fs-query-studio.connections.add",
+        "title": "F# Query Studio: Connections: Add Connection",
+        "icon": "$(add)"
+      },
+      {
+        "command": "fs-query-studio.connections.edit",
+        "title": "F# Query Studio: Connections: Edit Connection",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "fs-query-studio.connections.remove",
+        "title": "F# Query Studio: Connections: Remove Connection",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "fs-query-studio.connections.refresh",
+        "title": "F# Query Studio: Connections: Refresh",
+        "icon": "$(refresh)"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "fs-query-studio",
+          "title": "F# Query Studio",
+          "icon": "media/activitybar.svg"
+        }
+      ]
+    },
+    "views": {
+      "fs-query-studio": [
+        {
+          "id": "fsQueryStudioConnections",
+          "name": "Connections"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "fsQueryStudioConnections",
+        "contents": "No connections registered yet.\n[Add Connection](command:fs-query-studio.connections.add)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "fs-query-studio.connections.add",
+          "when": "view == fsQueryStudioConnections",
+          "group": "navigation"
+        },
+        {
+          "command": "fs-query-studio.connections.refresh",
+          "when": "view == fsQueryStudioConnections",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "fs-query-studio.connections.edit",
+          "when": "view == fsQueryStudioConnections && viewItem == fsqsConnection",
+          "group": "inline"
+        },
+        {
+          "command": "fs-query-studio.connections.remove",
+          "when": "view == fsQueryStudioConnections && viewItem == fsqsConnection"
+        }
+      ]
+    },
     "notebooks": [
       {
         "type": "fsquery-notebook",

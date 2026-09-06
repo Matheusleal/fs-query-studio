@@ -11,6 +11,8 @@ import { registerRendererHost } from "./notebook/renderer-host";
 import { FSQUERY_RENDERER_ID } from "./renderer/types";
 import { getWorkerSession, disposeWorkerSession } from "./worker/session";
 import { registerLanguageFeatures } from "./lang/providers";
+import { registerConnectionFeatures, type ConnectionsApi } from "./connections/commands";
+import { registerSecretBridge } from "./secrets/bridge";
 
 export interface HealthCheckDeps {
   extensionRoot: string;
@@ -87,9 +89,13 @@ export async function runHealthCheck(deps: HealthCheckDeps): Promise<HealthCheck
   }
 }
 
+export interface FsQueryStudioApi {
+  connections: ConnectionsApi;
+}
+
 let outputChannel: vscode.OutputChannel | undefined;
 
-export async function activate(context: vscode.ExtensionContext): Promise<void> {
+export async function activate(context: vscode.ExtensionContext): Promise<FsQueryStudioApi> {
   outputChannel = vscode.window.createOutputChannel("F# Query Studio");
 
   const runCheck = async (): Promise<HealthCheckResult> => {
@@ -124,12 +130,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   const command = vscode.commands.registerCommand("fs-query-studio.checkWorker", runCheck);
 
+  let bridgeRegistered = false;
   const getWorker = async () => {
     const session = await getWorkerSession({
       extensionRoot: context.extensionPath,
       env: process.env,
       log: (line) => outputChannel!.appendLine(line),
     });
+    if (!bridgeRegistered) {
+      bridgeRegistered = true;
+      registerSecretBridge({ client: session.client, secrets: context.secrets });
+    }
     return session.client;
   };
 
@@ -163,6 +174,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     log: (line) => outputChannel!.appendLine(line),
   });
 
+  const connections = registerConnectionFeatures({
+    getWorker,
+    secrets: context.secrets,
+    log: (line) => outputChannel!.appendLine(line),
+  });
+
   const restartCommand = vscode.commands.registerCommand(
     "fs-query-studio.restartKernel",
     async () => {
@@ -191,8 +208,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     rendererHost,
     restartCommand,
     languageFeatures,
+    connections.disposable,
     outputChannel,
   );
+
+  return { connections: connections.api };
 }
 
 export async function deactivate(): Promise<void> {
