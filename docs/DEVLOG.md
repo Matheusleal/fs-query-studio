@@ -1862,3 +1862,7 @@ Verification (from `editors/vscode`): `npm run compile` — tsc clean, esbuild b
 ## 2026-09-07 — F5.1: connection/list RPC
 
 `Handlers.handleConnectionList` + a `"connection/list"` dispatch arm — a read-only `{ connections }` projection of `Workspace.readConnections (workspaceDir ())`, the list the connections TreeView needs on open (`connection/register` / `connection/remove` only ever return it as a side effect of mutating).
+
+## 2026-09-07 — F5.2: HostChannel (worker-initiated request path)
+
+`src/FSharpQueryStudio.Worker/HostChannel.fs`: `HostChannel(send)` — `Request(method, params)` mints a `host-<32hex>` id (disjoint from every host-minted id), writes a `WorkerRequestFrame` via the injected `send`, and returns a `Task<WorkerResponseFrame>` the read loop completes through `TryComplete` when the matching response arrives. A faulted `send` faults the pending task. Nothing wires it yet.

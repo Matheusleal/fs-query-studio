@@ -12,6 +12,7 @@
     <Compile Include="Tests.fs" />
     <Compile Include="HandlersTests.fs" />
     <Compile Include="HandlersLoggingTests.fs" />
+    <Compile Include="HostChannelTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
