@@ -114,8 +114,8 @@ Added to `dispatch` as `"connection/list"`. Synchronous, inline (like `results/d
 
 ### `protocol.ts` additions — `editors/vscode/src/`
 
-- `type ConnectorKind = "SqlServer" | "PostgreSql" | "Sqlite" | "Csv" | "Excel" | "RestJson"` — the wire form is a bare string (FSharp.SystemTextJson serialises this DU with no cases as a string), decoded / encoded directly.
-- `interface ConnectionDefinition { id: string; name: string; kind: ConnectorKind; configuration: unknown; secretReference: string | null; isTrusted: boolean }` — `configuration` is an opaque JSON value, shaped per kind by `buildConnectionDefinition`.
+- `type ConnectorKindName = "SqlServer" | "PostgreSql" | "Sqlite" | "Csv" | "Excel" | "RestJson"`. The wire form is an F# DU with the project's default `JsonFSharpConverter` encoding — **`{ "Case": "Sqlite" }`**, same as `Diagnostic.severity` in F4 (verified: `Serialization.options` adds `JsonFSharpConverter()` with no `JsonUnionEncoding` override, so fieldless tags are *not* unwrapped; `tests/FSharpQueryStudio.Protocol.Tests/Tests.fs` round-trips every kind). Decode with the existing `readUnionTag`; encode with `makeUnionTag`.
+- `interface ConnectionDefinition { id: string; name: string; kind: UnionTag<ConnectorKindName>; configuration: unknown; secretReference: string | null; isTrusted: boolean }` — `configuration` is an opaque nested JSON object, shaped per kind by `buildConnectionDefinition`; `secretReference` is an F# `string option` (bare value or `null` on the wire).
 - `interface SchemaColumn { name: string; dataType: string }`, `interface SchemaTable { name: string; columns: SchemaColumn[] }`.
 - `interface ConnectionListResult { connections: ConnectionDefinition[] }`, `interface ConnectionSchemaResult { tables: SchemaTable[] }`, `ConnectionRemoveParams { id: string }`, `ConnectionSchemaParams { id: string }`.
 - `interface HostRequestFrame { id: string; method: string; params: unknown }` — an inbound frame with `method` set. Reuses `WorkerErrorInfo` for the reply error.
@@ -184,7 +184,7 @@ Tree node `contextValue`: `"fsqsConnection"` for connection roots; table / colum
 - `connections/add.test.ts` — a scripted fake `{ showQuickPick, showInputBox, showWarningMessage }`: full add path calls `secrets.store` before `connection/register` with the right args; edit path with blank password does not call `secrets.store`; remove path confirms then calls `connection/remove` then `secrets.delete`; cancelled remove sends nothing.
 - `secrets/bridge.test.ts` — `secret/get` hit → `{ secret }`; miss → `{ secret: null }`; unknown method → `host/unknownMethod` error; `secrets.get` throws → error frame, no throw out.
 - `worker/client.test.ts` (append) — an inbound frame with `method` set → `onHostRequest` called, a `{ id, result }` frame written to stdin; no handler → `host/unhandled`; handler rejects → `host/threw`; a methodless frame with an unknown id → still ignored (unchanged).
-- `protocol.test.ts` (append) — `ConnectorKind` round-trips as a bare string; `HostRequestFrame` type-guard (`method` present).
+- `protocol.test.ts` (append) — `readUnionTag` decodes a `{ "Case": "Sqlite" }` kind; `makeUnionTag("Sqlite")` encodes it back; an inbound frame with `method` set is recognised as a `HostRequestFrame` (guard).
 
 ### `test/vscode-stub.ts` additions
 
