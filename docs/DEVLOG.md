@@ -1826,3 +1826,7 @@ Verification (from `editors/vscode`): `npm run compile` green (`tsc --noEmit` cl
 ## 2026-09-06 — F4.3: diagnostic remap + per-cell version tracking
 
 `src/lang/cell-context.ts`: `mapDiagnosticIntoCell` subtracts `cellLineOffset` from a wire diagnostic's lines, drops any that fall in the prefix, clamps a straddler into `[0, cellLineCount)`, and decodes the severity tag; `versionFor(cellUri, source)` / `forgetVersion` give FSAC a version that moves whenever the concatenated source changes (the cell's own `document.version` does not).
+
+## 2026-09-06 — F4.4: analysis-client (analysis/* RPC wrappers)
+
+`src/lang/analysis-client.ts`: `checkAnalysis` / `completeAnalysis` / `hoverAnalysis` / `signatureHelpAnalysis` over an injected `WorkerLike`, each collapsing an error frame, a null result, or a thrown send into `[]` / `undefined` so a provider never throws on a keystroke (mirrors `App/AnalysisService.fs`).
