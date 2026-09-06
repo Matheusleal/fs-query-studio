@@ -1802,3 +1802,7 @@ Verification (from `editors/vscode`): `npm run compile` green (`tsc --noEmit` cl
 ## 2026-09-06 — F3.6: renderer host (messaging → worker RPCs)
 
 `notebook/renderer-host.ts`: `registerRendererHost` subscribes to `NotebookRendererMessaging`, validates inbound messages, and answers `loadMore` via `results/page` (`{ sessionId, continuationToken }`; `results/unknownToken` → "re-run the cell" text) and `exportCsv` via a save dialog + `results/exportCsv` (`results/nothingToExport` → a plain "only Results.table tables" line; a cancelled dialog stays silent). Worker-unavailable and thrown sends collapse into a scoped `error` message. Fully dependency-injected — no `vscode` import.
+
+## 2026-09-06 — F3.7: the results-grid renderer
+
+`src/renderer/index.ts`: browser-side `activate(context)` returning `renderOutputItem` / `disposeOutputItem`. Draws a windowed grid (`visibleRange`, fixed 22px rows, translate-based recycling on scroll), a Data/Schema toolbar toggle, a row-count label, an `Export CSV` button (posts `exportCsv`), and a `Load more` button shown only while a `continuationToken` exists (posts `loadMore`, disables until reply). Inbound `rows` append + retoken, `error` shows a notice (and hides `Load more` for the `loadMore` scope), `exportDone` confirms — all routed by `outputId`. Theme entirely via `--vscode-*` vars. New devDependency: `jsdom` (renderer unit tests run under `// @vitest-environment jsdom`).
