@@ -42,17 +42,17 @@ describe("checkAnalysis", () => {
     expect(out).toEqual([diag]);
   });
 
-  it("returns [] on an error frame, a null result, or a thrown send", async () => {
+  it("returns [] on an error frame or null result, throws on worker send error", async () => {
     expect(
       await checkAnalysis(fakeWorker({ id: "1", error: { code: "x", message: "y" } }).worker, checkParams),
     ).toEqual([]);
     expect(await checkAnalysis(fakeWorker({ id: "1", result: null }).worker, checkParams)).toEqual([]);
-    expect(
-      await checkAnalysis(
+    await expect(
+      checkAnalysis(
         fakeWorker(() => Promise.reject(new Error("boom"))).worker,
         checkParams,
       ),
-    ).toEqual([]);
+    ).rejects.toThrow("boom");
   });
 });
 

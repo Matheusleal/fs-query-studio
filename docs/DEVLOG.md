@@ -1830,3 +1830,7 @@ Verification (from `editors/vscode`): `npm run compile` green (`tsc --noEmit` cl
 ## 2026-09-06 — F4.4: analysis-client (analysis/* RPC wrappers)
 
 `src/lang/analysis-client.ts`: `checkAnalysis` / `completeAnalysis` / `hoverAnalysis` / `signatureHelpAnalysis` over an injected `WorkerLike`, each collapsing an error frame, a null result, or a thrown send into `[]` / `undefined` so a provider never throws on a keystroke (mirrors `App/AnalysisService.fs`).
+
+## 2026-09-06 — F4.5: DiagnosticsManager (debounce + lifecycle)
+
+`src/lang/diagnostics.ts`: a fully dependency-injected `DiagnosticsManager` (no vscode import) — `onCellChanged` debounces 300 ms then runs `buildAnalysisInput` → `checkAnalysis` → `mapDiagnosticIntoCell` → `publish`; `onCellOpened` checks immediately; `onCellClosed` cancels the timer, `forgetVersion`s, and `clear`s; `dispose` cancels every pending timer. A thrown worker send is logged and drops silently, leaving existing squiggles in place.
