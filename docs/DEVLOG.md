@@ -1842,3 +1842,7 @@ Verification (from `editors/vscode`): `npm run compile` green (`tsc --noEmit` cl
 ## 2026-09-06 — F4.7: activate wires the language providers
 
 `extension.ts`: `activate` now calls `registerLanguageFeatures({ getWorker, log })` (reusing the shared window-lifetime worker session) and disposes it via `context.subscriptions`.
+
+## 2026-09-06 — F4.8: extension-host integration spec
+
+`test/integration/intelligence.test.ts` (+ `fixtures/sample-intelligence.fsqnb`): opens the fixture, executes `let answer = 42`, and asserts `vscode.executeCompletionItemProvider` on the sibling cell offers `answer`; a second spec applies a broken edit and waits for a `"F# Query Studio"`-sourced diagnostic. Both gated on a bundled worker (skipped green without one, run in CI).
