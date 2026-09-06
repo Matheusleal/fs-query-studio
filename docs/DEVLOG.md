@@ -1798,3 +1798,7 @@ Verification (from `editors/vscode`): `npm run compile` green (`tsc --noEmit` cl
 ## 2026-09-06 — F3.5: controller writes the table-json MIME item
 
 `notebook/controller.ts`: `toOutputItem` maps a `table-json` spec to `NotebookCellOutputItem.json(payload, "application/x-fsquery-table+json")`, and `runBatch` passes `{ documentUri: sessionId }` into `mapEnvelope` so Table cells now carry three items — stdout/stderr, the renderer JSON, and the `text/plain` fallback. Stub `NotebookCellOutputItem.json` added.
+
+## 2026-09-06 — F3.6: renderer host (messaging → worker RPCs)
+
+`notebook/renderer-host.ts`: `registerRendererHost` subscribes to `NotebookRendererMessaging`, validates inbound messages, and answers `loadMore` via `results/page` (`{ sessionId, continuationToken }`; `results/unknownToken` → "re-run the cell" text) and `exportCsv` via a save dialog + `results/exportCsv` (`results/nothingToExport` → a plain "only Results.table tables" line; a cancelled dialog stays silent). Worker-unavailable and thrown sends collapse into a scoped `error` message. Fully dependency-injected — no `vscode` import.
