@@ -1898,3 +1898,7 @@ Verification (from `editors/vscode`): `npm run compile` — tsc clean, esbuild b
 ## 2026-09-07 — F5.10: connections/schema-cache.ts
 
 `src/connections/schema-cache.ts`: `SchemaCache` — `get` / `set` / `clear` over a `Map<connectionId, SchemaTable[]>`. Session-lived, invalidated only by the Refresh command.
+
+## 2026-09-07 — F5.11: connections/tree.ts (TreeDataProvider)
+
+`src/connections/tree.ts`: `ConnectionsTreeProvider` — roots from `connection/list`, a connection expands to `connection/schema` tables (cached in `SchemaCache`, fetched once), a table expands to `name: dataType` columns. An error frame / thrown send / failed `getWorker` collapses to a single `error` node (root level) or error child (schema level); nothing throws out of `getChildren`. `refresh()` fires `onDidChangeTreeData`. Icons: `database` / `table` / `symbol-field` / `warning`; connection nodes carry `contextValue="fsqsConnection"`. `test/vscode-stub.ts` gained `TreeItem`, `TreeItemCollapsibleState`, `ThemeIcon`, `EventEmitter`, `window.registerTreeDataProvider`.

@@ -17,6 +17,9 @@ export const window = {
     undefined as string | undefined,
   activeNotebookEditor: undefined as unknown,
   showSaveDialog: async (_opts?: unknown) => undefined as { fsPath: string } | undefined,
+  registerTreeDataProvider(_id: string, _provider: unknown): Disposable {
+    return { dispose: () => {} };
+  },
 };
 
 export const workspace = {
@@ -318,6 +321,41 @@ export const languages = {
   },
 };
 
+// --- tree view (F5) ---
+export enum TreeItemCollapsibleState {
+  None = 0,
+  Collapsed = 1,
+  Expanded = 2,
+}
+
+export class TreeItem {
+  description?: string;
+  contextValue?: string;
+  iconPath?: unknown;
+  constructor(
+    public label: string,
+    public collapsibleState: TreeItemCollapsibleState = TreeItemCollapsibleState.None,
+  ) {}
+}
+
+export class ThemeIcon {
+  constructor(public id: string) {}
+}
+
+export class EventEmitter<T> {
+  private listeners: Array<(e: T) => unknown> = [];
+  event = (listener: (e: T) => unknown) => {
+    this.listeners.push(listener);
+    return { dispose: () => (this.listeners = this.listeners.filter((l) => l !== listener)) };
+  };
+  fire(data: T) {
+    for (const l of this.listeners) l(data);
+  }
+  dispose() {
+    this.listeners = [];
+  }
+}
+
 export default {
   window,
   workspace,
@@ -343,4 +381,8 @@ export default {
   SignatureInformation,
   ParameterInformation,
   Disposable,
+  TreeItem,
+  TreeItemCollapsibleState,
+  ThemeIcon,
+  EventEmitter,
 };
