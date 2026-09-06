@@ -55,8 +55,29 @@ describe("createFsQueryController — executeHandler", () => {
     const exec = execs(controller)[0];
     expect(exec.ended).toBe(true);
     const outputs = exec.outputs as Array<{ items: Array<{ data: unknown; mime: string }> }>;
-    expect(outputs[0].items[0].mime).toBe("application/vnd.code.notebook.stdout");
-    expect(outputs[0].items[1].mime).toBe("text/plain");
+    expect(outputs[0].items.map((i) => i.mime)).toEqual([
+      "application/vnd.code.notebook.stdout",
+      "application/x-fsquery-table+json",
+      "text/plain",
+    ]);
+    const tableItem = outputs[0].items[1];
+    const body = JSON.parse(new TextDecoder().decode(tableItem.data as Uint8Array));
+    expect(body.documentUri).toBe("file:///a.fsqnb");
+    expect(body.rows).toEqual([[1], [2]]);
+  });
+
+  it("omits the table-json item for a non-Table result", async () => {
+    const worker: WorkerLike = {
+      send: async (req) => ({
+        id: req.id,
+        result: tableEnvelope({ kind: { Case: "Scalar" }, displayText: "42", schema: [], rows: [] }),
+      }),
+      cancel: async () => {},
+    };
+    const controller = createFsQueryController({ getWorker: async () => worker, log: () => {} });
+    await controller.executeHandler!([cell("q")], notebook("file:///a.fsqnb"), controller);
+    const outputs = execs(controller)[0].outputs as Array<{ items: Array<{ mime: string }> }>;
+    expect(outputs[0].items.some((i) => i.mime === "application/x-fsquery-table+json")).toBe(false);
   });
 
   it("runs cells sequentially and stops after the first cell whose result is an Error", async () => {

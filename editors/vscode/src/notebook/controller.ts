@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { FSQNB_NOTEBOOK_TYPE } from "./serializer";
 import { mapEnvelope, type OutputItemSpec } from "./result";
+import { FSQUERY_TABLE_MIME } from "../renderer/types";
 import {
   newRequestId,
   readUnionTag,
@@ -38,6 +39,8 @@ function toOutputItem(spec: OutputItemSpec): vscode.NotebookCellOutputItem {
       return vscode.NotebookCellOutputItem.stderr(spec.text);
     case "text":
       return vscode.NotebookCellOutputItem.text(spec.text, "text/plain");
+    case "table-json":
+      return vscode.NotebookCellOutputItem.json(spec.payload, FSQUERY_TABLE_MIME);
     case "error":
       return vscode.NotebookCellOutputItem.error(
         Object.assign(new Error(spec.message), { name: spec.name }),
@@ -145,7 +148,7 @@ export function createFsQueryController(deps: ControllerDeps): vscode.NotebookCo
         }
 
         const envelope = response.result as ResultEnvelope | null | undefined;
-        const items = mapEnvelope(envelope).map(toOutputItem);
+        const items = mapEnvelope(envelope, { documentUri: sessionId }).map(toOutputItem);
         exec.replaceOutput(new vscode.NotebookCellOutput(items));
 
         const isError = !envelope || readUnionTag(envelope.kind) === "Error";

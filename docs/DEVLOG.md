@@ -1794,3 +1794,7 @@ Verification (from `editors/vscode`): `npm run compile` green (`tsc --noEmit` cl
 ## 2026-09-06 — F3.4: mapEnvelope emits a table-json output spec
 
 `notebook/result.ts`: `OutputItemSpec` gains `{ kind: "table-json"; payload: TablePayload }`, and `mapEnvelope(env, { documentUri })` now prepends that spec (built via `buildTablePayload`) before the `text/plain` grid for Table envelopes. Called without a `documentUri` it keeps the exact F2 behavior (text only), so the renderer item only appears on the real controller path. Text-grid truncation note reworded ("more rows available in the grid view").
+
+## 2026-09-06 — F3.5: controller writes the table-json MIME item
+
+`notebook/controller.ts`: `toOutputItem` maps a `table-json` spec to `NotebookCellOutputItem.json(payload, "application/x-fsquery-table+json")`, and `runBatch` passes `{ documentUri: sessionId }` into `mapEnvelope` so Table cells now carry three items — stdout/stderr, the renderer JSON, and the `text/plain` fallback. Stub `NotebookCellOutputItem.json` added.

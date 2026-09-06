@@ -73,6 +73,9 @@ export class NotebookCellOutputItem {
   static text(value: string, mime = "text/plain") {
     return new NotebookCellOutputItem(value, mime);
   }
+  static json(value: unknown, mime = "application/json") {
+    return new NotebookCellOutputItem(new TextEncoder().encode(JSON.stringify(value)), mime);
+  }
   static error(err: { name: string; message: string }) {
     return new NotebookCellOutputItem(err, "application/vnd.code.notebook.error");
   }
