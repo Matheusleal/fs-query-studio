@@ -27,6 +27,7 @@ import {
   readUnionTag,
   makeUnionTag,
   SESSION_MODE_PERSISTENT,
+  readSeverity,
 } from "./protocol";
 
 describe("union tag helpers", () => {
@@ -48,5 +49,21 @@ describe("union tag helpers", () => {
 
   it("SESSION_MODE_PERSISTENT serializes to the worker's adjacent-tag shape", () => {
     expect(JSON.stringify(SESSION_MODE_PERSISTENT)).toBe('{"Case":"Persistent"}');
+  });
+});
+
+describe("readSeverity", () => {
+  it("decodes each F# DU severity tag", () => {
+    expect(readSeverity({ Case: "Error" })).toBe("Error");
+    expect(readSeverity({ Case: "Warning" })).toBe("Warning");
+    expect(readSeverity({ Case: "Information" })).toBe("Information");
+  });
+
+  it("falls back to Error for anything unrecognized", () => {
+    expect(readSeverity({ Case: "Nonsense" })).toBe("Error");
+    expect(readSeverity(null)).toBe("Error");
+    expect(readSeverity(undefined)).toBe("Error");
+    expect(readSeverity("Warning")).toBe("Error"); // bare string, not a tag
+    expect(readSeverity({})).toBe("Error");
   });
 });

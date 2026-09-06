@@ -113,3 +113,85 @@ export interface ResultEnvelope {
   elapsedMs: number;
   output: OutputLine[];
 }
+
+// --- F4: analysis/* request + response payloads ---
+
+export type WireSeverity = "Error" | "Warning" | "Information";
+
+/**
+ * `Diagnostic.Severity` is a fieldless F# DU — FSharp.SystemTextJson
+ * writes it as `{ "Case": "Error" }`. Anything we don't recognize is
+ * treated as an error so a surprising value is never silently dropped.
+ */
+export function readSeverity(value: unknown): WireSeverity {
+  switch (readUnionTag(value)) {
+    case "Warning":
+      return "Warning";
+    case "Information":
+      return "Information";
+    default:
+      return "Error";
+  }
+}
+
+/** `analysis/check` request — mirror of `Protocol.AnalysisCheckParams`. */
+export interface AnalysisCheckParams {
+  documentUri: string;
+  version: number;
+  source: string;
+}
+
+/**
+ * `analysis/complete` / `analysis/hover` / `analysis/signatureHelp`
+ * request. `line` is **1-based**, `column` is **0-based** — the worker's
+ * `Prologue.shiftUp` contract.
+ */
+export interface AnalysisPositionParams {
+  documentUri: string;
+  version: number;
+  source: string;
+  line: number;
+  column: number;
+}
+
+/** One diagnostic as it arrives from `analysis/check`. Lines/columns are
+ *  0-based against the *unprefixed* source we sent (the worker already
+ *  shifted its FSAC prologue back out). */
+export interface WireDiagnostic {
+  message: string;
+  severity: UnionTag<WireSeverity>;
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+  code: string | null;
+}
+
+export interface AnalysisCheckResult {
+  diagnostics: WireDiagnostic[];
+}
+
+export interface AnalysisCompletionResult {
+  items: string[];
+}
+
+export interface HoverInfo {
+  displayName: string;
+  type: string;
+  signature: string | null;
+  xmlDoc: string | null;
+}
+
+export interface AnalysisHoverResult {
+  hover: HoverInfo | null;
+}
+
+export interface SignatureHelpInfo {
+  displayName: string;
+  parameters: string[];
+  returnType: string;
+}
+
+export interface AnalysisSignatureHelpResult {
+  signatureHelp: SignatureHelpInfo | null;
+}
