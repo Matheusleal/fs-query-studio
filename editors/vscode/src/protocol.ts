@@ -195,3 +195,70 @@ export interface SignatureHelpInfo {
 export interface AnalysisSignatureHelpResult {
   signatureHelp: SignatureHelpInfo | null;
 }
+
+// --- F5: connections + reverse channel ---
+
+export type ConnectorKindName =
+  | "SqlServer"
+  | "PostgreSql"
+  | "Sqlite"
+  | "Csv"
+  | "Excel"
+  | "RestJson";
+
+/** A registered, non-secret connection binding — mirrors F#
+ *  `FSharpQueryStudio.Protocol.ConnectionDefinition`. `kind` is an F# DU on
+ *  the wire (`{ "Case": "Sqlite" }`); `configuration` is an opaque nested
+ *  object shaped per kind; `secretReference` is an F# `string option`. */
+export interface ConnectionDefinition {
+  id: string;
+  name: string;
+  kind: UnionTag<ConnectorKindName>;
+  configuration: unknown;
+  secretReference: string | null;
+  isTrusted: boolean;
+}
+
+export interface SchemaColumn {
+  name: string;
+  dataType: string;
+}
+
+export interface SchemaTable {
+  name: string;
+  columns: SchemaColumn[];
+}
+
+export interface ConnectionListResult {
+  connections: ConnectionDefinition[];
+}
+
+export interface ConnectionSchemaResult {
+  tables: SchemaTable[];
+}
+
+export interface ConnectionRemoveParams {
+  id: string;
+}
+
+export interface ConnectionSchemaParams {
+  id: string;
+}
+
+/** An inbound frame the worker *sent* — a host-bound request (F5 reverse
+ *  channel). Distinguished from a response frame by a non-empty `method`. */
+export interface HostRequestFrame {
+  id: string;
+  method: string;
+  params: unknown;
+}
+
+export function isHostRequestFrame(frame: unknown): frame is HostRequestFrame {
+  return (
+    frame !== null &&
+    typeof frame === "object" &&
+    typeof (frame as { id?: unknown }).id === "string" &&
+    typeof (frame as { method?: unknown }).method === "string" &&
+    (frame as { method: string }).method.length > 0
+  );
+}

@@ -1878,3 +1878,7 @@ Verification (from `editors/vscode`): `npm run compile` — tsc clean, esbuild b
 ## 2026-09-07 — F5.5: BridgeSecretStore + composed on the worker path
 
 `src/FSharpQueryStudio.Worker/BridgeSecretStore.fs`: `ISecretStore` whose `TryRead` blocks on a host-bound `secret/get` over `HostChannel` (5 s default timeout, constructor-overridable) and degrades to `None` on timeout / error frame / null / non-string / exception — the same "missing secret → connection failure" contract `ConnectionStringSecrets.resolve` already documents. `Save` / `Delete` raise `NotSupportedException` (the extension owns credential writes). `Program.fs` `main` now calls `Handlers.configureSecretStore (BridgeSecretStore hostChannel)`, so a `{password}` connection in the extension host resolves from VS Code `SecretStorage`. Standalone `dotnet run` of the worker keeps `WindowsCredentialStore` only if `main` is bypassed — in practice the worker always runs through `main`, so the bridge is always active; a host that never answers `secret/get` just yields `None`.
+
+## 2026-09-07 — F5.6: connection + host-frame wire types (protocol.ts)
+
+`src/protocol.ts`: `ConnectorKindName`, `ConnectionDefinition` (`kind` as `UnionTag<ConnectorKindName>`, `secretReference: string | null`), `SchemaTable` / `SchemaColumn`, the `connection/list` + `connection/schema` result shapes, `ConnectionRemoveParams` / `ConnectionSchemaParams`, and `HostRequestFrame` + `isHostRequestFrame` (non-empty `method` distinguishes a worker-sent request from a response).

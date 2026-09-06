@@ -67,3 +67,27 @@ describe("readSeverity", () => {
     expect(readSeverity({})).toBe("Error");
   });
 });
+
+import { isHostRequestFrame, type ConnectionDefinition } from "./protocol";
+
+describe("F5 connection wire types", () => {
+  it("decodes a { Case } connector kind and re-encodes it", () => {
+    const def = {
+      id: "1",
+      name: "Sales",
+      kind: { Case: "Sqlite" },
+      configuration: { filePath: "/x.db" },
+      secretReference: null,
+      isTrusted: false,
+    } as unknown as ConnectionDefinition;
+    expect(readUnionTag(def.kind)).toBe("Sqlite");
+    expect(makeUnionTag("PostgreSql")).toEqual({ Case: "PostgreSql" });
+  });
+
+  it("recognises an inbound host-bound request frame", () => {
+    expect(isHostRequestFrame({ id: "host-abc", method: "secret/get", params: {} })).toBe(true);
+    expect(isHostRequestFrame({ id: "x", result: { secret: "y" } })).toBe(false);
+    expect(isHostRequestFrame({ id: "x", method: "" })).toBe(false);
+    expect(isHostRequestFrame(null)).toBe(false);
+  });
+});
