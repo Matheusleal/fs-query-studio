@@ -1,4 +1,6 @@
 import { readUnionTag, type Column, type ResultEnvelope } from "../protocol";
+import { buildTablePayload } from "./table-payload";
+import type { TablePayload } from "../renderer/types";
 
 /**
  * A flat, VS Code-independent description of one cell output item. The
@@ -10,7 +12,8 @@ export type OutputItemSpec =
   | { kind: "stdout"; text: string }
   | { kind: "stderr"; text: string }
   | { kind: "text"; text: string }
-  | { kind: "error"; name: string; message: string };
+  | { kind: "error"; name: string; message: string }
+  | { kind: "table-json"; payload: TablePayload };
 
 const MAX_CELL_WIDTH = 60;
 /** Cap on rows rendered into the text grid, independent of `isTruncated`. */
@@ -68,12 +71,15 @@ export function formatTextTable(
     out.push(`(showing ${MAX_RENDERED_ROWS} of ${rows.length} rows)`);
   }
   if (isTruncated) {
-    out.push("(truncated — full grid and paging arrive in F3)");
+    out.push("(truncated — more rows available in the grid view)");
   }
   return out.join("\n");
 }
 
-export function mapEnvelope(env: ResultEnvelope | null | undefined): OutputItemSpec[] {
+export function mapEnvelope(
+  env: ResultEnvelope | null | undefined,
+  opts?: { documentUri?: string },
+): OutputItemSpec[] {
   if (env === null || env === undefined) {
     return [
       { kind: "error", name: "WorkerProtocolError", message: "The worker returned no result." },
@@ -95,12 +101,16 @@ export function mapEnvelope(env: ResultEnvelope | null | undefined): OutputItemS
         message: env.displayText ?? "Evaluation failed.",
       });
       break;
-    case "Table":
+    case "Table": {
+      if (opts?.documentUri) {
+        specs.push({ kind: "table-json", payload: buildTablePayload(env, opts.documentUri) });
+      }
       specs.push({
         kind: "text",
         text: formatTextTable(env.schema ?? [], env.rows ?? [], env.elapsedMs, env.isTruncated),
       });
       break;
+    }
     case "NoValue":
       if (typeof env.displayText === "string" && env.displayText.length > 0) {
         specs.push({ kind: "text", text: env.displayText });

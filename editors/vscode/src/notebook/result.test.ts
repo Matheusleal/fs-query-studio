@@ -40,7 +40,7 @@ describe("formatTextTable", () => {
   it("adds a truncation note when isTruncated", () => {
     const text = formatTextTable([{ name: "x", displayType: "int" }], [[1]], 4, true);
     expect(text).toContain("truncated");
-    expect(text).toContain("F3");
+    expect(text).toContain("grid view");
   });
 
   it("stringifies non-primitive cells and blanks nulls", () => {
@@ -131,5 +131,49 @@ describe("mapEnvelope", () => {
   it("falls back to a text spec for an unrecognised kind", () => {
     const specs = mapEnvelope(envelope({ kind: { Case: "Object" }, displayText: "{ X = 1 }" }));
     expect(specs).toEqual([{ kind: "text", text: "{ X = 1 }" }]);
+  });
+
+  it("emits a table-json spec before the text grid when a documentUri is given", () => {
+    const specs = mapEnvelope(
+      envelope({
+        kind: { Case: "Table" },
+        schema: [{ name: "n", displayType: "int" }],
+        rows: [[1], [2], [3]],
+        isTruncated: true,
+        continuationToken: "tok",
+        elapsedMs: 7,
+      }),
+      { documentUri: "file:///a.fsqnb" },
+    );
+    expect(specs.map((s) => s.kind)).toEqual(["table-json", "text"]);
+    const json = specs[0] as Extract<OutputItemSpec, { kind: "table-json" }>;
+    expect(json.payload.documentUri).toBe("file:///a.fsqnb");
+    expect(json.payload.continuationToken).toBe("tok");
+    expect(json.payload.rows).toHaveLength(3);
+  });
+
+  it("still emits only the text grid when no documentUri is given (F2 behavior)", () => {
+    const specs = mapEnvelope(
+      envelope({
+        kind: { Case: "Table" },
+        schema: [{ name: "n", displayType: "int" }],
+        rows: [[1]],
+        elapsedMs: 7,
+      }),
+    );
+    expect(specs.map((s) => s.kind)).toEqual(["text"]);
+  });
+
+  it("puts stdout/stderr lines before the table-json spec", () => {
+    const specs = mapEnvelope(
+      envelope({
+        kind: { Case: "Table" },
+        schema: [{ name: "n", displayType: "int" }],
+        rows: [[1]],
+        output: [{ stream: { Case: "Stdout" }, text: "hi\n" }],
+      }),
+      { documentUri: "u" },
+    );
+    expect(specs.map((s) => s.kind)).toEqual(["stdout", "table-json", "text"]);
   });
 });

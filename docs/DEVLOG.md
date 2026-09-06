@@ -1790,3 +1790,7 @@ Verification (from `editors/vscode`): `npm run compile` green (`tsc --noEmit` cl
 ## 2026-09-06 — F3.3: grid core math (windowing + cell formatting)
 
 `src/renderer/grid-core.ts`: pure `visibleRange(scrollTop, rowHeight, viewportHeight, totalRows, overscan=6)` (clamped, empty on zero rows/height) for windowed row rendering, and `formatCell` (blanks nullish, `String()` for primitives, `JSON.stringify` otherwise — mirrors `result.ts::renderCell`).
+
+## 2026-09-06 — F3.4: mapEnvelope emits a table-json output spec
+
+`notebook/result.ts`: `OutputItemSpec` gains `{ kind: "table-json"; payload: TablePayload }`, and `mapEnvelope(env, { documentUri })` now prepends that spec (built via `buildTablePayload`) before the `text/plain` grid for Table envelopes. Called without a `documentUri` it keeps the exact F2 behavior (text only), so the renderer item only appears on the real controller path. Text-grid truncation note reworded ("more rows available in the grid view").
