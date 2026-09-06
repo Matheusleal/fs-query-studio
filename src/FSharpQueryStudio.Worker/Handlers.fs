@@ -70,6 +70,17 @@ module Handlers =
 
     let setWorkspaceDirForTests (dir: string option) : unit = workspaceDirOverride <- dir
 
+    /// The secret store the worker's connection resolver reads `{password}`
+    /// tokens from. Default `WindowsCredentialStore` keeps the standalone
+    /// worker and every existing test unchanged; `Program.fs` swaps in a
+    /// `BridgeSecretStore` at startup so the extension host's credential
+    /// store (VS Code `SecretStorage`, cross-platform) is the source of
+    /// truth instead. One process-wide store — the worker handles one
+    /// evaluation at a time.
+    let mutable private secretStore: ISecretStore = WindowsCredentialStore()
+
+    let configureSecretStore (store: ISecretStore) : unit = secretStore <- store
+
     let private busyResponse (id: string) : WorkerResponseFrame =
         { Id = id
           Result = None
@@ -133,7 +144,7 @@ module Handlers =
                     FsiSession.create workDir
 
             let connections = Workspace.readConnections (workspaceDir ())
-            Connections.configure (WorkspaceConnectionResolver(connections, WindowsCredentialStore()))
+            Connections.configure (WorkspaceConnectionResolver(connections, secretStore))
             Results.reset ()
 
             let outcome = Evaluation.evaluate session evalParams.Source
@@ -558,7 +569,7 @@ module Handlers =
             | Some definition ->
                 try
                     let resolver =
-                        WorkspaceConnectionResolver([ definition ], WindowsCredentialStore()) :> IConnectionResolver
+                        WorkspaceConnectionResolver([ definition ], secretStore) :> IConnectionResolver
 
                     let connector = resolver.Resolve(definition.Name)
                     let! tables = connector.DiscoverSchemaAsync(CancellationToken.None)

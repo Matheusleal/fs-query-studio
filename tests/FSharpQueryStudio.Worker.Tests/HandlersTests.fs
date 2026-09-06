@@ -1186,3 +1186,53 @@ let ``dispatch on connection/list returns an empty list for a fresh workspace`` 
             Handlers.setWorkspaceDirForTests None
             Directory.Delete(tmp, true)
     }
+
+[<Fact>]
+let ``connection/schema reads {password} from the store configured via configureSecretStore`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-seam-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory tmp |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+
+            // A recording spy: proves the resolver read `{password}` from *this*
+            // injected store (not the default WindowsCredentialStore) — an
+            // environment-independent check, unlike asserting on Npgsql's
+            // host-resolution error text, which varies by OS.
+            let mutable askedFor: string option = None
+            let spy =
+                { new FSharpQueryStudio.Security.ISecretStore with
+                    member _.TryRead reference =
+                        askedFor <- Some reference
+                        Some "s3cr3t"
+                    member _.Save _ _ = ()
+                    member _.Delete _ = () }
+            Handlers.configureSecretStore spy
+
+            let definition: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "pg"
+                  Kind = ConnectorKind.PostgreSql
+                  Configuration =
+                    JsonDocument.Parse("""{"connectionString":"Host={password}-sentinel;Port=5432"}""").RootElement
+                  SecretReference = Some "fqs-conn-seam"
+                  IsTrusted = false }
+            Workspace.writeConnections tmp [ definition ]
+
+            let req: WorkerRequestFrame =
+                { Id = "sc1"
+                  Method = "connection/schema"
+                  Params = JsonSerializer.SerializeToElement(({ Id = definition.Id }: ConnectionSchemaParams), Serialization.options) }
+            let! response = Handlers.dispatch req
+
+            // The injected store was consulted with this connection's
+            // SecretReference — the seam is wired at handleConnectionSchema.
+            Assert.Equal(Some "fqs-conn-seam", askedFor)
+            // And no server at "s3cr3t-sentinel" → a structured schemaFailed
+            // error (not an unhandled exception down the read loop).
+            Assert.Equal(Some "connection/schemaFailed", response.Error |> Option.map (fun e -> e.Code))
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Handlers.configureSecretStore (FSharpQueryStudio.Security.WindowsCredentialStore())
+            Directory.Delete(tmp, true)
+    }

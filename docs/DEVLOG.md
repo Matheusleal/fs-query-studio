@@ -1866,3 +1866,7 @@ Verification (from `editors/vscode`): `npm run compile` — tsc clean, esbuild b
 ## 2026-09-07 — F5.2: HostChannel (worker-initiated request path)
 
 `src/FSharpQueryStudio.Worker/HostChannel.fs`: `HostChannel(send)` — `Request(method, params)` mints a `host-<32hex>` id (disjoint from every host-minted id), writes a `WorkerRequestFrame` via the injected `send`, and returns a `Task<WorkerResponseFrame>` the read loop completes through `TryComplete` when the matching response arrives. A faulted `send` faults the pending task. Nothing wires it yet.
+
+## 2026-09-07 — F5.3: Handlers secret-store injection seam
+
+`Handlers.configureSecretStore : ISecretStore -> unit` + a module-level `mutable secretStore` (default `WindowsCredentialStore()`), consumed at the two `WorkspaceConnectionResolver` sites (`runEvaluate`, `handleConnectionSchema`) in place of the hard-coded `WindowsCredentialStore()`. No behaviour change yet — same default store; `Program.fs` swaps in the bridge next. Mirrors the existing `workspaceDirOverride` pattern.
