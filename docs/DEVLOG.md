@@ -1786,3 +1786,7 @@ Verification (from `editors/vscode`): `npm run compile` green (`tsc --noEmit` cl
 ## 2026-09-06 — F3.2: buildTablePayload (ResultEnvelope → TablePayload)
 
 `notebook/table-payload.ts`: pure `buildTablePayload(env, documentUri)` copies a Table envelope's schema/rows/`isTruncated`/`continuationToken`/`elapsedMs` into the renderer wire body. Type-only imports keep it out of the browser bundle's Node dependency path. Covered for both worker Table paths (`Results.table` real columns + no token; paged tail-value `Value` column + token).
+
+## 2026-09-06 — F3.3: grid core math (windowing + cell formatting)
+
+`src/renderer/grid-core.ts`: pure `visibleRange(scrollTop, rowHeight, viewportHeight, totalRows, overscan=6)` (clamped, empty on zero rows/height) for windowed row rendering, and `formatCell` (blanks nullish, `String()` for primitives, `JSON.stringify` otherwise — mirrors `result.ts::renderCell`).
