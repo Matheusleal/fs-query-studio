@@ -1,5 +1,16 @@
 import { readFrames, writeFrame } from "./ndjson";
-import { newRequestId, type WorkerRequestFrame, type WorkerResponseFrame } from "../protocol";
+import {
+  isHostRequestFrame,
+  newRequestId,
+  type WorkerErrorInfo,
+  type WorkerRequestFrame,
+  type WorkerResponseFrame,
+} from "../protocol";
+
+export type HostRequestHandler = (
+  method: string,
+  params: unknown,
+) => Promise<{ result?: unknown; error?: WorkerErrorInfo }>;
 
 export interface WorkerProcess {
   stdin: NodeJS.WritableStream;
@@ -32,10 +43,15 @@ export class WorkerClient {
   private current: WorkerProcess | undefined;
   private readonly pending = new Map<string, Pending>();
   private writeChain: Promise<void> = Promise.resolve();
+  private hostRequestHandler?: HostRequestHandler;
 
   constructor(options: WorkerClientOptions) {
     this.spawn = options.spawn;
     this.onCrash = options.onCrash;
+  }
+
+  setHostRequestHandler(handler: HostRequestHandler): void {
+    this.hostRequestHandler = handler;
   }
 
   get currentPid(): number | undefined {
@@ -112,6 +128,10 @@ export class WorkerClient {
   }
 
   private onFrame(frame: unknown): void {
+    if (isHostRequestFrame(frame)) {
+      void this.answerHostRequest(frame.id, frame.method, frame.params);
+      return;
+    }
     const response = frame as WorkerResponseFrame;
     if (!response || typeof response.id !== "string") {
       return;
@@ -121,6 +141,27 @@ export class WorkerClient {
       this.pending.delete(response.id);
       waiter.resolve(response);
     }
+  }
+
+  private async answerHostRequest(id: string, method: string, params: unknown): Promise<void> {
+    const proc = this.current;
+    if (!proc) {
+      return;
+    }
+    let reply: WorkerResponseFrame;
+    if (!this.hostRequestHandler) {
+      reply = { id, error: { code: "host/unhandled", message: `No host handler for ${method}` } };
+    } else {
+      try {
+        const outcome = await this.hostRequestHandler(method, params);
+        reply = outcome.error ? { id, error: outcome.error } : { id, result: outcome.result };
+      } catch (err) {
+        reply = { id, error: { code: "host/threw", message: (err as Error).message } };
+      }
+    }
+    this.writeChain = this.writeChain.then(() => writeFrame(proc.stdin, reply)).catch(() => {
+      /* a failed write surfaces as an exit via readFrames onEnd */
+    });
   }
 
   protected onExit(): void {

@@ -1,6 +1,16 @@
 import { describe, it, expect } from "vitest";
 import { WorkerClient } from "./client";
 import { createFakeChild } from "../../test/fake-child";
+import type { WorkerResponseFrame } from "../protocol";
+
+const flush = () => new Promise((r) => setTimeout(r, 10));
+
+// The fake child's `reply` is typed for response frames; a host-bound request
+// frame carries a `method`, so route it through the same stdout writer.
+const emitHostRequest = (
+  child: ReturnType<typeof createFakeChild>,
+  frame: { id: string; method: string; params: unknown },
+) => child.reply(frame as unknown as WorkerResponseFrame);
 
 describe("WorkerClient send + correlation", () => {
   it("resolves a send with the matching response", async () => {
@@ -146,5 +156,65 @@ describe("WorkerClient cancel", () => {
     await new Promise((r) => setTimeout(r, 5));
     const methods = child.sentFrames.map((f) => (f as { method: string }).method);
     expect(methods).toContain("execution/cancel");
+  });
+});
+
+describe("reverse channel (host-bound requests)", () => {
+  it("answers a host request with the handler result", async () => {
+    const child = createFakeChild();
+    const client = new WorkerClient({ spawn: () => child.process });
+    client.setHostRequestHandler(async (method, params) => {
+      expect(method).toBe("secret/get");
+      expect(params).toEqual({ reference: "fqs-conn-1" });
+      return { result: { secret: "hunter2" } };
+    });
+    client.send({ id: "warm", method: "worker/health", params: {} }); // force ensureProcess
+
+    emitHostRequest(child, {
+      id: "host-1",
+      method: "secret/get",
+      params: { reference: "fqs-conn-1" },
+    });
+    await flush();
+
+    const written = child.rawStdinLines.map((l) => JSON.parse(l));
+    expect(written).toContainEqual({ id: "host-1", result: { secret: "hunter2" } });
+  });
+
+  it("replies host/unhandled when no handler is set", async () => {
+    const child = createFakeChild();
+    const client = new WorkerClient({ spawn: () => child.process });
+    client.send({ id: "warm", method: "worker/health", params: {} });
+
+    emitHostRequest(child, { id: "host-2", method: "secret/get", params: {} });
+    await flush();
+
+    const written = child.rawStdinLines.map((l) => JSON.parse(l));
+    expect(written.find((f) => f.id === "host-2")?.error?.code).toBe("host/unhandled");
+  });
+
+  it("replies host/threw when the handler rejects", async () => {
+    const child = createFakeChild();
+    const client = new WorkerClient({ spawn: () => child.process });
+    client.setHostRequestHandler(async () => {
+      throw new Error("boom");
+    });
+    client.send({ id: "warm", method: "worker/health", params: {} });
+
+    emitHostRequest(child, { id: "host-3", method: "secret/get", params: {} });
+    await flush();
+
+    const written = child.rawStdinLines.map((l) => JSON.parse(l));
+    const f = written.find((x) => x.id === "host-3");
+    expect(f?.error).toEqual({ code: "host/threw", message: "boom" });
+  });
+
+  it("still correlates a normal response frame by id", async () => {
+    const child = createFakeChild();
+    const client = new WorkerClient({ spawn: () => child.process });
+    const p = client.send({ id: "r1", method: "worker/health", params: {} });
+    await flush();
+    child.reply({ id: "r1", result: { version: "0.1.0" } });
+    expect((await p).result).toEqual({ version: "0.1.0" });
   });
 });

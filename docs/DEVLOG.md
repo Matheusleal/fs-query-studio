@@ -1882,3 +1882,7 @@ Verification (from `editors/vscode`): `npm run compile` — tsc clean, esbuild b
 ## 2026-09-07 — F5.6: connection + host-frame wire types (protocol.ts)
 
 `src/protocol.ts`: `ConnectorKindName`, `ConnectionDefinition` (`kind` as `UnionTag<ConnectorKindName>`, `secretReference: string | null`), `SchemaTable` / `SchemaColumn`, the `connection/list` + `connection/schema` result shapes, `ConnectionRemoveParams` / `ConnectionSchemaParams`, and `HostRequestFrame` + `isHostRequestFrame` (non-empty `method` distinguishes a worker-sent request from a response).
+
+## 2026-09-07 — F5.7: WorkerClient reverse dispatch
+
+`src/worker/client.ts`: `setHostRequestHandler(fn)` + an `onFrame` branch — a frame passing `isHostRequestFrame` (non-empty `method`) is answered via the handler and the reply written back through `writeChain` (`{ id, result }` / `{ id, error }`); no handler → `host/unhandled`; a throwing/rejecting handler → `host/threw`. Response frames keep the existing id-correlation path untouched.
