@@ -1806,3 +1806,7 @@ Verification (from `editors/vscode`): `npm run compile` green (`tsc --noEmit` cl
 ## 2026-09-06 — F3.7: the results-grid renderer
 
 `src/renderer/index.ts`: browser-side `activate(context)` returning `renderOutputItem` / `disposeOutputItem`. Draws a windowed grid (`visibleRange`, fixed 22px rows, translate-based recycling on scroll), a Data/Schema toolbar toggle, a row-count label, an `Export CSV` button (posts `exportCsv`), and a `Load more` button shown only while a `continuationToken` exists (posts `loadMore`, disables until reply). Inbound `rows` append + retoken, `error` shows a notice (and hides `Load more` for the `loadMore` scope), `exportDone` confirms — all routed by `outputId`. Theme entirely via `--vscode-*` vars. New devDependency: `jsdom` (renderer unit tests run under `// @vitest-environment jsdom`).
+
+## 2026-09-06 — F3.8: renderer bundle + contribution + activation wiring
+
+`esbuild.mjs` now emits two bundles — the node/cjs extension and a browser/esm `media/renderer/index.js` (both watch-aware). `package.json` contributes `notebookRenderer` `fs-query-studio-table` for `application/x-fsquery-table+json` with `requiresMessaging: "optional"`. `extension.ts` `activate` creates the renderer messaging channel and `registerRendererHost` (with a `showSaveDialog`-backed `pickSaveFile`), disposed via `context.subscriptions`. `media/renderer/index.js` is git-ignored.

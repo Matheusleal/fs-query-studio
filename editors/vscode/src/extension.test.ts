@@ -140,4 +140,14 @@ describe("activate — notebook wiring", () => {
     expect(made.length).toBeGreaterThan(0);
     await deactivate();
   });
+
+  it("creates renderer messaging for the results grid", async () => {
+    (vscodeStub.notebooks as unknown as { _rendererMessagingIds: string[] })._rendererMessagingIds =
+      [];
+    await activate(fakeContext());
+    expect(
+      (vscodeStub.notebooks as unknown as { _rendererMessagingIds: string[] })._rendererMessagingIds,
+    ).toContain("fs-query-studio-table");
+    await deactivate();
+  });
 });

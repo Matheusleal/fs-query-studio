@@ -40,6 +40,15 @@
           { "filenamePattern": "*.fsqnb" }
         ]
       }
+    ],
+    "notebookRenderer": [
+      {
+        "id": "fs-query-studio-table",
+        "displayName": "F# Query Studio Results Grid",
+        "entrypoint": "./media/renderer/index.js",
+        "requiresMessaging": "optional",
+        "mimeTypes": ["application/x-fsquery-table+json"]
+      }
     ]
   },
   "scripts": {

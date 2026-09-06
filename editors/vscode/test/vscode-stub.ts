@@ -16,6 +16,7 @@ export const window = {
   showInformationMessage: async (_message: string, ..._items: string[]) =>
     undefined as string | undefined,
   activeNotebookEditor: undefined as unknown,
+  showSaveDialog: async (_opts?: unknown) => undefined as { fsPath: string } | undefined,
 };
 
 export const workspace = {
@@ -36,7 +37,13 @@ export const commands = {
 };
 
 export const env = { openExternal: async (_uri: unknown) => true };
-export const Uri = { parse: (s: string) => ({ toString: () => s }) };
+export const Uri = {
+  parse: (s: string) => ({ toString: () => s, fsPath: s }),
+  joinPath: (base: { toString(): string }, ...segments: string[]) => {
+    const joined = [base.toString().replace(/\/+$/, ""), ...segments].join("/");
+    return { toString: () => joined, fsPath: joined };
+  },
+};
 
 // --- notebook document model (F2) ---
 export enum NotebookCellKind {
@@ -127,6 +134,27 @@ export const notebooks = {
     };
     this._controllers.push(controller);
     return controller;
+  },
+  _rendererMessagingIds: [] as string[],
+  createRendererMessaging(id: string) {
+    this._rendererMessagingIds.push(id);
+    const posted: Array<{ message: unknown; editor: unknown }> = [];
+    let listener: ((e: { editor: unknown; message: unknown }) => unknown) | undefined;
+    return {
+      _id: id,
+      _posted: posted,
+      onDidReceiveMessage(fn: (e: { editor: unknown; message: unknown }) => unknown) {
+        listener = fn;
+        return { dispose: () => (listener = undefined) };
+      },
+      postMessage(message: unknown, editor?: unknown) {
+        posted.push({ message, editor });
+        return Promise.resolve(true);
+      },
+      _emit(e: { editor: unknown; message: unknown }) {
+        return listener?.(e);
+      },
+    };
   },
 };
 
