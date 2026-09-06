@@ -1845,4 +1845,16 @@ Verification (from `editors/vscode`): `npm run compile` green (`tsc --noEmit` cl
 
 ## 2026-09-06 — F4.8: extension-host integration spec
 
+## 2026-09-06 — F4 complete: cell intelligence
+
+`.fsqnb` code cells now get F# completion, hover, signature help, and diagnostics, provided by this extension (Ionide never sees `vscode-notebook-cell` documents). New `src/lang/` module: `cell-context.ts` (pure) builds each request's `source` by concatenating the notebook's *executed* fsharp code cells — ordered by `executionSummary.executionOrder`, target excluded — ahead of the target cell's live text, tracks a per-cell `version` that moves whenever that concatenation changes, and maps `analysis/check` diagnostics back into cell coordinates (subtract the prefix line count; drop anything landing in a prefix cell). `analysis-client.ts` wraps `analysis/check|complete|hover|signatureHelp`, collapsing any worker error into an empty result. `diagnostics.ts` — a dependency-injected `DiagnosticsManager` — debounces edits 300 ms, checks a cell once on open, and clears on close/removal. `providers.ts` registers the three interactive providers for `{ language: "fsharp", notebookType: "fsquery-notebook" }`, owns the `"F# Query Studio"` `DiagnosticCollection`, and wires `workspace` text/notebook events into the manager; `extension.ts` calls it with the shared worker session.
+
+Line-base contract (worker's `Prologue.shiftUp`): interactive requests send a **1-based** `line` (`position.line + 1 + cellLineOffset`) and **0-based** `column`; `analysis/check` returns 0-based diagnostics, so the reverse map only subtracts the prefix offset.
+
+Scope: providers only — **no `contributes.languages` entry and no TextMate grammar** this phase (cell highlighting relies on another `fsharp` grammar being installed). No completion `kind`/`detail`, no active-parameter in signature help, no semantic tokens / references / formatting / code actions (the migration design's stated ceiling). Known limitations, carried from the spec: a cell's diagnostics go stale when an upstream executed cell is edited or re-run (refresh only on the cell's own next edit); after `Restart Kernel` the executed-cells prefix still includes pre-restart cells until VS Code clears their execution summaries; a physically-later cell can contribute to the prefix if it executed earlier; a transient worker error blanks a cell's squiggles for one debounce cycle.
+
+No `src/` F# changes — the worker already answered every `analysis/*` method. Avalonia untouched (retired at F6). New: 44 F4 unit tests across `src/lang/**` + `src/protocol.test.ts`; 2 extension-host specs (pending without a bundled worker, run in CI).
+
+Verification (from `editors/vscode`): `npm run compile` — tsc clean, esbuild bundle written; `npm test` — 162 passed / 1 skipped; `npm run test:vscode` — 4 passing / 7 pending.
+
 `test/integration/intelligence.test.ts` (+ `fixtures/sample-intelligence.fsqnb`): opens the fixture, executes `let answer = 42`, and asserts `vscode.executeCompletionItemProvider` on the sibling cell offers `answer`; a second spec applies a broken edit and waits for a `"F# Query Studio"`-sourced diagnostic. Both gated on a bundled worker (skipped green without one, run in CI).

@@ -246,7 +246,7 @@ Each phase is its own spec -> plan -> implementation -> DEVLOG entry.
 | **F6 Parity + retire** | Parity checklist vs the app. Remove `App`/`Ui`/`Editor` + `WorkerClient.fs` + themes + `WindowsCredentialStore` from the active path. Clean `.slnx`. Review `installer/`. Marketplace publish. | **deleted** |
 | **F7 Extras (backlog)** | prelude `.fsx` for Ionide on loose scripts; `analysis/definition` + `rename` in-cell; self-contained offline VSIX; parallel multi-worker. | — |
 
-**Status:** F1 Scaffold is complete and merged (PR #4); F2 Minimal notebook and F3 Renderer are complete on `main-vscode` (not yet merged) — see the DEVLOG close-out entries (`2026-09-03 — F1 complete`, `2026-09-05 — F2 complete`, `2026-09-06 — F3 complete`). F4 Cell intelligence is next.
+**Status:** F1 Scaffold is complete and merged (PR #4); F2 Minimal notebook and F3 Renderer are complete on `main-vscode` (not yet merged) — see the DEVLOG close-out entries (`2026-09-03 — F1 complete`, `2026-09-05 — F2 complete`, `2026-09-06 — F3 complete`). F4 Cell intelligence is complete on `main-vscode` (not yet merged) — see the DEVLOG close-out entry (`2026-09-06 — F4 complete`). F5 Connections is next.
 
 **Parity criteria (F6):** write and run a query, all six connectors, CSV export, connection-name autocomplete, schema navigation, secrets kept out of files, session persistence. Log viewer -> `OutputChannel` + file sink (accepted downgrade).
 
