@@ -1782,3 +1782,7 @@ Verification (from `editors/vscode`): `npm run compile` green (`tsc --noEmit` cl
 ## 2026-09-06 — F3.1: renderer wire types + message contracts
 
 `src/renderer/types.ts`: dependency-free module shared across the host/renderer tiers — `TablePayload` (the `application/x-fsquery-table+json` body: columns, positional rows, `truncated`, `continuationToken`, `elapsedMs`), the renderer↔host message unions (`loadMore` / `exportCsv` out; `rows` / `error` / `exportDone` back), plus `FSQUERY_TABLE_MIME`, `FSQUERY_RENDERER_ID`, `GRID_ROW_HEIGHT_PX`, and an `isRendererToHostMessage` guard.
+
+## 2026-09-06 — F3.2: buildTablePayload (ResultEnvelope → TablePayload)
+
+`notebook/table-payload.ts`: pure `buildTablePayload(env, documentUri)` copies a Table envelope's schema/rows/`isTruncated`/`continuationToken`/`elapsedMs` into the renderer wire body. Type-only imports keep it out of the browser bundle's Node dependency path. Covered for both worker Table paths (`Results.table` real columns + no token; paged tail-value `Value` column + token).
