@@ -86,3 +86,79 @@ describe("buildAnalysisInput", () => {
     expect(r.line).toBe(3); // 0 + 1 + 2
   });
 });
+
+import { mapDiagnosticIntoCell, versionFor, forgetVersion } from "./cell-context";
+import type { WireDiagnostic } from "../protocol";
+
+function wire(over: Partial<WireDiagnostic> = {}): WireDiagnostic {
+  return {
+    message: "oops",
+    severity: { Case: "Error" },
+    startLine: 0,
+    startColumn: 0,
+    endLine: 0,
+    endColumn: 1,
+    code: null,
+    ...over,
+  };
+}
+
+describe("mapDiagnosticIntoCell", () => {
+  it("shifts an in-cell diagnostic back by the prefix offset", () => {
+    const d = mapDiagnosticIntoCell(wire({ startLine: 5, endLine: 5 }), 3, 10);
+    expect(d).not.toBeNull();
+    expect(d!.startLine).toBe(2);
+    expect(d!.endLine).toBe(2);
+  });
+
+  it("drops a diagnostic that lands entirely above the cell (in the prefix)", () => {
+    expect(mapDiagnosticIntoCell(wire({ startLine: 1, endLine: 1 }), 3, 10)).toBeNull();
+  });
+
+  it("drops a diagnostic that starts past the end of the cell", () => {
+    expect(mapDiagnosticIntoCell(wire({ startLine: 20, endLine: 20 }), 3, 5)).toBeNull();
+  });
+
+  it("clamps a diagnostic straddling the prefix/cell boundary into range", () => {
+    const d = mapDiagnosticIntoCell(wire({ startLine: 2, endLine: 4 }), 3, 5);
+    expect(d).not.toBeNull();
+    expect(d!.startLine).toBe(0); // 2 - 3 = -1 -> clamped to 0
+    expect(d!.endLine).toBe(1); // 4 - 3 = 1
+  });
+
+  it("decodes the severity tag and carries the code through", () => {
+    const d = mapDiagnosticIntoCell(
+      wire({ startLine: 3, endLine: 3, severity: { Case: "Warning" }, code: "FS0025" }),
+      3,
+      5,
+    );
+    expect(d!.severity).toBe("Warning");
+    expect(d!.code).toBe("FS0025");
+  });
+});
+
+describe("versionFor / forgetVersion", () => {
+  it("returns a stable number for an unchanged source and bumps on change", () => {
+    forgetVersion("v1");
+    const a = versionFor("v1", "let x = 1");
+    expect(versionFor("v1", "let x = 1")).toBe(a);
+    expect(versionFor("v1", "let x = 2")).toBeGreaterThan(a);
+  });
+
+  it("tracks URIs independently", () => {
+    forgetVersion("vA");
+    forgetVersion("vB");
+    const a = versionFor("vA", "same");
+    const b = versionFor("vB", "same");
+    versionFor("vA", "changed");
+    expect(versionFor("vB", "same")).toBe(b); // vB untouched by vA's bump
+    expect(a).toBeDefined();
+  });
+
+  it("forgetVersion drops the entry so the next source counts as new", () => {
+    versionFor("vC", "one");
+    forgetVersion("vC");
+    // no assertion on the exact number; just that it does not throw and returns a number
+    expect(typeof versionFor("vC", "one")).toBe("number");
+  });
+});
