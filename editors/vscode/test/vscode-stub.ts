@@ -17,6 +17,10 @@ export const window = {
     undefined as string | undefined,
   activeNotebookEditor: undefined as unknown,
   showSaveDialog: async (_opts?: unknown) => undefined as { fsPath: string } | undefined,
+  showQuickPick: async (_items: unknown, _opts?: unknown) => undefined as unknown,
+  showInputBox: async (_opts?: unknown) => undefined as string | undefined,
+  showWarningMessage: async (_message: string, _opts?: unknown, ..._items: string[]) =>
+    undefined as string | undefined,
   registerTreeDataProvider(_id: string, _provider: unknown): Disposable {
     return { dispose: () => {} };
   },
