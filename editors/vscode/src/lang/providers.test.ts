@@ -66,6 +66,28 @@ describe("registerLanguageFeatures", () => {
     expect(items.map((i) => (i as vscode.CompletionItem).label)).toEqual(["answer"]);
   });
 
+  it("completion sends a .fsx-suffixed documentUri to the worker", async () => {
+    const cell = fsharpCellDoc("c2", "answ");
+    stageNotebook([fsharpCellDoc("c1", "let answer = 42"), cell]);
+    const requests: Array<{ params: { documentUri: string } }> = [];
+    registerLanguageFeatures({
+      getWorker: async () => ({
+        send: async (req: unknown) => {
+          requests.push(req as { params: { documentUri: string } });
+          return { id: "1", result: { items: ["answer"] } } as WorkerResponseFrame;
+        },
+      }),
+      log: () => {},
+    });
+    const provider = vscode.languages._completion.at(-1)!.provider as {
+      provideCompletionItems: (d: unknown, p: unknown, t: unknown) => Promise<unknown[]>;
+    };
+    await provider.provideCompletionItems(cell, new vscode.Position(0, 4), token);
+    expect(requests).toHaveLength(1);
+    expect(requests[0].params.documentUri).toBe("c2.fsx");
+    expect(requests[0].params.documentUri.endsWith(".fsx")).toBe(true);
+  });
+
   it("completion returns undefined for a document that is not a cell in any notebook", async () => {
     (vscode.workspace as unknown as { notebookDocuments: unknown[] }).notebookDocuments = [];
     registerLanguageFeatures({ ...worker({ items: ["x"] }), log: () => {} });

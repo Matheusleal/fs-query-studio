@@ -140,3 +140,16 @@ export function versionFor(cellUri: string, source: string): number {
 export function forgetVersion(cellUri: string): void {
   versions.delete(cellUri);
 }
+
+/**
+ * The `documentUri` to send to the worker's `analysis/*` methods for a
+ * notebook cell. FSAC decides whether to run F# script analysis on a
+ * document by its extension; a bare `vscode-notebook-cell:` URI yields
+ * an extension-less synthetic path inside the worker (`FsacBridge.fsacUriFor`)
+ * that FSAC will not parse. The worker treats `documentUri` purely as an
+ * opaque identity, so a `.fsx` suffix is safe here and never surfaces to
+ * VS Code — the real cell `Uri` stays the DiagnosticCollection key.
+ */
+export function analysisDocumentUri(cellUri: string): string {
+  return `${cellUri}.fsx`;
+}

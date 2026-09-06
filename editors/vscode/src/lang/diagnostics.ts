@@ -1,4 +1,5 @@
 import {
+  analysisDocumentUri,
   buildAnalysisInput,
   forgetVersion,
   mapDiagnosticIntoCell,
@@ -35,6 +36,7 @@ export class DiagnosticsManager {
   private readonly setTimer: (fn: () => void, ms: number) => unknown;
   private readonly clearTimer: (handle: unknown) => void;
   private readonly timers = new Map<string, unknown>();
+  private readonly generations = new Map<string, number>();
 
   constructor(deps: DiagnosticsManagerDeps) {
     this.deps = deps;
@@ -65,6 +67,7 @@ export class DiagnosticsManager {
       this.clearTimer(existing);
       this.timers.delete(cellUri);
     }
+    this.generations.set(cellUri, (this.generations.get(cellUri) ?? 0) + 1);
     forgetVersion(cellUri);
     this.deps.clear(cellUri);
   }
@@ -88,13 +91,24 @@ export class DiagnosticsManager {
 
     const { source, cellLineOffset } = buildAnalysisInput(cells, target);
     const version = versionFor(cellUri, source);
+    const generation = this.generations.get(cellUri) ?? 0;
 
     let wire;
     try {
       const worker = await this.deps.getWorker();
-      wire = await checkAnalysis(worker, { documentUri: cellUri, version, source });
+      wire = await checkAnalysis(worker, {
+        documentUri: analysisDocumentUri(cellUri),
+        version,
+        source,
+      });
     } catch (err) {
       this.deps.log(`diagnostics: check for ${cellUri} failed: ${(err as Error).message}`);
+      return;
+    }
+
+    // The cell was closed or deleted while the RPC was in flight — a late
+    // publish would re-create a diagnostic entry that nothing ever clears.
+    if ((this.generations.get(cellUri) ?? 0) !== generation) {
       return;
     }
 

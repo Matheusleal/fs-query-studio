@@ -90,6 +90,10 @@ endLine   = clamp(endLine,   0, cellLineCount - 1)
 
 The worker keys FSAC's in-memory document by `(DocumentUri, Version)`. `DocumentUri` = the target cell's `document.uri.toString()`. `Version` cannot be `document.version`: the concatenated `source` changes when an upstream executed cell is edited, which does **not** bump the target cell's `document.version`, so FSAC would serve a stale parse. `versionFor(cellUri, source)` keeps a `Map<string, { source: string; version: number }>` and returns an incremented number whenever `source !== last.source` for that URI, else the last number. Every provider path calls it, so a check and a completion on the same unchanged source share a version.
 
+### FSAC document identity
+
+The `documentUri` sent to every `analysis/*` method is **not** the bare cell URI — it is `${cellUri}.fsx` (`analysisDocumentUri` in `cell-context.ts`, used by all three interactive providers and `DiagnosticsManager.runCheck`). FSAC decides whether to run F# *script* analysis on a document by its file extension. The worker's `FsacBridge.fsacUriFor` turns a non-`file:` `documentUri` into a synthetic path by stripping the scheme and replacing invalid filename chars — for a `vscode-notebook-cell:///…/x.fsqnb#W3s…` URI that path has **no `.fsx` extension**, so fsautocomplete never treats it as a script, never emits `fsharp/documentAnalyzed`, and every `analysis/*` call times out (~10 s) and returns empty. The worker uses `documentUri` **only as an opaque internal identity** (it never reaches the wire back out and never surfaces to VS Code), so appending `.fsx` to the string we send is safe and invisible. The real cell `Uri` — not the suffixed string — remains the `DiagnosticCollection` key (`publish` / `clear` parse `vscode.Uri.parse(cellUri)`), and `versionFor` is still keyed by the un-suffixed `cellUri`.
+
 ### Providers → VS Code type mapping
 
 | Provider | `analysis/*` result | VS Code mapping |

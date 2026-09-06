@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import {
+  analysisDocumentUri,
   buildAnalysisInput,
   versionFor,
   type AnalysisCell,
@@ -106,7 +107,7 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
         });
         const version = versionFor(document.uri.toString(), source);
         const items = await completeAnalysis(await deps.getWorker(), {
-          documentUri: document.uri.toString(),
+          documentUri: analysisDocumentUri(document.uri.toString()),
           version,
           source,
           line,
@@ -132,7 +133,7 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
       });
       const version = versionFor(document.uri.toString(), source);
       const info = await hoverAnalysis(await deps.getWorker(), {
-        documentUri: document.uri.toString(),
+        documentUri: analysisDocumentUri(document.uri.toString()),
         version,
         source,
         line,
@@ -156,7 +157,7 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
         });
         const version = versionFor(document.uri.toString(), source);
         const info = await signatureHelpAnalysis(await deps.getWorker(), {
-          documentUri: document.uri.toString(),
+          documentUri: analysisDocumentUri(document.uri.toString()),
           version,
           source,
           line,

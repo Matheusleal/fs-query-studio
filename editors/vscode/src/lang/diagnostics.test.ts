@@ -178,4 +178,57 @@ describe("DiagnosticsManager", () => {
     mgr.dispose();
     expect(t.count).toBe(0);
   });
+
+  it("sends a .fsx-suffixed documentUri but keeps the raw cell URI for publish", async () => {
+    const t = manualTimers();
+    const requests: Array<{ method: string; params: { documentUri: string } }> = [];
+    const b = baseDeps({
+      setTimer: t.setTimer,
+      clearTimer: t.clearTimer,
+      getWorker: async () => ({
+        send: async (req: { method: string; params: unknown }) => {
+          requests.push(req as { method: string; params: { documentUri: string } });
+          return { id: "1", result: { diagnostics: [] } } as WorkerResponseFrame;
+        },
+      }),
+    });
+    const mgr = new DiagnosticsManager(b.deps);
+    mgr.onCellChanged("cell-uri");
+    t.flush();
+    await new Promise((r) => setImmediate(r));
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0].method).toBe("analysis/check");
+    expect(requests[0].params.documentUri).toBe("cell-uri.fsx");
+    expect(requests[0].params.documentUri.endsWith(".fsx")).toBe(true);
+    // publish / DiagnosticCollection key stays the real, un-suffixed cell URI
+    expect(b.published).toEqual([{ uri: "cell-uri", count: 0 }]);
+  });
+
+  it("does not publish onto a cell closed while the check RPC is in flight", async () => {
+    const t = manualTimers();
+    let resolveSend: (frame: WorkerResponseFrame) => void = () => {};
+    const b = baseDeps({
+      setTimer: t.setTimer,
+      clearTimer: t.clearTimer,
+      getWorker: async () => ({
+        send: () =>
+          new Promise<WorkerResponseFrame>((resolve) => {
+            resolveSend = resolve;
+          }),
+      }),
+    });
+    const mgr = new DiagnosticsManager(b.deps);
+
+    mgr.onCellChanged("c1");
+    t.flush();
+    await new Promise((r) => setImmediate(r)); // reach the pending send()
+
+    mgr.onCellClosed("c1"); // cell gone before the worker replies
+    resolveSend({ id: "1", result: { diagnostics: [] } } as WorkerResponseFrame);
+    await new Promise((r) => setImmediate(r));
+
+    expect(b.published).toEqual([]);
+    expect(b.cleared).toEqual(["c1"]);
+  });
 });

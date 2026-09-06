@@ -87,8 +87,21 @@ describe("buildAnalysisInput", () => {
   });
 });
 
-import { mapDiagnosticIntoCell, versionFor, forgetVersion } from "./cell-context";
+import {
+  analysisDocumentUri,
+  mapDiagnosticIntoCell,
+  versionFor,
+  forgetVersion,
+} from "./cell-context";
 import type { WireDiagnostic } from "../protocol";
+
+describe("analysisDocumentUri", () => {
+  it("appends .fsx so FSAC treats the cell as an F# script", () => {
+    const cellUri = "vscode-notebook-cell:///d%3A/x.fsqnb#W3s";
+    expect(analysisDocumentUri(cellUri)).toBe(`${cellUri}.fsx`);
+    expect(analysisDocumentUri(cellUri)).toBe("vscode-notebook-cell:///d%3A/x.fsqnb#W3s.fsx");
+  });
+});
 
 function wire(over: Partial<WireDiagnostic> = {}): WireDiagnostic {
   return {
