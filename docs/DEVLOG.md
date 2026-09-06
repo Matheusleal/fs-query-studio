@@ -1870,3 +1870,7 @@ Verification (from `editors/vscode`): `npm run compile` — tsc clean, esbuild b
 ## 2026-09-07 — F5.3: Handlers secret-store injection seam
 
 `Handlers.configureSecretStore : ISecretStore -> unit` + a module-level `mutable secretStore` (default `WindowsCredentialStore()`), consumed at the two `WorkspaceConnectionResolver` sites (`runEvaluate`, `handleConnectionSchema`) in place of the hard-coded `WindowsCredentialStore()`. No behaviour change yet — same default store; `Program.fs` swaps in the bridge next. Mirrors the existing `workspaceDirOverride` pattern.
+
+## 2026-09-07 — F5.4: Program.fs reverse-channel routing
+
+`NdjsonStream.readLine` (raw line) + a rewritten `loop` that peeks each inbound line: no `"method"` property → deserialise as `WorkerResponseFrame` and hand to `HostChannel.TryComplete` (no dispatch, no reply); otherwise the exact request dispatch as before (evaluate / `analysis/*`+`results/exportCsv` backgrounded / inline default). `main` builds one `HostChannel` writing through the stdout `writeLock` and threads it into `loop`. `loop` is now module-visible (arity +1) for the loop tests. Secret store still `WindowsCredentialStore` — the bridge composes next.

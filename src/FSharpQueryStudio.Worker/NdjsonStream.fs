@@ -18,6 +18,16 @@ module NdjsonStream =
             do! writer.FlushAsync()
         }
 
+    /// The raw next line, or `None` at EOF. The reverse channel (F5) needs
+    /// to peek at whether an inbound line is a request (`method` present)
+    /// or a response to a worker-initiated request *before* choosing which
+    /// type to deserialise it as — `readFrame<'T>` commits to one shape.
+    let readLine (reader: TextReader) : System.Threading.Tasks.Task<string option> =
+        task {
+            let! line = reader.ReadLineAsync()
+            return (match line with | null -> None | l -> Some l)
+        }
+
     let readFrame<'T> (reader: TextReader) : System.Threading.Tasks.Task<'T option> =
         task {
             let! line = reader.ReadLineAsync()

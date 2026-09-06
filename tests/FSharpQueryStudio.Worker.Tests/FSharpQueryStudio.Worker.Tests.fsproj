@@ -13,6 +13,7 @@
     <Compile Include="HandlersTests.fs" />
     <Compile Include="HandlersLoggingTests.fs" />
     <Compile Include="HostChannelTests.fs" />
+    <Compile Include="ReverseChannelLoopTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
