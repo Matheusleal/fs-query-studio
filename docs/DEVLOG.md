@@ -1858,3 +1858,7 @@ Scope: providers only — **no `contributes.languages` entry and no TextMate gra
 No `src/` F# changes — the worker already answered every `analysis/*` method. Avalonia untouched (retired at F6). New: 48 F4 unit tests across `src/lang/**` + `src/protocol.test.ts`; 2 extension-host specs (pending without a bundled worker, run in CI).
 
 Verification (from `editors/vscode`): `npm run compile` — tsc clean, esbuild bundle written; `npm test` — 166 passed / 1 skipped; `npm run test:vscode` — 4 passing / 7 pending. **Merge gate:** the worker-backed `test/integration/intelligence.test.ts` specs prove the end-to-end analysis path and run only in the `vscode-extension` CI workflow (which publishes the worker) — that run must be green before merge.
+
+## 2026-09-07 — F5.1: connection/list RPC
+
+`Handlers.handleConnectionList` + a `"connection/list"` dispatch arm — a read-only `{ connections }` projection of `Workspace.readConnections (workspaceDir ())`, the list the connections TreeView needs on open (`connection/register` / `connection/remove` only ever return it as a side effect of mutating).

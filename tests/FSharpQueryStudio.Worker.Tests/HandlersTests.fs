@@ -1140,3 +1140,49 @@ let ``execution/evaluate shows NoValue, not a literal "null", when the script's 
         Assert.Equal(ResultKind.NoValue, envelope.Kind)
         Assert.Equal(None, envelope.DisplayText)
     }
+
+[<Fact>]
+let ``dispatch on connection/list returns the connections persisted in workspace.json`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-list-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory tmp |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let seeded: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "Sales"
+                  Kind = ConnectorKind.Sqlite
+                  Configuration = JsonDocument.Parse("""{"filePath":"C:/data/sales.db"}""").RootElement
+                  SecretReference = None
+                  IsTrusted = true }
+            Workspace.writeConnections tmp [ seeded ]
+
+            let! response = Handlers.dispatch (emptyParamsRequest "l1" "connection/list")
+
+            Assert.True response.Error.IsNone
+            let payload =
+                JsonSerializer.Deserialize<{| connections: ConnectionDefinition list |}>(
+                    response.Result.Value, Serialization.options)
+            Assert.Equal(1, payload.connections.Length)
+            Assert.Equal("Sales", payload.connections.Head.Name)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Directory.Delete(tmp, true)
+    }
+
+[<Fact>]
+let ``dispatch on connection/list returns an empty list for a fresh workspace`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-list-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory tmp |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let! response = Handlers.dispatch (emptyParamsRequest "l2" "connection/list")
+            let payload =
+                JsonSerializer.Deserialize<{| connections: ConnectionDefinition list |}>(
+                    response.Result.Value, Serialization.options)
+            Assert.Empty payload.connections
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Directory.Delete(tmp, true)
+    }

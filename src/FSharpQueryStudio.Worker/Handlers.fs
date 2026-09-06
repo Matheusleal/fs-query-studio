@@ -500,6 +500,17 @@ module Handlers =
           Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
           Error = None }
 
+    /// `connection/list` — the read-only companion to `connection/register` /
+    /// `connection/remove` (F5). Neither of those returns the registry without
+    /// mutating it, and the extension's connections TreeView needs the list on
+    /// notebook/view open. A thin projection of `Workspace.readConnections`.
+    let handleConnectionList (request: WorkerRequestFrame) : WorkerResponseFrame =
+        let connections = Workspace.readConnections (workspaceDir ())
+
+        { Id = request.Id
+          Result = Some(JsonSerializer.SerializeToElement({| connections = connections |}, Serialization.options))
+          Error = None }
+
     /// `connection/remove` — drops the connection with the given `Id`
     /// from `workspace.json` via `Workspace.removeConnection` and returns
     /// the updated full list. Deleting the credential itself (if the
@@ -588,6 +599,7 @@ module Handlers =
             | "results/page" -> return handleResultsPage request
             | "results/exportCsv" -> return handleResultsExportCsv request
             | "results/discard" -> return handleResultsDiscard request
+            | "connection/list" -> return handleConnectionList request
             | "connection/register" -> return handleConnectionRegister request
             | "connection/remove" -> return handleConnectionRemove request
             | "connection/schema" -> return! handleConnectionSchema request
