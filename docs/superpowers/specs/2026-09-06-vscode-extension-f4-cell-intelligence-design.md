@@ -59,9 +59,11 @@ prefixCells =
 prefixText   = prefixCells.map(c => c.document.getText()).join("\n")
 source       = prefixText === "" ? targetText : prefixText + "\n" + targetText
 cellLineOffset = prefixText === "" ? 0 : countLines(prefixText)
-line         = position ? position.line + cellLineOffset : 0
-column       = position ? position.character : 0
+line         = position ? position.line + 1 + cellLineOffset : 0    // +1: worker wants 1-based line
+column       = position ? position.character : 0                    // column stays 0-based
 ```
+
+**Line base — the one asymmetry to get right.** The worker's `analysis/hover` / `analysis/complete` / `analysis/signatureHelp` position params expect a **1-based** `Line` and a **0-based** `Column` (`src/FSharpQueryStudio.Fsac/Prologue.fs` — `shiftUp`'s doc comment: "A caller's own 1-based line (against the unprefixed source)"). `analysis/check` returns `Diagnostic.StartLine` / `EndLine` as **0-based** against that same unprefixed source. So: the interactive providers send `position.line + 1 + cellLineOffset`; `mapDiagnosticIntoCell` subtracts `cellLineOffset` with no `+1`/`-1`. VS Code `Position.line` and `Position.character` are both 0-based.
 
 - Each prefix cell contributes its **current** document text, not the text as executed — FSAC is a static check and live text gives the best editing feedback. A cell counts as "in the prefix" purely by `executionSummary.executionOrder` being set.
 - The target cell is always excluded from the prefix even if it has executed; its live text is the suffix.
@@ -167,7 +169,7 @@ context.subscriptions.push(languageFeatures);
 - prefix sorted by execution order, not document order (row-0 cell that ran second comes after a row-1 cell that ran first)
 - target cell excluded from the prefix even when it has executed
 - `cellLineOffset` = `countLines(prefixText)`; `0` when the prefix is empty; unchanged whether or not a prefix cell's text ends in a newline
-- `position.line` offset by `cellLineOffset`; `column` unchanged
+- `position.line` → `position.line + 1 + cellLineOffset` (0-based VS Code → 1-based worker + prefix); `column` passed through unchanged; a call with no `position` returns `line = 0`
 - `mapDiagnosticIntoCell`: shifts lines back; returns `null` when the range is entirely above the cell; clamps a range that straddles the prefix/cell boundary
 - `versionFor`: same source → same number; changed source → incremented; independent per URI
 
