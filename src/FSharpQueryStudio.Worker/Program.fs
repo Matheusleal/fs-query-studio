@@ -189,6 +189,7 @@ let main _argv =
             :> Task
 
         let hostChannel = HostChannel(writeFrameLocked)
+        Handlers.configureSecretStore (BridgeSecretStore hostChannel)
 
         (loop System.Console.In stdout hostChannel).GetAwaiter().GetResult()
         Log.Information("F# Query Studio worker stopping")

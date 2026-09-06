@@ -11,6 +11,7 @@
     <Compile Include="NdjsonStream.fs" />
     <Compile Include="HostChannel.fs" />
     <Compile Include="Handlers.fs" />
+    <Compile Include="BridgeSecretStore.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
