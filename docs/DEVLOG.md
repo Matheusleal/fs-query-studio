@@ -1942,3 +1942,17 @@ Whole-branch review of F5 found two CRITICAL integration defects on the worker�
 Regression tests: `client.test.ts` — every reverse-channel outcome asserts both keys present, plus a `throw "plain string"` → `frame.error.message === "plain string"`. `bridge.test.ts` — non-`Error` throw → `{ error: { code: "host/secretReadFailed", message: "locked" } }`. `ReverseChannelLoopTests.fs` — the loop routes a hand-built `{"id":…,"result":…}` reply (no `error` key) and completes the pending `HostChannel.Request`; the loop survives a non-JSON line and still answers a following `worker/health`. Critical 2 has no clean unit guard without an integration harness — `connections.test.ts` spec (b) is the end-to-end guard once CI runs.
 
 Verification: `dotnet test tests/FSharpQueryStudio.Worker.Tests` — 62 passed; `dotnet build src/FSharpQueryStudio.Worker` — clean; `npm test` (editors/vscode) — 200 passed / 1 skipped; `npm run compile` — tsc clean + esbuild; `npm run test:vscode` — 4 passing / 9 pending (the 2 connections specs pending locally without a bundled worker, as expected).
+
+## 2026-09-07 — F6.1: Integration.Tests loses its Avalonia coupling
+
+`tests/FSharpQueryStudio.Integration.Tests` no longer references `App` or
+`Ui`. Deleted the ten files that drove the Avalonia tier: `WorkerClientTests`
+/ `WorkerClientLoggingTests` (tested `App/WorkerClient.fs`),
+`ExecutionServiceTests`, `Milestone{A..E}AcceptanceTests` (view-model
+acceptance), `PublishedAppTests` (`RequiresPublish` — launched
+`FSharpQueryStudio.App.exe`), and `WindowsCredentialStoreTests` (store
+removed in F6.2). `TestHelpers.fs` trimmed to `workerDllPath` / `withTimeout`
+/ `request` — `wireShell` and the `App`/`Ui` opens are gone. Kept: the
+worker-stdio smoke (`Tests.fs`), `NotebookExecutionTests`, the Testcontainers
+SQL Server / PostgreSQL connector suites, `ConnectionsRegressionTests`,
+`PackageApprovalTests`. No production code touched.

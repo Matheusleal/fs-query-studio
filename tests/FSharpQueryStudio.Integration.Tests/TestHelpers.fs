@@ -3,9 +3,7 @@ module TestHelpers
 open System
 open System.IO
 open System.Threading.Tasks
-open FSharpQueryStudio.App
 open FSharpQueryStudio.Protocol
-open FSharpQueryStudio.Ui
 
 let workerDllPath () =
     Path.Combine(AppContext.BaseDirectory, "FSharpQueryStudio.Worker.dll")
@@ -24,31 +22,3 @@ let request (id: string) (method_: string) (paramsJson: string) : WorkerRequestF
     { Id = id
       Method = method_
       Params = Text.Json.JsonDocument.Parse(paramsJson).RootElement }
-
-/// Wires `ExecuteAsync`/`CancelAsync`/`ResetSession` the way the App
-/// composition root does: `CancelAsync` closes over whatever request id
-/// the most recent `ExecuteAsync` call sent, so `shell.Cancel()` cancels
-/// the evaluation actually in flight without `ShellViewModel` itself
-/// knowing request ids exist.
-let wireShell (gracePeriod: TimeSpan) (client: WorkerClient) (shell: ShellViewModel) =
-    let currentRequestId = ref None
-
-    shell.ExecuteAsync <-
-        Some(fun evalParams ->
-            task {
-                let id = Guid.NewGuid().ToString()
-                currentRequestId.Value <- Some id
-                let! result = ExecutionService.evaluateWithId client id evalParams
-                currentRequestId.Value <- None
-                return result
-            })
-
-    shell.CancelAsync <-
-        Some(fun () ->
-            task {
-                match currentRequestId.Value with
-                | Some id -> do! client.Cancel(id, gracePeriod)
-                | None -> ()
-            })
-
-    shell.ResetSession <- Some(fun sessionId -> ExecutionService.resetSession client sessionId)

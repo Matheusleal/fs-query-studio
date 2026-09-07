@@ -11,21 +11,11 @@
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="TestHelpers.fs" />
     <Compile Include="Tests.fs" />
-    <Compile Include="WorkerClientTests.fs" />
-    <Compile Include="WorkerClientLoggingTests.fs" />
-    <Compile Include="ExecutionServiceTests.fs" />
-    <Compile Include="MilestoneAAcceptanceTests.fs" />
-    <Compile Include="MilestoneBAcceptanceTests.fs" />
-    <Compile Include="WindowsCredentialStoreTests.fs" />
     <Compile Include="SqlServerConnectorTests.fs" />
     <Compile Include="PostgreSqlConnectorTests.fs" />
     <Compile Include="ConnectionsRegressionTests.fs" />
     <Compile Include="PackageApprovalTests.fs" />
-    <Compile Include="MilestoneCAcceptanceTests.fs" />
-    <Compile Include="PublishedAppTests.fs" />
-    <Compile Include="MilestoneDAcceptanceTests.fs" />
     <Compile Include="NotebookExecutionTests.fs" />
-    <Compile Include="MilestoneEAcceptanceTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -40,10 +30,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\FSharpQueryStudio.App\FSharpQueryStudio.App.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Worker\FSharpQueryStudio.Worker.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
-    <ProjectReference Include="..\..\src\FSharpQueryStudio.Ui\FSharpQueryStudio.Ui.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Security\FSharpQueryStudio.Security.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors\FSharpQueryStudio.Connectors.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Storage\FSharpQueryStudio.Storage.fsproj" />
