@@ -63,39 +63,14 @@ jobs:
         working-directory: editors/vscode
         run: npm run test:vscode
 
+      # Package + warning-gate + VSIX-contents assertion all live in
+      # editors/vscode/scripts/ now, so a local `npm run package` enforces
+      # exactly what this step does. --skip-worker reuses the "Publish
+      # worker" output from earlier in the job.
       - name: Package VSIX
         if: matrix.os == 'ubuntu-latest'
         working-directory: editors/vscode
-        run: |
-          set -euo pipefail
-          if ! out="$(npx --yes @vscode/vsce package --out fs-query-studio.vsix 2>&1)"; then
-            echo "$out"; exit 1
-          fi
-          echo "$out"
-          if grep -q 'WARNING' <<<"$out"; then
-            echo "::error::vsce package emitted warnings"; exit 1
-          fi
-
-      - name: Assert VSIX contents
-        if: matrix.os == 'ubuntu-latest'
-        working-directory: editors/vscode
-        run: |
-          set -euo pipefail
-          listing="$(npx --yes @vscode/vsce ls)"
-          echo "$listing"
-          fail=0
-          for required in package.json README.md LICENSE dist/extension.js dist/worker/FSharpQueryStudio.Worker.dll media/renderer/index.js; do
-            if ! grep -qxF "$required" <<<"$listing"; then
-              echo "::error::VSIX is missing required file: $required"; fail=1
-            fi
-          done
-          if grep -qE '(^|/)(src|test|out|node_modules)/' <<<"$listing"; then
-            echo "::error::VSIX contains source/test/build files"; fail=1
-          fi
-          if grep -qE '\.test\.ts$|tsconfig.*\.json$' <<<"$listing"; then
-            echo "::error::VSIX contains test or tsconfig files"; fail=1
-          fi
-          exit $fail
+        run: npm run package -- --skip-worker
 
       - name: Upload VSIX
         if: matrix.os == 'ubuntu-latest'

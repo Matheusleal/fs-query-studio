@@ -2189,3 +2189,68 @@ long-lived process (especially right after the `KillForTests()` respawn
 test) that ordering does not always hold. Reproduced on a clean
 `main-vscode` tree (2 of 5 runs) with none of F7's changes. Left as an F7
 follow-up — see `docs/tasks/f7-7-fsac-notebook-cell-uri-diagnostics.md`.
+
+## 2026-09-07 — F8: build & publish scripts + release docs
+
+Turned the extension's build/package/publish process from inline-only bash
+in `.github/workflows/vscode-extension.yml` plus a prose runbook into
+Node ESM scripts under `editors/vscode/scripts/`, run through npm scripts.
+Node, not PowerShell/bash: cross-platform with zero new tooling (Node + npm
+already required and already what CI uses), one code path for a
+Windows-primary dev box and mac/linux/CI, idiomatic for a VS Code
+extension.
+
+**Scripts** (`editors/vscode/scripts/`):
+- `lib.mjs` — `run` / `runCapture` (spawn helpers; on Windows the
+  `npm`/`npx` `.cmd` shims need `shell: true`, `dotnet`/`git` do not),
+  repo paths, `assertVsixContents` (a direct port of the required-files +
+  no-`src`/`test`/`out` checks that were bash in the workflow),
+  `parseArgs`.
+- `build.mjs` — `dotnet publish` the worker + `npm run compile`. Flags
+  `--skip-worker`, `--worker-only`, `--configuration`.
+- `package.mjs` — build → `vsce package` → fail on a `WARNING` line (matched
+  case-sensitively, as CI did — a loose `/warning/i` caught Node's own
+  `DeprecationWarning`) → `vsce ls` → `assertVsixContents`.
+- `publish.mjs` — preflight → `package` → `vsce publish --packagePath`.
+  Preflight refuses unless: `doctor` has no hard failure, the git tree is
+  clean (`--allow-dirty` overrides), `package.json` version matches a
+  `vscode-v<version>` tag on HEAD, `CHANGELOG.md` has a `## <version>`
+  heading, and `VSCE_PAT` is set. `--dry-run` runs it all and stops before
+  the publish. The scripts never write the version or the tag — that stays
+  a manual, reviewed step.
+- `doctor.mjs` — read-only ✓/✗ table: .NET ≥ 10, Node ≥ 20, `vsce`
+  resolvable, `publisher.name` vs the `EXTENSION_ID` constant in the 5
+  integration tests (regex read; degrades to a soft note if not found),
+  `media/icon.png` presence, `VSCE_PAT`.
+
+**Wiring:** `editors/vscode/package.json` gains `build`, `build:worker`,
+`package`, `publish`, `doctor`, and `vscode:prepublish` → `build.mjs` (so a
+bare `vsce` can't ship a stale bundle). `.vscodeignore` excludes
+`scripts/**`.
+
+**CI:** `vscode-extension.yml` — the two inline steps (`Package VSIX`
+warning-gate, `Assert VSIX contents`) collapse to one
+`run: npm run package -- --skip-worker` (the worker is published by an
+earlier job step). Single source of truth: a local `npm run package` now
+enforces exactly what CI does.
+
+**Docs:** new `editors/vscode/CHANGELOG.md` (Keep a Changelog; `0.1.0`
+seeded from the F1–F7 feature set, plus an `[Unreleased]` entry for F8);
+new `editors/vscode/scripts/README.md`; `docs/vscode-extension-release.md`
+per-release section rewritten around `npm run doctor` → bump → tag →
+`npm run publish`; a "Building & packaging" table in
+`editors/vscode/README.md`; an **F8** row in the migration design rollout
+table.
+
+No worker or extension **behaviour** change — packaging/tooling and docs
+only.
+
+Verification: `npm run doctor` — prints the table, exits 1 on the one
+expected blocker (`media/icon.png` missing, F6 gap). `npm run package`
+(and `--skip-worker`) — builds `fs-query-studio.vsix`, no `vsce` warnings,
+`✓ VSIX contents OK (263 files)`. `npm run publish -- --dry-run` — reports
+all 5 preflight blockers (icon, dirty tree, no tag, no CHANGELOG heading
+before it was written, no `VSCE_PAT`) and stops. `npm test` 224/224
+unchanged. `media/icon.png` + the `package.json` `"icon"` key remain the
+one thing blocking a first real publish — tracked in the release doc's
+one-time setup.

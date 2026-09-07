@@ -34,17 +34,25 @@ Write, analyze, and run F# query scripts against SQL databases, local files, and
 
 ## Contributing / development
 
-See [`CONTRIBUTING`-style notes in the repo](https://github.com/Matheusleal/fs-query-studio):
-
 ```bash
 cd editors/vscode
 npm install
-dotnet publish ../../src/FSharpQueryStudio.Worker/FSharpQueryStudio.Worker.fsproj -c Release -o dist/worker
-npm run compile      # type-check + esbuild bundle
-npm test             # unit tests (vitest)
-npm run test:vscode  # extension-host tests in a downloaded VS Code
+npm run build         # dotnet publish the worker + type-check + esbuild bundle
+npm test              # unit tests (vitest)
+npm run test:vscode   # extension-host tests in a downloaded VS Code
 ```
 
 Press F5 in VS Code to launch an Extension Development Host. Set `FSQS_WORKER_DLL` to use a worker built elsewhere instead of `dist/worker`.
 
-Design: `docs/superpowers/specs/2026-09-03-vscode-extension-migration-design.md`. Release process: `docs/vscode-extension-release.md`.
+### Building & packaging
+
+| Command | Purpose |
+|---|---|
+| `npm run build` | Full runnable build: publish the F# worker, then type-check + bundle. |
+| `npm run package` | Build, then produce `fs-query-studio.vsix` with the same warning gate + contents assertion CI uses. |
+| `npm run doctor` | Read-only preflight for a release (toolchain, extension id, Marketplace icon, `VSCE_PAT`). |
+| `npm run publish` | Preflight → package → `vsce publish`. Needs `VSCE_PAT`. |
+
+Details and flags: [`editors/vscode/scripts/README.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/editors/vscode/scripts/README.md). Full release runbook: [`docs/vscode-extension-release.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/vscode-extension-release.md).
+
+Design: `docs/superpowers/specs/2026-09-03-vscode-extension-migration-design.md`.

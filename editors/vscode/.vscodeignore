@@ -4,6 +4,7 @@
 src/**
 test/**
 out/**
+scripts/**
 node_modules/**
 tsconfig.json
 tsconfig.integration.json

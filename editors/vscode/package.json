@@ -147,7 +147,13 @@
     "test": "vitest run",
     "pretest:vscode": "tsc -p tsconfig.integration.json && node esbuild.mjs",
     "test:vscode": "vscode-test",
-    "test:all": "npm test && npm run test:vscode"
+    "test:all": "npm test && npm run test:vscode",
+    "build:worker": "node scripts/build.mjs --worker-only",
+    "build": "node scripts/build.mjs",
+    "vscode:prepublish": "node scripts/build.mjs",
+    "package": "node scripts/package.mjs",
+    "publish": "node scripts/publish.mjs",
+    "doctor": "node scripts/doctor.mjs"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
