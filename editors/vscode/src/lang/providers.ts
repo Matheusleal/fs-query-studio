@@ -13,6 +13,7 @@ import {
   type WorkerLike,
 } from "./analysis-client";
 import { DiagnosticsManager } from "./diagnostics";
+import { registerConnectionNameCompletion } from "./connection-name-completion";
 
 export const FSHARP_CELL_SELECTOR = {
   language: "fsharp",
@@ -24,6 +25,9 @@ const DIAGNOSTIC_SOURCE = "F# Query Studio";
 export interface LanguageFeaturesDeps {
   getWorker: () => Promise<WorkerLike>;
   log: (line: string) => void;
+  /** Registered connection names, for `Connections.sql "…"` completion.
+   *  Absent in tests that don't exercise that provider. */
+  listConnectionNames?: () => Promise<string[]>;
 }
 
 interface ResolvedCell {
@@ -181,6 +185,10 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
     ",",
   );
 
+  const connectionNameCompletion = registerConnectionNameCompletion({
+    listConnectionNames: deps.listConnectionNames ?? (async () => []),
+  });
+
   const collection = vscode.languages.createDiagnosticCollection(DIAGNOSTIC_SOURCE);
   const manager = new DiagnosticsManager({
     getWorker: deps.getWorker,
@@ -219,6 +227,7 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
 
   return vscode.Disposable.from(
     completion,
+    connectionNameCompletion,
     hover,
     signature,
     collection,

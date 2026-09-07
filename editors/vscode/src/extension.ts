@@ -169,15 +169,19 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     log: (line) => outputChannel!.appendLine(line),
   });
 
-  const languageFeatures = registerLanguageFeatures({
-    getWorker,
-    log: (line) => outputChannel!.appendLine(line),
-  });
-
+  // Registered before language features so its `api.list` can feed
+  // `Connections.sql "…"` name completion.
   const connections = registerConnectionFeatures({
     getWorker,
     secrets: context.secrets,
     log: (line) => outputChannel!.appendLine(line),
+  });
+
+  const languageFeatures = registerLanguageFeatures({
+    getWorker,
+    log: (line) => outputChannel!.appendLine(line),
+    listConnectionNames: async () =>
+      (await connections.api.list()).map((c) => c.name),
   });
 
   const restartCommand = vscode.commands.registerCommand(

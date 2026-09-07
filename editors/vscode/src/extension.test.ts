@@ -166,7 +166,8 @@ describe("activate — notebook wiring", () => {
       d: langs._collections.length,
     };
     await activate(fakeContext());
-    expect(langs._completion.length).toBe(before.c + 1);
+    // FSAC identifier completion + `Connections.sql "…"` name completion.
+    expect(langs._completion.length).toBe(before.c + 2);
     expect(langs._hover.length).toBe(before.h + 1);
     expect(langs._signature.length).toBe(before.s + 1);
     expect(langs._collections.length).toBe(before.d + 1);

@@ -40,7 +40,7 @@ function worker(result: unknown): { getWorker: () => Promise<{ send: () => Promi
 const token = { isCancellationRequested: false } as never;
 
 describe("registerLanguageFeatures", () => {
-  it("registers one completion, hover, and signature-help provider and a diagnostic collection", () => {
+  it("registers the FSAC + connection-name completion, hover, and signature-help providers and a diagnostic collection", () => {
     const before = {
       c: vscode.languages._completion.length,
       h: vscode.languages._hover.length,
@@ -48,7 +48,7 @@ describe("registerLanguageFeatures", () => {
       d: vscode.languages._collections.length,
     };
     const sub = registerLanguageFeatures({ getWorker: async () => ({ send: async () => ({ id: "1" }) }), log: () => {} });
-    expect(vscode.languages._completion.length).toBe(before.c + 1);
+    expect(vscode.languages._completion.length).toBe(before.c + 2);
     expect(vscode.languages._hover.length).toBe(before.h + 1);
     expect(vscode.languages._signature.length).toBe(before.s + 1);
     expect(vscode.languages._collections.length).toBe(before.d + 1);
@@ -59,7 +59,9 @@ describe("registerLanguageFeatures", () => {
     const cell = fsharpCellDoc("c2", "answ");
     stageNotebook([fsharpCellDoc("c1", "let answer = 42"), cell]);
     registerLanguageFeatures({ ...worker({ items: ["answer"] }), log: () => {} });
-    const provider = vscode.languages._completion.at(-1)!.provider as {
+    // -2: registerLanguageFeatures pushes the FSAC provider then the
+    // connection-name provider; these tests exercise the FSAC one.
+    const provider = vscode.languages._completion.at(-2)!.provider as {
       provideCompletionItems: (d: unknown, p: unknown, t: unknown) => Promise<unknown[]>;
     };
     const items = await provider.provideCompletionItems(cell, new vscode.Position(0, 4), token);
@@ -79,7 +81,7 @@ describe("registerLanguageFeatures", () => {
       }),
       log: () => {},
     });
-    const provider = vscode.languages._completion.at(-1)!.provider as {
+    const provider = vscode.languages._completion.at(-2)!.provider as {
       provideCompletionItems: (d: unknown, p: unknown, t: unknown) => Promise<unknown[]>;
     };
     await provider.provideCompletionItems(cell, new vscode.Position(0, 4), token);
@@ -91,7 +93,7 @@ describe("registerLanguageFeatures", () => {
   it("completion returns undefined for a document that is not a cell in any notebook", async () => {
     (vscode.workspace as unknown as { notebookDocuments: unknown[] }).notebookDocuments = [];
     registerLanguageFeatures({ ...worker({ items: ["x"] }), log: () => {} });
-    const provider = vscode.languages._completion.at(-1)!.provider as {
+    const provider = vscode.languages._completion.at(-2)!.provider as {
       provideCompletionItems: (d: unknown, p: unknown, t: unknown) => Promise<unknown>;
     };
     const out = await provider.provideCompletionItems(fsharpCellDoc("orphan", "x"), new vscode.Position(0, 1), token);

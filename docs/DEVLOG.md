@@ -2085,3 +2085,50 @@ diagnostic for a broken edit" and `connections.test.ts` `{password}`
 host-echo, both Windows-local only, green in `vscode-extension.yml` on
 Linux); `npx @vscode/vsce package` warning-free; `npx @vscode/vsce ls` clean
 (no `src/`, `test/`, `out/`, `node_modules/`, `*.test.ts`, `tsconfig*`).
+
+## 2026-09-07 — F7.1: connection-name string-literal completion
+
+The one F6 parity criterion that regressed when the Avalonia UI was
+deleted at F6.2 (`FSharpQueryStudio.Ui/ConnectionNameCompletion.fs` had no
+VS Code equivalent). Reinstated as a dedicated completion provider.
+
+New `editors/vscode/src/lang/connection-name-completion.ts`: a pure
+predicate `isInsideConnectionNameArgument(linePrefix)` — a straight port of
+the F# regex `Connections\.(?:sql|csv|excel|rest)\s*\(?\s*"[^"]*$`, covering
+both `Connections.sql "…` and `Connections.sql("…`, single-line only as the
+original was — plus `registerConnectionNameCompletion(deps)`, a *second*
+`registerCompletionItemProvider` on `FSHARP_CELL_SELECTOR` triggered on `"`.
+It reads the cursor's line prefix from `document.getText()` (no `lineAt`, so
+the vscode test stub needs nothing new), and when the predicate matches
+returns the registered connection names as `CompletionItem`s of kind
+`Value` (bare name — the cursor sits between the quotes already). Any other
+position returns `undefined`, so it never competes with the FSAC-forwarding
+provider.
+
+`providers.ts` `LanguageFeaturesDeps` gains an optional
+`listConnectionNames?: () => Promise<string[]>` (optional so the existing
+provider unit tests need no new wiring; `registerLanguageFeatures` falls
+back to `async () => []`). `extension.ts` now registers
+`registerConnectionFeatures` **before** `registerLanguageFeatures` — no
+dependency the other way — and passes
+`listConnectionNames: () => connections.api.list().then(cs => cs.map(c => c.name))`.
+One `connection/list` RPC to the already-running worker session, fired only
+after the predicate matches (i.e. only when the cursor is actually inside a
+`Connections.*` string argument), never on the keystroke path — the same
+pattern the connections tree uses on expand. No cache added.
+
+Tests: new `connection-name-completion.test.ts` — 23 cases: the predicate's
+true/false table (whitespace variants, `("` form, closed strings, wrong
+member names, plain string literals) and the provider (offers names inside
+the argument, `undefined` outside, reads the cursor's own line in a
+multi-line cell, does not query names when the predicate misses).
+`providers.test.ts` and `extension.test.ts` completion-count assertions bump
+`+1 → +2`; the three `providers.test.ts` tests that grab the FSAC provider
+now index `_completion.at(-2)` (FSAC is pushed before the connection-name
+provider). No extension-host integration spec — a registered connection plus
+a live worker is heavier than the unit coverage warrants, matching how the
+F4/F5 providers were tested; noted as F7 integration-suite follow-up.
+
+Verification: `editors/vscode` `npm test` 224 passing / 0 skipped (27
+files); `npm run compile` tsc `--noEmit` clean + esbuild bundle. F6 parity
+checklist row 4 flipped to met.
