@@ -2024,3 +2024,60 @@ publisher/PAT setup, and the "F6 is publish-ready, not published" statement.
 `README.md`, `LICENSE`, `dist/extension.js`, `dist/worker/*.dll`, and the
 renderer bundle must be present; nothing under `src/`, `test/`, `out/`,
 `node_modules/`, and no `*.test.ts` / `tsconfig*.json` may be.
+
+## 2026-09-07 — F6 complete: parity + retire
+
+The VS Code extension has reached parity with the retired Avalonia app and
+Avalonia is gone from the tree.
+
+**Parity.** `docs/f6-parity-checklist.md` walks the migration spec's eight
+F6 criteria — write+run a query, all six connectors, CSV export,
+connection-name autocomplete, schema navigation, secrets-out-of-files,
+session persistence, and the log-viewer→OutputChannel downgrade — each tied
+to a passing automated suite or a recorded manual check. Re-walked against
+the post-deletion tree at close-out: every row still ☑, no regression.
+
+**Retired.** `git rm` of `src/FSharpQueryStudio.{App,Ui,Editor}`,
+`tests/FSharpQueryStudio.{Ui,Editor}.Tests`,
+`src/FSharpQueryStudio.Security/WindowsCredentialStore.fs`, and `installer/`
+(the WiX MSI). `FSharpQueryStudio.slnx` is down to 9 src + 10 test projects.
+`Integration.Tests` lost its ten Avalonia-coupled files (WorkerClient,
+ExecutionService, Milestone A–E acceptance, PublishedApp) and its
+`TestHelpers.fs` is trimmed to `workerDllPath` / `withTimeout` / `request`;
+it keeps the worker-stdio smoke, `NotebookExecutionTests`, the Testcontainers
+connector suites, `ConnectionsRegressionTests`, and `PackageApprovalTests`.
+The only production change: `Handlers.fs`'s module-default `secretStore` is
+now `InMemorySecretStore()` — `Program.fs` still composes `BridgeSecretStore`
+for the extension host, so secret resolution there is unchanged. `ci.yml`
+drops the two deleted test projects from its Linux matrix. The Avalonia
+planning docs carry a "superseded" banner.
+
+**Publish-ready (not published).** MIT `LICENSE` at the repo root and in
+`editors/vscode/`; a `.vscodeignore` that ships only `dist/**` (bundle +
+worker), `media/**`, `package.json`, `README.md`, `LICENSE`; full
+`package.json` Marketplace metadata (`version` 0.1.0, `license`,
+`categories`, `keywords`, `bugs`, `homepage`, `qna`, `galleryBanner`; the
+redundant `onCommand:` activation event removed). `README.md` is now a
+user-facing overview. `docs/vscode-extension-release.md` is the manual
+`vsce publish` runbook. `vscode-extension.yml` fails packaging on any `vsce`
+warning and asserts the VSIX carries no source/test files. No publisher
+account, PAT, or CI publish secret was created. `main-vscode` is **not**
+merged to `main` — that is a separate decision. The 128×128 `icon` was not
+generated in F6 (no SVG rasterizer on the build machine) — deferred to the
+release runbook; the `icon` key stays absent. The local VSIX packages at
+~70 MB / 265 files (framework-dependent worker shipped as-is, `dotnet` on
+PATH). Three minor CI-gate polish items (swallowed `vsce` error text on
+hard-fail, unanchored forbidden-path grep, unpinned `@vscode/vsce`) are
+noted as deferred CI-gate hardening.
+
+Verification: `dotnet build FSharpQueryStudio.slnx --configuration Release`
+clean (0 warnings / 0 errors); `dotnet test` (non-Docker, non-Publish) 327
+passing / 0 failed / 0 skipped across 10 projects (`Fsac.Tests` 36/36, no
+warmup flake this run); `editors/vscode` `npm test` 201 passing / 0 skipped
+(26 files); `npm run compile` tsc clean + esbuild; `npm run test:vscode` 11
+passing / 2 failing — the two failures are the documented, CI-gated
+exceptions from the parity checklist (`intelligence.test.ts` "reports a
+diagnostic for a broken edit" and `connections.test.ts` `{password}`
+host-echo, both Windows-local only, green in `vscode-extension.yml` on
+Linux); `npx @vscode/vsce package` warning-free; `npx @vscode/vsce ls` clean
+(no `src/`, `test/`, `out/`, `node_modules/`, `*.test.ts`, `tsconfig*`).
