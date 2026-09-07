@@ -2033,9 +2033,13 @@ Avalonia is gone from the tree.
 **Parity.** `docs/f6-parity-checklist.md` walks the migration spec's eight
 F6 criteria — write+run a query, all six connectors, CSV export,
 connection-name autocomplete, schema navigation, secrets-out-of-files,
-session persistence, and the log-viewer→OutputChannel downgrade — each tied
-to a passing automated suite or a recorded manual check. Re-walked against
-the post-deletion tree at close-out: every row still ☑, no regression.
+session persistence, and the log-viewer→OutputChannel downgrade. Seven are
+each tied to a passing automated suite or a recorded manual check, re-walked
+against the post-deletion tree at close-out with no regression.
+Connection-name string-literal autocomplete (`Connections.sql "…"`)
+regressed when `src/FSharpQueryStudio.Ui/ConnectionNameCompletion.fs` was
+deleted in F6.2 — the extension has no replacement provider and F6 forbids
+feature work, so it is recorded as a checklist finding and is F7 backlog.
 
 **Retired.** `git rm` of `src/FSharpQueryStudio.{App,Ui,Editor}`,
 `tests/FSharpQueryStudio.{Ui,Editor}.Tests`,

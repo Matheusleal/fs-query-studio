@@ -23,12 +23,10 @@ jobs:
 
       # SQL Server/PostgreSQL connector tests use Testcontainers, which
       # needs Linux Docker containers - not reliably available on
-      # GitHub-hosted Windows runners. RequiresPublish (D.7) does a full
-      # self-contained publish and a real windowed launch, too heavy to
-      # run on every push. Both are excluded here and run locally
-      # instead - this filter is an escape hatch, not a way to skip
-      # everything else.
-      - run: dotnet test FSharpQueryStudio.slnx --no-build --configuration Release --filter "Category!=RequiresDocker&Category!=RequiresPublish"
+      # GitHub-hosted Windows runners. Excluded here and run on the Linux
+      # job / locally instead - this filter is an escape hatch, not a way
+      # to skip everything else.
+      - run: dotnet test FSharpQueryStudio.slnx --no-build --configuration Release --filter "Category!=RequiresDocker"
 
   build-and-test-linux:
     name: Build and test (Linux)
@@ -60,4 +58,4 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - run: dotnet test "${{ matrix.project }}" --configuration Release --filter "Category!=RequiresPublish"
+      - run: dotnet test "${{ matrix.project }}" --configuration Release

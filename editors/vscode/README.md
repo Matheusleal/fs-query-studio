@@ -18,7 +18,7 @@ Write, analyze, and run F# query scripts against SQL databases, local files, and
 
 - **Notebook execution** — each `.fsqnb` code cell runs against a persistent, per-notebook FSI session; stdout/stderr stream live; cancel a running cell from the toolbar.
 - **Results grid** — virtualized table, schema view, CSV export, paged loading for large results.
-- **In-cell F# intelligence** — completion, hover, signature help, and diagnostics, including connection-name completion inside `Connections.*`. Provided by this extension.
+- **In-cell F# intelligence** — completion, hover, signature help, and diagnostics. Provided by this extension.
 - **Connection management** — a tree of connections → tables → columns, lazily loaded; add / edit / remove via guided pickers.
 - **Cross-platform** — Windows, macOS, Linux. One F# worker per VS Code window.
 

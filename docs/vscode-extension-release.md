@@ -9,7 +9,14 @@ runbook is the manual process for the first and subsequent publishes.
 1. Create a Visual Studio Marketplace **publisher** at
    <https://marketplace.visualstudio.com/manage>. Note its id.
 2. If it differs from `fs-query-studio`, update `"publisher"` in
-   `editors/vscode/package.json`.
+   `editors/vscode/package.json`. This changes the extension id
+   (`<publisher>.<name>`), which is hardcoded as the `EXTENSION_ID`
+   constant (currently `"fs-query-studio.fs-query-studio"`) in **all five**
+   `editors/vscode/test/integration/*.test.ts` files (`connections`,
+   `extension`, `intelligence`, `notebook`, `renderer` — each calls
+   `vscode.extensions.getExtension(EXTENSION_ID)` in `before`). Update that
+   constant in all five (or derive it from `package.json`), or the
+   extension-host CI suite (`vscode-extension.yml`) fails on the publish PR.
 3. In the publisher's Azure DevOps organization, create a **Personal Access
    Token** with **Marketplace → Manage** scope. Keep it out of the repo.
 4. Add a 128×128 PNG at `editors/vscode/media/icon.png` and add the

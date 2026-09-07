@@ -68,7 +68,9 @@ jobs:
         working-directory: editors/vscode
         run: |
           set -euo pipefail
-          out="$(npx --yes @vscode/vsce package --out fs-query-studio.vsix 2>&1)"
+          if ! out="$(npx --yes @vscode/vsce package --out fs-query-studio.vsix 2>&1)"; then
+            echo "$out"; exit 1
+          fi
           echo "$out"
           if grep -q 'WARNING' <<<"$out"; then
             echo "::error::vsce package emitted warnings"; exit 1
@@ -87,11 +89,9 @@ jobs:
               echo "::error::VSIX is missing required file: $required"; fail=1
             fi
           done
-          for forbidden in 'src/' 'test/' 'out/' 'node_modules/'; do
-            if grep -q "$forbidden" <<<"$listing"; then
-              echo "::error::VSIX contains files under $forbidden"; fail=1
-            fi
-          done
+          if grep -qE '(^|/)(src|test|out|node_modules)/' <<<"$listing"; then
+            echo "::error::VSIX contains source/test/build files"; fail=1
+          fi
           if grep -qE '\.test\.ts$|tsconfig.*\.json$' <<<"$listing"; then
             echo "::error::VSIX contains test or tsconfig files"; fail=1
           fi
