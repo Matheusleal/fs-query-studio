@@ -1978,3 +1978,11 @@ fire for `Worker` + the Fsac/Worker/Integration test projects). Build + the
 non-Docker test suite green (327 passing across 10 test projects; two Fsac
 diagnostics/hover tests are pre-existing FSAC warmup flakes — a different one
 failed on each of two runs, all 36 green on a third).
+
+## 2026-09-07 — F6.3: installer removed, planning docs marked superseded
+
+`git rm -r installer/` (the WiX MSI project — it only packaged
+`FSharpQueryStudio.App.exe`, now gone; nothing in CI or `.slnx` referenced
+it). `docs/fs-studio-plan.md` and `docs/fs-studio-development-plan.md` gain a
+"Superseded (2026-09) — Avalonia host retired at F6" banner; their bodies
+are untouched.
