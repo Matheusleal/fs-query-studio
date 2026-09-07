@@ -7,7 +7,6 @@
   <ItemGroup>
     <Compile Include="ISecretStore.fs" />
     <Compile Include="InMemorySecretStore.fs" />
-    <Compile Include="WindowsCredentialStore.fs" />
     <Compile Include="OriginDetection.fs" />
   </ItemGroup>
 

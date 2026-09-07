@@ -16,15 +16,7 @@
        test spawns a worker that can never find `fsautocomplete.dll`,
        `FsacBridge.hover` faults inside the worker's fire-and-forget
        `Task.Run` for `analysis/*` with no response ever written back, and
-       the test hangs rather than failing fast), and FSharpQueryStudio.App
-       (the actual shipped app — `App.axaml.fs` spawns the Worker as
-       `AppContext.BaseDirectory/FSharpQueryStudio.Worker.dll`, i.e. the
-       Worker runs from the *App's* output directory, not its own, so
-       `FsacBridge.fsacDllPath()` resolves `FsacTool` against the App's
-       directory at runtime — confirmed as a real, not just theoretical,
-       gap during the final review: every test project above already had
-       its own `FsacTool` because every test project was itself in this
-       Condition, so nothing ever exercised the App's real layout).
+       the test hangs rather than failing fast).
        `dotnet tool update` (not `install`) is idempotent — it installs
        fresh into an empty tool-path, or is a no-op exit-0 if the pinned
        version is already there, so repeated local builds and CI don't
@@ -62,7 +54,7 @@
   </PropertyGroup>
 
   <Target Name="RestoreFsautocomplete" AfterTargets="Build"
-          Condition="('$(MSBuildProjectName)' == 'FSharpQueryStudio.Fsac.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Worker' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Worker.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Integration.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.App') and !Exists('$(OutDir)FsacTool\fsautocomplete.dll')">
+          Condition="('$(MSBuildProjectName)' == 'FSharpQueryStudio.Fsac.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Worker' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Worker.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Integration.Tests') and !Exists('$(OutDir)FsacTool\fsautocomplete.dll')">
     <Exec Command="dotnet tool update --tool-path &quot;$(OutDir)FsacTool&quot; --version $(FsautocompleteVersion) fsautocomplete" />
     <ItemGroup>
       <FsautocompleteToolFiles Include="$(OutDir)FsacTool\.store\fsautocomplete\**\tools\$(TargetFramework)\any\**\*" />
@@ -74,10 +66,10 @@
        `$(OutDir)` (the ordinary build output directory), which does not
        participate in `dotnet publish` at all — `$(OutDir)` and
        `$(PublishDir)` are different directories, and nothing copies one
-       into the other by default. Unlike `FSharpQueryStudio.Editor`'s
-       `EditorAssets` (a `Content` item glob evaluated at project-load
-       time, which MSBuild's publish pipeline picks up automatically via
-       its implicit `CopyToPublishDirectory`), the flattened `FsacTool`
+       into the other by default. Unlike a static `Content` item glob
+       evaluated at project-load time (which MSBuild's publish pipeline
+       picks up automatically via its implicit `CopyToPublishDirectory`),
+       the flattened `FsacTool`
        payload doesn't exist yet at project-load time — it's created by
        the `RestoreFsautocomplete` Target above, during the Build that
        precedes Publish — so a static `Content`/`None` item glob would
@@ -88,10 +80,10 @@
        `RestoreFsautocomplete` has already flattened `$(OutDir)FsacTool`)
        and copies that already-flattened folder straight into
        `$(PublishDir)FsacTool`. Verified against a real
-       `dotnet publish src/FSharpQueryStudio.App` during the final review:
+       `dotnet publish src/FSharpQueryStudio.Worker` during the final review:
        `FsacTool\fsautocomplete.dll` lands in the publish output. -->
   <Target Name="PublishFsautocomplete" AfterTargets="Publish"
-          Condition="'$(MSBuildProjectName)' == 'FSharpQueryStudio.Fsac.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Worker' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Worker.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Integration.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.App'">
+          Condition="'$(MSBuildProjectName)' == 'FSharpQueryStudio.Fsac.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Worker' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Worker.Tests' or '$(MSBuildProjectName)' == 'FSharpQueryStudio.Integration.Tests'">
     <ItemGroup>
       <!-- Non-recursive `\*` deliberately excludes `FsacTool\.store\**`
            (the raw `dotnet tool install` layout, only needed to produce

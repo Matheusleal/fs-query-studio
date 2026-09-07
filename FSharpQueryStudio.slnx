@@ -5,9 +5,7 @@
     <File Path="docs/fs-studio-plan.md" />
   </Folder>
   <Folder Name="/src/">
-    <Project Path="src/FSharpQueryStudio.App/FSharpQueryStudio.App.fsproj" />
     <Project Path="src/FSharpQueryStudio.Connectors/FSharpQueryStudio.Connectors.fsproj" />
-    <Project Path="src/FSharpQueryStudio.Editor/FSharpQueryStudio.Editor.fsproj" />
     <Project Path="src/FSharpQueryStudio.Execution/FSharpQueryStudio.Execution.fsproj" />
     <Project Path="src/FSharpQueryStudio.Fsac/FSharpQueryStudio.Fsac.fsproj" />
     <Project Path="src/FSharpQueryStudio.Logging/FSharpQueryStudio.Logging.fsproj" />
@@ -15,12 +13,10 @@
     <Project Path="src/FSharpQueryStudio.Results/FSharpQueryStudio.Results.fsproj" />
     <Project Path="src/FSharpQueryStudio.Security/FSharpQueryStudio.Security.fsproj" />
     <Project Path="src/FSharpQueryStudio.Storage/FSharpQueryStudio.Storage.fsproj" />
-    <Project Path="src/FSharpQueryStudio.Ui/FSharpQueryStudio.Ui.fsproj" />
     <Project Path="src/FSharpQueryStudio.Worker/FSharpQueryStudio.Worker.fsproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/FSharpQueryStudio.Connectors.Tests/FSharpQueryStudio.Connectors.Tests.fsproj" />
-    <Project Path="tests/FSharpQueryStudio.Editor.Tests/FSharpQueryStudio.Editor.Tests.fsproj" />
     <Project Path="tests/FSharpQueryStudio.Execution.Tests/FSharpQueryStudio.Execution.Tests.fsproj" />
     <Project Path="tests/FSharpQueryStudio.Fsac.Tests/FSharpQueryStudio.Fsac.Tests.fsproj" />
     <Project Path="tests/FSharpQueryStudio.Integration.Tests/FSharpQueryStudio.Integration.Tests.fsproj" />
@@ -29,7 +25,6 @@
     <Project Path="tests/FSharpQueryStudio.Results.Tests/FSharpQueryStudio.Results.Tests.fsproj" />
     <Project Path="tests/FSharpQueryStudio.Security.Tests/FSharpQueryStudio.Security.Tests.fsproj" />
     <Project Path="tests/FSharpQueryStudio.Storage.Tests/FSharpQueryStudio.Storage.Tests.fsproj" />
-    <Project Path="tests/FSharpQueryStudio.Ui.Tests/FSharpQueryStudio.Ui.Tests.fsproj" />
     <Project Path="tests/FSharpQueryStudio.Worker.Tests/FSharpQueryStudio.Worker.Tests.fsproj" />
   </Folder>
 </Solution>

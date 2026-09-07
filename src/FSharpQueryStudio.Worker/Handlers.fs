@@ -71,13 +71,15 @@ module Handlers =
     let setWorkspaceDirForTests (dir: string option) : unit = workspaceDirOverride <- dir
 
     /// The secret store the worker's connection resolver reads `{password}`
-    /// tokens from. Default `WindowsCredentialStore` keeps the standalone
-    /// worker and every existing test unchanged; `Program.fs` swaps in a
-    /// `BridgeSecretStore` at startup so the extension host's credential
-    /// store (VS Code `SecretStorage`, cross-platform) is the source of
-    /// truth instead. One process-wide store — the worker handles one
+    /// tokens from. The default `InMemorySecretStore` serves a standalone
+    /// `dotnet run` of the worker and any test that never calls
+    /// `configureSecretStore`; being empty, it resolves nothing, so a
+    /// `{password}` connection simply fails as a missing secret. `Program.fs`
+    /// swaps in a `BridgeSecretStore` at startup so the extension host's
+    /// credential store (VS Code `SecretStorage`, cross-platform) is the
+    /// source of truth. One process-wide store — the worker handles one
     /// evaluation at a time.
-    let mutable private secretStore: ISecretStore = WindowsCredentialStore()
+    let mutable private secretStore: ISecretStore = InMemorySecretStore()
 
     let configureSecretStore (store: ISecretStore) : unit = secretStore <- store
 

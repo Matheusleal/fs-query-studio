@@ -1196,7 +1196,7 @@ let ``connection/schema reads {password} from the store configured via configure
             Handlers.setWorkspaceDirForTests (Some tmp)
 
             // A recording spy: proves the resolver read `{password}` from *this*
-            // injected store (not the default WindowsCredentialStore) — an
+            // injected store (not the module-default `InMemorySecretStore`) — an
             // environment-independent check, unlike asserting on Npgsql's
             // host-resolution error text, which varies by OS.
             let mutable askedFor: string option = None
@@ -1233,6 +1233,6 @@ let ``connection/schema reads {password} from the store configured via configure
             Assert.Equal(Some "connection/schemaFailed", response.Error |> Option.map (fun e -> e.Code))
         finally
             Handlers.setWorkspaceDirForTests None
-            Handlers.configureSecretStore (FSharpQueryStudio.Security.WindowsCredentialStore())
+            Handlers.configureSecretStore (FSharpQueryStudio.Security.InMemorySecretStore())
             Directory.Delete(tmp, true)
     }

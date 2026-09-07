@@ -1956,3 +1956,25 @@ removed in F6.2). `TestHelpers.fs` trimmed to `workerDllPath` / `withTimeout`
 worker-stdio smoke (`Tests.fs`), `NotebookExecutionTests`, the Testcontainers
 SQL Server / PostgreSQL connector suites, `ConnectionsRegressionTests`,
 `PackageApprovalTests`. No production code touched.
+
+## 2026-09-07 — F6.2: Avalonia tier deleted
+
+`git rm` of `src/FSharpQueryStudio.{App,Ui,Editor}`,
+`tests/FSharpQueryStudio.{Ui,Editor}.Tests`, and
+`src/FSharpQueryStudio.Security/WindowsCredentialStore.fs`.
+`FSharpQueryStudio.slnx` drops the five projects (now 9 src + 10 test).
+`Handlers.fs`'s module-default `secretStore` is now `InMemorySecretStore()`
+(was `WindowsCredentialStore()`) — only reached by a standalone `dotnet run`
+or a test that never calls `configureSecretStore`; `Program.fs` still
+composes `BridgeSecretStore` for the extension host, so secret resolution is
+unchanged there. One `HandlersTests.fs` reset line swapped to
+`InMemorySecretStore()`, and a neighbouring comment lost its stale
+`WindowsCredentialStore` mention. `Security` keeps `ISecretStore` /
+`InMemorySecretStore` / `OriginDetection`. `Directory.Build.targets` dropped
+the now-dead `FSharpQueryStudio.App` disjunct from both `FsacTool`
+restore/publish `Condition`s and the `App`/`Editor` mentions in their
+comments (the `RestoreFsautocomplete` / `PublishFsautocomplete` targets still
+fire for `Worker` + the Fsac/Worker/Integration test projects). Build + the
+non-Docker test suite green (327 passing across 10 test projects; two Fsac
+diagnostics/hover tests are pre-existing FSAC warmup flakes — a different one
+failed on each of two runs, all 36 green on a third).
