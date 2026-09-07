@@ -66,7 +66,36 @@ jobs:
       - name: Package VSIX
         if: matrix.os == 'ubuntu-latest'
         working-directory: editors/vscode
-        run: npx --yes @vscode/vsce package --out fs-query-studio.vsix
+        run: |
+          set -euo pipefail
+          out="$(npx --yes @vscode/vsce package --out fs-query-studio.vsix 2>&1)"
+          echo "$out"
+          if grep -q 'WARNING' <<<"$out"; then
+            echo "::error::vsce package emitted warnings"; exit 1
+          fi
+
+      - name: Assert VSIX contents
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: editors/vscode
+        run: |
+          set -euo pipefail
+          listing="$(npx --yes @vscode/vsce ls)"
+          echo "$listing"
+          fail=0
+          for required in package.json README.md LICENSE dist/extension.js dist/worker/FSharpQueryStudio.Worker.dll media/renderer/index.js; do
+            if ! grep -qxF "$required" <<<"$listing"; then
+              echo "::error::VSIX is missing required file: $required"; fail=1
+            fi
+          done
+          for forbidden in 'src/' 'test/' 'out/' 'node_modules/'; do
+            if grep -q "$forbidden" <<<"$listing"; then
+              echo "::error::VSIX contains files under $forbidden"; fail=1
+            fi
+          done
+          if grep -qE '\.test\.ts$|tsconfig.*\.json$' <<<"$listing"; then
+            echo "::error::VSIX contains test or tsconfig files"; fail=1
+          fi
+          exit $fail
 
       - name: Upload VSIX
         if: matrix.os == 'ubuntu-latest'

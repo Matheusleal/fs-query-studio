@@ -2016,3 +2016,11 @@ start, feature list, the stated limitations, and the Ionide-coexistence
 note (dev instructions kept at the bottom). New
 `docs/vscode-extension-release.md` — the manual `vsce publish` process,
 publisher/PAT setup, and the "F6 is publish-ready, not published" statement.
+
+## 2026-09-07 — F6.7: CI asserts the VSIX is clean
+
+`vscode-extension.yml` — `vsce package` now fails on any `WARNING`, and a new
+"Assert VSIX contents" step (ubuntu) checks `vsce ls`: `package.json`,
+`README.md`, `LICENSE`, `dist/extension.js`, `dist/worker/*.dll`, and the
+renderer bundle must be present; nothing under `src/`, `test/`, `out/`,
+`node_modules/`, and no `*.test.ts` / `tsconfig*.json` may be.
