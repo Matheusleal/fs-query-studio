@@ -1994,3 +1994,17 @@ are untouched.
 about Avalonia `NativeWebView` / Monaco / WebKitGTK is replaced by a
 three-line note. The Windows job is unchanged — it builds the now-smaller
 `.slnx`.
+
+## 2026-09-07 — F6.5: VSIX publish metadata
+
+Repo-root `LICENSE` (MIT) + a copy at `editors/vscode/LICENSE` (where `vsce`
+looks). New `editors/vscode/.vscodeignore` ships only `dist/**` (bundle +
+published worker), `media/**`, `package.json`, `README.md`, `LICENSE`.
+`package.json`: `version` 0.1.0, `license` MIT, real `categories`
+(Notebooks / Data Science / Programming Languages), `keywords`, `bugs`,
+`homepage`, `qna`, `galleryBanner`; the redundant
+`onCommand:` activation event dropped. Icon: deferred — see release runbook
+(no ImageMagick / rsvg-convert / inkscape available on this machine, so no
+128x128 PNG was produced and the `icon` key is intentionally absent).
+`vsce package` runs warning-free; `vsce ls` confirms no source or test files
+in the VSIX.

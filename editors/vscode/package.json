@@ -3,22 +3,43 @@
   "publisher": "fs-query-studio",
   "displayName": "F# Query Studio",
   "description": "Write, analyze, and run F# query scripts against SQL, files, and REST APIs.",
-  "version": "0.0.1",
+  "license": "MIT",
+  "version": "0.1.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/Matheusleal/fs-query-studio.git",
     "directory": "editors/vscode"
   },
   "categories": [
-    "Other"
+    "Notebooks",
+    "Data Science",
+    "Programming Languages"
   ],
+  "keywords": [
+    "fsharp",
+    "f#",
+    "sql",
+    "query",
+    "notebook",
+    "database",
+    "rest",
+    "csv"
+  ],
+  "bugs": {
+    "url": "https://github.com/Matheusleal/fs-query-studio/issues"
+  },
+  "homepage": "https://github.com/Matheusleal/fs-query-studio/tree/main-vscode/editors/vscode#readme",
+  "qna": "marketplace",
+  "galleryBanner": {
+    "color": "#4B267D",
+    "theme": "dark"
+  },
   "engines": {
     "vscode": "^1.90.0",
     "node": ">=20"
   },
   "main": "./dist/extension.js",
   "activationEvents": [
-    "onCommand:fs-query-studio.checkWorker",
     "onNotebook:fsquery-notebook",
     "onView:fsQueryStudioConnections"
   ],
