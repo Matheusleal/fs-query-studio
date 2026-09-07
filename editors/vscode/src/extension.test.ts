@@ -126,6 +126,30 @@ describe("activate — notebook wiring", () => {
     await deactivate();
   });
 
+  it("registers the new-notebook create commands", async () => {
+    await activate(fakeContext());
+    expect(vscodeStub.commands._handlers.has("fs-query-studio.newNotebook")).toBe(true);
+    expect(vscodeStub.commands._handlers.has("fs-query-studio.newNotebookHere")).toBe(true);
+    await deactivate();
+  });
+
+  it("newNotebook opens an untitled fsquery-notebook without throwing", async () => {
+    const opened: Array<{ type: string; cells: number }> = [];
+    (vscodeStub.workspace as unknown as {
+      openNotebookDocument: (type: string, data: { cells: unknown[] }) => Promise<unknown>;
+    }).openNotebookDocument = async (type, data) => {
+      opened.push({ type, cells: data.cells.length });
+      return { id: "untitled" };
+    };
+    (vscodeStub.window as unknown as { showNotebookDocument: (d: unknown) => Promise<unknown> }).
+      showNotebookDocument = async () => undefined;
+
+    await activate(fakeContext());
+    await vscodeStub.commands.executeCommand("fs-query-studio.newNotebook");
+    expect(opened).toEqual([{ type: "fsquery-notebook", cells: 1 }]);
+    await deactivate();
+  });
+
   it("registers the restartKernel command", async () => {
     await activate(fakeContext());
     const commands = await vscodeStub.commands.executeCommand("fs-query-studio.restartKernel");

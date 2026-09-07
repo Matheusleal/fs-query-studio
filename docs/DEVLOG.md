@@ -2254,3 +2254,55 @@ before it was written, no `VSCE_PAT`) and stops. `npm test` 224/224
 unchanged. `media/icon.png` + the `package.json` `"icon"` key remain the
 one thing blocking a first real publish — tracked in the release doc's
 one-time setup.
+
+## 2026-09-08 — F9: "New F# Query Notebook" create commands
+
+Until now the only way to get a `.fsqnb` was to hand-make a file with that
+extension. Added first-class create entry points.
+
+**Module** `src/notebook/new-notebook.ts` — dependency-injected, like
+`connections/add.ts`, so the logic is unit-tested against the `vscode`
+stub with no real API:
+- `emptyNotebookData()` — one `NotebookCellData(Code, "", "fsharp")`,
+  `metadata {}`.
+- `emptyFsqnbBytes()` — `serializeFsqnb` of the same shape, for the
+  on-disk path.
+- `openNewUntitledNotebook(deps)` — `openNotebookDocument(type, data)` with
+  no URI → an untitled notebook → `showNotebookDocument`.
+- `createNotebookFileInFolder(folder, deps)` — `showInputBox` (default
+  `query.fsqnb`, `.fsqnb` appended if absent, name trimmed), re-check
+  existence (`validateInput` is sync and can't stat), `writeFile`, open.
+  Throws `NotebookFileExistsError` (carries `userMessage`) on collision;
+  returns `undefined` on cancel.
+
+**Wiring** `src/extension.ts` — two commands with thin `vscode` adapters
+inside the closures (so `activate` needs nothing new from the stub):
+`fs-query-studio.newNotebook` (untitled) and
+`fs-query-studio.newNotebookHere` (folder, resource arg from the Explorer;
+falls back to `workspaceFolders[0]`).
+
+**Contributions** `package.json`:
+- commands `newNotebook` (`shortTitle: "F# Query Notebook"`) and
+  `newNotebookHere`;
+- `menus.file/newFile` → `newNotebook` (this also populates the Welcome
+  page "New…" list);
+- `menus.explorer/context` → `newNotebookHere`, `when:
+  "explorerViewletVisible && explorerResourceIsFolder"`;
+- `menus.commandPalette` → `newNotebookHere` hidden (`when: false`) — it
+  needs a folder; palette users take `newNotebook`.
+- No `activationEvents` change — the extension-host run confirmed the
+  contributed command activates the extension on first use.
+
+**No worker / renderer / protocol / serializer change.**
+
+TDD: `src/notebook/new-notebook.test.ts` (9 cases) written first, RED on
+the missing module, then GREEN. Verification: `npm test` **235/235** (was
+224; +9 here, +2 in `extension.test.ts` for the new command ids);
+`npm run compile` clean; `vscode-test --grep "fsquery-notebook
+integration"` **5/5**, including a new spec that executes
+`fs-query-studio.newNotebook` and asserts an untitled `fsquery-notebook`
+with one empty `fsharp` cell. A second integration spec for the on-disk
+`newNotebookHere` path was dropped — `showInputBox` has no headless
+resolver and hangs the command to a timeout; cancel/collision/suffix are
+covered by the unit suite. See
+`docs/tasks/f9-new-notebook-command.md`.

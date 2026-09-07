@@ -30,6 +30,18 @@ describe("fsquery-notebook integration", () => {
     await ext!.activate();
   });
 
+  it("fs-query-studio.newNotebook opens an untitled fsquery-notebook with one empty F# cell", async () => {
+    await vscode.commands.executeCommand("fs-query-studio.newNotebook");
+    const opened = vscode.workspace.notebookDocuments.find(
+      (d) => d.notebookType === "fsquery-notebook" && d.uri.scheme === "untitled",
+    );
+    assert.ok(opened, "an untitled fsquery-notebook should be open");
+    assert.strictEqual(opened!.cellCount, 1);
+    assert.strictEqual(opened!.cellAt(0).kind, vscode.NotebookCellKind.Code);
+    assert.strictEqual(opened!.cellAt(0).document.languageId, "fsharp");
+    assert.strictEqual(opened!.cellAt(0).document.getText(), "");
+  });
+
   it("opens an .fsqnb file as a notebook with the right cells", async () => {
     const doc = await vscode.workspace.openNotebookDocument(vscode.Uri.file(fixture));
     assert.strictEqual(doc.notebookType, "fsquery-notebook");

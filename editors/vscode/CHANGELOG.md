@@ -7,6 +7,11 @@ versions are the extension's `package.json` `version` and map to
 
 ## [Unreleased]
 
+- **New F# Query Notebook** commands — `F# Query Studio: New F# Query
+  Notebook` (Command Palette and File > New File…) opens a new untitled
+  notebook with one empty F# cell; a folder's Explorer context menu gets
+  **New F# Query Notebook Here**, which writes and opens a `.fsqnb` in that
+  folder (F9).
 - Build / package / publish scripts under `editors/vscode/scripts/`
   (`npm run build`, `npm run package`, `npm run publish`, `npm run doctor`);
   CI packages the VSIX through the same `npm run package` path (F8).

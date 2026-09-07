@@ -50,6 +50,16 @@
         "title": "F# Query Studio: Check Worker"
       },
       {
+        "command": "fs-query-studio.newNotebook",
+        "title": "F# Query Studio: New F# Query Notebook",
+        "shortTitle": "F# Query Notebook"
+      },
+      {
+        "command": "fs-query-studio.newNotebookHere",
+        "title": "F# Query Studio: New F# Query Notebook Here",
+        "shortTitle": "F# Query Notebook"
+      },
+      {
         "command": "fs-query-studio.restartKernel",
         "title": "F# Query Studio: Restart Notebook Session"
       },
@@ -98,6 +108,25 @@
       }
     ],
     "menus": {
+      "file/newFile": [
+        {
+          "command": "fs-query-studio.newNotebook",
+          "group": "notebook"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "fs-query-studio.newNotebookHere",
+          "when": "explorerViewletVisible && explorerResourceIsFolder",
+          "group": "navigation@30"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "fs-query-studio.newNotebookHere",
+          "when": "false"
+        }
+      ],
       "view/title": [
         {
           "command": "fs-query-studio.connections.add",

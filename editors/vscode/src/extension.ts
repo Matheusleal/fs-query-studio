@@ -6,6 +6,7 @@ import { WorkerClient } from "./worker/client";
 import { spawnWorkerProcess } from "./worker/spawn";
 import { isWorkerVersionSupported, type HealthInfo, type WorkerResponseFrame } from "./protocol";
 import { FsqnbSerializer, FSQNB_NOTEBOOK_TYPE } from "./notebook/serializer";
+import { openNewUntitledNotebook, createNotebookFileInFolder } from "./notebook/new-notebook";
 import { createFsQueryController, restartKernel } from "./notebook/controller";
 import { registerRendererHost } from "./notebook/renderer-host";
 import { FSQUERY_RENDERER_ID } from "./renderer/types";
@@ -184,6 +185,56 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
       (await connections.api.list()).map((c) => c.name),
   });
 
+  const newNotebookCommand = vscode.commands.registerCommand(
+    "fs-query-studio.newNotebook",
+    () =>
+      openNewUntitledNotebook({
+        openNotebookDocument: (type, data) =>
+          Promise.resolve(vscode.workspace.openNotebookDocument(type, data)),
+        showNotebookDocument: (doc) =>
+          Promise.resolve(
+            vscode.window.showNotebookDocument(doc as vscode.NotebookDocument),
+          ),
+      }),
+  );
+
+  const newNotebookHereCommand = vscode.commands.registerCommand(
+    "fs-query-studio.newNotebookHere",
+    async (resource?: vscode.Uri) => {
+      const folder = resource ?? vscode.workspace.workspaceFolders?.[0]?.uri;
+      if (!folder) {
+        void vscode.window.showErrorMessage(
+          "Open a folder to create an F# Query Notebook file.",
+        );
+        return;
+      }
+      try {
+        await createNotebookFileInFolder(folder.fsPath, {
+          showInputBox: (opts) => Promise.resolve(vscode.window.showInputBox(opts)),
+          fileExists: async (fsPath) => {
+            try {
+              await vscode.workspace.fs.stat(vscode.Uri.file(fsPath));
+              return true;
+            } catch {
+              return false;
+            }
+          },
+          writeFile: (fsPath, bytes) =>
+            Promise.resolve(vscode.workspace.fs.writeFile(vscode.Uri.file(fsPath), bytes)),
+          openNotebook: async (fsPath) => {
+            const doc = await vscode.workspace.openNotebookDocument(vscode.Uri.file(fsPath));
+            await vscode.window.showNotebookDocument(doc);
+          },
+          joinPath: (dir, name) => vscode.Uri.joinPath(vscode.Uri.file(dir), name).fsPath,
+        });
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          (err as { userMessage?: string }).userMessage ?? (err as Error).message,
+        );
+      }
+    },
+  );
+
   const restartCommand = vscode.commands.registerCommand(
     "fs-query-studio.restartKernel",
     async () => {
@@ -210,6 +261,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     notebookSerializer,
     controller,
     rendererHost,
+    newNotebookCommand,
+    newNotebookHereCommand,
     restartCommand,
     languageFeatures,
     connections.disposable,
