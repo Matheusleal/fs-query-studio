@@ -2008,3 +2008,11 @@ published worker), `media/**`, `package.json`, `README.md`, `LICENSE`.
 128x128 PNG was produced and the `icon` key is intentionally absent).
 `vsce package` runs warning-free; `vsce ls` confirms no source or test files
 in the VSIX.
+
+## 2026-09-07 — F6.6: extension README + release runbook
+
+`editors/vscode/README.md` rewritten for end users: requirements, quick
+start, feature list, the stated limitations, and the Ionide-coexistence
+note (dev instructions kept at the bottom). New
+`docs/vscode-extension-release.md` — the manual `vsce publish` process,
+publisher/PAT setup, and the "F6 is publish-ready, not published" statement.
