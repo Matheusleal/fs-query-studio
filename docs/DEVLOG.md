@@ -1986,3 +1986,11 @@ failed on each of two runs, all 36 green on a third).
 it). `docs/fs-studio-plan.md` and `docs/fs-studio-development-plan.md` gain a
 "Superseded (2026-09) — Avalonia host retired at F6" banner; their bodies
 are untouched.
+
+## 2026-09-07 — F6.4: ci.yml drops the retired Avalonia test projects
+
+`.github/workflows/ci.yml` Linux matrix loses the `Ui.Tests` and
+`Editor.Tests` entries (projects deleted in F6.2); the D.8/E.9 comment block
+about Avalonia `NativeWebView` / Monaco / WebKitGTK is replaced by a
+three-line note. The Windows job is unchanged — it builds the now-smaller
+`.slnx`.
