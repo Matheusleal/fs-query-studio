@@ -2132,3 +2132,60 @@ F4/F5 providers were tested; noted as F7 integration-suite follow-up.
 Verification: `editors/vscode` `npm test` 224 passing / 0 skipped (27
 files); `npm run compile` tsc `--noEmit` clean + esbuild bundle. F6 parity
 checklist row 4 flipped to met.
+
+## 2026-09-07 — F7.7: FSAC never analysed `vscode-notebook-cell:` URIs
+
+`intelligence.test.ts` "reports a diagnostic for a broken edit" failed
+locally (no diagnostic within its 30 s poll) and was CI-gated. Systematic
+debugging: instrumented every pipeline boundary and read the worker
+Serilog log. The extension side was fine — every `FsacBridge.check` call
+timed out after 10 s waiting for `fsharp/documentAnalyzed`, which FSAC
+never sent, and the worker log carried
+`FSAC completion failed … "Couldn't find …\_d:_…_sample-intelligence.fsqnb
+in LoadedProjects"`.
+
+**Root cause.** `FsacBridge.fsacUriFor` builds the synthetic `file://`
+URI it hands FSAC by replacing only `Path.GetInvalidFileNameChars()` —
+which on Windows excludes `#` and `%`. A `vscode-notebook-cell:` URI
+carries a `#<base64 cell handle>` fragment and `%`-encoded path segments,
+so the synthetic string came out as
+`file:///…/_d%3A_…_sample-intelligence.fsqnb#W2sZmlsZQ%3D%3D.fsx`. FSAC
+reads the `#` as a URI fragment delimiter, keeps only
+`…sample-intelligence.fsqnb` as the path, and drops the `.fsx` suffix that
+`analysisDocumentUri` appends so FSAC treats the buffer as an F# script.
+An unknown-extension file in no loaded project is never script-analysed →
+no `documentAnalyzed`, no `publishDiagnostics` → `check` always times out
+to `[]`. (In-cell completion still "worked" in the sibling test because it
+falls back to the executed FSI session's symbol list; `check` has no such
+fallback.)
+
+**Fix.** In `fsacUriFor`, for a non-`file:` caller URI, map every
+character outside `[A-Za-z0-9._-]` to `_` (stricter than
+`GetInvalidFileNameChars`), then append `.fsx` unless the result already
+ends with it. Still deterministic; distinct cell handles stay distinct.
+`fsacUriFor` dropped `private` so a pure test can assert the output shape.
+
+Tests: new `tests/FSharpQueryStudio.Fsac.Tests/FsacBridgeUriTests.fs` — 5
+pure cases (no `#`/`%` in the synthetic URI, always ends `.fsx`,
+deterministic, distinct per handle, `file:` passes through). A first cut
+added a real-FSAC `check` test with the notebook-cell URI shape; it
+reproduced the bug but measurably raised the hit rate of a *pre-existing*
+`Fsac.Tests` suite flake, so it was replaced with the pure test.
+
+Verification: `FsacBridgeUriTests` 5/5 (17 ms); `intelligence.test.ts`
+broken-edit spec now passes in < 1 s (was a 32 s timeout);
+`editors/vscode` `test:vscode` 12 passing / 1 failing (up from 11 / 2 —
+the remaining failure is the documented Windows/Npgsql `{password}`
+host-echo variance, green on Linux CI); `FSharpQueryStudio.Worker.Tests`
+62/62; `editors/vscode` vitest 224/224.
+
+**Pre-existing, not fixed here.** The full `FSharpQueryStudio.Fsac.Tests`
+suite fails ~40 % of runs — a single real-FSAC `check`/`hover` test on a
+`file:` URI returns `[]` (`Assert.NotEmpty` empty) in ~200 ms:
+`fsharp/documentAnalyzed` fires but `latestDiagnosticsByUri` has nothing
+for that URI yet. `awaitDocumentAnalyzed` assumes FSAC always sends
+`publishDiagnostics` before `documentAnalyzed`; under the shared
+long-lived process (especially right after the `KillForTests()` respawn
+test) that ordering does not always hold. Reproduced on a clean
+`main-vscode` tree (2 of 5 runs) with none of F7's changes. Left as an F7
+follow-up — see `docs/tasks/f7-7-fsac-notebook-cell-uri-diagnostics.md`.

@@ -78,21 +78,56 @@ module FsacBridge =
     /// through this first. The *caller's* own original uri is what ever
     /// reaches the wire back out (`DefinitionLocation.FilePath`, etc.);
     /// this synthetic identity never leaks past this module.
-    let private fsacUriFor (documentUri: string) : string =
+    /// Public only so `FsacBridgeUriTests` can assert the synthetic uri is
+    /// a well-formed `file://` one (no `#`/`%` to break uri parsing, and a
+    /// `.fsx` extension) without a real FSAC round trip; nothing outside
+    /// this module calls it in production.
+    let fsacUriFor (documentUri: string) : string =
         if documentUri.StartsWith("file:", StringComparison.OrdinalIgnoreCase) then
             documentUri
         else
-            let name =
+            let rawName =
                 match documentUri.IndexOf(':') with
                 | -1 -> documentUri
                 | i -> documentUri.Substring(i + 1)
 
-            let invalidChars = Path.GetInvalidFileNameChars()
+            // One path segment safe to sit inside a `file://` uri: every
+            // character outside `[A-Za-z0-9._-]` becomes `_`. Deliberately
+            // stricter than `Path.GetInvalidFileNameChars()` - a
+            // `vscode-notebook-cell:` uri (the VS Code extension's cell
+            // identity) carries a `#<base64 cell handle>` fragment and
+            // `%`-encoded path segments, and neither `#` nor `%` is an
+            // invalid *filename* char on Windows, yet both break `file://`
+            // uri parsing: FSAC reads the `#` as a fragment delimiter,
+            // drops everything after it (including the `.fsx` suffix that
+            // marks the buffer as an F# script), and so never analyses the
+            // document - every `check` then times out and returns `[]`.
+            let sanitized =
+                String(
+                    rawName.ToCharArray()
+                    |> Array.map (fun c ->
+                        if
+                            (c >= 'A' && c <= 'Z')
+                            || (c >= 'a' && c <= 'z')
+                            || (c >= '0' && c <= '9')
+                            || c = '.'
+                            || c = '_'
+                            || c = '-'
+                        then
+                            c
+                        else
+                            '_')
+                )
 
-            let safeChars =
-                name.ToCharArray() |> Array.map (fun c -> if Array.contains c invalidChars then '_' else c)
+            // Guarantee the `.fsx` extension FSAC keys script analysis on,
+            // even for a caller uri whose own suffix was mangled above or
+            // never had one.
+            let safeName =
+                if sanitized.EndsWith(".fsx", StringComparison.OrdinalIgnoreCase) then
+                    sanitized
+                else
+                    sanitized + ".fsx"
 
-            let safeName = String(safeChars)
             let fullPath = Path.Combine(untitledUriRoot, safeName).Replace('\\', '/')
             $"file:///{fullPath.TrimStart('/')}"
 
