@@ -35,12 +35,11 @@ A full hands-on walkthrough is in
 
 ## Writing cells
 
-Every code cell runs in a session where these are already open — no `#r` or
+Every code cell runs in a session where this is already open — no `#r` or
 `open` needed:
 
 ```fsharp
 open FSharpQueryStudio.Connectors   // the Connections.* API
-open FSharpQueryStudio.Results      // the Results.* results-pane control
 ```
 
 ### `Connections` — reach a registered connection by name
@@ -62,26 +61,23 @@ Connections.sql
     [ "from", box (System.DateTime(2026, 1, 1)) ]
 ```
 
-### `Results` — control what the results pane shows
+### What a cell shows
 
-`Results.*` functions return their input unchanged, so they compose in a
-pipeline. Whichever ran most recently in the cell wins.
+A cell renders the value of its **last expression** — the same value F#
+Interactive would echo. You don't call anything special.
 
-| Call | Accepts | Effect |
-|---|---|---|
-| `Results.raw query` | a `ConnectorQueryResult` only | Renders the grid **and** fully materializes rows so **Export CSV** works. |
-| `Results.table coll` | any collection (records, tuples, `Map`, nested, scalars) | Infers columns from the shape and renders a grid. |
-| `Results.tableWithColumns coll names` | same, plus a column-name list | `table` with a positional header override (required for tuple sequences). |
-| `Results.text value` | anything | Shows F#'s `%A` structured form as plain text. |
+| Last expression | Renders as |
+|---|---|
+| A connector query (`Connections.sql …`, `Connections.csv …`, …) | A grid, with a working **Export CSV** |
+| A sequence of records | A grid; columns are the record fields |
+| A sequence of tuples | A grid; columns are `Item1`, `Item2`, … |
+| A sequence of `Map`s / dictionaries | A grid; columns are the union of keys |
+| A sequence of scalars | A one-column grid, streamed with **Load more** |
+| A single record | A one-row grid |
+| A scalar (`int`, `string`, `DateTime`, …) | Plain text |
+| A `let` binding or a `printfn` (no value) | Just the printed output |
 
-If a cell's last expression is itself a record sequence, it renders as a grid
-automatically — but only `Results.raw` / `Results.table` results carry the row
-retention that **Export CSV** needs.
-
-```fsharp
-Connections.sql "Sales" "select Id, Total from Orders" []
-|> Results.raw
-```
+To force plain structured text, end the cell with `sprintf "%A" value`.
 
 ## Features
 

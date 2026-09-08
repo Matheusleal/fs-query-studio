@@ -10,7 +10,7 @@ By the end you will have:
 - registered a SQLite connection,
 - queried it and rendered the result as a grid,
 - exported that grid to CSV,
-- seen the CSV, Excel, and REST variants and the `Results.*` controls.
+- seen the CSV, Excel, and REST connection variants.
 
 ---
 
@@ -174,48 +174,54 @@ different types.
 
 ## 6. Export a result to CSV
 
-Run the query again, but pipe it through `Results.raw`:
+Run a cell whose **last expression** is a connector query:
 
 ```fsharp
 Connections.sql "chinook" "select * from Track limit 200" []
-|> Results.raw
 ```
 
-The grid now has an **Export CSV** button. `Results.raw` is what makes export
-work: it fully materializes the rows and retains them for as long as the cell's
-output is open. A bare `Connections.sql` result still renders as a grid, but
-only a preview slice is kept, so there is nothing to export.
+The grid has an **Export CSV** button. A connector-query tail value is fully
+materialized and retained for as long as the cell's output is open, so the whole
+result set — not just the page on screen — is what gets written.
 
 Click **Export CSV**, choose a location, done.
 
-`Results.raw` accepts a `ConnectorQueryResult` — that is, the return of
-`Connections.sql` / `csv` / `excel` — and nothing else.
+**Export CSV** shows up whenever the cell's last expression is a
+`ConnectorQueryResult` — the return of `Connections.sql` / `csv` / `excel`.
 
 ---
 
-## 7. `Results.table`, `Results.raw`, `Results.text`
+## 7. What a cell shows
 
-`Results.*` functions all return their argument unchanged, so they drop into a
-pipeline without disturbing your logic. Whichever ran last in the cell decides
-what the pane shows.
+A cell renders the value of its **last expression** — the same value F#
+Interactive would echo. You don't call anything special.
 
-| Call | Give it | Shows |
-|---|---|---|
-| `Results.raw q` | a `ConnectorQueryResult` | the grid, with working **Export CSV** |
-| `Results.table coll` | any collection — records, tuples, `Map`, nested lists, scalars | a grid with columns inferred from the shape |
-| `Results.tableWithColumns coll names` | same, plus a header list | `table` with headers overridden by position (needed for tuple sequences — tuples carry no field names) |
-| `Results.text value` | anything | the value's `%A` structured form, as plain text |
+| Last expression | Renders as |
+|---|---|
+| A connector query (`Connections.sql …`, `Connections.csv …`, …) | A grid, with a working **Export CSV** |
+| A sequence of records | A grid; columns are the record fields |
+| A sequence of tuples | A grid; columns are `Item1`, `Item2`, … |
+| A sequence of `Map`s / dictionaries | A grid; columns are the union of keys |
+| A sequence of scalars | A one-column grid, streamed with **Load more** |
+| A single record | A one-row grid |
+| A scalar (`int`, `string`, `DateTime`, …) | Plain text |
+| A `let` binding or a `printfn` (no value) | Just the printed output |
+
+To force plain structured text, end the cell with `sprintf "%A" value`.
 
 Examples:
 
 ```fsharp
-// a computed collection, not from a connector — tuples need explicit headers
-Results.tableWithColumns [ "alice", 3; "bob", 7; "carol", 1 ] [ "user"; "score" ]
+// a computed collection — a tuple list renders with Item1 / Item2 headers
+[ "alice", 3; "bob", 7; "carol", 1 ]
 ```
+
+A tuple list renders with positional `Item1` / `Item2` headers — project it to a
+record if you want named columns.
 
 ```fsharp
 // force the text view for something that would otherwise render as a grid
-Results.text (Connections.sql "chinook" "select * from Album limit 3" [])
+sprintf "%A" (Connections.sql "chinook" "select * from Album limit 3" [])
 ```
 
 ---
@@ -226,18 +232,18 @@ Add a connection of kind `Csv` (or `Excel`) the same way — the prompt asks for
 an **absolute file path** to the `.csv` / `.xlsx`. Then:
 
 ```fsharp
-Connections.csv "my-csv" |> Results.raw
+Connections.csv "my-csv"
 ```
 
 ```fsharp
 // Excel takes an optional row cap
-Connections.excel "my-xlsx" (Some 500) |> Results.raw
+Connections.excel "my-xlsx" (Some 500)
 // all rows:
-Connections.excel "my-xlsx" None |> Results.raw
+Connections.excel "my-xlsx" None
 ```
 
-Both return the same `ConnectorQueryResult` shape as `Connections.sql`, so
-`Results.raw` and **Export CSV** work identically.
+Both return the same `ConnectorQueryResult` shape as `Connections.sql`, so the
+grid and **Export CSV** work identically.
 
 ---
 
@@ -257,7 +263,6 @@ SQLite:
 
 ```fsharp
 Connections.sql "Sales" "select top 100 * from Orders" []
-|> Results.raw
 ```
 
 ---
@@ -290,14 +295,13 @@ payload
     Headers = [ "Accept", "application/json" ] }
 ```
 
-To get a grid out of JSON, project it into records yourself and hand that to
-`Results.table`:
+To get a grid out of JSON, project it into records yourself and make that list
+the cell's last expression:
 
 ```fsharp
 [ for el in payload.EnumerateArray() ->
     {| id = el.GetProperty("id").GetInt32()
        total = el.GetProperty("total").GetDecimal() |} ]
-|> Results.table
 ```
 
 ---
@@ -329,7 +333,7 @@ both is fine.
 | Cells do nothing / "worker" errors | **F# Query Studio: Check Worker**. Usually `dotnet` 10 is missing from `PATH`; install it and restart VS Code. |
 | "The worker exited before responding" | The FSI session crashed and was lost. It restarts on your next run; re-run the cells you need. |
 | `Connections has not been configured` | You referenced a connection name that is not registered, or the workspace has no `workspace.json` yet — add the connection in the sidebar. |
-| **Export CSV** missing on a grid | The cell did not go through `Results.raw` / `Results.table`. Pipe the result through one of them. |
+| **Export CSV** missing on a grid | The cell's last expression was not a connector query. Make the last line a `Connections.sql` / `csv` / `excel` call. |
 | A redefinition or new `open` "does not take" | **Restart Notebook Session** — FSI keeps the earlier definition for the session's lifetime. |
 | A cell seems stuck | Only one evaluation runs at a time across the whole window. Stop the running cell (the ▪ button) or wait for it. |
 

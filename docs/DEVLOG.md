@@ -2458,3 +2458,69 @@ checked against `editors/vscode/package.json`,
 `src/FSharpQueryStudio.Results/ScriptResults.fs`,
 `src/FSharpQueryStudio.Execution/FsiSession.fs`, and
 `editors/vscode/src/connections/add.ts`.
+
+## 2026-09-08 — Notebook results: capture the FSI tail value, retire the Results module
+
+A cell now renders the value of its **last expression**, polyglot-notebook
+style — no `Results.raw` / `table` / `tableWithColumns` / `text` call, and the
+`Results` module is deleted (`src/FSharpQueryStudio.Results/ScriptResults.fs`,
+~380 lines, plus `ScriptResultsTests.fs`).
+
+**Where the logic went.** `Results.dispatchRows`' shape inference — record
+seq → reflected field names, tuple seq → `Item1..ItemN`, `Map`/dictionary seq
+→ first-seen key union, nested seq → row-0 headers with ragged pad/truncate —
+moved verbatim into `Projection.projectWithCursor`, minus every `columnNames`
+override (there is no override surface any more). `projectWithCursor` gained a
+`ConnectorQueryResult` arm (ported from `Results.raw`) and a third return
+value, `RetainedTable option`, so the worker still knows which results to hold
+for **Export CSV**.
+
+**Tuple headers.** `Results.tableWithColumns` used to be *required* for tuple
+sequences (tuples carry no field names). They now auto-render with positional
+`Item1` / `Item2` / … columns; project to a record for named columns.
+
+**No-value cells.** A cell ending in a `let` or a `printfn` now shows only its
+stdout plus a quiet `NoValue` — the exact `.NET Interactive` behavior. The
+`Results` module's original reason for existing (surfacing *something* when the
+last line produced no `it`) is intentionally gone.
+
+**Retention rule.** `Handlers.runEvaluate` no longer checks
+`Results.currentEnvelope` first — it always projects the tail value.
+`ResultRetention.set` fires only when the projector returns
+`RetainedTable.Some` (a materialized grid). A later non-table run
+(`printfn`, a scalar, a streamed scalar seq) leaves the notebook's last
+exportable grid in place; the old "discard a stale generic Table" guard is
+deleted, because with one projection path a materialized generic table *is*
+the result worth retaining.
+
+**Robustness.** The shape dispatch runs in the worker after FSI returns, so a
+reflection failure (e.g. a `seq` whose first element is a tuple but whose rest
+are not) can't be caught by `EvalInteractionNonThrowing`. The whole dispatch
+body is wrapped: on any exception it falls back to a `Text` envelope of
+`sprintf "%A" value`.
+
+**Prologues.** Both the FSI (`FsiSession.create`) and FSAC (`Prologue.build`)
+prologues drop `open FSharpQueryStudio.Results` — no script-facing surface
+remains in that namespace. The `#r` on the assembly stays (the worker still
+projects its types). The FSAC prologue is now 3 lines; `PrologueTests` updated.
+
+**Docs.** `editors/vscode/README.md` and `docs/TUTORIAL.md` replace the
+`Results.*` tables with a "what a cell shows" table keyed on the last
+expression's shape.
+
+Files: `src/FSharpQueryStudio.Results/Projection.fs`,
+`src/FSharpQueryStudio.Results/ScriptResults.fs` (deleted),
+`src/FSharpQueryStudio.Results/FSharpQueryStudio.Results.fsproj`,
+`src/FSharpQueryStudio.Worker/Handlers.fs`,
+`src/FSharpQueryStudio.Execution/FsiSession.fs`,
+`src/FSharpQueryStudio.Fsac/Prologue.fs`,
+`tests/FSharpQueryStudio.Results.Tests/ProjectionTests.fs` (new),
+`tests/FSharpQueryStudio.Results.Tests/ScriptResultsTests.fs` (deleted),
+`tests/FSharpQueryStudio.Results.Tests/FSharpQueryStudio.Results.Tests.fsproj`,
+`tests/FSharpQueryStudio.Worker.Tests/HandlersTests.fs`,
+`tests/FSharpQueryStudio.Fsac.Tests/PrologueTests.fs`,
+`editors/vscode/src/notebook/result.ts`,
+`editors/vscode/src/notebook/table-payload.ts`,
+`editors/vscode/README.md`, `docs/TUTORIAL.md`,
+`docs/superpowers/specs/2026-09-08-notebook-tail-value-results-design.md` (new),
+`docs/superpowers/plans/2026-09-08-notebook-tail-value-results.md` (new).
