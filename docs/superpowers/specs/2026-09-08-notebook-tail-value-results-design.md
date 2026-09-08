@@ -106,7 +106,7 @@ The success branch collapses to one path:
     if not (String.IsNullOrEmpty evalParams.DocumentUri) then
         match retained with
         | Some t -> ResultRetention.set evalParams.DocumentUri { Columns = t.Columns; Rows = t.Rows }
-        | None   -> ResultRetention.discard evalParams.DocumentUri   // stale-result guard
+        | None   -> ()   // a non-materialized result leaves the notebook's last exportable grid alone
 
     let continuationToken =
         cursor
@@ -120,9 +120,24 @@ The success branch collapses to one path:
 
 Retention is now keyed on `retained.IsSome` — the projector's explicit
 "this is a fully-materialized, exportable table" signal — not on
-`envelope.Kind = Table` after the fact. `handleResultsExportCsv`,
-`handleResultsPage`, `handleResultsDiscard`, `ResultRetention`, `CsvExport`
-are untouched.
+`envelope.Kind = Table` after the fact. A run that produces no such table
+(`printfn`, a scalar, a streamed scalar `seq`) leaves any earlier retained
+result in place; **Export CSV targets the notebook's most recent
+materialized grid.** The old "discard a stale generic Table" guard is
+deleted — with the `Results` module gone there is only one projection path,
+so a materialized generic table legitimately *becomes* the retained result.
+`handleResultsExportCsv`, `handleResultsPage`, `handleResultsDiscard`,
+`ResultRetention`, `CsvExport` are untouched.
+
+### Robustness
+
+The shape dispatch runs in the worker, *after* FSI evaluation, outside
+`EvalInteractionNonThrowing`'s catch. A reflection failure there (e.g. a
+`seq` whose first element is a tuple but whose later elements are not) must
+not escape as an unhandled exception in the backgrounded task — that would
+leave the request with no response frame. The whole shape-dispatch body is
+wrapped: on any exception it falls back to a `Text` envelope carrying
+`sprintf "%A" value`, `retained = None`, `cursor = None`.
 
 ### Prologues
 
