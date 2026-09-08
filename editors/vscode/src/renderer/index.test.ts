@@ -145,4 +145,40 @@ describe("grid renderer", () => {
     host.renderOutputItem(item("o1", payload({ rows: [[1, "solo"]] })), el);
     expect(el.querySelector(".fsq-count")?.textContent).toBe("1 row");
   });
+
+  it("right-aligns numeric columns (header + body) and leaves text columns alone", () => {
+    host = activate(ctx().context);
+    host.renderOutputItem(item("o1", payload()), el);
+    const headCells = el.querySelectorAll(".fsq-head .fsq-cell");
+    expect(headCells[0].classList.contains("fsq-num")).toBe(true); // id
+    expect(headCells[1].classList.contains("fsq-num")).toBe(false); // name
+    const firstRow = el.querySelector(".fsq-rows .fsq-row")!;
+    const bodyCells = firstRow.querySelectorAll(".fsq-cell");
+    expect(bodyCells[0].classList.contains("fsq-num")).toBe(true);
+    expect(bodyCells[1].classList.contains("fsq-num")).toBe(false);
+  });
+
+  it("renders a null cell as a muted NULL", () => {
+    host = activate(ctx().context);
+    host.renderOutputItem(item("o1", payload({ rows: [[1, null]] })), el);
+    const cell = el.querySelectorAll(".fsq-rows .fsq-row .fsq-cell")[1];
+    expect(cell.textContent).toBe("NULL");
+    expect(cell.classList.contains("fsq-null")).toBe(true);
+  });
+
+  it("infers a numeric column from the first non-null value", () => {
+    host = activate(ctx().context);
+    host.renderOutputItem(
+      item("o1", payload({ columns: [{ name: "amount", displayType: "decimal" }], rows: [[null], [42]] })),
+      el,
+    );
+    expect(el.querySelector(".fsq-head .fsq-cell")!.classList.contains("fsq-num")).toBe(true);
+  });
+
+  it("shows a No rows placeholder for an empty result", () => {
+    host = activate(ctx().context);
+    host.renderOutputItem(item("o1", payload({ columns: [], rows: [] })), el);
+    expect(el.querySelector(".fsq-empty")?.textContent).toBe("No rows");
+    expect(el.querySelector(".fsq-count")?.textContent).toBe("0 rows");
+  });
 });

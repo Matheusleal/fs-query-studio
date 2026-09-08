@@ -19,31 +19,59 @@ export interface RendererContextLike {
 }
 
 const STYLE = `
-.fsq-grid { font: 12px var(--vscode-editor-font-family, monospace); color: var(--vscode-foreground); }
-.fsq-toolbar { display: flex; gap: 6px; align-items: center; padding: 4px 0; }
-.fsq-toolbar button { background: var(--vscode-button-secondaryBackground, transparent);
-  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
-  border: 1px solid var(--vscode-panel-border); border-radius: 2px; padding: 2px 8px; cursor: pointer; }
-.fsq-toolbar button.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-.fsq-count { margin-left: auto; opacity: 0.8; }
-.fsq-viewport { overflow: auto; max-height: 360px; border: 1px solid var(--vscode-panel-border); }
+.fsq-grid {
+  font-family: var(--vscode-font-family, system-ui, sans-serif);
+  font-size: var(--vscode-font-size, 13px);
+  color: var(--vscode-foreground);
+  --fsq-border: var(--vscode-widget-border, var(--vscode-panel-border));
+}
+.fsq-panel { border: 1px solid var(--fsq-border); border-radius: 4px; overflow: hidden; max-width: 100%; }
+
+.fsq-toolbar { display: flex; align-items: center; gap: 4px; padding: 3px 5px;
+  background: var(--vscode-editorWidget-background, transparent);
+  border-bottom: 1px solid var(--fsq-border); }
+.fsq-seg { display: inline-flex; gap: 2px; }
+.fsq-toolbar button { font: inherit; line-height: 18px; padding: 1px 8px; cursor: pointer;
+  background: transparent; color: var(--vscode-foreground);
+  border: 1px solid transparent; border-radius: 3px; }
+.fsq-toolbar button:hover { background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15)); }
+.fsq-toolbar button.active { background: var(--vscode-button-background); color: var(--vscode-button-foreground);
+  border-color: var(--vscode-button-background); }
+.fsq-toolbar button:focus-visible { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+.fsq-count { margin-left: auto; padding: 0 4px; opacity: 0.7; font-variant-numeric: tabular-nums; }
+
+.fsq-viewport { overflow: auto; max-height: 420px; }
 .fsq-sizer { position: relative; }
 .fsq-rows { position: absolute; left: 0; right: 0; }
 .fsq-row { display: flex; height: ${GRID_ROW_HEIGHT_PX}px; line-height: ${GRID_ROW_HEIGHT_PX}px; }
-.fsq-row:hover { background: var(--vscode-list-hoverBackground); }
+.fsq-rows .fsq-row.fsq-odd { background: var(--vscode-tree-tableOddRowsBackground, rgba(128, 128, 128, 0.04)); }
+.fsq-rows .fsq-row:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-list-hoverForeground, inherit); }
+.fsq-empty { padding: 8px 10px; opacity: 0.6; }
+
 .fsq-head { display: flex; height: ${GRID_ROW_HEIGHT_PX}px; line-height: ${GRID_ROW_HEIGHT_PX}px;
-  position: sticky; top: 0; background: var(--vscode-editor-background);
-  border-bottom: 1px solid var(--vscode-panel-border); font-weight: 600; }
-.fsq-cell { flex: 1 1 0; min-width: 80px; padding: 0 8px; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap; }
-.fsq-schema { border: 1px solid var(--vscode-panel-border); }
-.fsq-schema .fsq-row { padding: 0 8px; }
-.fsq-loadmore { margin: 6px 0; padding: 2px 10px; cursor: pointer;
-  background: var(--vscode-button-background); color: var(--vscode-button-foreground);
-  border: none; border-radius: 2px; }
-.fsq-notice { margin: 6px 0; padding: 4px 8px; border-radius: 2px;
+  position: sticky; top: 0; z-index: 1; font-weight: 600;
+  background: var(--vscode-keybindingTable-headerBackground, var(--vscode-editorWidget-background, var(--vscode-editor-background)));
+  border-bottom: 1px solid var(--fsq-border);
+  box-shadow: 0 1px 0 var(--fsq-border); }
+.fsq-head .fsq-cell { border-right: 1px solid var(--vscode-tree-tableColumnsBorder, transparent); }
+.fsq-head .fsq-cell:last-child { border-right: 0; }
+
+.fsq-cell { flex: 1 1 0; min-width: 96px; padding: 0 10px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; user-select: text; }
+.fsq-cell.fsq-num { text-align: right; font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
+.fsq-cell.fsq-null { opacity: 0.45; font-style: italic; }
+
+.fsq-schema .fsq-row { padding: 0 10px; }
+.fsq-schema .fsq-row:first-child { font-weight: 600; border-bottom: 1px solid var(--fsq-border); }
+
+.fsq-loadmore { margin: 6px; padding: 2px 10px; cursor: pointer; font: inherit;
+  background: var(--vscode-button-secondaryBackground, transparent);
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  border: 1px solid var(--fsq-border); border-radius: 3px; }
+.fsq-loadmore:hover { background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.15))); }
+.fsq-notice { margin: 6px; padding: 4px 8px; border-radius: 3px;
   background: var(--vscode-inputValidation-warningBackground, var(--vscode-editorWidget-background));
-  border: 1px solid var(--vscode-inputValidation-warningBorder, var(--vscode-panel-border)); }
+  border: 1px solid var(--vscode-inputValidation-warningBorder, var(--fsq-border)); }
 `;
 
 interface Grid {
@@ -52,6 +80,9 @@ interface Grid {
   rows: unknown[][];
   token: string | null;
   view: "data" | "schema";
+  /** Per-column: does its first non-null value read as a number? Drives
+   *  right-alignment + tabular figures on the header and every cell. */
+  numericCols: boolean[];
   els: {
     count: HTMLElement;
     head: HTMLElement;
@@ -78,6 +109,27 @@ function countLabel(n: number): string {
   return `${n} ${n === 1 ? "row" : "rows"}`;
 }
 
+function isNumeric(value: unknown): boolean {
+  return typeof value === "number" || typeof value === "bigint";
+}
+
+/** A column is "numeric" if its first non-null value across the rows seen
+ *  so far is a number. Refined as more rows stream in. */
+function computeNumericCols(rows: unknown[][], colCount: number): boolean[] {
+  const cols = new Array(colCount).fill(false);
+  for (let c = 0; c < colCount; c++) {
+    for (const row of rows) {
+      const v = row[c];
+      if (v === null || v === undefined) {
+        continue;
+      }
+      cols[c] = isNumeric(v);
+      break;
+    }
+  }
+  return cols;
+}
+
 export function activate(context: RendererContextLike): {
   renderOutputItem(item: OutputItemLike, element: HTMLElement): void;
   disposeOutputItem(id: string): void;
@@ -92,6 +144,7 @@ export function activate(context: RendererContextLike): {
     if (message.type === "rows") {
       grid.rows = grid.rows.concat(message.rows);
       grid.token = message.nextToken;
+      grid.numericCols = computeNumericCols(grid.rows, grid.payload.columns.length);
       grid.els.loadMore.disabled = false;
       grid.els.loadMore.hidden = !grid.token;
       grid.els.count.textContent = countLabel(grid.rows.length);
@@ -124,15 +177,33 @@ export function activate(context: RendererContextLike): {
     );
     rowsHost.style.transform = `translateY(${start * GRID_ROW_HEIGHT_PX}px)`;
     rowsHost.textContent = "";
+
+    if (total === 0) {
+      const empty = document.createElement("div");
+      empty.className = "fsq-empty";
+      empty.textContent = "No rows";
+      rowsHost.appendChild(empty);
+      return;
+    }
+
     for (let i = start; i < end; i++) {
       const row = document.createElement("div");
-      row.className = "fsq-row";
+      row.className = i % 2 === 1 ? "fsq-row fsq-odd" : "fsq-row";
       const values = grid.rows[i] ?? [];
       const width = Math.max(grid.payload.columns.length, values.length, 1);
       for (let c = 0; c < width; c++) {
         const cell = document.createElement("div");
         cell.className = "fsq-cell";
-        cell.textContent = formatCell(values[c]);
+        const v = values[c];
+        if (v === null || v === undefined) {
+          cell.classList.add("fsq-null");
+          cell.textContent = "NULL";
+        } else {
+          if (grid.numericCols[c] ?? isNumeric(v)) {
+            cell.classList.add("fsq-num");
+          }
+          cell.textContent = formatCell(v);
+        }
         row.appendChild(cell);
       }
       rowsHost.appendChild(row);
@@ -160,31 +231,41 @@ export function activate(context: RendererContextLike): {
     root.className = "fsq-grid";
     element.appendChild(root);
 
+    const panel = document.createElement("div");
+    panel.className = "fsq-panel";
+    root.appendChild(panel);
+
+    const numericCols = computeNumericCols(payload.rows, payload.columns.length);
+
     const toolbar = document.createElement("div");
     toolbar.className = "fsq-toolbar";
+    const seg = document.createElement("div");
+    seg.className = "fsq-seg";
     const dataBtn = document.createElement("button");
     dataBtn.dataset.view = "data";
     dataBtn.textContent = "Data";
     const schemaBtn = document.createElement("button");
     schemaBtn.dataset.view = "schema";
     schemaBtn.textContent = "Schema";
+    seg.append(dataBtn, schemaBtn);
     const count = document.createElement("span");
     count.className = "fsq-count";
     const exportBtn = document.createElement("button");
     exportBtn.className = "fsq-export";
     exportBtn.textContent = "Export CSV";
-    toolbar.append(dataBtn, schemaBtn, count, exportBtn);
-    root.appendChild(toolbar);
+    toolbar.append(seg, count, exportBtn);
+    panel.appendChild(toolbar);
 
     const head = document.createElement("div");
     head.className = "fsq-head";
-    for (const col of payload.columns) {
+    payload.columns.forEach((col, c) => {
       const cell = document.createElement("div");
-      cell.className = "fsq-cell";
+      cell.className = numericCols[c] ? "fsq-cell fsq-num" : "fsq-cell";
       cell.textContent = col.name;
+      cell.title = `${col.name} · ${col.displayType}`;
       head.appendChild(cell);
-    }
-    root.appendChild(head);
+    });
+    panel.appendChild(head);
 
     const viewport = document.createElement("div");
     viewport.className = "fsq-viewport";
@@ -194,7 +275,7 @@ export function activate(context: RendererContextLike): {
     rowsHost.className = "fsq-rows";
     sizer.appendChild(rowsHost);
     viewport.appendChild(sizer);
-    root.appendChild(viewport);
+    panel.appendChild(viewport);
 
     const schema = document.createElement("div");
     schema.className = "fsq-schema";
@@ -215,18 +296,18 @@ export function activate(context: RendererContextLike): {
       r.append(n, t);
       schema.appendChild(r);
     }
-    root.appendChild(schema);
+    panel.appendChild(schema);
 
     const notice = document.createElement("div");
     notice.className = "fsq-notice";
     notice.hidden = true;
-    root.appendChild(notice);
+    panel.appendChild(notice);
 
     const loadMore = document.createElement("button");
     loadMore.className = "fsq-loadmore";
     loadMore.textContent = "Load more";
     loadMore.hidden = !payload.continuationToken;
-    root.appendChild(loadMore);
+    panel.appendChild(loadMore);
 
     const grid: Grid = {
       id: item.id,
@@ -234,6 +315,7 @@ export function activate(context: RendererContextLike): {
       rows: payload.rows.slice(),
       token: payload.continuationToken,
       view: "data",
+      numericCols,
       els: { count, head, viewport, sizer, rowsHost, schema, loadMore, notice, dataBtn, schemaBtn },
     };
 

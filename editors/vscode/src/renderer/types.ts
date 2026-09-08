@@ -13,7 +13,7 @@ export const FSQUERY_TABLE_MIME = "application/x-fsquery-table+json";
 export const FSQUERY_RENDERER_ID = "fs-query-studio-table";
 
 /** Fixed row height the windowed grid lays rows out on. */
-export const GRID_ROW_HEIGHT_PX = 22;
+export const GRID_ROW_HEIGHT_PX = 24;
 
 export interface TableColumn {
   name: string;

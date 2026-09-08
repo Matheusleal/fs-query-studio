@@ -11,6 +11,9 @@ versions are the extension's `package.json` `version` and map to
   echo — the grid was hidden behind the output's "Change presentation"
   menu. The grid is now the default view; FSI's declaration echo and any
   `printf` output move to the `text/plain` "raw data" presentation.
+- **Results grid restyled** to match VS Code's own tables — UI font,
+  right-aligned numeric columns, zebra rows, a contained header, a
+  rounded card, faint `NULL` markers, and a "No rows" placeholder.
 - **New F# Query Notebook** commands — `F# Query Studio: New F# Query
   Notebook` (Command Palette and File > New File…) opens a new untitled
   notebook with one empty F# cell; a folder's Explorer context menu gets

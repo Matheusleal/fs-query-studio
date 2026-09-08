@@ -2371,3 +2371,41 @@ lost its `stdout`/`stderr` variants; `toOutputItem` lost those cases;
 Verification: `npm test` **236/236**; `npm run compile` clean; full
 `vscode-test` **13/14** (the one failure is the pre-existing
 `KNOWN NPGSQL VARIANCE` in `connections.test.ts`, unrelated).
+
+## 2026-09-08 — Notebook results-grid visual polish
+
+User feedback: the grid "a little bit ugly" — monospace everywhere, weak
+header, cramped toolbar, hard to scan rows; wants native-VS-Code feel.
+
+Renderer (`src/renderer/index.ts` + `types.ts`), no protocol/behaviour
+change:
+- **Typography.** VS Code UI font (`--vscode-font-family` /
+  `--vscode-font-size`) instead of 12px monospace. Numeric columns
+  right-aligned with tabular figures (`.fsq-num`), inferred from each
+  column's first non-null *value* (`computeNumericCols`) rather than the
+  connector-specific `displayType` string; refined as `results/page`
+  rows stream in.
+- **Rows.** Height 22 → 24 (`GRID_ROW_HEIGHT_PX`). Zebra striping via a
+  JS-set `.fsq-odd` class keyed on the *absolute* row index — CSS
+  `:nth-child` would flip parity mid-scroll since only the visible window
+  is mounted. `NULL` shown as faint italic text, not a blank cell. "No
+  rows" placeholder replaces the old empty box.
+- **Header.** Own background (`--vscode-keybindingTable-headerBackground`),
+  bottom rule + 1px shadow so it stays legible while sticky, subtle
+  per-column rule, `title="name · displayType"`.
+- **Chrome.** Whole grid wrapped in a `.fsq-panel` (border + radius +
+  `overflow:hidden`); Data/Schema become a small segmented pair;
+  flat toolbar buttons with hover/active/focus-visible states; row count
+  right-aligned and tabular.
+- Every token has a plain `var(..., fallback)` so a missing VS Code
+  theme variable degrades, never breaks; light + dark both covered.
+
+All class hooks and behaviour (windowing, Load more, Export CSV, schema
+toggle, host messaging) unchanged. TDD: +4 `index.test.ts` cases
+(numeric header+body alignment, `NULL` cell, numeric inference past a
+leading null, "No rows"). Verification: `npx vitest run src/renderer/`
+**19/19**; `npm test` **240/240**; `npm run compile` clean;
+`vscode-test --grep "renderer|fsquery-notebook"` **8/8**. No interactive
+visual check this session (no browser/extension-host screenshotting) —
+a standalone `grid-preview.html` was handed to the user. See
+`docs/tasks/notebook-grid-visual-polish.md`.
