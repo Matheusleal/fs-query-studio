@@ -176,3 +176,14 @@ let ``a mixed-shape sequence falls back to a Text envelope instead of throwing``
     Assert.Equal(ResultKind.Text, env.Kind)
     Assert.True(cursor.IsNone)
     Assert.True(retained.IsNone)
+
+[<Fact>]
+let ``an infinite scalar sequence streams a bounded preview instead of hanging`` () =
+    let infinite = Seq.initInfinite id
+    let env, cursor, retained = Projection.projectWithCursor (box infinite) 0L
+    Assert.Equal(ResultKind.Table, env.Kind)
+    Assert.Equal<string list>([ "Value" ], env.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal(Projection.PreviewRowLimit, env.Rows.Length)
+    Assert.True(env.IsTruncated)
+    Assert.True(cursor.IsSome)
+    Assert.True(retained.IsNone)

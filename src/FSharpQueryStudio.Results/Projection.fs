@@ -232,35 +232,51 @@ module Projection =
                 let cols = recordSchema t |> List.map (fun c -> c.Name)
                 materializedTable cols [| recordRow t v |]
             | :? IEnumerable as items when not (value :? string) ->
-                let rows = items |> Seq.cast<obj> |> Array.ofSeq
-                match rows with
-                | [||] ->
-                    emptyEnvelope ResultKind.Table elapsedMs, None, Some { Columns = []; Rows = [||] }
-                | _ ->
-                    let first = rows.[0]
-                    let allFlags = BindingFlags.Public ||| BindingFlags.NonPublic
+                // Peek only element 0. A flat scalar `seq` (possibly large
+                // or infinite) must stay on the lazy `PagingCursor` path —
+                // realizing it up front would hang/OOM the worker before
+                // the streaming arm is reached, and `try/with` can't
+                // rescue a non-terminating enumeration. Only the
+                // materialized shapes below pull the whole sequence.
+                let e = items.GetEnumerator()
+
+                if not (e.MoveNext()) then
+                    materializedTable [] [||]
+                else
+                    let first = e.Current
+                    // The rest of the sequence, still lazy, with element 0 re-prepended.
+                    let full =
+                        seq {
+                            yield first
+                            while e.MoveNext() do
+                                yield e.Current
+                        }
 
                     match first with
                     | :? ConnectorQueryResult ->
                         failwith "a sequence of ConnectorQueryResult is not supported; enumerate .Rows"
-                    | _ when first <> null && FSharpType.IsRecord(first.GetType(), allFlags) ->
+                    | _ when first <> null && FSharpType.IsRecord(first.GetType(), recordBindingFlags) ->
+                        let rows = full |> Array.ofSeq
                         let recordType = first.GetType()
 
                         let fieldNames =
-                            FSharpType.GetRecordFields(recordType, allFlags)
+                            FSharpType.GetRecordFields(recordType, recordBindingFlags)
                             |> Array.map (fun p -> p.Name)
                             |> Array.toList
 
                         let dataRows =
-                            rows |> Array.map (fun r -> FSharpValue.GetRecordFields(r, allFlags))
+                            rows |> Array.map (fun r -> FSharpValue.GetRecordFields(r, recordBindingFlags))
 
                         materializedTable fieldNames dataRows
                     | _ when first <> null && FSharpType.IsTuple(first.GetType()) ->
+                        let rows = full |> Array.ofSeq
                         let width = (FSharpValue.GetTupleFields first).Length
                         let names = [ for i in 1..width -> sprintf "Item%d" i ]
                         let dataRows = rows |> Array.map (fun r -> FSharpValue.GetTupleFields r)
                         materializedTable names dataRows
                     | _ when first <> null && isDictionary (first.GetType()) ->
+                        let rows = full |> Array.ofSeq
+
                         let keysInFirstSeenOrder =
                             let seen = HashSet<string>()
                             let ordered = ResizeArray<string>()
@@ -277,13 +293,13 @@ module Projection =
                             rows
                             |> Array.map (fun row ->
                                 keysInFirstSeenOrder
-                                |> List.map (fun k ->
-                                    let value = getDictionaryValue row k
-                                    if value <> null then value else null)
+                                |> List.map (fun k -> getDictionaryValue row k)
                                 |> Array.ofList)
 
                         materializedTable keysInFirstSeenOrder dataRows
                     | :? IEnumerable when not (first :? string) ->
+                        let rows = full |> Array.ofSeq
+
                         let rawRows =
                             rows
                             |> Array.map (fun r -> (r :?> IEnumerable) |> Seq.cast<obj> |> Array.ofSeq)
@@ -300,7 +316,11 @@ module Projection =
                         let dataRows = dataRawRows |> Array.map padOrTruncate
                         materializedTable headers dataRows
                     | _ ->
-                        let cursor = PagingCursor(items.GetEnumerator())
+                        // scalar / string sequence: keep the lazy streaming
+                        // path — feed the *lazy* `full` enumerator to
+                        // `PagingCursor`, so only ~PreviewRowLimit+1
+                        // elements are ever pulled.
+                        let cursor = PagingCursor(full.GetEnumerator())
                         let page, hasMore = cursor.TakePage(PreviewRowLimit)
 
                         let envelope =
@@ -310,7 +330,7 @@ module Projection =
                                 IsTruncated = hasMore }
 
                         envelope, (if hasMore then Some cursor else None), None
-            | v -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some(string v) }, None, None
+            | v -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some(sprintf "%A" v) }, None, None
         with _ ->
             { emptyEnvelope ResultKind.Text elapsedMs with
                 DisplayText = Some(sprintf "%A" value) },
