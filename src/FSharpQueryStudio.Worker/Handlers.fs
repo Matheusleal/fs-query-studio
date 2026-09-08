@@ -147,7 +147,6 @@ module Handlers =
 
             let connections = Workspace.readConnections (workspaceDir ())
             Connections.configure (WorkspaceConnectionResolver(connections, secretStore))
-            Results.reset ()
 
             let outcome = Evaluation.evaluate session evalParams.Source
             stopwatch.Stop()
@@ -158,69 +157,34 @@ module Handlers =
                 match outcome.Exception with
                 | Some ex -> { Projection.projectError ex stopwatch.ElapsedMilliseconds with Output = output }
                 | None ->
-                    // A script's explicit `Results.table`/`Results.text` push
-                    // (Section 11's controlled results surface) wins over FSI's
-                    // own tail-value convention - the whole point is showing
-                    // something meaningful even when the script's last line is
-                    // a `let` binding or a side-effecting call that never
-                    // produces an "it" value of its own.
-                    match Results.currentEnvelope stopwatch.ElapsedMilliseconds output with
-                    | Some explicitEnvelope ->
-                        // Retention is committed here, not on `envelope.Kind`
-                        // after the fact — this keeps the generic FSI-tail-
-                        // value path (below) untouched even when it also
-                        // happens to produce a Table-kind envelope. See
-                        // docs/superpowers/specs/2026-08-12-results-export-design.md.
-                        //
-                        // Guarded on a non-empty DocumentUri: every real
-                        // caller populates it, but `ResultRetention.set`
-                        // could otherwise throw on a null key inside this
-                        // backgrounded task, silently hanging the request
-                        // with no response frame ever written.
-                        if
-                            explicitEnvelope.Kind = ResultKind.Table
-                            && not (System.String.IsNullOrEmpty evalParams.DocumentUri)
-                        then
+                    let value =
+                        outcome.Value |> Option.map (fun v -> v.ReflectionValue) |> Option.toObj
+
+                    let projected, cursor, retained =
+                        Projection.projectWithCursor value stopwatch.ElapsedMilliseconds
+
+                    // Export CSV targets the notebook's most recent MATERIALIZED
+                    // grid. A run that produced no such table (a scalar, a
+                    // streamed scalar seq, a printfn) leaves any earlier
+                    // retained result in place — it does not clear it.
+                    if not (System.String.IsNullOrEmpty evalParams.DocumentUri) then
+                        match retained with
+                        | Some t ->
                             ResultRetention.set
                                 evalParams.DocumentUri
-                                { Columns = explicitEnvelope.Schema |> List.map (fun c -> c.Name)
-                                  Rows = explicitEnvelope.Rows }
+                                { Columns = t.Columns; Rows = t.Rows }
+                        | None -> ()
 
-                        explicitEnvelope
-                    | None ->
-                        let value =
-                            outcome.Value |> Option.map (fun v -> v.ReflectionValue) |> Option.toObj
+                    let continuationToken =
+                        cursor
+                        |> Option.map (fun c ->
+                            let token = Guid.NewGuid().ToString("N")
+                            currentPaging <- Some(token, c)
+                            token)
 
-                        let projected, cursor, _retained = Projection.projectWithCursor value stopwatch.ElapsedMilliseconds
-
-                        // The generic FSI-tail-value path never retains a
-                        // result of its own (see the comment above), but it
-                        // can still land on `ResultKind.Table` — any record
-                        // or `IEnumerable` tail value does. Left alone, the
-                        // Export button (enabled whenever `Kind = Table`,
-                        // regardless of which path produced it) would
-                        // either silently export nothing for a fresh tab or
-                        // silently export a stale, earlier `Results.table`
-                        // push for a tab that ran one before. Discarding
-                        // here collapses both into the honest
-                        // "nothing to export" case. Same DocumentUri guard
-                        // as above.
-                        if
-                            projected.Kind = ResultKind.Table
-                            && not (System.String.IsNullOrEmpty evalParams.DocumentUri)
-                        then
-                            ResultRetention.discard evalParams.DocumentUri
-
-                        let continuationToken =
-                            cursor
-                            |> Option.map (fun c ->
-                                let token = Guid.NewGuid().ToString("N")
-                                currentPaging <- Some(token, c)
-                                token)
-
-                        { projected with
-                            Output = output
-                            ContinuationToken = continuationToken }
+                    { projected with
+                        Output = output
+                        ContinuationToken = continuationToken }
 
             Log.Information(
                 "Execution completed with outcome {Outcome} in {ElapsedMs}ms",

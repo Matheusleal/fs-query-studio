@@ -896,51 +896,27 @@ let ``execution/evaluate resolves Connections.sql against a connection registere
     }
 
 [<Fact>]
-let ``execution/evaluate shows Results.table's push even when the script's own last statement is a printfn`` () =
-    task {
-        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
-        let csvPath = Path.Combine(tempDir, "test1.csv")
-        Handlers.setWorkspaceDirForTests (Some tempDir)
+let ``execution/evaluate renders a record-list tail expression as a Table with real columns`` () =
+    let script = "[ {| Id = 1; Name = \"Ada\" |}; {| Id = 2; Name = \"Grace\" |} ]"
+    let response = Handlers.handleEvaluate (evaluateRequest "rec1" script)
 
-        try
-            Directory.CreateDirectory tempDir |> ignore
-            File.WriteAllText(csvPath, "id,name\n1,Ada\n2,Alan\n")
-
-            let registerRequest =
-                registerConnectionRequest
-                    "reg1"
-                    { Id = Guid.NewGuid()
-                      Name = "test1"
-                      Kind = Csv
-                      Configuration =
-                        JsonSerializer.SerializeToElement({| FilePath = csvPath |}, Serialization.options)
-                      SecretReference = None
-                      IsTrusted = false }
-
-            let! _ = Handlers.dispatch registerRequest
-
-            let script =
-                "let result = Connections.csv \"test1\"\n"
-                + "let rows = result.Rows |> Seq.toArray\n"
-                + "Results.raw result |> ignore\n"
-                + "printfn \"%A\" rows.[1]"
-
-            let! evalResponse = Handlers.dispatch (evaluateRequest "eval1" script)
-
-            Assert.True(evalResponse.Error.IsNone)
-            let envelope = JsonSerializer.Deserialize<ResultEnvelope>(evalResponse.Result.Value, Serialization.options)
-            Assert.Equal(ResultKind.Table, envelope.Kind)
-            Assert.Equal<string list>([ "id"; "name" ], envelope.Schema |> List.map (fun c -> c.Name))
-            Assert.Equal(2, envelope.Rows.Length)
-        finally
-            Handlers.setWorkspaceDirForTests None
-
-            if Directory.Exists tempDir then
-                Directory.Delete(tempDir, true)
-    }
+    Assert.True(response.Error.IsNone)
+    let env = JsonSerializer.Deserialize<ResultEnvelope>(response.Result.Value, Serialization.options)
+    Assert.Equal(ResultKind.Table, env.Kind)
+    Assert.Equal<string list>([ "Id"; "Name" ], env.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal(2, env.Rows.Length)
 
 [<Fact>]
-let ``execution/evaluate committing a Results.table push, then results/exportCsv, writes the full retained CSV`` () =
+let ``execution/evaluate on a cell that ends in printfn is NoValue plus captured stdout`` () =
+    let response = Handlers.handleEvaluate (evaluateRequest "nv1" "printfn \"just a side effect\"")
+
+    Assert.True(response.Error.IsNone)
+    let env = JsonSerializer.Deserialize<ResultEnvelope>(response.Result.Value, Serialization.options)
+    Assert.Equal(ResultKind.NoValue, env.Kind)
+    Assert.Contains(env.Output, (fun (l: OutputLine) -> l.Text.Contains("just a side effect")))
+
+[<Fact>]
+let ``execution/evaluate committing a connector-query tail expression, then results/exportCsv, writes the full retained CSV`` () =
     task {
         let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
         let csvPath = Path.Combine(tempDir, "test1.csv")
@@ -964,7 +940,7 @@ let ``execution/evaluate committing a Results.table push, then results/exportCsv
 
             let! _ = Handlers.dispatch registerRequest
 
-            let script = "Connections.csv \"test1\" |> Results.raw |> ignore"
+            let script = "Connections.csv \"test1\""
 
             let! evalResponse = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Export1.fsx" script)
             Assert.True(evalResponse.Error.IsNone)
@@ -992,10 +968,10 @@ let ``a second execution/evaluate under the same DocumentUri overwrites the tab'
             Directory.CreateDirectory tempDir |> ignore
 
             let firstScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.raw |> ignore"
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult)"
 
             let secondScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 2 |]; yield [| box 3 |] } }: ConnectorQueryResult) |> Results.raw |> ignore"
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 2 |]; yield [| box 3 |] } }: ConnectorQueryResult)"
 
             let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Overwrite1.fsx" firstScript)
             let! _ = Handlers.dispatch (evaluateRequestFor "eval2" "untitled:Overwrite1.fsx" secondScript)
@@ -1022,8 +998,7 @@ let ``an evaluate that doesn't push a table leaves the tab's existing retained r
         try
             Directory.CreateDirectory tempDir |> ignore
 
-            let tableScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.raw |> ignore"
+            let tableScript = "[ {| n = 1 |} ]"
 
             let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Untouched1.fsx" tableScript)
             let! _ = Handlers.dispatch (evaluateRequestFor "eval2" "untitled:Untouched1.fsx" "printfn \"no table here\"")
@@ -1062,7 +1037,7 @@ let ``results/discard removes a retained result, and a repeat call is a no-op`` 
             Directory.CreateDirectory tempDir |> ignore
 
             let tableScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.raw |> ignore"
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult)"
 
             let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Discard1.fsx" tableScript)
 
@@ -1079,50 +1054,6 @@ let ``results/discard removes a retained result, and a repeat call is a no-op`` 
             // Repeating the discard must not throw.
             let! secondDiscardResponse = Handlers.dispatch (resultsDiscardRequest "discard2" "untitled:Discard1.fsx")
             Assert.True(secondDiscardResponse.Error.IsNone)
-        finally
-            Handlers.setWorkspaceDirForTests None
-
-            if Directory.Exists tempDir then
-                Directory.Delete(tempDir, true)
-    }
-
-[<Fact>]
-let ``a later generic-projection Table run under the same DocumentUri discards the tab's earlier retained result`` () =
-    task {
-        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
-        let exportPath = Path.Combine(tempDir, "exported.csv")
-        Handlers.setWorkspaceDirForTests (Some tempDir)
-
-        try
-            Directory.CreateDirectory tempDir |> ignore
-
-            let tableScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.raw |> ignore"
-
-            // A generic FSI-tail-value script - no `Results.table` push -
-            // whose last expression is still an `IEnumerable`, which
-            // `Projection.projectWithCursor` turns into a `ResultKind.Table`
-            // envelope without ever touching `ResultRetention`.
-            let genericTableScript = "[ [| box 1 |] ]"
-
-            let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:StaleAfterGeneric1.fsx" tableScript)
-
-            let! genericResponse =
-                Handlers.dispatch (evaluateRequestFor "eval2" "untitled:StaleAfterGeneric1.fsx" genericTableScript)
-
-            Assert.True(genericResponse.Error.IsNone)
-
-            let genericEnvelope =
-                JsonSerializer.Deserialize<ResultEnvelope>(genericResponse.Result.Value, Serialization.options)
-
-            Assert.Equal(ResultKind.Table, genericEnvelope.Kind)
-
-            let! exportResponse =
-                Handlers.dispatch (exportCsvRequest "export1" "untitled:StaleAfterGeneric1.fsx" exportPath)
-
-            match exportResponse.Error with
-            | Some err -> Assert.Equal("results/nothingToExport", err.Code)
-            | None -> failwith "expected a nothingToExport error, not the earlier retained data"
         finally
             Handlers.setWorkspaceDirForTests None
 
