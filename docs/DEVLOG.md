@@ -2409,3 +2409,52 @@ leading null, "No rows"). Verification: `npx vitest run src/renderer/`
 visual check this session (no browser/extension-host screenshotting) —
 a standalone `grid-preview.html` was handed to the user. See
 `docs/tasks/notebook-grid-visual-polish.md`.
+
+## 2026-09-08 — Documentation + README rewrite
+
+User asked to rewrite all documentation and the README and to add a
+new-user tutorial. Scoped (after a check-in) to user- and
+contributor-facing docs only — `DEVLOG.md` and `docs/superpowers/**`
+are history and were left untouched; `docs/README.md` now says so
+explicitly.
+
+Files:
+- **`README.md`** (repo root) — *new*. First real entry point: what the
+  product is, .NET 10 SDK + VS Code ≥ 1.90 requirements, VSIX install,
+  four-step quick start, feature list, repository-layout table, .NET +
+  npm dev commands, Ionide relationship, MIT.
+- **`editors/vscode/README.md`** — rewritten. Marketplace-facing.
+  Adds the cell execution model (auto-`open` of `Connections` /
+  `Results`), a `Connections.*` call table with a parameterized-SQL
+  snippet, a `Results.raw` / `table` / `tableWithColumns` / `text`
+  table, a connection-kinds table (corrected: REST has no secret; the
+  password prompt is separate from the connection string and only
+  `{password}` is persisted), a commands table, limits, dev/build.
+- **`docs/TUTORIAL.md`** — *new*. Twelve-step hands-on walkthrough:
+  prereqs + `Check Worker`, first cell, session persistence, grid from
+  a record seq, register a SQLite connection, query it, `Results.raw`
+  + Export CSV, the `Results.*` variants, CSV/Excel connections,
+  SqlServer/PostgreSql with `{password}`, a REST cell
+  (`RestRequestOptions.Get`, `.Result` on the `Task<JsonElement>`,
+  project to records for a grid), the in-cell-intelligence list, a
+  troubleshooting table.
+- **`docs/README.md`** — *new*. Index splitting "current — read these"
+  from "historical — record, not documentation", with a short note on
+  the Avalonia→VS Code phase history.
+- **`editors/vscode/CHANGELOG.md`** — rewritten. Removed a stray
+  `</content>` tag at EOF; regrouped Unreleased under
+  Added/Changed/Fixed; kept the 0.1.0 section.
+- **`docs/vscode-extension-release.md`**,
+  **`editors/vscode/scripts/README.md`** — rewritten. Removed the
+  stray `</content>` tag at EOF of each; tightened wording; fixed
+  relative doc links. No process change.
+
+No code touched. Verification: every command title, view name,
+notebook type, `engines.vscode`, extension id, and `Connections.*` /
+`Results.*` / `RestRequestOptions` signature in the new prose was
+checked against `editors/vscode/package.json`,
+`src/FSharpQueryStudio.Connectors/Connections.fs`,
+`src/FSharpQueryStudio.Connectors/RestConnector.fs`,
+`src/FSharpQueryStudio.Results/ScriptResults.fs`,
+`src/FSharpQueryStudio.Execution/FsiSession.fs`, and
+`editors/vscode/src/connections/add.ts`.

@@ -1,36 +1,142 @@
 # F# Query Studio
 
-Write, analyze, and run F# query scripts against SQL databases, local files, and REST APIs — as VS Code notebooks.
+Write, analyze, and run F# query scripts against SQL databases, local files, and
+REST APIs — as VS Code notebooks.
+
+Open a `.fsqnb` file as an **F# Query Notebook**. Each code cell runs F# against
+a persistent FSI session in a bundled .NET worker. A controlled API reaches
+databases and files you register in the sidebar, and tabular results render as a
+sortable grid with a schema tab and CSV export.
 
 ## Requirements
 
-- **.NET 10 SDK** on your `PATH` (`dotnet --version` ≥ 10). The extension runs a bundled F# worker process with it.
-- VS Code 1.90 or newer.
+- **.NET 10 SDK** on your `PATH` (`dotnet --version` ≥ 10). The extension runs a
+  bundled framework-dependent F# worker process with it.
+- **VS Code 1.90** or newer.
+- Windows, macOS, or Linux. One worker process per VS Code window.
 
 ## Quick start
 
-1. Run **F# Query Studio: New F# Query Notebook** from the Command Palette (or File > New File…, or right-click a folder in the Explorer) — or just create a file ending in `.fsqnb` and open it. It opens as an **F# Query Notebook**.
-2. Type F# into a code cell and run it. `let` bindings persist to later cells in the same notebook (a persistent FSI session). **F# Query Studio: Restart Notebook Session** clears it.
-3. Open the **F# Query Studio** view in the Activity Bar and **Add Connection** — SQLite / CSV / Excel (file path), SQL Server / PostgreSQL (connection string; use `{password}` where the secret goes), or REST JSON (URL). Credentials are stored in the OS keychain via VS Code `SecretStorage`, never written to `workspace.json` or the notebook.
-4. Reference a connection from a cell (`Connections.sql "my-conn" "select ..."`), run it, and the result renders as a sortable grid with a schema tab and **Export CSV**.
+1. Run **F# Query Studio: New F# Query Notebook** from the Command Palette (also
+   under *File > New File…*, and on a folder's Explorer context menu as **New F#
+   Query Notebook Here**). Or just create and open any file ending in `.fsqnb`.
+2. Type F# into a code cell and run it. `let` bindings persist to later cells in
+   the same notebook — it is one FSI session per notebook file. **F# Query
+   Studio: Restart Notebook Session** clears it.
+3. Open the **F# Query Studio** view in the Activity Bar and **Add Connection**.
+   Pick a kind, answer the prompts. Credentials are stored in the OS keychain
+   via VS Code `SecretStorage` — never written to `workspace.json` or the
+   notebook.
+4. Reference a connection from a cell and run it; a tabular result renders as a
+   grid with a schema tab and **Export CSV**.
+
+A full hands-on walkthrough is in
+[`docs/TUTORIAL.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/TUTORIAL.md).
+
+## Writing cells
+
+Every code cell runs in a session where these are already open — no `#r` or
+`open` needed:
+
+```fsharp
+open FSharpQueryStudio.Connectors   // the Connections.* API
+open FSharpQueryStudio.Results      // the Results.* results-pane control
+```
+
+### `Connections` — reach a registered connection by name
+
+| Call | Kinds | Returns |
+|---|---|---|
+| `Connections.sql name sqlText parameters` | SQLite, SQL Server, PostgreSQL | `ConnectorQueryResult` |
+| `Connections.csv name` | CSV | `ConnectorQueryResult` |
+| `Connections.excel name maxRows` | Excel | `ConnectorQueryResult` |
+| `Connections.rest name options ct` | REST JSON | `Task<JsonElement>` |
+
+`parameters` is an `(string * obj) list` — always bound through the driver's own
+parameter API, never concatenated into the SQL text:
+
+```fsharp
+Connections.sql
+    "Sales"
+    "select * from Orders where CreatedAt >= @from"
+    [ "from", box (System.DateTime(2026, 1, 1)) ]
+```
+
+### `Results` — control what the results pane shows
+
+`Results.*` functions return their input unchanged, so they compose in a
+pipeline. Whichever ran most recently in the cell wins.
+
+| Call | Accepts | Effect |
+|---|---|---|
+| `Results.raw query` | a `ConnectorQueryResult` only | Renders the grid **and** fully materializes rows so **Export CSV** works. |
+| `Results.table coll` | any collection (records, tuples, `Map`, nested, scalars) | Infers columns from the shape and renders a grid. |
+| `Results.tableWithColumns coll names` | same, plus a column-name list | `table` with a positional header override (required for tuple sequences). |
+| `Results.text value` | anything | Shows F#'s `%A` structured form as plain text. |
+
+If a cell's last expression is itself a record sequence, it renders as a grid
+automatically — but only `Results.raw` / `Results.table` results carry the row
+retention that **Export CSV** needs.
+
+```fsharp
+Connections.sql "Sales" "select Id, Total from Orders" []
+|> Results.raw
+```
 
 ## Features
 
-- **Notebook execution** — each `.fsqnb` code cell runs against a persistent, per-notebook FSI session; stdout/stderr stream live; cancel a running cell from the toolbar.
-- **Results grid** — virtualized table, schema view, CSV export, paged loading for large results.
-- **In-cell F# intelligence** — completion, hover, signature help, and diagnostics. Provided by this extension.
-- **Connection management** — a tree of connections → tables → columns, lazily loaded; add / edit / remove via guided pickers.
-- **Cross-platform** — Windows, macOS, Linux. One F# worker per VS Code window.
+- **Notebook execution** — each `.fsqnb` code cell runs against a persistent,
+  per-notebook FSI session; stdout / stderr stream live; cancel a running cell
+  from the toolbar.
+- **Results grid** — virtualized table styled to match VS Code's own tables:
+  right-aligned numeric columns, zebra rows, a schema tab, CSV export, and paged
+  "load more" for large results. The grid is the default view; FSI's `val … =`
+  echo and any `printf` output move to the output's "raw data" presentation.
+- **In-cell F# intelligence** — completion, hover, signature help, and
+  diagnostics, provided by this extension's worker (not Ionide). Includes
+  connection-name completion inside `Connections.*` string literals.
+- **Connection management** — an Activity Bar tree of connections → tables →
+  columns, lazily loaded; add / edit / remove via guided pickers.
+
+## Connection kinds
+
+| Kind | You provide | Secret |
+|---|---|---|
+| SQLite | absolute database-file path | — |
+| CSV | absolute `.csv` file path | — |
+| Excel | absolute `.xlsx` file path | — |
+| SQL Server | connection string — put `{password}` where the secret goes | optional password, prompted separately, stored in the OS keychain |
+| PostgreSQL | connection string — put `{password}` where the secret goes | optional password, prompted separately, stored in the OS keychain |
+| REST JSON | base URL | — |
+
+The non-secret parts are saved to `workspace.json` in the workspace. When a
+password is set, only its `{password}` placeholder sits in the saved connection
+string; the value is fetched from `SecretStorage` at query time over a reverse
+RPC to the worker, and never lands in the workspace file or the notebook.
+
+## Commands
+
+| Command | Does |
+|---|---|
+| **F# Query Studio: New F# Query Notebook** | Opens a new untitled `.fsqnb` with one empty cell. |
+| **F# Query Studio: New F# Query Notebook Here** | Explorer folder context menu — writes and opens a `.fsqnb` in that folder. |
+| **F# Query Studio: Restart Notebook Session** | Discards the active notebook's FSI session. |
+| **F# Query Studio: Check Worker** | Reports worker health and protocol version; explains what to fix if `dotnet` is missing. |
+| **F# Query Studio: Connections: Add / Edit / Remove / Refresh** | Manage the connections tree. |
 
 ## Limitations
 
-- In-cell intelligence is completion / hover / signature help / diagnostics only — no find-all-references, formatting, code actions, or cross-cell rename.
-- One evaluation runs at a time, including across multiple open `.fsqnb` files in the same window.
+- In-cell intelligence is completion / hover / signature help / diagnostics
+  only — no find-all-references, formatting, code actions, or cross-cell rename.
+- One evaluation runs at a time, including across multiple open `.fsqnb` files in
+  the same window.
 - Requires `dotnet` on `PATH`; there is no self-contained build yet.
 
 ## Relationship to Ionide
 
-[Ionide](https://ionide.io) handles F# in ordinary `.fs` / `.fsx` files. It never sees notebook cells, and this extension never touches `.fs` / `.fsx`. Install both; they do not conflict.
+[Ionide](https://ionide.io) handles F# in ordinary `.fs` / `.fsx` files. It
+never sees notebook cells, and this extension never touches `.fs` / `.fsx`.
+Install both; they do not conflict.
 
 ## Contributing / development
 
@@ -42,7 +148,8 @@ npm test              # unit tests (vitest)
 npm run test:vscode   # extension-host tests in a downloaded VS Code
 ```
 
-Press F5 in VS Code to launch an Extension Development Host. Set `FSQS_WORKER_DLL` to use a worker built elsewhere instead of `dist/worker`.
+Press **F5** in VS Code to launch an Extension Development Host. Set
+`FSQS_WORKER_DLL` to use a worker built elsewhere instead of `dist/worker`.
 
 ### Building & packaging
 
@@ -53,6 +160,10 @@ Press F5 in VS Code to launch an Extension Development Host. Set `FSQS_WORKER_DL
 | `npm run doctor` | Read-only preflight for a release (toolchain, extension id, Marketplace icon, `VSCE_PAT`). |
 | `npm run publish` | Preflight → package → `vsce publish`. Needs `VSCE_PAT`. |
 
-Details and flags: [`editors/vscode/scripts/README.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/editors/vscode/scripts/README.md). Full release runbook: [`docs/vscode-extension-release.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/vscode-extension-release.md).
+Flags and detail: [`editors/vscode/scripts/README.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/editors/vscode/scripts/README.md).
+Full release runbook: [`docs/vscode-extension-release.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/vscode-extension-release.md).
+Design: [`docs/superpowers/specs/2026-09-03-vscode-extension-migration-design.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/superpowers/specs/2026-09-03-vscode-extension-migration-design.md).
 
-Design: `docs/superpowers/specs/2026-09-03-vscode-extension-migration-design.md`.
+## License
+
+[MIT](LICENSE) © 2026 Matheus Leal.
