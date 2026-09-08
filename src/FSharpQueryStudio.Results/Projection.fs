@@ -2,6 +2,7 @@ namespace FSharpQueryStudio.Results
 
 open System
 open System.Collections
+open System.Collections.Generic
 open System.Reflection
 open Microsoft.FSharp.Reflection
 open FSharpQueryStudio.Protocol
@@ -57,6 +58,134 @@ module Projection =
         FSharpType.GetRecordFields(t, recordBindingFlags)
         |> Array.map (fun p -> p.GetValue(value))
 
+    /// Check if a type is dictionary-like (implements IDictionary<K,V> for any K,V,
+    /// or is a non-generic IDictionary, or is an F# Map)
+    let private isDictionary (typ: System.Type) : bool =
+        if typ = null then false
+        else
+            let interfaces = typ.GetInterfaces()
+            // Check for non-generic IDictionary
+            let hasNonGenericIDictionary =
+                interfaces
+                |> Array.exists (fun i -> i = typeof<IDictionary>)
+            // Check for any IDictionary<K,V> generic interface
+            let hasGenericIDictionary =
+                interfaces
+                |> Array.exists (fun i ->
+                    i.IsGenericType &&
+                    i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>>)
+            // Check if it's an F# Map type
+            let isFSharpMap =
+                typ.IsGenericType &&
+                typ.GetGenericTypeDefinition().Name = "FSharpMap`2"
+
+            hasNonGenericIDictionary || hasGenericIDictionary || isFSharpMap
+
+    /// Extract all keys from a dictionary-like object as strings
+    let private getDictionaryKeys (obj: obj) : string list =
+        if obj = null then []
+        else
+            let typ = obj.GetType()
+            let interfaces = typ.GetInterfaces()
+
+            // Try non-generic IDictionary first
+            let nonGenericInterface = interfaces |> Array.tryFind (fun i -> i = typeof<IDictionary>)
+            match nonGenericInterface with
+            | Some _ ->
+                try
+                    let dict = obj :?> IDictionary
+                    dict.Keys
+                    |> Seq.cast<obj>
+                    |> Seq.map string
+                    |> List.ofSeq
+                with _ ->
+                    // If casting fails, try generic approach
+                    let genericInterface =
+                        interfaces
+                        |> Array.tryFind (fun i ->
+                            i.IsGenericType &&
+                            i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>>)
+                    match genericInterface with
+                    | Some gi ->
+                        let keysProperty = gi.GetProperty("Keys")
+                        if keysProperty <> null then
+                            let keys = keysProperty.GetValue(obj) :?> System.Collections.IEnumerable
+                            keys
+                            |> Seq.cast<obj>
+                            |> Seq.map string
+                            |> List.ofSeq
+                        else []
+                    | None -> []
+            | None ->
+                // Try generic IDictionary<K,V>
+                let genericInterface =
+                    interfaces
+                    |> Array.tryFind (fun i ->
+                        i.IsGenericType &&
+                        i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>>)
+                match genericInterface with
+                | Some gi ->
+                    let keysProperty = gi.GetProperty("Keys")
+                    if keysProperty <> null then
+                        let keys = keysProperty.GetValue(obj) :?> System.Collections.IEnumerable
+                        keys
+                        |> Seq.cast<obj>
+                        |> Seq.map string
+                        |> List.ofSeq
+                    else []
+                | None -> []
+
+    /// Get a value from a dictionary-like object, or null if key not found
+    let private getDictionaryValue (obj: obj) (key: string) : obj =
+        if obj = null then null
+        else
+            let typ = obj.GetType()
+            let interfaces = typ.GetInterfaces()
+
+            // Try non-generic IDictionary first
+            let nonGenericInterface = interfaces |> Array.tryFind (fun i -> i = typeof<IDictionary>)
+            match nonGenericInterface with
+            | Some _ ->
+                try
+                    let dict = obj :?> IDictionary
+                    if dict.Contains(key) then dict.[key] else null
+                with _ ->
+                    // If casting fails, try generic approach
+                    let genericInterface =
+                        interfaces
+                        |> Array.tryFind (fun i ->
+                            i.IsGenericType &&
+                            i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>>)
+                    match genericInterface with
+                    | Some gi ->
+                        let containsKeyMethod = gi.GetMethod("ContainsKey")
+                        let itemProperty = gi.GetProperty("Item")
+                        if containsKeyMethod <> null && itemProperty <> null then
+                            let containsKey = containsKeyMethod.Invoke(obj, [| key |]) :?> bool
+                            if containsKey then
+                                itemProperty.GetValue(obj, [| key |])
+                            else null
+                        else null
+                    | None -> null
+            | None ->
+                // Try generic IDictionary<K,V>
+                let genericInterface =
+                    interfaces
+                    |> Array.tryFind (fun i ->
+                        i.IsGenericType &&
+                        i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>>)
+                match genericInterface with
+                | Some gi ->
+                    let containsKeyMethod = gi.GetMethod("ContainsKey")
+                    let itemProperty = gi.GetProperty("Item")
+                    if containsKeyMethod <> null && itemProperty <> null then
+                        let containsKey = containsKeyMethod.Invoke(obj, [| key |]) :?> bool
+                        if containsKey then
+                            itemProperty.GetValue(obj, [| key |])
+                        else null
+                    else null
+                | None -> null
+
     /// Same shape as `project`, plus the live `PagingCursor` a truncated
     /// Table result was cut off at — Section 7's `results/page`. `None`
     /// whenever nothing was truncated (every other kind, or a sequence
@@ -64,45 +193,129 @@ module Projection =
     /// same enumerator `project` would have discarded, so a caller that
     /// wants to keep paging never re-runs whatever produced `value`.
     let projectWithCursor (value: obj) (elapsedMs: int64) : ResultEnvelope * PagingCursor option * RetainedTable option =
-        match value with
-        | null -> emptyEnvelope ResultKind.NoValue elapsedMs, None, None
-        | :? string as s -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some s }, None, None
-        | v when isSimplePrimitive (v.GetType()) ->
-            { emptyEnvelope ResultKind.Scalar elapsedMs with
-                DisplayText = Some(string v) },
-            None,
-            None
-        | :? ConnectorQueryResult as query ->
-            let columns =
-                query.Columns |> List.map (fun name -> { Name = name; DisplayType = "obj" })
-            let allRows = query.Rows |> Array.ofSeq
-            let preview = allRows |> Array.truncate PreviewRowLimit
+        // Shared builder for the four materialized shapes (record / tuple /
+        // dictionary / nested): the preview envelope is truncated to
+        // `PreviewRowLimit`, but the full row set is always retained for
+        // Export CSV, and the cursor is `None` (nothing to stream).
+        let materializedTable (columnNames: string list) (dataRows: obj array array) : ResultEnvelope * PagingCursor option * RetainedTable option =
+            let schema = columnNames |> List.map (fun n -> { Name = n; DisplayType = "obj" })
+            let preview = dataRows |> Array.truncate PreviewRowLimit
             let envelope =
                 { emptyEnvelope ResultKind.Table elapsedMs with
-                    Schema = columns
+                    Schema = schema
                     Rows = preview
-                    IsTruncated = allRows.Length > PreviewRowLimit }
-            envelope, None, Some { Columns = query.Columns; Rows = allRows }
-        | v when FSharpType.IsRecord(v.GetType(), recordBindingFlags) ->
-            let t = v.GetType()
+                    IsTruncated = dataRows.Length > PreviewRowLimit }
+            envelope, None, Some { Columns = columnNames; Rows = dataRows }
 
-            { emptyEnvelope ResultKind.Table elapsedMs with
-                Schema = recordSchema t
-                Rows = [| recordRow t v |] },
+        try
+            match value with
+            | null -> emptyEnvelope ResultKind.NoValue elapsedMs, None, None
+            | :? string as s -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some s }, None, None
+            | v when isSimplePrimitive (v.GetType()) ->
+                { emptyEnvelope ResultKind.Scalar elapsedMs with
+                    DisplayText = Some(string v) },
+                None,
+                None
+            | :? ConnectorQueryResult as query ->
+                let columns =
+                    query.Columns |> List.map (fun name -> { Name = name; DisplayType = "obj" })
+                let allRows = query.Rows |> Array.ofSeq
+                let preview = allRows |> Array.truncate PreviewRowLimit
+                let envelope =
+                    { emptyEnvelope ResultKind.Table elapsedMs with
+                        Schema = columns
+                        Rows = preview
+                        IsTruncated = allRows.Length > PreviewRowLimit }
+                envelope, None, Some { Columns = query.Columns; Rows = allRows }
+            | v when FSharpType.IsRecord(v.GetType(), recordBindingFlags) ->
+                let t = v.GetType()
+                let cols = recordSchema t |> List.map (fun c -> c.Name)
+                materializedTable cols [| recordRow t v |]
+            | :? IEnumerable as items when not (value :? string) ->
+                let rows = items |> Seq.cast<obj> |> Array.ofSeq
+                match rows with
+                | [||] ->
+                    emptyEnvelope ResultKind.Table elapsedMs, None, Some { Columns = []; Rows = [||] }
+                | _ ->
+                    let first = rows.[0]
+                    let allFlags = BindingFlags.Public ||| BindingFlags.NonPublic
+
+                    match first with
+                    | :? ConnectorQueryResult ->
+                        failwith "a sequence of ConnectorQueryResult is not supported; enumerate .Rows"
+                    | _ when first <> null && FSharpType.IsRecord(first.GetType(), allFlags) ->
+                        let recordType = first.GetType()
+
+                        let fieldNames =
+                            FSharpType.GetRecordFields(recordType, allFlags)
+                            |> Array.map (fun p -> p.Name)
+                            |> Array.toList
+
+                        let dataRows =
+                            rows |> Array.map (fun r -> FSharpValue.GetRecordFields(r, allFlags))
+
+                        materializedTable fieldNames dataRows
+                    | _ when first <> null && FSharpType.IsTuple(first.GetType()) ->
+                        let width = (FSharpValue.GetTupleFields first).Length
+                        let names = [ for i in 1..width -> sprintf "Item%d" i ]
+                        let dataRows = rows |> Array.map (fun r -> FSharpValue.GetTupleFields r)
+                        materializedTable names dataRows
+                    | _ when first <> null && isDictionary (first.GetType()) ->
+                        let keysInFirstSeenOrder =
+                            let seen = HashSet<string>()
+                            let ordered = ResizeArray<string>()
+
+                            for row in rows do
+                                let keys = getDictionaryKeys row
+                                for key in keys do
+                                    if seen.Add(key) then
+                                        ordered.Add(key)
+
+                            ordered |> List.ofSeq
+
+                        let dataRows =
+                            rows
+                            |> Array.map (fun row ->
+                                keysInFirstSeenOrder
+                                |> List.map (fun k ->
+                                    let value = getDictionaryValue row k
+                                    if value <> null then value else null)
+                                |> Array.ofList)
+
+                        materializedTable keysInFirstSeenOrder dataRows
+                    | :? IEnumerable when not (first :? string) ->
+                        let rawRows =
+                            rows
+                            |> Array.map (fun r -> (r :?> IEnumerable) |> Seq.cast<obj> |> Array.ofSeq)
+
+                        let headers = rawRows.[0] |> Array.map string |> Array.toList
+                        let dataRawRows = rawRows.[1..]
+                        let width = headers.Length
+
+                        let padOrTruncate (row: obj array) : obj array =
+                            if row.Length = width then row
+                            elif row.Length > width then row.[0 .. width - 1]
+                            else Array.append row (Array.create (width - row.Length) null)
+
+                        let dataRows = dataRawRows |> Array.map padOrTruncate
+                        materializedTable headers dataRows
+                    | _ ->
+                        let cursor = PagingCursor(items.GetEnumerator())
+                        let page, hasMore = cursor.TakePage(PreviewRowLimit)
+
+                        let envelope =
+                            { emptyEnvelope ResultKind.Table elapsedMs with
+                                Schema = [ { Name = "Value"; DisplayType = "obj" } ]
+                                Rows = page |> Array.map (fun r -> [| r |])
+                                IsTruncated = hasMore }
+
+                        envelope, (if hasMore then Some cursor else None), None
+            | v -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some(string v) }, None, None
+        with _ ->
+            { emptyEnvelope ResultKind.Text elapsedMs with
+                DisplayText = Some(sprintf "%A" value) },
             None,
             None
-        | :? IEnumerable as items ->
-            let cursor = PagingCursor(items.GetEnumerator())
-            let rows, hasMore = cursor.TakePage(PreviewRowLimit)
-
-            let envelope =
-                { emptyEnvelope ResultKind.Table elapsedMs with
-                    Schema = [ { Name = "Value"; DisplayType = "obj" } ]
-                    Rows = rows |> Array.map (fun r -> [| r |])
-                    IsTruncated = hasMore }
-
-            envelope, (if hasMore then Some cursor else None), None
-        | v -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some(string v) }, None, None
 
     let project (value: obj) (elapsedMs: int64) : ResultEnvelope =
         let env, _, _ = projectWithCursor value elapsedMs
