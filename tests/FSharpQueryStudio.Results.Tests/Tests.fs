@@ -62,7 +62,7 @@ let ``a sequence longer than the preview-row limit is truncated`` () =
 let ``projectWithCursor returns no continuation cursor for a sequence within the preview-row limit`` () =
     let values = [ 1; 2; 3 ] :> obj
 
-    let envelope, cursor = Projection.projectWithCursor values 0L
+    let envelope, cursor, _ = Projection.projectWithCursor values 0L
 
     Assert.Equal(3, envelope.Rows.Length)
     Assert.False(envelope.IsTruncated)
@@ -72,7 +72,7 @@ let ``projectWithCursor returns no continuation cursor for a sequence within the
 let ``projectWithCursor returns a continuation cursor that resumes past the first page for a longer sequence`` () =
     let values = [ 1 .. Projection.PreviewRowLimit + 10 ] :> obj
 
-    let envelope, cursor = Projection.projectWithCursor values 0L
+    let envelope, cursor, _ = Projection.projectWithCursor values 0L
 
     Assert.Equal(Projection.PreviewRowLimit, envelope.Rows.Length)
     Assert.True(envelope.IsTruncated)

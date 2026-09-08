@@ -191,7 +191,7 @@ module Handlers =
                         let value =
                             outcome.Value |> Option.map (fun v -> v.ReflectionValue) |> Option.toObj
 
-                        let projected, cursor = Projection.projectWithCursor value stopwatch.ElapsedMilliseconds
+                        let projected, cursor, _retained = Projection.projectWithCursor value stopwatch.ElapsedMilliseconds
 
                         // The generic FSI-tail-value path never retains a
                         // result of its own (see the comment above), but it

@@ -5,6 +5,7 @@ open System.Collections
 open System.Reflection
 open Microsoft.FSharp.Reflection
 open FSharpQueryStudio.Protocol
+open FSharpQueryStudio.Connectors
 
 /// Converts a raw FSI value into the bounded, protocol-neutral
 /// `ResultEnvelope` shape from Section 11. Scoped to `Scalar`/`Text`/
@@ -14,6 +15,13 @@ module Projection =
 
     [<Literal>]
     let PreviewRowLimit = 500
+
+    /// A fully-materialized table the worker retains for Export CSV — see
+    /// docs/superpowers/specs/2026-09-08-notebook-tail-value-results-design.md.
+    /// `None` for every non-materialized result (scalars, text, a streamed
+    /// scalar `seq`). Shaped to match `ResultRetention.RetainedResult`,
+    /// which this file compiles too early to reference directly.
+    type RetainedTable = { Columns: string list; Rows: obj array array }
 
     /// A script can legitimately declare `type private Foo = { ... }`.
     /// `FSharpType`'s reflection helpers default to public-only members,
@@ -55,20 +63,33 @@ module Projection =
     /// that already fit within `PreviewRowLimit`). The cursor holds the
     /// same enumerator `project` would have discarded, so a caller that
     /// wants to keep paging never re-runs whatever produced `value`.
-    let projectWithCursor (value: obj) (elapsedMs: int64) : ResultEnvelope * PagingCursor option =
+    let projectWithCursor (value: obj) (elapsedMs: int64) : ResultEnvelope * PagingCursor option * RetainedTable option =
         match value with
-        | null -> emptyEnvelope ResultKind.NoValue elapsedMs, None
-        | :? string as s -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some s }, None
+        | null -> emptyEnvelope ResultKind.NoValue elapsedMs, None, None
+        | :? string as s -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some s }, None, None
         | v when isSimplePrimitive (v.GetType()) ->
             { emptyEnvelope ResultKind.Scalar elapsedMs with
                 DisplayText = Some(string v) },
+            None,
             None
+        | :? ConnectorQueryResult as query ->
+            let columns =
+                query.Columns |> List.map (fun name -> { Name = name; DisplayType = "obj" })
+            let allRows = query.Rows |> Array.ofSeq
+            let preview = allRows |> Array.truncate PreviewRowLimit
+            let envelope =
+                { emptyEnvelope ResultKind.Table elapsedMs with
+                    Schema = columns
+                    Rows = preview
+                    IsTruncated = allRows.Length > PreviewRowLimit }
+            envelope, None, Some { Columns = query.Columns; Rows = allRows }
         | v when FSharpType.IsRecord(v.GetType(), recordBindingFlags) ->
             let t = v.GetType()
 
             { emptyEnvelope ResultKind.Table elapsedMs with
                 Schema = recordSchema t
                 Rows = [| recordRow t v |] },
+            None,
             None
         | :? IEnumerable as items ->
             let cursor = PagingCursor(items.GetEnumerator())
@@ -80,10 +101,12 @@ module Projection =
                     Rows = rows |> Array.map (fun r -> [| r |])
                     IsTruncated = hasMore }
 
-            envelope, (if hasMore then Some cursor else None)
-        | v -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some(string v) }, None
+            envelope, (if hasMore then Some cursor else None), None
+        | v -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some(string v) }, None, None
 
-    let project (value: obj) (elapsedMs: int64) : ResultEnvelope = projectWithCursor value elapsedMs |> fst
+    let project (value: obj) (elapsedMs: int64) : ResultEnvelope =
+        let env, _, _ = projectWithCursor value elapsedMs
+        env
 
     /// An uncaught script exception becomes a structured Error result —
     /// see Section 9 — never an unhandled worker crash.

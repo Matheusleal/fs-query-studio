@@ -8,6 +8,7 @@
     <Compile Include="PagingCursorTests.fs" />
     <Compile Include="CsvExportTests.fs" />
     <Compile Include="ResultRetentionTests.fs" />
+    <Compile Include="ProjectionTests.fs" />
     <Compile Include="ScriptResultsTests.fs" />
     <Compile Include="Tests.fs" />
   </ItemGroup>
