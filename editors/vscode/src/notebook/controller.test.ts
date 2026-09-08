@@ -55,12 +55,14 @@ describe("createFsQueryController — executeHandler", () => {
     const exec = execs(controller)[0];
     expect(exec.ended).toBe(true);
     const outputs = exec.outputs as Array<{ items: Array<{ data: unknown; mime: string }> }>;
-    expect(outputs[0].items.map((i) => i.mime)).toEqual([
-      "application/vnd.code.notebook.stdout",
-      "application/x-fsquery-table+json",
-      "text/plain",
+    // stdout is its own output; the result value keeps table-json + text/plain
+    // as alternatives in a second output. Mixing them into one output would
+    // let VS Code render only the stdout mime and hide the grid.
+    expect(outputs.map((o) => o.items.map((i) => i.mime))).toEqual([
+      ["application/vnd.code.notebook.stdout"],
+      ["application/x-fsquery-table+json", "text/plain"],
     ]);
-    const tableItem = outputs[0].items[1];
+    const tableItem = outputs[1].items[0];
     const body = JSON.parse(new TextDecoder().decode(tableItem.data as Uint8Array));
     expect(body.documentUri).toBe("file:///a.fsqnb");
     expect(body.rows).toEqual([[1], [2]]);
@@ -77,7 +79,8 @@ describe("createFsQueryController — executeHandler", () => {
     const controller = createFsQueryController({ getWorker: async () => worker, log: () => {} });
     await controller.executeHandler!([cell("q")], notebook("file:///a.fsqnb"), controller);
     const outputs = execs(controller)[0].outputs as Array<{ items: Array<{ mime: string }> }>;
-    expect(outputs[0].items.some((i) => i.mime === "application/x-fsquery-table+json")).toBe(false);
+    const mimes = outputs.flatMap((o) => o.items.map((i) => i.mime));
+    expect(mimes).not.toContain("application/x-fsquery-table+json");
   });
 
   it("runs cells sequentially and stops after the first cell whose result is an Error", async () => {

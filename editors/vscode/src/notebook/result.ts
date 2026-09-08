@@ -76,6 +76,38 @@ export function formatTextTable(
   return out.join("\n");
 }
 
+/**
+ * Split a flat `mapEnvelope` spec list into one group per
+ * `vscode.NotebookCellOutput`. VS Code renders exactly one representation
+ * per output, chosen by mime priority — so stdout/stderr specs sharing an
+ * output with the result's `table-json`/`text` specs make VS Code pick
+ * the stdout mime and hide the result (it stays reachable only through
+ * the output's "Change presentation" menu). Every stream run therefore
+ * becomes its own group; the result representations stay together in one
+ * trailing group where being alternatives of one value is correct.
+ * Consecutive same-stream specs are merged into a single item so a
+ * multi-line FSI echo shows as one block, not one output per line.
+ */
+export function groupOutputs(specs: OutputItemSpec[]): OutputItemSpec[][] {
+  const streamGroups: OutputItemSpec[][] = [];
+  const valueGroup: OutputItemSpec[] = [];
+
+  for (const spec of specs) {
+    if (spec.kind !== "stdout" && spec.kind !== "stderr") {
+      valueGroup.push(spec);
+      continue;
+    }
+    const prev = streamGroups.at(-1)?.[0];
+    if (prev && (prev.kind === "stdout" || prev.kind === "stderr") && prev.kind === spec.kind) {
+      prev.text = `${prev.text}\n${spec.text}`;
+    } else {
+      streamGroups.push([{ kind: spec.kind, text: spec.text }]);
+    }
+  }
+
+  return valueGroup.length > 0 ? [...streamGroups, valueGroup] : streamGroups;
+}
+
 export function mapEnvelope(
   env: ResultEnvelope | null | undefined,
   opts?: { documentUri?: string },

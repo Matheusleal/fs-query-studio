@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { FSQNB_NOTEBOOK_TYPE } from "./serializer";
-import { mapEnvelope, type OutputItemSpec } from "./result";
+import { groupOutputs, mapEnvelope, type OutputItemSpec } from "./result";
 import { FSQUERY_TABLE_MIME } from "../renderer/types";
 import {
   newRequestId,
@@ -148,8 +148,13 @@ export function createFsQueryController(deps: ControllerDeps): vscode.NotebookCo
         }
 
         const envelope = response.result as ResultEnvelope | null | undefined;
-        const items = mapEnvelope(envelope, { documentUri: sessionId }).map(toOutputItem);
-        exec.replaceOutput(new vscode.NotebookCellOutput(items));
+        // One `NotebookCellOutput` per group: stream lines separate from the
+        // result value, so VS Code shows both at once instead of picking the
+        // stdout mime and hiding the grid behind the presentation menu.
+        const outputs = groupOutputs(mapEnvelope(envelope, { documentUri: sessionId })).map(
+          (group) => new vscode.NotebookCellOutput(group.map(toOutputItem)),
+        );
+        exec.replaceOutput(outputs);
 
         const isError = !envelope || readUnionTag(envelope.kind) === "Error";
         exec.end(!isError, Date.now());

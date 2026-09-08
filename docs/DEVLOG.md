@@ -2306,3 +2306,45 @@ with one empty `fsharp` cell. A second integration spec for the on-disk
 resolver and hangs the command to a timeout; cancel/collision/suffix are
 covered by the unit suite. See
 `docs/tasks/f9-new-notebook-command.md`.
+
+## 2026-09-08 — Fix: cell result hidden behind FSI stdout in one output
+
+A user on the packaged VSIX reported "the result is not being displayed
+after running an F# block" — the FSI echo (`val result: … =`) showed, but
+the table grid did not; it was reachable only by manually switching the
+output's presentation from `application/vnd.code.notebook.stdout` to
+`text/plain` / `application/x-fsquery-table+json`.
+
+**Root cause.** `controller.ts`'s `runBatch` put *every* mapped item —
+stdout/stderr lines, the `application/x-fsquery-table+json` payload, and
+the `text/plain` grid — into a **single** `vscode.NotebookCellOutput`.
+VS Code treats the items of one output as alternative representations of
+one value and renders exactly one, chosen by mime priority; it picked the
+stdout mime, hiding the result. `mapEnvelope` itself was fine — the specs
+were already in the right order; the defect was purely in how the
+controller grouped them into outputs.
+
+**Fix.** New pure `groupOutputs(specs): OutputItemSpec[][]` in
+`result.ts`: each stdout/stderr run becomes its own group; a trailing
+group holds the value representations (`table-json` + `text`, still
+alternatives of one value — which is what a multi-item output is *for*).
+Consecutive same-stream specs are merged into one item so a multi-line
+FSI echo is one block, not one output per line. `[]` in → `[]` out; no
+trailing group when there is no value spec. `controller.ts` now does
+`groupOutputs(mapEnvelope(...)).map(g => new NotebookCellOutput(...))` and
+`replaceOutput`s the array. The error / worker-crashed / null-result /
+mapping-throw branches were already single dedicated `errorOutput`s and
+are untouched.
+
+Not addressed (expected behaviour, noted for the user): the same report's
+cell used `Results.table rows` on a materialized `obj[][]` from a CSV,
+which takes the generic nested-collection path and consumes row 0 as
+headers. The right call for a connector query is
+`Connections.csv "name" |> Results.raw`.
+
+TDD: 6 new `groupOutputs` cases in `result.test.ts` (RED:
+`groupOutputs is not a function`), 2 rewritten `controller.test.ts`
+assertions (two-output `[[stdout],[table-json,text]]` shape; flattened
+mime check). Verification: `npm test` **241/241**; `npm run compile`
+clean; `vscode-test --grep "fsquery-notebook integration"` **5/5**. See
+`docs/tasks/fix-notebook-output-mime-priority.md`.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatTextTable, mapEnvelope, type OutputItemSpec } from "./result";
+import { formatTextTable, groupOutputs, mapEnvelope, type OutputItemSpec } from "./result";
 import type { ResultEnvelope } from "../protocol";
 
 function envelope(overrides: Partial<ResultEnvelope>): ResultEnvelope {
@@ -175,5 +175,51 @@ describe("mapEnvelope", () => {
       { documentUri: "u" },
     );
     expect(specs.map((s) => s.kind)).toEqual(["stdout", "table-json", "text"]);
+  });
+});
+
+describe("groupOutputs", () => {
+  const stdout = (text: string): OutputItemSpec => ({ kind: "stdout", text });
+  const stderr = (text: string): OutputItemSpec => ({ kind: "stderr", text });
+  const text = (t: string): OutputItemSpec => ({ kind: "text", text: t });
+  const tableJson = (): OutputItemSpec => ({
+    kind: "table-json",
+    payload: {
+      documentUri: "u",
+      columns: [],
+      rows: [],
+      truncated: false,
+      continuationToken: null,
+      elapsedMs: 0,
+    },
+  });
+
+  it("returns no groups for an empty spec list", () => {
+    expect(groupOutputs([])).toEqual([]);
+  });
+
+  it("puts stream lines in their own group, separate from the value group", () => {
+    const groups = groupOutputs([stdout("val x: int = 1"), tableJson(), text("grid")]);
+    expect(groups.map((g) => g.map((s) => s.kind))).toEqual([["stdout"], ["table-json", "text"]]);
+  });
+
+  it("merges consecutive same-stream specs into one item", () => {
+    const groups = groupOutputs([stdout("line 1"), stdout("line 2"), text("v")]);
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toEqual([{ kind: "stdout", text: "line 1\nline 2" }]);
+  });
+
+  it("keeps stderr in a separate group from an adjacent stdout run", () => {
+    const groups = groupOutputs([stdout("out"), stderr("err"), text("v")]);
+    expect(groups.map((g) => g[0].kind)).toEqual(["stdout", "stderr", "text"]);
+  });
+
+  it("emits only stream groups when there is no value spec", () => {
+    expect(groupOutputs([stdout("done")])).toEqual([[{ kind: "stdout", text: "done" }]]);
+  });
+
+  it("emits a single value group when there are no stream specs", () => {
+    const groups = groupOutputs([tableJson(), text("grid")]);
+    expect(groups).toEqual([[tableJson(), text("grid")]]);
   });
 });
