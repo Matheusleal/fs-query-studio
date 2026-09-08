@@ -37,10 +37,17 @@ describe("formatTextTable", () => {
     expect(text).not.toContain("truncated");
   });
 
-  it("adds a truncation note when isTruncated", () => {
-    const text = formatTextTable([{ name: "x", displayType: "int" }], [[1]], 4, true);
+  it("points to the grid view when isTruncated and a continuation token exists", () => {
+    const text = formatTextTable([{ name: "x", displayType: "int" }], [[1]], 4, true, true);
     expect(text).toContain("truncated");
     expect(text).toContain("grid view");
+  });
+
+  it("points to Export CSV when isTruncated with no continuation token", () => {
+    const text = formatTextTable([{ name: "x", displayType: "int" }], [[1]], 4, true, false);
+    expect(text).toContain("showing the first 1 rows");
+    expect(text).toContain("Export CSV writes the full result");
+    expect(text).not.toContain("grid view");
   });
 
   it("stringifies non-primitive cells and blanks nulls", () => {
@@ -167,6 +174,24 @@ describe("mapEnvelope", () => {
     expect(json.payload.documentUri).toBe("file:///a.fsqnb");
     expect(json.payload.continuationToken).toBe("tok");
     expect(json.payload.rows).toHaveLength(3);
+  });
+
+  it("notes the materialized-truncation case (truncated, no continuation token) in the text grid", () => {
+    const specs = mapEnvelope(
+      envelope({
+        kind: { Case: "Table" },
+        schema: [{ name: "n", displayType: "int" }],
+        rows: [[1], [2]],
+        isTruncated: true,
+        continuationToken: null,
+        elapsedMs: 7,
+      }),
+      { documentUri: "file:///a.fsqnb" },
+    );
+    const text = textOf(specs[1]);
+    expect(text).toContain("showing the first 2 rows");
+    expect(text).toContain("Export CSV writes the full result");
+    expect(text).not.toContain("grid view");
   });
 
   it("still emits only the text grid when no documentUri is given (F2 behavior)", () => {

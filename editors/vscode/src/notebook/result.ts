@@ -41,6 +41,10 @@ export function formatTextTable(
   rows: unknown[][],
   elapsedMs: number,
   isTruncated: boolean,
+  /** True when the worker retains more rows behind a continuation token that
+   *  the grid view can page in. False for a materialized table that is
+   *  truncated to the preview limit with nothing left to stream. */
+  hasContinuation = false,
 ): string {
   const headers = schema.map((c) => c.name);
   // Only the rendered slice is materialised — a huge `rows` (a materialized
@@ -69,7 +73,11 @@ export function formatTextTable(
     out.push(`(showing ${MAX_RENDERED_ROWS} of ${rows.length} rows)`);
   }
   if (isTruncated) {
-    out.push("(truncated — more rows available in the grid view)");
+    out.push(
+      hasContinuation
+        ? "(truncated — more rows available in the grid view)"
+        : `(showing the first ${body.length} rows — Export CSV writes the full result)`,
+    );
   }
   return out.join("\n");
 }
@@ -112,7 +120,13 @@ export function mapEnvelope(
       if (opts?.documentUri) {
         specs.push({ kind: "table-json", payload: buildTablePayload(env, opts.documentUri) });
       }
-      bodyText = formatTextTable(env.schema ?? [], env.rows ?? [], env.elapsedMs, env.isTruncated);
+      bodyText = formatTextTable(
+        env.schema ?? [],
+        env.rows ?? [],
+        env.elapsedMs,
+        env.isTruncated,
+        env.continuationToken != null,
+      );
       break;
     case "NoValue":
       bodyText = typeof env.displayText === "string" ? env.displayText : "";

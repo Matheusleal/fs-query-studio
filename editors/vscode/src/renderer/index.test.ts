@@ -80,6 +80,17 @@ describe("grid renderer", () => {
     });
   });
 
+  it("notes materialized truncation and marks the count with + when truncated without a token", () => {
+    host = activate(ctx().context);
+    host.renderOutputItem(item("o1", payload({ truncated: true, continuationToken: null })), el);
+    expect((el.querySelector(".fsq-loadmore") as HTMLButtonElement).hidden).toBe(true);
+    const notice = el.querySelector(".fsq-notice") as HTMLElement;
+    expect(notice.hidden).toBe(false);
+    expect(notice.textContent).toContain("Showing the first 3 rows");
+    expect(notice.textContent).toContain("Export CSV writes the full result");
+    expect(el.querySelector(".fsq-count")?.textContent).toBe("3+ rows");
+  });
+
   it("appends rows and updates the count when a rows message arrives", () => {
     const c = ctx();
     host = activate(c.context);

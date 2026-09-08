@@ -105,8 +105,8 @@ function raf(fn: () => void): void {
   }
 }
 
-function countLabel(n: number): string {
-  return `${n} ${n === 1 ? "row" : "rows"}`;
+function countLabel(n: number, more = false): string {
+  return `${n}${more ? "+" : ""} ${n === 1 ? "row" : "rows"}`;
 }
 
 function isNumeric(value: unknown): boolean {
@@ -309,6 +309,17 @@ export function activate(context: RendererContextLike): {
     loadMore.hidden = !payload.continuationToken;
     panel.appendChild(loadMore);
 
+    // A materialized table can be truncated to the preview limit with no
+    // continuation token — the full set is kept only for Export CSV and there
+    // is nothing to stream. Without this note the count ("500 rows") would
+    // silently under-report a 100k-row result.
+    const materializedTruncated = payload.truncated && !payload.continuationToken;
+    if (materializedTruncated) {
+      notice.textContent =
+        `Showing the first ${payload.rows.length} rows. Export CSV writes the full result.`;
+      notice.hidden = false;
+    }
+
     const grid: Grid = {
       id: item.id,
       payload,
@@ -319,7 +330,7 @@ export function activate(context: RendererContextLike): {
       els: { count, head, viewport, sizer, rowsHost, schema, loadMore, notice, dataBtn, schemaBtn },
     };
 
-    count.textContent = countLabel(grid.rows.length);
+    count.textContent = countLabel(grid.rows.length, materializedTruncated);
     dataBtn.classList.add("active");
     dataBtn.addEventListener("click", () => setView(grid, "data"));
     schemaBtn.addEventListener("click", () => setView(grid, "schema"));
