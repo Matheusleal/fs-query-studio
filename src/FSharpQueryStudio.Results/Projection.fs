@@ -197,15 +197,26 @@ module Projection =
         // dictionary / nested): the preview envelope is truncated to
         // `PreviewRowLimit`, but the full row set is always retained for
         // Export CSV, and the cursor is `None` (nothing to stream).
-        let materializedTable (columnNames: string list) (dataRows: obj array array) : ResultEnvelope * PagingCursor option * RetainedTable option =
-            let schema = columnNames |> List.map (fun n -> { Name = n; DisplayType = "obj" })
-            let preview = dataRows |> Array.truncate PreviewRowLimit
+        let materializedTable (columns: Column list) (dataRows: obj array array) : ResultEnvelope * PagingCursor option * RetainedTable option =
+            // Every materialized shape is made rectangular here, by
+            // construction: a row matching the schema width passes through,
+            // a longer one is trimmed, a shorter one is null-padded. The
+            // tuple / dict / record arms feed rows that are already the
+            // right width; the nested arm's rows are genuinely ragged.
+            let width = columns.Length
+            let padOrTruncate (row: obj array) : obj array =
+                if row.Length = width then row
+                elif row.Length > width then row.[0 .. width - 1]
+                else Array.append row (Array.create (width - row.Length) null)
+
+            let rectangular = dataRows |> Array.map padOrTruncate
+            let preview = rectangular |> Array.truncate PreviewRowLimit
             let envelope =
                 { emptyEnvelope ResultKind.Table elapsedMs with
-                    Schema = schema
+                    Schema = columns
                     Rows = preview
-                    IsTruncated = dataRows.Length > PreviewRowLimit }
-            envelope, None, Some { Columns = columnNames; Rows = dataRows }
+                    IsTruncated = rectangular.Length > PreviewRowLimit }
+            envelope, None, Some { Columns = columns |> List.map (fun c -> c.Name); Rows = rectangular }
 
         try
             match value with
@@ -229,8 +240,7 @@ module Projection =
                 envelope, None, Some { Columns = query.Columns; Rows = allRows }
             | v when FSharpType.IsRecord(v.GetType(), recordBindingFlags) ->
                 let t = v.GetType()
-                let cols = recordSchema t |> List.map (fun c -> c.Name)
-                materializedTable cols [| recordRow t v |]
+                materializedTable (recordSchema t) [| recordRow t v |]
             | :? IEnumerable as items when not (value :? string) ->
                 // Peek only element 0. A flat scalar `seq` (possibly large
                 // or infinite) must stay on the lazy `PagingCursor` path —
@@ -241,7 +251,10 @@ module Projection =
                 let e = items.GetEnumerator()
 
                 if not (e.MoveNext()) then
-                    materializedTable [] [||]
+                    // A cell ending in `[]` must not overwrite the notebook's
+                    // exportable grid with an empty table — return the empty
+                    // Table envelope but retain nothing.
+                    emptyEnvelope ResultKind.Table elapsedMs, None, None
                 else
                     let first = e.Current
                     // The rest of the sequence, still lazy, with element 0 re-prepended.
@@ -255,26 +268,22 @@ module Projection =
                     match first with
                     | :? ConnectorQueryResult ->
                         failwith "a sequence of ConnectorQueryResult is not supported; enumerate .Rows"
-                    | _ when first <> null && FSharpType.IsRecord(first.GetType(), recordBindingFlags) ->
+                    | _ when not (isNull first) && FSharpType.IsRecord(first.GetType(), recordBindingFlags) ->
                         let rows = full |> Array.ofSeq
                         let recordType = first.GetType()
-
-                        let fieldNames =
-                            FSharpType.GetRecordFields(recordType, recordBindingFlags)
-                            |> Array.map (fun p -> p.Name)
-                            |> Array.toList
 
                         let dataRows =
                             rows |> Array.map (fun r -> FSharpValue.GetRecordFields(r, recordBindingFlags))
 
-                        materializedTable fieldNames dataRows
-                    | _ when first <> null && FSharpType.IsTuple(first.GetType()) ->
+                        materializedTable (recordSchema recordType) dataRows
+                    | _ when not (isNull first) && FSharpType.IsTuple(first.GetType()) ->
                         let rows = full |> Array.ofSeq
                         let width = (FSharpValue.GetTupleFields first).Length
-                        let names = [ for i in 1..width -> sprintf "Item%d" i ]
+                        let names =
+                            [ for i in 1..width -> { Name = sprintf "Item%d" i; DisplayType = "obj" } ]
                         let dataRows = rows |> Array.map (fun r -> FSharpValue.GetTupleFields r)
                         materializedTable names dataRows
-                    | _ when first <> null && isDictionary (first.GetType()) ->
+                    | _ when not (isNull first) && isDictionary (first.GetType()) ->
                         let rows = full |> Array.ofSeq
 
                         let keysInFirstSeenOrder =
@@ -296,7 +305,10 @@ module Projection =
                                 |> List.map (fun k -> getDictionaryValue row k)
                                 |> Array.ofList)
 
-                        materializedTable keysInFirstSeenOrder dataRows
+                        let columns =
+                            keysInFirstSeenOrder |> List.map (fun k -> { Name = k; DisplayType = "obj" })
+
+                        materializedTable columns dataRows
                     | :? IEnumerable when not (first :? string) ->
                         let rows = full |> Array.ofSeq
 
@@ -305,16 +317,10 @@ module Projection =
                             |> Array.map (fun r -> (r :?> IEnumerable) |> Seq.cast<obj> |> Array.ofSeq)
 
                         let headers = rawRows.[0] |> Array.map string |> Array.toList
-                        let dataRawRows = rawRows.[1..]
-                        let width = headers.Length
-
-                        let padOrTruncate (row: obj array) : obj array =
-                            if row.Length = width then row
-                            elif row.Length > width then row.[0 .. width - 1]
-                            else Array.append row (Array.create (width - row.Length) null)
-
-                        let dataRows = dataRawRows |> Array.map padOrTruncate
-                        materializedTable headers dataRows
+                        let columns = headers |> List.map (fun n -> { Name = n; DisplayType = "obj" })
+                        // Rows 1.. can be ragged — `materializedTable` squares
+                        // them to the header width.
+                        materializedTable columns rawRows.[1..]
                     | _ ->
                         // scalar / string sequence: keep the lazy streaming
                         // path — feed the *lazy* `full` enumerator to
@@ -332,10 +338,17 @@ module Projection =
                         envelope, (if hasMore then Some cursor else None), None
             | v -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some(sprintf "%A" v) }, None, None
         with _ ->
-            { emptyEnvelope ResultKind.Text elapsedMs with
-                DisplayText = Some(sprintf "%A" value) },
-            None,
-            None
+            // `sprintf "%A" value` re-enumerates `value`; a one-shot `seq`
+            // that failed mid-enumeration above throws again here, and this
+            // handler is the last line of defence — it must never itself
+            // escape `projectWithCursor`.
+            let text =
+                try
+                    sprintf "%A" value
+                with _ ->
+                    "<unprintable value>"
+
+            { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some text }, None, None
 
     let project (value: obj) (elapsedMs: int64) : ResultEnvelope =
         let env, _, _ = projectWithCursor value elapsedMs

@@ -167,7 +167,7 @@ module Handlers =
                     // grid. A run that produced no such table (a scalar, a
                     // streamed scalar seq, a printfn) leaves any earlier
                     // retained result in place — it does not clear it.
-                    if not (System.String.IsNullOrEmpty evalParams.DocumentUri) then
+                    if not (String.IsNullOrEmpty evalParams.DocumentUri) then
                         match retained with
                         | Some t ->
                             ResultRetention.set

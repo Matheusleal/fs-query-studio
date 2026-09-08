@@ -29,9 +29,9 @@ let ``ReadRows parses a header row and each data row as columns/rows`` () =
 let ``ReadRows's Rows sequence can be enumerated more than once`` () =
     // A caller that materializes `Rows` (e.g. `Seq.toArray`) and then hands
     // the same `ConnectorQueryResult` to something else that also reads
-    // `Rows` (e.g. `Results.table`) must see the same data twice, not a
-    // "closed TextReader" failure from a stream handle only good for one
-    // pass.
+    // `Rows` (e.g. the results projection, then Export CSV) must see the
+    // same data twice, not a "closed TextReader" failure from a stream
+    // handle only good for one pass.
     let path = tempCsvFile Encoding.UTF8 "Id,Name\n1,Ada\n2,Alan\n"
     let connector = CsvConnector(path)
     let result = connector.ReadRows()

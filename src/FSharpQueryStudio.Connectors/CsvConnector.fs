@@ -114,7 +114,8 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
     /// across every `GetEnumerator()` call — a caller that materializes
     /// `Rows` once (e.g. `Seq.toArray`) and then hands the same
     /// `ConnectorQueryResult` to something else that also reads `Rows`
-    /// (e.g. `Results.table`) must see the same data again, not a
+    /// (e.g. the results projection materializing it for the grid, then
+    /// Export CSV re-reading it) must see the same data again, not a
     /// "closed TextReader" failure from a stream only ever good for one
     /// pass. Columns come from the header row when `options.HasHeader`,
     /// else synthesized as `Column1`, `Column2`, ... with the first

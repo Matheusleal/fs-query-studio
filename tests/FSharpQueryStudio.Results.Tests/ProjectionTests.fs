@@ -51,9 +51,22 @@ let ``a record sequence infers columns from reflected field names in declaration
     let env = envOf (box people)
     Assert.Equal(ResultKind.Table, env.Kind)
     Assert.Equal<string list>([ "Id"; "Name" ], env.Schema |> List.map (fun c -> c.Name))
+    // The schema carries the reflected property type names, not "obj".
+    Assert.Equal<string list>([ "Int32"; "String" ], env.Schema |> List.map (fun c -> c.DisplayType))
     Assert.Equal<obj array>([| box 1; box "Ada" |], env.Rows.[0])
     Assert.Equal<obj array>([| box 2; box "Grace" |], env.Rows.[1])
     Assert.True((retainedOf (box people)).IsSome)
+
+[<Fact>]
+let ``a record sequence past the preview limit truncates the preview but retains every row`` () =
+    let rowCount = Projection.PreviewRowLimit + 25
+    let people = [ for i in 1..rowCount -> { Id = i; Name = sprintf "n%d" i } ]
+    let env, cursor, retained = Projection.projectWithCursor (box people) 0L
+    Assert.True(env.IsTruncated)
+    Assert.Equal(Projection.PreviewRowLimit, env.Rows.Length)
+    Assert.True(cursor.IsNone)
+    Assert.True(retained.IsSome)
+    Assert.Equal(rowCount, retained.Value.Rows.Length)
 
 [<Fact>]
 let ``a tuple sequence maps each element to a positional Item column`` () =
@@ -73,6 +86,7 @@ let ``a Map sequence infers the union of keys in first-seen order`` () =
     Assert.Equal<string list>([ "id"; "name"; "extra" ], env.Schema |> List.map (fun c -> c.Name))
     Assert.Equal<obj array>([| box 1; box "Ada"; null |], env.Rows.[0])
     Assert.Equal<obj array>([| box 2; null; box "x" |], env.Rows.[1])
+    Assert.True((retainedOf (box rows)).IsSome)
 
 [<Fact>]
 let ``a Map of string,int sequence keeps sorted keys but first-seen column order`` () =
@@ -102,6 +116,7 @@ let ``a nested collection consumes row 0 as headers`` () =
     Assert.Equal<string list>([ "id"; "name" ], env.Schema |> List.map (fun c -> c.Name))
     Assert.Equal(2, env.Rows.Length)
     Assert.Equal<obj array>([| box "1"; box "Ada" |], env.Rows.[0])
+    Assert.True((retainedOf (box grid)).IsSome)
 
 [<Fact>]
 let ``ragged nested rows pad short rows with null and truncate long rows`` () =
@@ -137,12 +152,14 @@ let ``a scalar sequence past the preview limit keeps a streaming cursor and is n
     Assert.True(retained.IsNone)
 
 [<Fact>]
-let ``an empty sequence is an empty Table`` () =
-    let env, _, retained = Projection.projectWithCursor (box (List.empty<Person>)) 0L
+let ``an empty sequence is an empty Table that retains nothing`` () =
+    let env, cursor, retained = Projection.projectWithCursor (box (List.empty<Person>)) 0L
     Assert.Equal(ResultKind.Table, env.Kind)
     Assert.Empty(env.Schema)
     Assert.Empty(env.Rows)
-    Assert.True(retained.IsSome)
+    Assert.True(cursor.IsNone)
+    // A cell ending in `[]` must not blank the notebook's exportable grid.
+    Assert.True(retained.IsNone)
 
 [<Fact>]
 let ``a single record is a one-row Table and is retained`` () =
