@@ -3,10 +3,10 @@ import type { TablePayload } from "../renderer/types";
 
 /**
  * Projects a `Table`-kind `ResultEnvelope` onto the renderer's wire body.
- * Works for both worker paths unchanged: `Results.table` (real columns,
- * full rows, `continuationToken = null`) and an FSI tail-value `seq`
- * (single `Value` column, preview rows, a token when truncated). Rows are
- * passed through positionally — the renderer formats each cell.
+ * Works for every tail-value shape the worker projects: a materialized
+ * table (real columns, full rows retained for Export CSV, no continuation
+ * token) and a streamed scalar `seq` (single `Value` column, preview rows,
+ * a token when truncated). Rows are passed through positionally.
  */
 export function buildTablePayload(env: ResultEnvelope, documentUri: string): TablePayload {
   return {

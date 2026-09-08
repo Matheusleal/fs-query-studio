@@ -43,8 +43,8 @@ export function formatTextTable(
   isTruncated: boolean,
 ): string {
   const headers = schema.map((c) => c.name);
-  // Only the rendered slice is materialised — a huge `rows` (Results.table
-  // pushes the full set with `isTruncated: false`) must not be mapped in full.
+  // Only the rendered slice is materialised — a huge `rows` (a materialized
+  // table sends the full preview set) must not be mapped in full.
   const body = rows.slice(0, MAX_RENDERED_ROWS).map((row) => row.map(renderCell));
   // `reduce`, not `Math.max(...spread)` — a spread of one argument per row
   // throws `RangeError: Maximum call stack size exceeded` around ~65k rows.
