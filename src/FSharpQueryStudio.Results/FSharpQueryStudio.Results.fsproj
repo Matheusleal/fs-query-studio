@@ -7,7 +7,6 @@
   <ItemGroup>
     <Compile Include="PagingCursor.fs" />
     <Compile Include="Projection.fs" />
-    <Compile Include="ScriptResults.fs" />
     <Compile Include="CsvExport.fs" />
     <Compile Include="ResultRetention.fs" />
   </ItemGroup>
