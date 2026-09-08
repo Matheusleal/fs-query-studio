@@ -72,6 +72,7 @@ Interactive would echo. You don't call anything special.
 | A sequence of records | A grid; columns are the record fields |
 | A sequence of tuples | A grid; columns are `Item1`, `Item2`, … |
 | A sequence of `Map`s / dictionaries | A grid; columns are the union of keys |
+| A sequence of collections (e.g. `int[] list`, rows of arrays) | A grid; the first inner collection becomes the column headers, the rest are the rows |
 | A sequence of scalars | A one-column grid, streamed with **Load more** |
 | A single record | A one-row grid |
 | A scalar (`int`, `string`, `DateTime`, …) | Plain text |

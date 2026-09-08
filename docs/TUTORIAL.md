@@ -181,8 +181,10 @@ Connections.sql "chinook" "select * from Track limit 200" []
 ```
 
 The grid has an **Export CSV** button. A connector-query tail value is fully
-materialized and retained for as long as the cell's output is open, so the whole
-result set — not just the page on screen — is what gets written.
+materialized and kept per notebook: **Export CSV** writes whichever
+materialized-grid cell ran most recently — the whole result set, not just the
+page on screen. Running another grid cell replaces what **Export CSV** will
+write.
 
 Click **Export CSV**, choose a location, done.
 
@@ -204,6 +206,7 @@ Interactive would echo. You don't call anything special.
 | A sequence of records | A grid; columns are the record fields |
 | A sequence of tuples | A grid; columns are `Item1`, `Item2`, … |
 | A sequence of `Map`s / dictionaries | A grid; columns are the union of keys |
+| A sequence of collections (e.g. `int[] list`, rows of arrays) | A grid; the first inner collection becomes the column headers, the rest are the rows |
 | A sequence of scalars | A one-column grid, streamed with **Load more** |
 | A single record | A one-row grid |
 | A scalar (`int`, `string`, `DateTime`, …) | Plain text |
@@ -338,6 +341,7 @@ both is fine.
 | **Export CSV** reports nothing to export | The cell's last expression didn't produce a materialized grid — it was a scalar, plain text, or a streamed scalar sequence. Make the last line a connector query or a computed sequence of records / tuples / maps. |
 | A redefinition or new `open` "does not take" | **Restart Notebook Session** — FSI keeps the earlier definition for the session's lifetime. |
 | A cell seems stuck | Only one evaluation runs at a time across the whole window. Stop the running cell (the ▪ button) or wait for it. |
+| A cell from an older notebook fails with `error FS0039: The value, namespace, type or module 'Results' is not defined` | The `Results.raw` / `table` / `tableWithColumns` / `text` API was removed. Delete the `\|> Results.…` pipe (or the `Results.…` call) — the cell's last expression now renders on its own. |
 
 ---
 

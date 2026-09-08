@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- Target framework: `net10.0`. Build with `dotnet build FSharpQueryStudio.sln`.
+- Target framework: `net10.0`. Build with `dotnet build FSharpQueryStudio.slnx`.
 - Run a single test project with `dotnet test tests/<Project>/<Project>.fsproj`.
 - F# compile order is significant: a type must be declared in a file that
   compiles before any file that uses it. `FSharpQueryStudio.Results.fsproj`
@@ -190,7 +190,7 @@ Expected: PASS (the two new tests, plus every existing `ScriptResultsTests` case
 
 - [ ] **Step 7: Build the whole solution**
 
-Run: `dotnet build FSharpQueryStudio.sln`
+Run: `dotnet build FSharpQueryStudio.slnx`
 Expected: succeeds. If `Handlers.fs` warns about the now-unused `_retained`, that is fine — it goes away in Task 3.
 
 - [ ] **Step 8: Commit**
@@ -461,7 +461,7 @@ Expected: PASS — all new `ProjectionTests` cases and the two from Task 1. `Scr
 
 - [ ] **Step 7: Build the solution**
 
-Run: `dotnet build FSharpQueryStudio.sln`
+Run: `dotnet build FSharpQueryStudio.slnx`
 Expected: succeeds.
 
 - [ ] **Step 8: Commit**
@@ -590,7 +590,7 @@ Expected: PASS.
 
 - [ ] **Step 5: Build the solution**
 
-Run: `dotnet build FSharpQueryStudio.sln`
+Run: `dotnet build FSharpQueryStudio.slnx`
 Expected: succeeds. `ScriptResults.fs` still compiles but is now unreferenced by `Handlers.fs`.
 
 - [ ] **Step 6: Commit**
@@ -671,12 +671,12 @@ git rm src/FSharpQueryStudio.Results/ScriptResults.fs tests/FSharpQueryStudio.Re
 
 - [ ] **Step 6: Build the solution**
 
-Run: `dotnet build FSharpQueryStudio.sln`
+Run: `dotnet build FSharpQueryStudio.slnx`
 Expected: succeeds. If the compiler flags a leftover reference to the `Results` module anywhere, that file was missed in Tasks 1–3 — fix it before continuing.
 
 - [ ] **Step 7: Run the full test suite**
 
-Run: `dotnet test FSharpQueryStudio.sln`
+Run: `dotnet test FSharpQueryStudio.slnx`
 Expected: all green. Pay attention to `FSharpQueryStudio.Execution.Tests`, `FSharpQueryStudio.Fsac.Tests`, `FSharpQueryStudio.Worker.Tests`, `FSharpQueryStudio.Results.Tests`.
 
 - [ ] **Step 8: Commit**
@@ -896,12 +896,12 @@ Claude-Session: https://claude.ai/code/session_01B3K2ZuY97tetSNkrv8gcQ8"
 
 - [ ] **Step 1: Clean build**
 
-Run: `dotnet build FSharpQueryStudio.sln -c Release`
+Run: `dotnet build FSharpQueryStudio.slnx -c Release`
 Expected: 0 warnings about unused `open FSharpQueryStudio.Results`, 0 errors.
 
 - [ ] **Step 2: Full .NET test run**
 
-Run: `dotnet test FSharpQueryStudio.sln`
+Run: `dotnet test FSharpQueryStudio.slnx`
 Expected: all projects green. Spot-check the counts for
 `FSharpQueryStudio.Results.Tests` (down by the deleted `ScriptResultsTests`,
 up by `ProjectionTests`) and `FSharpQueryStudio.Worker.Tests`.

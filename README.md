@@ -61,8 +61,9 @@ Full walkthrough: **[`docs/TUTORIAL.md`](docs/TUTORIAL.md)**.
   per-notebook FSI session; stdout / stderr stream live; cancel a running cell
   from the toolbar.
 - **Query API** — `Connections.sql` / `csv` / `excel` / `rest` reach connections
-  by name through a parameterized, injection-safe surface. `Results.raw` /
-  `table` / `text` control what the results pane shows.
+  by name through a parameterized, injection-safe surface. A cell renders the
+  value of its last expression — collections become a grid, connector queries add
+  **Export CSV**, scalars print as text; no special call needed.
 - **Results grid** — virtualized table, schema view, CSV export, paged loading
   for large results.
 - **In-cell F# intelligence** — completion, hover, signature help, and
