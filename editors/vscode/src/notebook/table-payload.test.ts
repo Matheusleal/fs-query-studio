@@ -17,7 +17,7 @@ function tableEnv(overrides: Partial<ResultEnvelope>): ResultEnvelope {
 }
 
 describe("buildTablePayload", () => {
-  it("maps a Results.table-style envelope (real columns, no token)", () => {
+  it("maps a materialized-table envelope (real columns, no token)", () => {
     const payload = buildTablePayload(
       tableEnv({
         schema: [

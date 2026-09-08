@@ -37,7 +37,7 @@ export interface RendererHostDeps {
 const LOAD_MORE_STALE =
   "This result is no longer available for paging — re-run the cell to load more rows.";
 const EXPORT_UNAVAILABLE =
-  "CSV export is only available for tables produced by Results.table.";
+  "CSV export is only available for a fully-materialized grid result.";
 
 function errorMessage(err: unknown): string {
   return (err as { userMessage?: string }).userMessage ?? (err as Error).message;

@@ -186,8 +186,10 @@ result set — not just the page on screen — is what gets written.
 
 Click **Export CSV**, choose a location, done.
 
-**Export CSV** shows up whenever the cell's last expression is a
-`ConnectorQueryResult` — the return of `Connections.sql` / `csv` / `excel`.
+**Export CSV** is available whenever the cell's last expression renders as a grid
+backed by fully-materialized rows — a connector query (`Connections.sql` / `csv`
+/ `excel`) or any computed sequence of records, tuples, or maps. Scalars, plain
+text, and lazily-streamed scalar sequences have nothing to export.
 
 ---
 
@@ -333,7 +335,7 @@ both is fine.
 | Cells do nothing / "worker" errors | **F# Query Studio: Check Worker**. Usually `dotnet` 10 is missing from `PATH`; install it and restart VS Code. |
 | "The worker exited before responding" | The FSI session crashed and was lost. It restarts on your next run; re-run the cells you need. |
 | `Connections has not been configured` | You referenced a connection name that is not registered, or the workspace has no `workspace.json` yet — add the connection in the sidebar. |
-| **Export CSV** missing on a grid | The cell's last expression was not a connector query. Make the last line a `Connections.sql` / `csv` / `excel` call. |
+| **Export CSV** reports nothing to export | The cell's last expression didn't produce a materialized grid — it was a scalar, plain text, or a streamed scalar sequence. Make the last line a connector query or a computed sequence of records / tuples / maps. |
 | A redefinition or new `open` "does not take" | **Restart Notebook Session** — FSI keeps the earlier definition for the session's lifetime. |
 | A cell seems stuck | Only one evaluation runs at a time across the whole window. Stop the running cell (the ▪ button) or wait for it. |
 

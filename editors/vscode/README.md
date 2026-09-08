@@ -79,6 +79,9 @@ Interactive would echo. You don't call anything special.
 
 To force plain structured text, end the cell with `sprintf "%A" value`.
 
+**Export CSV** is available for any of the fully-materialized grid rows above
+(everything except the streamed scalar-sequence row).
+
 ## Features
 
 - **Notebook execution** — each `.fsqnb` code cell runs against a persistent,

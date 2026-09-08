@@ -132,7 +132,9 @@ describe("registerRendererHost — exportCsv", () => {
     });
     await h.send({ type: "exportCsv", outputId: "o1", documentUri: "u" });
     expect(h.posted[0].message).toMatchObject({ type: "error", scope: "exportCsv" });
-    expect((h.posted[0].message as { message: string }).message).toMatch(/Results\.table/);
+    expect((h.posted[0].message as { message: string }).message).toMatch(
+      /fully-materialized grid result/,
+    );
   });
 });
 
