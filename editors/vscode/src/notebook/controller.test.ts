@@ -55,17 +55,21 @@ describe("createFsQueryController — executeHandler", () => {
     const exec = execs(controller)[0];
     expect(exec.ended).toBe(true);
     const outputs = exec.outputs as Array<{ items: Array<{ data: unknown; mime: string }> }>;
-    // stdout is its own output; the result value keeps table-json + text/plain
-    // as alternatives in a second output. Mixing them into one output would
-    // let VS Code render only the stdout mime and hide the grid.
-    expect(outputs.map((o) => o.items.map((i) => i.mime))).toEqual([
-      ["application/vnd.code.notebook.stdout"],
-      ["application/x-fsquery-table+json", "text/plain"],
+    // One output: the grid renderer mime first (VS Code's default view),
+    // then text/plain (the FSI echo + a text grid) as the "raw data" view
+    // in the presentation picker. No stdout mime — it would outrank the
+    // grid and become the default.
+    expect(outputs).toHaveLength(1);
+    expect(outputs[0].items.map((i) => i.mime)).toEqual([
+      "application/x-fsquery-table+json",
+      "text/plain",
     ]);
-    const tableItem = outputs[1].items[0];
+    const tableItem = outputs[0].items[0];
     const body = JSON.parse(new TextDecoder().decode(tableItem.data as Uint8Array));
     expect(body.documentUri).toBe("file:///a.fsqnb");
     expect(body.rows).toEqual([[1], [2]]);
+    // the FSI echo rides along in the text/plain fallback, not its own output
+    expect(String(outputs[0].items[1].data)).toContain("hi");
   });
 
   it("omits the table-json item for a non-Table result", async () => {

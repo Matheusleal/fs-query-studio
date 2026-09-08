@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatTextTable, groupOutputs, mapEnvelope, type OutputItemSpec } from "./result";
+import { formatTextTable, mapEnvelope, type OutputItemSpec } from "./result";
 import type { ResultEnvelope } from "../protocol";
 
 function envelope(overrides: Partial<ResultEnvelope>): ResultEnvelope {
@@ -75,20 +75,37 @@ describe("formatTextTable", () => {
   });
 });
 
+const textOf = (spec: OutputItemSpec) => (spec as Extract<OutputItemSpec, { kind: "text" }>).text;
+
 describe("mapEnvelope", () => {
-  it("emits stdout/stderr specs in order, before the value", () => {
+  it("folds stdout/stderr into the single text spec, ahead of the value", () => {
     const specs = mapEnvelope(
       envelope({
         kind: { Case: "Scalar" },
         displayText: "42",
         output: [
-          { stream: { Case: "Stdout" }, text: "working...\n" },
-          { stream: { Case: "Stderr" }, text: "a warning\n" },
+          { stream: { Case: "Stdout" }, text: "working..." },
+          { stream: { Case: "Stderr" }, text: "a warning" },
         ],
       }),
     );
-    expect(specs.map((s) => s.kind)).toEqual(["stdout", "stderr", "text"]);
-    expect((specs[2] as Extract<OutputItemSpec, { kind: "text" }>).text).toBe("42");
+    expect(specs.map((s) => s.kind)).toEqual(["text"]);
+    expect(textOf(specs[0])).toBe("working...\na warning\n\n42");
+  });
+
+  it("never emits a stdout/stderr mime — echo lives in text/plain so it can't outrank the grid", () => {
+    const specs = mapEnvelope(
+      envelope({
+        kind: { Case: "Table" },
+        schema: [{ name: "n", displayType: "int" }],
+        rows: [[1]],
+        output: [{ stream: { Case: "Stdout" }, text: "val rows: obj array array = [| ... |]" }],
+      }),
+      { documentUri: "u" },
+    );
+    expect(specs.map((s) => s.kind)).toEqual(["table-json", "text"]);
+    expect(textOf(specs[1])).toContain("val rows: obj array array");
+    expect(textOf(specs[1])).toContain("(1 row · 3ms)");
   });
 
   it("maps an Error envelope to an error spec using displayText", () => {
@@ -164,62 +181,14 @@ describe("mapEnvelope", () => {
     expect(specs.map((s) => s.kind)).toEqual(["text"]);
   });
 
-  it("puts stdout/stderr lines before the table-json spec", () => {
+  it("emits only stdout as text when a printf cell has no value", () => {
     const specs = mapEnvelope(
       envelope({
-        kind: { Case: "Table" },
-        schema: [{ name: "n", displayType: "int" }],
-        rows: [[1]],
-        output: [{ stream: { Case: "Stdout" }, text: "hi\n" }],
+        kind: { Case: "NoValue" },
+        displayText: null,
+        output: [{ stream: { Case: "Stdout" }, text: "hello" }],
       }),
-      { documentUri: "u" },
     );
-    expect(specs.map((s) => s.kind)).toEqual(["stdout", "table-json", "text"]);
-  });
-});
-
-describe("groupOutputs", () => {
-  const stdout = (text: string): OutputItemSpec => ({ kind: "stdout", text });
-  const stderr = (text: string): OutputItemSpec => ({ kind: "stderr", text });
-  const text = (t: string): OutputItemSpec => ({ kind: "text", text: t });
-  const tableJson = (): OutputItemSpec => ({
-    kind: "table-json",
-    payload: {
-      documentUri: "u",
-      columns: [],
-      rows: [],
-      truncated: false,
-      continuationToken: null,
-      elapsedMs: 0,
-    },
-  });
-
-  it("returns no groups for an empty spec list", () => {
-    expect(groupOutputs([])).toEqual([]);
-  });
-
-  it("puts stream lines in their own group, separate from the value group", () => {
-    const groups = groupOutputs([stdout("val x: int = 1"), tableJson(), text("grid")]);
-    expect(groups.map((g) => g.map((s) => s.kind))).toEqual([["stdout"], ["table-json", "text"]]);
-  });
-
-  it("merges consecutive same-stream specs into one item", () => {
-    const groups = groupOutputs([stdout("line 1"), stdout("line 2"), text("v")]);
-    expect(groups).toHaveLength(2);
-    expect(groups[0]).toEqual([{ kind: "stdout", text: "line 1\nline 2" }]);
-  });
-
-  it("keeps stderr in a separate group from an adjacent stdout run", () => {
-    const groups = groupOutputs([stdout("out"), stderr("err"), text("v")]);
-    expect(groups.map((g) => g[0].kind)).toEqual(["stdout", "stderr", "text"]);
-  });
-
-  it("emits only stream groups when there is no value spec", () => {
-    expect(groupOutputs([stdout("done")])).toEqual([[{ kind: "stdout", text: "done" }]]);
-  });
-
-  it("emits a single value group when there are no stream specs", () => {
-    const groups = groupOutputs([tableJson(), text("grid")]);
-    expect(groups).toEqual([[tableJson(), text("grid")]]);
+    expect(specs).toEqual([{ kind: "text", text: "hello" }]);
   });
 });

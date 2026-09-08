@@ -28,45 +28,62 @@ stdout mime, so the result representation is hidden.
 in the right order. The defect is purely in how the controller groups
 them into outputs.
 
-### Requirements / Scope
-- stdout/stderr stream lines render as their own cell output(s), visible
-  at the same time as the result — no presentation switch needed.
-- The result value keeps its rich + fallback representations as
-  alternatives in **one** output: `application/x-fsquery-table+json`
-  first, `text/plain` second (unchanged priority *within* the result).
+### Requirements / Scope (revised after first attempt — see below)
+- The grid (`application/x-fsquery-table+json`) is the cell's **default**
+  view when the result is a table.
+- The FSI declaration echo (`val result: … =`, `val rows: … = [| … |]`)
+  and any `printfn` output go to a **non-default "raw data"** view —
+  reachable through the output's presentation picker, not shown up front.
+- No `application/vnd.code.notebook.stdout` / `.stderr` item is emitted:
+  that mime sits near the top of VS Code's `NOTEBOOK_DISPLAY_ORDER`
+  (right after `error`), so any stdout item becomes the cell's default
+  view and hides the grid — the exact bug reported.
 - Error / worker-crashed / null-result / mapping-throw paths keep their
-  current single dedicated error output.
+  single dedicated error output (an error must stay the default view).
 - `NoValue` with no output still clears the cell output.
-- **Non-goals:** changing `mapEnvelope`'s spec order or contents; the
-  worker; the renderer; the `Results.table`-eats-row-0 data-shape issue
-  (separate, documented in the reply to the user — `Results.raw` is the
-  right call for a connector query).
+- A cell with only `printfn` output and no value still shows that text
+  (it is then the only representation).
+- **Non-goals:** the worker / FSI flags (not touched — no `--quiet`); the
+  renderer; the `Results.table`-eats-row-0 data-shape issue (separate,
+  `Results.raw` is the right call for a connector query).
 
 ### Approach & Key Decisions
-- **Decision — split into outputs in a new pure helper `groupOutputs`
-  in `result.ts`, called by the controller.** *Reasoning:* keeps the
-  VS Code-free, unit-tested seam that `result.ts` already is; the
-  controller change stays a one-liner (`.map(group => new
-  NotebookCellOutput(...))`). *Alternative considered:* inline the
-  filter/split in `controller.ts` — rejected, it's logic worth testing
-  without the vscode stub.
-- **Decision — merge consecutive same-stream specs into one item.**
-  *Reasoning:* `mapEnvelope` emits one spec per line; without merging a
-  multi-line FSI echo becomes several stacked output blocks. One stdout
-  block matches native notebook behaviour.
-- **Decision — result representations stay grouped in one output.**
-  *Reasoning:* `table-json` and `text/plain` genuinely *are* two
-  renderings of the same value — that is exactly what a multi-item
-  `NotebookCellOutput` is for. The bug is only stdout being mixed in.
+- **First attempt (reverted same day): split stream lines into their own
+  `NotebookCellOutput` via a `groupOutputs` helper.** This made the echo
+  and the grid *both* visible, stacked. The user then clarified they want
+  the echo **not shown by default at all** — only the table, with the raw
+  dump behind the presentation picker. A separate `NotebookCellOutput`
+  can't be hidden-by-default (VS Code renders every output), so this
+  approach could not meet the requirement. `groupOutputs` was removed.
+- **Decision — fold stdout/stderr into the `text/plain` item inside the
+  one result output; never emit a stdout/stderr mime.** *Reasoning:*
+  within a single `NotebookCellOutput`, VS Code picks the default
+  representation by mime rank. A registered renderer mime
+  (`application/x-fsquery-table+json`) outranks `text/plain`, so the grid
+  is the default and the folded echo (now part of `text/plain`) is the
+  one-click "raw data" alternative — exactly the requested behaviour.
+  *Alternative considered:* `--quiet` on the FSI session to drop the
+  echo entirely — rejected for now, larger blast radius (all execution),
+  and the user wants the raw dump *available*, just not default.
+- **Decision — `text/plain` = `streamText` + `\n\n` + body** (the text
+  grid for a Table, `displayText` otherwise). *Reasoning:* one switchable
+  view carries both the echo and a copy-pasteable grid.
+- **Decision — Error returns only the error item, echo discarded.**
+  *Reasoning:* a failed cell must surface the error, not bury it under
+  FSI chatter.
 
 ### Risks & Assumptions
-- Assumes VS Code renders multiple `NotebookCellOutput`s stacked (it
-  does — standard notebook behaviour) and picks one representation per
-  output by mime preference.
-- Integration tests flatten `cell.outputs.flatMap(o => o.items)` so they
-  are unaffected by the regrouping.
-- `exec.replaceOutput([])` for the empty case: the stub and VS Code both
-  treat an empty array as "clear output".
+- Assumes `application/x-fsquery-table+json` (custom renderer) outranks
+  `text/plain` in VS Code's default output display order — it does
+  (renderer mimes are inserted above `text/plain`, which is the built-in
+  floor); confirmed by the original report, where switching *to* either
+  `text/plain` or the table mime showed the result and only the stdout
+  mime was auto-selected.
+- For non-Table kinds (Scalar/Text/Object) there is no rich mime, so the
+  FSI echo *is* shown (as part of the sole `text/plain` item). Accepted —
+  the user's requirement is about the table case.
+- `exec.replaceOutput(new NotebookCellOutput([]))` for the empty case:
+  stub and VS Code both treat it as "clear output".
 
 ---
 
@@ -97,6 +114,31 @@ them into outputs.
   `npm test`, `npm run compile`,
   `npx vscode-test --grep "fsquery-notebook integration"`.
 
+### 2026-09-08 — revised: fold stdout into text/plain, drop `groupOutputs`
+- Files touched: `editors/vscode/src/notebook/result.ts`,
+  `editors/vscode/src/notebook/result.test.ts`,
+  `editors/vscode/src/notebook/controller.ts`,
+  `editors/vscode/src/notebook/controller.test.ts`
+- What changed:
+  - `result.ts`: removed `groupOutputs`; removed `"stdout"`/`"stderr"`
+    from `OutputItemSpec`. `mapEnvelope` now computes `streamText` (all
+    `env.output` lines joined) and folds it into a single `text` spec as
+    `streamText + "\n\n" + body`, where `body` is the text grid for a
+    Table or `displayText` otherwise. `Error` returns only the error
+    spec. A Table still emits `[table-json, text]` (renderer mime first);
+    no stdout/stderr mime is ever produced.
+  - `controller.ts`: `toOutputItem` lost its `stdout`/`stderr` cases;
+    `runBatch` back to one `new vscode.NotebookCellOutput(items)`.
+  - `result.test.ts`: deleted the `groupOutputs` describe block; rewrote
+    the two stdout-ordering cases to assert the fold (`["text"]` /
+    `["table-json","text"]`, echo inside the text item); added "printf
+    cell with no value → single text spec".
+  - `controller.test.ts`: "writes the mapped outputs" now asserts one
+    output, items `["application/x-fsquery-table+json","text/plain"]`,
+    with `"hi"` inside the text item.
+- Commands run: `npm run compile`, `npm test`,
+  `npx vscode-test` (full integration suite).
+
 ---
 
 ## 3. Validation
@@ -117,29 +159,32 @@ them into outputs.
   `let result = Connections.csv "test1"` + `Results.raw` in a `.fsqnb`,
   confirm the grid shows without touching the presentation menu.
 
-### Test Results
-- `npx vitest run src/notebook/{result,controller}.test.ts` — 36/36
-  (RED beforehand: 7 failing — 6 `groupOutputs is not a function`, 1
-  controller output-shape).
-- `npm test` — **241/241** (was 241; net-zero: the 2 rewritten
-  controller assertions + 6 new `result` cases, minus none).
+### Test Results (final — after the revision)
+- `npm test` (vitest) — **236/236** (was 241 before this task; the 6
+  transient `groupOutputs` cases were added then removed, the two
+  stdout-ordering `mapEnvelope` cases were rewritten, one new case
+  added — net −5 vs the pre-task baseline).
 - `npm run compile` — clean (`tsc --noEmit` + esbuild).
-- `npx vscode-test --grep "fsquery-notebook integration"` — **5/5**,
-  including "runs a code cell and captures stdout + the tail value" and
-  "renders a table-shaped result as a text grid" (both flatten
-  `cell.outputs`, unaffected by the regroup, still green).
-- Manual in-app run: not done this session (no interactive VS Code host
-  driven here). The integration test that executes a real cell through
-  the bundled worker covers the end-to-end path.
+- `npx vscode-test` (full integration) — **13/14**; the one failure is
+  the pre-existing `fsquery connections > resolves a {password} token…`
+  → `KNOWN NPGSQL VARIANCE`, unrelated (no notebook-output code in its
+  path). Notebook specs all green: "runs a code cell and captures stdout
+  + the tail value" (`/hello from fsi/` and `/2/` now both in the one
+  text/plain item), "renders a table-shaped result as a text grid",
+  "a truncatable sequence cell produces an application/x-fsquery-table+json item".
+- Manual in-app run: not driven this session. The integration test that
+  executes a real cell through the bundled worker covers the end-to-end
+  path; the user still needs to reinstall the rebuilt VSIX to see it.
 
 ### Acceptance Criteria Check
 | Requirement | Verified how | Result |
 |---|---|---|
-| stdout/stderr in their own output, visible with the result | `groupOutputs` "puts stream lines in their own group…" + controller "writes the mapped outputs" now asserts `[[stdout],[table-json,text]]` | ✅ |
-| result keeps table-json → text/plain as alternatives in one output | controller test asserts `outputs[1].items` mimes `["application/x-fsquery-table+json","text/plain"]` | ✅ |
-| error/crash/null/throw paths unchanged | existing controller tests (`worker/crashed`, null result, mapping throws) still green | ✅ |
-| NoValue + no output clears output | `groupOutputs([])` → `[]` unit; controller passes `[]` to `replaceOutput` | ✅ |
-| consecutive FSI echo lines = one block | `groupOutputs` "merges consecutive same-stream specs" | ✅ |
+| grid is the default view for a table result | `mapEnvelope` emits `[table-json, text]` (renderer mime ranks above `text/plain`); controller test asserts that item order in one output | ✅ |
+| FSI echo / printf output → non-default "raw data" view | `mapEnvelope` "never emits a stdout/stderr mime — echo lives in text/plain…"; controller test finds `"hi"` inside the `text/plain` item, not its own output | ✅ |
+| no `application/vnd.code.notebook.stdout` item emitted | `OutputItemSpec` no longer has `stdout`/`stderr`; `toOutputItem` has no such case; grep clean | ✅ |
+| error paths unchanged, error stays default | existing controller tests (`worker/crashed`, null result, mapping throws) green; `mapEnvelope` Error returns only the error spec | ✅ |
+| NoValue + no output clears output | `mapEnvelope` → `[]`, controller `replaceOutput(new NotebookCellOutput([]))` | ✅ |
+| printf-only cell still shows its text | `mapEnvelope` "emits only stdout as text when a printf cell has no value" → `[{text:"hello"}]` | ✅ |
 
 ---
 

@@ -9,8 +9,6 @@ import type { TablePayload } from "../renderer/types";
  * runtime.
  */
 export type OutputItemSpec =
-  | { kind: "stdout"; text: string }
-  | { kind: "stderr"; text: string }
   | { kind: "text"; text: string }
   | { kind: "error"; name: string; message: string }
   | { kind: "table-json"; payload: TablePayload };
@@ -76,36 +74,12 @@ export function formatTextTable(
   return out.join("\n");
 }
 
-/**
- * Split a flat `mapEnvelope` spec list into one group per
- * `vscode.NotebookCellOutput`. VS Code renders exactly one representation
- * per output, chosen by mime priority — so stdout/stderr specs sharing an
- * output with the result's `table-json`/`text` specs make VS Code pick
- * the stdout mime and hide the result (it stays reachable only through
- * the output's "Change presentation" menu). Every stream run therefore
- * becomes its own group; the result representations stay together in one
- * trailing group where being alternatives of one value is correct.
- * Consecutive same-stream specs are merged into a single item so a
- * multi-line FSI echo shows as one block, not one output per line.
- */
-export function groupOutputs(specs: OutputItemSpec[]): OutputItemSpec[][] {
-  const streamGroups: OutputItemSpec[][] = [];
-  const valueGroup: OutputItemSpec[] = [];
-
-  for (const spec of specs) {
-    if (spec.kind !== "stdout" && spec.kind !== "stderr") {
-      valueGroup.push(spec);
-      continue;
-    }
-    const prev = streamGroups.at(-1)?.[0];
-    if (prev && (prev.kind === "stdout" || prev.kind === "stderr") && prev.kind === spec.kind) {
-      prev.text = `${prev.text}\n${spec.text}`;
-    } else {
-      streamGroups.push([{ kind: spec.kind, text: spec.text }]);
-    }
-  }
-
-  return valueGroup.length > 0 ? [...streamGroups, valueGroup] : streamGroups;
+/** stdout/stderr lines joined in arrival order (stdout then stderr, per
+ *  the worker's `Projection.toOutputLines`). This is FSI's declaration
+ *  echo (`val result: … =`, `val rows: … = [| … |]`) plus any `printfn`
+ *  output. */
+function streamText(env: ResultEnvelope): string {
+  return (env.output ?? []).map((line) => line.text).join("\n");
 }
 
 export function mapEnvelope(
@@ -118,39 +92,47 @@ export function mapEnvelope(
     ];
   }
 
-  const specs: OutputItemSpec[] = [];
-
-  for (const line of env.output ?? []) {
-    const stream = readUnionTag(line.stream) === "Stderr" ? "stderr" : "stdout";
-    specs.push({ kind: stream, text: line.text });
-  }
-
-  switch (readUnionTag(env.kind)) {
-    case "Error":
-      specs.push({
+  // A failed cell surfaces only the error — echo/printf chatter must not
+  // bury it.
+  if (readUnionTag(env.kind) === "Error") {
+    return [
+      {
         kind: "error",
         name: "FSharpEvaluationError",
         message: env.displayText ?? "Evaluation failed.",
-      });
-      break;
-    case "Table": {
+      },
+    ];
+  }
+
+  const specs: OutputItemSpec[] = [];
+  let bodyText: string;
+
+  switch (readUnionTag(env.kind)) {
+    case "Table":
       if (opts?.documentUri) {
         specs.push({ kind: "table-json", payload: buildTablePayload(env, opts.documentUri) });
       }
-      specs.push({
-        kind: "text",
-        text: formatTextTable(env.schema ?? [], env.rows ?? [], env.elapsedMs, env.isTruncated),
-      });
+      bodyText = formatTextTable(env.schema ?? [], env.rows ?? [], env.elapsedMs, env.isTruncated);
       break;
-    }
     case "NoValue":
-      if (typeof env.displayText === "string" && env.displayText.length > 0) {
-        specs.push({ kind: "text", text: env.displayText });
-      }
+      bodyText = typeof env.displayText === "string" ? env.displayText : "";
       break;
     default:
-      specs.push({ kind: "text", text: env.displayText ?? "" });
+      bodyText = env.displayText ?? "";
       break;
+  }
+
+  // FSI's declaration echo and any `printfn` output are folded into the
+  // `text/plain` item, never emitted as `application/vnd.code.notebook.stdout`.
+  // The stdout mime sits near the top of VS Code's default output display
+  // order — above a custom renderer — so a stdout item would always be the
+  // cell's default view and hide the grid. As `text/plain` this content
+  // ranks *below* the `application/x-fsquery-table+json` renderer: the
+  // grid shows by default, the raw echo is one click away in the output's
+  // presentation picker.
+  const text = [streamText(env), bodyText].filter((s) => s.length > 0).join("\n\n");
+  if (text.length > 0) {
+    specs.push({ kind: "text", text });
   }
 
   return specs;

@@ -7,10 +7,10 @@ versions are the extension's `package.json` `version` and map to
 
 ## [Unreleased]
 
-- **Fixed:** a cell that printed to stdout *and* produced a result showed
-  only the stdout text — the table grid was hidden behind the output's
-  "Change presentation" menu. stdout/stderr and the result now render as
-  separate cell outputs.
+- **Fixed:** a cell that produced a table showed only FSI's `val … =`
+  echo — the grid was hidden behind the output's "Change presentation"
+  menu. The grid is now the default view; FSI's declaration echo and any
+  `printf` output move to the `text/plain` "raw data" presentation.
 - **New F# Query Notebook** commands — `F# Query Studio: New F# Query
   Notebook` (Command Palette and File > New File…) opens a new untitled
   notebook with one empty F# cell; a folder's Explorer context menu gets

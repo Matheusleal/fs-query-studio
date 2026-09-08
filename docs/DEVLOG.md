@@ -2348,3 +2348,26 @@ assertions (two-output `[[stdout],[table-json,text]]` shape; flattened
 mime check). Verification: `npm test` **241/241**; `npm run compile`
 clean; `vscode-test --grep "fsquery-notebook integration"` **5/5**. See
 `docs/tasks/fix-notebook-output-mime-priority.md`.
+
+**Revised the same day (commit above superseded before push).** With the
+split fix in place the FSI echo and the grid were *both* visible,
+stacked. The user then clarified: the raw `val result: … =` /
+`val rows: … = [| … |]` dump should **not** be shown by default at all —
+only the table, with the raw dump available behind the output's
+presentation picker. A separate `NotebookCellOutput` can't be
+hidden-by-default (VS Code renders every output), so `groupOutputs` was
+removed. New shape: `mapEnvelope` folds every `env.output` line into the
+**single `text/plain` item** (`streamText + "\n\n" + body`, where `body`
+is the text grid for a Table or `displayText` otherwise) and never emits
+an `application/vnd.code.notebook.stdout` / `.stderr` item at all — that
+mime sits near the top of VS Code's `NOTEBOOK_DISPLAY_ORDER` and would
+always win the default view. A Table result is now one output with
+`[application/x-fsquery-table+json, text/plain]`: the grid renderer
+outranks `text/plain`, so the grid is the default and the folded FSI echo
+is the one-click "raw data" alternative. `Error` returns only the error
+item (echo discarded — a failure must not be buried). `OutputItemSpec`
+lost its `stdout`/`stderr` variants; `toOutputItem` lost those cases;
+`controller.ts` is back to one `new NotebookCellOutput(items)`.
+Verification: `npm test` **236/236**; `npm run compile` clean; full
+`vscode-test` **13/14** (the one failure is the pre-existing
+`KNOWN NPGSQL VARIANCE` in `connections.test.ts`, unrelated).

@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { FSQNB_NOTEBOOK_TYPE } from "./serializer";
-import { groupOutputs, mapEnvelope, type OutputItemSpec } from "./result";
+import { mapEnvelope, type OutputItemSpec } from "./result";
 import { FSQUERY_TABLE_MIME } from "../renderer/types";
 import {
   newRequestId,
@@ -33,10 +33,6 @@ export interface ControllerDeps {
 
 function toOutputItem(spec: OutputItemSpec): vscode.NotebookCellOutputItem {
   switch (spec.kind) {
-    case "stdout":
-      return vscode.NotebookCellOutputItem.stdout(spec.text);
-    case "stderr":
-      return vscode.NotebookCellOutputItem.stderr(spec.text);
     case "text":
       return vscode.NotebookCellOutputItem.text(spec.text, "text/plain");
     case "table-json":
@@ -148,13 +144,14 @@ export function createFsQueryController(deps: ControllerDeps): vscode.NotebookCo
         }
 
         const envelope = response.result as ResultEnvelope | null | undefined;
-        // One `NotebookCellOutput` per group: stream lines separate from the
-        // result value, so VS Code shows both at once instead of picking the
-        // stdout mime and hiding the grid behind the presentation menu.
-        const outputs = groupOutputs(mapEnvelope(envelope, { documentUri: sessionId })).map(
-          (group) => new vscode.NotebookCellOutput(group.map(toOutputItem)),
-        );
-        exec.replaceOutput(outputs);
+        // One output holding every representation of the result: the
+        // `application/x-fsquery-table+json` grid renders by default, the
+        // `text/plain` item (FSI echo + printf output + a text grid) is the
+        // "raw data" view in the output's presentation picker. `mapEnvelope`
+        // never emits a stdout/stderr mime, which would otherwise outrank
+        // the grid and become the default view.
+        const items = mapEnvelope(envelope, { documentUri: sessionId }).map(toOutputItem);
+        exec.replaceOutput(new vscode.NotebookCellOutput(items));
 
         const isError = !envelope || readUnionTag(envelope.kind) === "Error";
         exec.end(!isError, Date.now());
