@@ -2524,3 +2524,36 @@ Files: `src/FSharpQueryStudio.Results/Projection.fs`,
 `editors/vscode/README.md`, `docs/TUTORIAL.md`,
 `docs/superpowers/specs/2026-09-08-notebook-tail-value-results-design.md` (new),
 `docs/superpowers/plans/2026-09-08-notebook-tail-value-results.md` (new).
+
+## 2026-09-09 — Notebook cells reach the worker as append fragments, not whole-document runs
+
+`execution/evaluate` now lets a client pick the persistent-session update
+policy. `EvaluateParams` gained `IsNotebookCell: bool`. When it is `true` on a
+`Persistent` run with a `SessionId`, `Handlers.runEvaluate` dispatches to
+`SessionStore.appendFragment` instead of `SessionStore.getOrCreate` — the
+notebook policy that grows the session's execution log by one and never
+invalidates, so cell 2 sees cell 1's bindings even when cell 2's text is not a
+prefix of cell 1's. `false` (the whole-document default, F5 Run) keeps
+`getOrCreate`'s prefix-based revise-in-place invalidation.
+
+`appendFragment` has existed since E.4 but was proven mechanism-only,
+in-process — no protocol or worker path selected it. This is the wiring E.4
+deferred: the VS Code notebook controller sets `isNotebookCell: true` on every
+cell submission (`controller.ts`), and the flag rides the wire through
+`protocol.ts` / `Payloads.fs`.
+
+Tests: `EvaluateParams` JSON round-trip carries the new field
+(`Protocol.Tests`); a two-cell worker-level case — `let a = 20` / `let b =
+a + 1` then a bare `b + 1` — asserts the second cell resolves `b` to `22`
+(`HandlersTests.fs`), which `getOrCreate` would have failed by discarding the
+session. Controller test asserts the outgoing param. Full suites green:
+`Protocol.Tests` 10, `Worker.Tests` 63, vscode vitest 243.
+
+Files: `src/FSharpQueryStudio.Protocol/Payloads.fs`,
+`src/FSharpQueryStudio.Worker/Handlers.fs`,
+`editors/vscode/src/protocol.ts`,
+`editors/vscode/src/notebook/controller.ts`,
+`tests/FSharpQueryStudio.Protocol.Tests/Tests.fs`,
+`tests/FSharpQueryStudio.Worker.Tests/HandlersTests.fs`,
+`tests/FSharpQueryStudio.Worker.Tests/HandlersLoggingTests.fs`,
+`editors/vscode/src/notebook/controller.test.ts`.

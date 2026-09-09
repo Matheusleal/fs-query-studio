@@ -135,6 +135,13 @@ module Handlers =
 
             let session =
                 match evalParams.Mode, evalParams.SessionId with
+                | Persistent, Some sessionId when evalParams.IsNotebookCell ->
+                    Log.Information(
+                        "Appending notebook cell to persistent FSI session {SessionId} in {WorkingDirectory}",
+                        sessionId,
+                        workDir
+                    )
+                    SessionStore.appendFragment sessionId workDir evalParams.Source
                 | Persistent, Some sessionId ->
                     Log.Information("Evaluating persistent FSI session {SessionId} in {WorkingDirectory}", sessionId, workDir)
                     SessionStore.getOrCreate sessionId workDir evalParams.Source

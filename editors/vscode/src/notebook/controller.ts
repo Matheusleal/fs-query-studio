@@ -112,6 +112,9 @@ export function createFsQueryController(deps: ControllerDeps): vscode.NotebookCo
         sessionId,
         mode: SESSION_MODE_PERSISTENT,
         documentUri: sessionId,
+        // Each cell is its own submission — the worker appends it to the
+        // notebook's session so later cells see earlier cells' bindings.
+        isNotebookCell: true,
       };
 
       let response: WorkerResponseFrame;

@@ -38,7 +38,8 @@ let private evaluateRequest (id: string) (source: string) : WorkerRequestFrame =
             { Source = source
               SessionId = None
               Mode = Isolated
-              DocumentUri = "untitled:Test.fsx" },
+              DocumentUri = "untitled:Test.fsx"
+              IsNotebookCell = false },
             Serialization.options
         ) }
 
@@ -50,7 +51,25 @@ let private persistentEvaluateRequest (id: string) (source: string) (sessionId: 
             { Source = source
               SessionId = Some sessionId
               Mode = Persistent
-              DocumentUri = "untitled:Test.fsx" },
+              DocumentUri = "untitled:Test.fsx"
+              IsNotebookCell = false },
+            Serialization.options
+        ) }
+
+/// A single notebook cell against a persistent session: the worker
+/// appends `source` to `sessionId`'s session (`SessionStore.appendFragment`),
+/// so a later cell sees an earlier cell's bindings even when its text is
+/// not a prefix of what ran before.
+let private notebookCellRequest (id: string) (source: string) (sessionId: string) : WorkerRequestFrame =
+    { Id = id
+      Method = "execution/evaluate"
+      Params =
+        JsonSerializer.SerializeToElement<EvaluateParams>(
+            { Source = source
+              SessionId = Some sessionId
+              Mode = Persistent
+              DocumentUri = sessionId
+              IsNotebookCell = true },
             Serialization.options
         ) }
 
@@ -62,7 +81,8 @@ let private evaluateRequestFor (id: string) (documentUri: string) (source: strin
             { Source = source
               SessionId = None
               Mode = Isolated
-              DocumentUri = documentUri },
+              DocumentUri = documentUri
+              IsNotebookCell = false },
             Serialization.options
         ) }
 
@@ -396,6 +416,35 @@ let ``handleEvaluate reuses a Persistent-mode session's bindings across two call
 
         Assert.Equal(ResultKind.Scalar, envelope.Kind)
         Assert.Equal(Some "42", envelope.DisplayText)
+    finally
+        SessionStore.reset sessionId
+
+[<Fact>]
+let ``a notebook cell sees an earlier cell's bindings even when its source is not a prefix of the earlier cell`` () =
+    let sessionId = "nb-" + System.Guid.NewGuid().ToString("N")
+
+    try
+        // Cell 1: two let bindings, last line is a binding (no tail value).
+        let cell1 =
+            Handlers.handleEvaluate (
+                notebookCellRequest "nb1" "let a = 20\nlet b = a + 1" sessionId
+            )
+
+        Assert.True(cell1.Error.IsNone)
+
+        // Cell 2: a bare reference to cell 1's binding. This is NOT a text
+        // prefix of cell 1, so `SessionStore.getOrCreate` would have
+        // discarded the session and `b` would be undefined. `appendFragment`
+        // keeps it.
+        let cell2 = Handlers.handleEvaluate (notebookCellRequest "nb2" "b + 1" sessionId)
+
+        Assert.True(cell2.Error.IsNone)
+
+        let envelope =
+            JsonSerializer.Deserialize<ResultEnvelope>(cell2.Result.Value, Serialization.options)
+
+        Assert.Equal(ResultKind.Scalar, envelope.Kind)
+        Assert.Equal(Some "22", envelope.DisplayText)
     finally
         SessionStore.reset sessionId
 

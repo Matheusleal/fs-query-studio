@@ -48,7 +48,8 @@ let private evaluateRequest (id: string) (source: string) : WorkerRequestFrame =
             { Source = source
               SessionId = None
               Mode = Isolated
-              DocumentUri = "untitled:Test.fsx" },
+              DocumentUri = "untitled:Test.fsx"
+              IsNotebookCell = false },
             Serialization.options
         ) }
 

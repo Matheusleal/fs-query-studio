@@ -42,6 +42,7 @@ describe("createFsQueryController — executeHandler", () => {
     expect(sent[0].params.sessionId).toBe("file:///a.fsqnb");
     expect(sent[0].params.documentUri).toBe("file:///a.fsqnb");
     expect(sent[0].params.source).toBe("1 + 1");
+    expect(sent[0].params.isNotebookCell).toBe(true);
   });
 
   it("writes the mapped outputs and ends the execution successfully for a non-error result", async () => {

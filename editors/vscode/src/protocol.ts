@@ -76,6 +76,12 @@ export interface EvaluateParams {
   sessionId: string | null;
   mode: UnionTag<SessionModeName>;
   documentUri: string;
+  /**
+   * `true` when `source` is a single notebook cell: the worker appends it
+   * to the persistent session so later cells see earlier cells' bindings.
+   * `false` keeps the whole-document revise-in-place session semantics.
+   */
+  isNotebookCell: boolean;
 }
 
 export interface SessionResetParams {
