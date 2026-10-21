@@ -19,4 +19,9 @@
     <ProjectReference Include="..\FSharpQueryStudio.Results\FSharpQueryStudio.Results.fsproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Update="FSharp.Core" Version="10.1.402" />
+    <PackageReference Update="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+  </ItemGroup>
+
 </Project>
