@@ -1,0 +1,4 @@
+{
+  "name": "dead-code-cleaner",
+  "description": "Subagente especialista em purga de código morto, remoção de arquivos e testes órfãos da era Avalonia UI e limpeza de diretórios fantasmas no F# Query Studio."
+}

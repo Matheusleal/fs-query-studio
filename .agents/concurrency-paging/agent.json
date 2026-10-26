@@ -1,0 +1,4 @@
+{
+  "name": "concurrency-paging",
+  "description": "Subagente especialista em gerenciamento de concorrência e cursores de paginação de resultados no Worker, eliminando race conditions e conflitos entre notebooks."
+}
