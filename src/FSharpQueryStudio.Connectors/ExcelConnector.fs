@@ -36,6 +36,7 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
         | Some name -> workbook.Worksheet(name)
         | None -> workbook.Worksheets |> Seq.head
 
+    member _.FilePath = filePath
     member _.Options = options
 
     /// Reads at most `maxRows` data rows from the target sheet - Section
@@ -44,11 +45,14 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
     /// from the sheet's first used row when `options.HasHeader`, else
     /// synthesized as `Column1`, `Column2`, ... with every used row
     /// treated as data.
-    member _.ReadRows(?maxRows: int) : ConnectorQueryResult =
+    member _.ReadRows(?sheetName: string, ?maxRows: int) : ConnectorQueryResult =
         let maxRows = defaultArg maxRows 500
 
         use workbook = new XLWorkbook(filePath)
-        let sheet = selectSheet workbook
+        let sheet =
+            match sheetName with
+            | Some name -> workbook.Worksheet(name)
+            | None -> selectSheet workbook
         let usedRange = sheet.RangeUsed()
 
         if isNull usedRange then

@@ -18,7 +18,8 @@ import { FSHARP_CELL_SELECTOR } from "./providers";
  * is here, inside the quotes, no closing quote yet". `\(?` covers both
  * `Connections.sql "…` and `Connections.sql("…`.
  */
-const PATTERN = /Connections\.(?:sql|csv|excel|rest|connect|get|query|queryCsv|queryExcel|getConnectionString)\s*\(?\s*"[^"]*$/;
+const PATTERN =
+  /Connections\.(?:sql|csv|excel|rest|connect|connectCsv|connectExcel|connectRest|get|query|queryCsv|queryExcel|queryJson|getConnectionString)\s*\(?\s*"[^"]*$/;
 
 /** Pure. `linePrefix` is the text of the cursor's line up to the cursor. */
 export function isInsideConnectionNameArgument(linePrefix: string): boolean {

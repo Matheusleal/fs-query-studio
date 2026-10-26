@@ -105,6 +105,7 @@ module CsvConversions =
 type CsvConnector(filePath: string, ?options: CsvOptions) =
     let options = defaultArg options CsvOptions.Default
 
+    member _.FilePath = filePath
     member _.Options = options
 
     /// Streams rows as a lazy sequence — Section 10's streaming-read

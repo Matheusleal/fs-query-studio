@@ -205,6 +205,48 @@ module Connections =
                 yield mapper row
         }
 
+    /// Reads Excel rows from a specific sheet into strongly-typed records/primitives with high performance.
+    let queryExcelSheet<'T> (name: string) (sheetName: string option) (maxRows: int option) : 'T seq =
+        match resolve name with
+        | :? ExcelConnector as c ->
+            let stopwatch = Stopwatch.StartNew()
+            let result = c.ReadRows(?sheetName = sheetName, ?maxRows = maxRows)
+            let logged = { result with Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows }
+            let mapper = getMapper<'T> logged.Columns
+            seq {
+                for row in logged.Rows do
+                    yield mapper row
+            }
+        | other -> unsupported name "Connections.queryExcelSheet" other
+
+    /// Sends a request or reads from a REST/JSON connection into strongly-typed records.
+    let queryJsonWithOptions<'T> (name: string) (options: RestRequestOptions option) : 'T seq =
+        match resolve name with
+        | :? RestConnector as c ->
+            let opts = defaultArg options c.BaseOptions
+            let elem = (c.SendAsync opts CancellationToken.None).GetAwaiter().GetResult()
+            let jsonText = elem.GetRawText()
+            let items: 'T list =
+                if elem.ValueKind = JsonValueKind.Array then
+                    JsonSerializer.Deserialize<'T list>(jsonText, Serialization.options)
+                elif elem.ValueKind = JsonValueKind.Object then
+                    let arrayProp =
+                        elem.EnumerateObject()
+                        |> Seq.tryFind (fun prop -> prop.Value.ValueKind = JsonValueKind.Array)
+                    match arrayProp with
+                    | Some prop ->
+                        JsonSerializer.Deserialize<'T list>(prop.Value.GetRawText(), Serialization.options)
+                    | None ->
+                        [ JsonSerializer.Deserialize<'T>(jsonText, Serialization.options) ]
+                else
+                    []
+            items :> 'T seq
+        | other -> unsupported name "Connections.queryJson" other
+
+    /// Sends a request with default options or reads from a REST/JSON connection into strongly-typed records.
+    let queryJson<'T> (name: string) : 'T seq =
+        queryJsonWithOptions<'T> name None
+
     /// Represents an active database connection with first-class query and schema discovery members for autocomplete.
     type DatabaseConnection(name: string, connector: IQueryableConnector) =
         member _.Name = name
@@ -306,6 +348,8 @@ module Connections =
                     sb.AppendLine() |> ignore
 
             sb.AppendLine("    type Database(conn: FSharpQueryStudio.Connectors.Connections.DatabaseConnection) =") |> ignore
+            sb.AppendLine($"        new(connName: string) = Database(FSharpQueryStudio.Connectors.Connections.connect(connName))") |> ignore
+            sb.AppendLine($"        new() = Database(\"{name}\")") |> ignore
             for (schema, tbls) in schemaGroups do
                 sb.AppendLine($"        member _.{escapeIdent schema} =") |> ignore
                 sb.AppendLine("            {|") |> ignore
@@ -319,6 +363,9 @@ module Connections =
                     sb.AppendLine($"                {propName} = conn.Queryable<{escapeIdent schema}.{propName}>(\"{sqlQuery}\")") |> ignore
                 sb.AppendLine("            |}") |> ignore
                 sb.AppendLine() |> ignore
+            sb.AppendLine("    let database () : Database = Database()") |> ignore
+            sb.AppendLine("    let db () : Database = Database()") |> ignore
+            sb.AppendLine() |> ignore
 
             sb.ToString()
 
@@ -333,6 +380,34 @@ module Connections =
                 | _ -> "Common.DatabaseProviderTypes.POSTGRESQL"
             $"open FSharp.Data.Sql\n\n[<Literal>]\nlet private connStr = \"{connector.ConnectionString}\"\n\ntype {alias} = SqlDataProvider<\n    DatabaseVendor = {vendor},\n    ConnectionString = connStr >\n\nlet db = {alias}.GetDataContext()\n"
 
+    /// Represents an active CSV connection with typed row queries and autocomplete.
+    type CsvConnection(name: string, connector: CsvConnector) =
+        member _.Name = name
+        member _.Connector = connector
+        member _.FilePath = connector.FilePath
+        member _.Rows<'T>() : 'T seq = queryCsv<'T> name
+        member this.Queryable<'T>() : IQueryable<'T> = (this.Rows<'T>()).AsQueryable()
+        member _.Raw() : ConnectorQueryResult = csv name
+
+    /// Represents an active Excel workbook connection with multi-sheet typed queries.
+    type ExcelConnection(name: string, connector: ExcelConnector) =
+        member _.Name = name
+        member _.Connector = connector
+        member _.FilePath = connector.FilePath
+        member _.Rows<'T>(?maxRows: int) : 'T seq = queryExcel<'T> name maxRows
+        member _.Sheet<'T>(sheetName: string, ?maxRows: int) : 'T seq = queryExcelSheet<'T> name (Some sheetName) maxRows
+        member this.Queryable<'T>(?maxRows: int) : IQueryable<'T> = (this.Rows<'T>(?maxRows = maxRows)).AsQueryable()
+        member this.SheetQueryable<'T>(sheetName: string, ?maxRows: int) : IQueryable<'T> = (this.Sheet<'T>(sheetName, ?maxRows = maxRows)).AsQueryable()
+        member _.Raw(?maxRows: int) : ConnectorQueryResult = excel name maxRows
+
+    /// Represents an active REST/JSON connection with typed queries.
+    type RestConnection(name: string, connector: RestConnector) =
+        member _.Items<'T>(?options: RestRequestOptions) : 'T seq = queryJsonWithOptions<'T> name options
+        member this.Queryable<'T>(?options: RestRequestOptions) : IQueryable<'T> = (this.Items<'T>(?options = options)).AsQueryable()
+        member _.SendAsync(options: RestRequestOptions, ?ct: CancellationToken) : Task<JsonElement> =
+            let token = defaultArg ct CancellationToken.None
+            connector.SendAsync options token
+
     /// Retrieves a first-class connection object exposing Query, Queryable, Execute, Schema and Tables.
     let get (name: string) : DatabaseConnection =
         match resolve name with
@@ -341,6 +416,24 @@ module Connections =
 
     /// Alias for `Connections.get`.
     let connect (name: string) : DatabaseConnection = get name
+
+    /// Retrieves a first-class CSV connection object.
+    let connectCsv (name: string) : CsvConnection =
+        match resolve name with
+        | :? CsvConnector as c -> CsvConnection(name, c)
+        | other -> unsupported name "Connections.connectCsv" other
+
+    /// Retrieves a first-class Excel connection object.
+    let connectExcel (name: string) : ExcelConnection =
+        match resolve name with
+        | :? ExcelConnector as c -> ExcelConnection(name, c)
+        | other -> unsupported name "Connections.connectExcel" other
+
+    /// Retrieves a first-class REST/JSON connection object.
+    let connectRest (name: string) : RestConnection =
+        match resolve name with
+        | :? RestConnector as c -> RestConnection(name, c)
+        | other -> unsupported name "Connections.connectRest" other
 
 
 [<AutoOpen>]
