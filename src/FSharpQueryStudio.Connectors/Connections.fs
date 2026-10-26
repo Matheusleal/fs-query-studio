@@ -226,6 +226,95 @@ module Connections =
         member this.Schema : ConnectorTable list =
             this.DiscoverSchemaAsync().Result
 
+        /// Generates strongly-typed F# entity record types and a Database accessor class for all discovered tables and schemas.
+        member this.GenerateEntities(?moduleName: string) : string =
+            let modName =
+                match moduleName with
+                | Some m -> m
+                | None ->
+                    let clean = System.Text.RegularExpressions.Regex.Replace(name, @"[^a-zA-Z0-9_]", "_")
+                    $"{clean}Db"
+
+            let keywords =
+                set [ "type"; "module"; "open"; "let"; "val"; "member"; "as"; "match"; "with"; "if"; "then"; "else";
+                      "end"; "in"; "do"; "done"; "to"; "downto"; "new"; "default"; "override"; "static"; "interface";
+                      "class"; "struct"; "inherit"; "abstract"; "rec"; "public"; "private"; "internal" ]
+
+            let escapeIdent (s: string) =
+                if System.Text.RegularExpressions.Regex.IsMatch(s, @"^[a-zA-Z][a-zA-Z0-9_]*$") && not (Set.contains s keywords) then
+                    s
+                else
+                    $"``{s}``"
+
+            let mapType (t: string) =
+                let lower = t.ToLowerInvariant()
+                if lower.Contains("bigint") || lower.Contains("int8") || lower.Contains("bigserial") then "int64"
+                elif lower.Contains("integer") || lower.Contains("int4") || lower.Contains("serial") || lower = "int" then "int"
+                elif lower.Contains("smallint") || lower.Contains("int2") then "int16"
+                elif lower.Contains("bool") || lower.Contains("bit") then "bool"
+                elif lower.Contains("uuid") || lower.Contains("uniqueidentifier") then "System.Guid"
+                elif lower.Contains("time") || lower.Contains("date") then "System.DateTime"
+                elif lower.Contains("decimal") || lower.Contains("numeric") || lower.Contains("money") then "decimal"
+                elif lower.Contains("double") || lower.Contains("float8") || lower = "float" then "double"
+                elif lower.Contains("real") || lower.Contains("float4") then "single"
+                elif lower.Contains("bytea") || lower.Contains("blob") || lower.Contains("binary") then "byte[]"
+                elif lower.Contains("char") || lower.Contains("text") || lower.Contains("json") then "string"
+                else "obj"
+
+            let sb = System.Text.StringBuilder()
+            sb.AppendLine($"module {escapeIdent modName} =") |> ignore
+            sb.AppendLine() |> ignore
+
+            let tables = this.Schema
+            let schemaGroups =
+                tables
+                |> Seq.groupBy (fun t ->
+                    let dotIdx = t.Name.IndexOf(".")
+                    if dotIdx > 0 then t.Name.Substring(0, dotIdx) else "public")
+                |> Seq.sortBy fst
+
+            for (schema, tbls) in schemaGroups do
+                sb.AppendLine($"    module {escapeIdent schema} =") |> ignore
+                for t in tbls do
+                    let rawTableName =
+                        let dotIdx = t.Name.IndexOf(".")
+                        if dotIdx > 0 then t.Name.Substring(dotIdx + 1) else t.Name
+                    let typeName = escapeIdent rawTableName
+                    sb.AppendLine($"        type {typeName} =") |> ignore
+                    sb.AppendLine("            {") |> ignore
+                    for col in t.Columns do
+                        sb.AppendLine($"                {escapeIdent col.Name}: {mapType col.DataType}") |> ignore
+                    sb.AppendLine("            }") |> ignore
+                    sb.AppendLine() |> ignore
+
+            sb.AppendLine("    type Database(conn: FSharpQueryStudio.Connectors.Connections.DatabaseConnection) =") |> ignore
+            for (schema, tbls) in schemaGroups do
+                sb.AppendLine($"        member _.{escapeIdent schema} =") |> ignore
+                sb.AppendLine("            {|") |> ignore
+                for t in tbls do
+                    let rawTableName =
+                        let dotIdx = t.Name.IndexOf(".")
+                        if dotIdx > 0 then t.Name.Substring(dotIdx + 1) else t.Name
+                    let propName = escapeIdent rawTableName
+                    let colList = t.Columns |> List.map (fun c -> c.Name) |> String.concat ", "
+                    let sqlQuery = $"SELECT {colList} FROM {t.Name}"
+                    sb.AppendLine($"                {propName} = conn.Queryable<{escapeIdent schema}.{propName}>(\"{sqlQuery}\")") |> ignore
+                sb.AppendLine("            |}") |> ignore
+                sb.AppendLine() |> ignore
+
+            sb.ToString()
+
+        /// Generates a SQLProvider declaration snippet for this database connection.
+        member this.GenerateSqlProvider(?typeAlias: string) : string =
+            let alias = defaultArg typeAlias "Db"
+            let vendor =
+                match (connector :> IConnector).Kind with
+                | ConnectorKind.PostgreSql -> "Common.DatabaseProviderTypes.POSTGRESQL"
+                | ConnectorKind.SqlServer -> "Common.DatabaseProviderTypes.MSSQLSERVER"
+                | ConnectorKind.Sqlite -> "Common.DatabaseProviderTypes.SQLITE"
+                | _ -> "Common.DatabaseProviderTypes.POSTGRESQL"
+            $"open FSharp.Data.Sql\n\n[<Literal>]\nlet private connStr = \"{connector.ConnectionString}\"\n\ntype {alias} = SqlDataProvider<\n    DatabaseVendor = {vendor},\n    ConnectionString = connStr >\n\nlet db = {alias}.GetDataContext()\n"
+
     /// Retrieves a first-class connection object exposing Query, Queryable, Execute, Schema and Tables.
     let get (name: string) : DatabaseConnection =
         match resolve name with

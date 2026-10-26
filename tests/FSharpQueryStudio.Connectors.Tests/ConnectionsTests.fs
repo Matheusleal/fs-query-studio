@@ -227,3 +227,15 @@ let ``Connections.get and Connections.connect return DatabaseConnection exposing
     let execResult = connAlias.Execute("select count(*) from Orders")
     Assert.Equal(1, Seq.length execResult.Rows)
 
+    let entitiesCode = conn.GenerateEntities()
+    Assert.Contains("module SalesDb =", entitiesCode)
+    Assert.Contains("type Orders =", entitiesCode)
+    Assert.Contains("Id: int", entitiesCode)
+    Assert.Contains("Name: string", entitiesCode)
+    Assert.Contains("type Database", entitiesCode)
+
+    let sqlProviderCode = conn.GenerateSqlProvider()
+    Assert.Contains("SqlDataProvider<", sqlProviderCode)
+    Assert.Contains("DatabaseVendor = Common.DatabaseProviderTypes.SQLITE", sqlProviderCode)
+
+
