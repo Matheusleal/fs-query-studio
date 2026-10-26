@@ -1,0 +1,4 @@
+{
+  "name": "linq-type-provider",
+  "description": "Subagente especialista na integração de Type Providers (SQLProvider) e helpers de consulta LINQ com alta performance no FSharpQueryStudio."
+}

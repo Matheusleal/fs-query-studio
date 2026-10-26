@@ -1,0 +1,4 @@
+{
+  "name": "schema-discovery",
+  "description": "Subagente especialista em descoberta multi-schema de metadados (tabelas, views e colunas) em bancos de dados relacionais (PostgreSQL, SQL Server, SQLite)."
+}

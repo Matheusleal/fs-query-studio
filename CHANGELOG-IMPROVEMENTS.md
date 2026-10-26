@@ -17,6 +17,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 | **ITEM-06** | Refatoração de Conectores, Sockets HTTP e DataReaders | `connectors-refactor` | 🟢 Concluído |
 | **ITEM-07** | Otimização de Performance e Reflexão na Projeção | `projection-performance` | 🟢 Concluído |
 | **ITEM-08** | Ativação de Provedores Go-to-Definition e Rename no VS Code | `vscode-lang-features` | 🟢 Concluído |
+| **ITEM-09** | Descoberta Multi-Schema e Consultas LINQ com Type Provider | `schema-discovery`, `linq-type-provider`, `integration-tests` | 🟡 Em Progresso |
 
 ---
 
@@ -141,3 +142,20 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 - **Critério de Aceite**: Navegação para definição (F12) e renomeação de identificadores (F2) funcionam nativamente nas células de notebook F#.
 - **Registro de Mudanças**:
   - `STEP-12 Concluído`: Ativados os endpoints de análise `analysis/definition` e `analysis/rename` no cliente TypeScript (`analysis-client.ts`), com mapeamento bidirecional de células e linhas de notebook (`mapSourcePositionToCell` e `mapSourceRangeToCell` em `providers.ts`). Registrados `DefinitionProvider` e `RenameProvider` no VS Code. Todos os 245 testes unitários e de integração do VS Code passando com sucesso.
+
+---
+
+### [ITEM-09] Descoberta Multi-Schema e Consultas LINQ com Type Provider
+- **Subagentes**: `schema-discovery`, `linq-type-provider`, `integration-tests`
+- **Status**: 🟡 Em Progresso
+- **Objetivos**:
+  - **Descoberta Multi-Schema**: Expandir a descoberta de schemas em todos os bancos suportados (PostgreSQL, SQL Server, SQLite) para incluir múltiplos schemas de usuário (ex: `dbo`, schemas customizados), nomeando tabelas com prefixo do schema quando fora do default (ex: `dbo.MinhaTabela`).
+  - **Type Provider & Consultas LINQ**: Adicionar suporte ao `SQLProvider` (`FSharp.Data.SqlProvider`) com gerenciamento centralizado de pacotes (CPM) e helpers LINQ de alta performance (`asQueryable`, mapeamentos tipados) sem degradação de throughput.
+  - **Testes de Integração Locais Dedicados**: Suíte de testes automatizados com arquivos locais para SQLite e containers Docker (Testcontainers) para PostgreSQL e SQL Server, cobrindo criação de schemas, tabelas e consultas LINQ.
+- **Critério de Aceite**:
+  1. Conexões PostgreSQL com schemas como `dbo` mapeiam e exibem suas tabelas e colunas na árvore do VS Code.
+  2. Suporte a consultas LINQ com tipagem estática e operadores `query { ... }` funcionando nas conexões.
+  3. 100% dos testes passando localmente e no container Linux (`docker run`).
+- **Registro de Mudanças**:
+  - `STEP-13 [Em Progresso]`: Inicialização da branch `feature/multi-schema-discovery-and-linq` e planejamento dos subagentes.
+

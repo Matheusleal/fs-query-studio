@@ -44,7 +44,7 @@ type PostgreSqlConnector(connectionString: string) =
 
         { Columns = columns; Rows = rows }
 
-    /// Every base table and column in the `public` schema, via
+    /// Every base table, view and column across user schemas, via
     /// `information_schema` — Section 10's "schema discovery".
     member _.DiscoverSchemaAsync(ct: CancellationToken) : Task<ConnectorTable list> =
         task {
@@ -53,33 +53,37 @@ type PostgreSqlConnector(connectionString: string) =
             use command = connection.CreateCommand()
 
             command.CommandText <-
-                "select t.table_name, c.column_name, c.data_type \
+                "select t.table_schema, t.table_name, c.column_name, c.data_type \
                  from information_schema.tables t \
                  join information_schema.columns c \
                    on c.table_name = t.table_name and c.table_schema = t.table_schema \
-                 where t.table_type = 'BASE TABLE' and t.table_schema = 'public' \
-                 order by t.table_name, c.ordinal_position"
+                 where t.table_type in ('BASE TABLE', 'VIEW') \
+                   and t.table_schema not in ('information_schema', 'pg_catalog') \
+                   and t.table_schema not like 'pg_%' \
+                 order by t.table_schema, t.table_name, c.ordinal_position"
 
             use! reader = command.ExecuteReaderAsync(ct)
-            let rows = ResizeArray<string * string * string>()
+            let rows = ResizeArray<string * string * string * string>()
             let mutable hasRow = true
 
             while hasRow do
                 let! more = reader.ReadAsync(ct)
 
                 if more then
-                    rows.Add(reader.GetString(0), reader.GetString(1), reader.GetString(2))
+                    rows.Add(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3))
                 else
                     hasRow <- false
 
             return
                 rows
-                |> Seq.groupBy (fun (tableName, _, _) -> tableName)
-                |> Seq.map (fun (tableName, tableRows) ->
-                    { Name = tableName
+                |> Seq.groupBy (fun (schema, tableName, _, _) ->
+                    if schema = "public" then tableName
+                    else $"{schema}.{tableName}")
+                |> Seq.map (fun (displayName, tableRows) ->
+                    { Name = displayName
                       Columns =
                         tableRows
-                        |> Seq.map (fun (_, columnName, dataType) -> ({ Name = columnName; DataType = dataType }: ConnectorColumn))
+                        |> Seq.map (fun (_, _, columnName, dataType) -> ({ Name = columnName; DataType = dataType }: ConnectorColumn))
                         |> List.ofSeq }: ConnectorTable)
                 |> List.ofSeq
         }

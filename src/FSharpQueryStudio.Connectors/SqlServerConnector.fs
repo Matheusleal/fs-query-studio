@@ -44,7 +44,7 @@ type SqlServerConnector(connectionString: string) =
 
         { Columns = columns; Rows = rows }
 
-    /// Every base table and column via `INFORMATION_SCHEMA` — Section
+    /// Every base table, view and column via `INFORMATION_SCHEMA` — Section
     /// 10's "schema discovery".
     member _.DiscoverSchemaAsync(ct: CancellationToken) : Task<ConnectorTable list> =
         task {
@@ -53,33 +53,35 @@ type SqlServerConnector(connectionString: string) =
             use command = connection.CreateCommand()
 
             command.CommandText <-
-                "select t.TABLE_NAME, c.COLUMN_NAME, c.DATA_TYPE \
+                "select t.TABLE_SCHEMA, t.TABLE_NAME, c.COLUMN_NAME, c.DATA_TYPE \
                  from INFORMATION_SCHEMA.TABLES t \
                  join INFORMATION_SCHEMA.COLUMNS c \
                    on c.TABLE_NAME = t.TABLE_NAME and c.TABLE_SCHEMA = t.TABLE_SCHEMA \
-                 where t.TABLE_TYPE = 'BASE TABLE' \
-                 order by t.TABLE_NAME, c.ORDINAL_POSITION"
+                 where t.TABLE_TYPE in ('BASE TABLE', 'VIEW') \
+                 order by t.TABLE_SCHEMA, t.TABLE_NAME, c.ORDINAL_POSITION"
 
             use! reader = command.ExecuteReaderAsync(ct)
-            let rows = ResizeArray<string * string * string>()
+            let rows = ResizeArray<string * string * string * string>()
             let mutable hasRow = true
 
             while hasRow do
                 let! more = reader.ReadAsync(ct)
 
                 if more then
-                    rows.Add(reader.GetString(0), reader.GetString(1), reader.GetString(2))
+                    rows.Add(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3))
                 else
                     hasRow <- false
 
             return
                 rows
-                |> Seq.groupBy (fun (tableName, _, _) -> tableName)
-                |> Seq.map (fun (tableName, tableRows) ->
-                    { Name = tableName
+                |> Seq.groupBy (fun (schema, tableName, _, _) ->
+                    if String.Equals(schema, "dbo", StringComparison.OrdinalIgnoreCase) then tableName
+                    else $"{schema}.{tableName}")
+                |> Seq.map (fun (displayName, tableRows) ->
+                    { Name = displayName
                       Columns =
                         tableRows
-                        |> Seq.map (fun (_, columnName, dataType) -> ({ Name = columnName; DataType = dataType }: ConnectorColumn))
+                        |> Seq.map (fun (_, _, columnName, dataType) -> ({ Name = columnName; DataType = dataType }: ConnectorColumn))
                         |> List.ofSeq }: ConnectorTable)
                 |> List.ofSeq
         }
