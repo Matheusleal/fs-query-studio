@@ -1,0 +1,30 @@
+#!/bin/sh
+# Guardrail to prevent direct commits to protected branches (main / master)
+
+current_branch="$(git rev-parse --abbrev-ref HEAD)"
+
+if [ "$current_branch" = "main" ] || [ "$current_branch" = "master" ]; then
+    if [ "$ALLOW_PROTECTED_COMMIT" = "1" ]; then
+        exit 0
+    fi
+
+    echo ""
+    echo "========================================================================"
+    echo " [GIT PROTECTION] Direct commits to '$current_branch' are not allowed!"
+    echo "========================================================================"
+    echo " AI agents and developers must always work on a dedicated branch."
+    echo " Please create a feature branch and open a Pull Request:"
+    echo ""
+    echo "   git checkout -b feature/your-feature-name"
+    echo "   git commit ..."
+    echo "   git push -u origin feature/your-feature-name"
+    echo "   gh pr create"
+    echo ""
+    echo " (If you strictly need to commit directly to '$current_branch', use:"
+    echo "  ALLOW_PROTECTED_COMMIT=1 git commit ... or git commit --no-verify)"
+    echo "========================================================================"
+    echo ""
+    exit 1
+fi
+
+exit 0
