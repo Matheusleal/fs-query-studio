@@ -1,18 +1,7 @@
 name: vscode-extension
 
 on:
-  push:
-    branches: [main, main-vscode]
-    paths:
-      - "editors/vscode/**"
-      - "src/FSharpQueryStudio.Worker/**"
-      - "src/FSharpQueryStudio.Protocol/**"
-      - ".github/workflows/vscode-extension.yml"
-  pull_request:
-    paths:
-      - "editors/vscode/**"
-      - "src/**"
-      - ".github/workflows/vscode-extension.yml"
+  workflow_dispatch:
 
 jobs:
   build-test:
