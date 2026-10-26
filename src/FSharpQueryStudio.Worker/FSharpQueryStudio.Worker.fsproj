@@ -9,12 +9,15 @@
 
   <ItemGroup>
     <Compile Include="NdjsonStream.fs" />
+    <Compile Include="HostChannel.fs" />
     <Compile Include="Handlers.fs" />
+    <Compile Include="BridgeSecretStore.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Serilog" Version="4.4.0" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -26,6 +29,11 @@
     <ProjectReference Include="..\FSharpQueryStudio.Storage\FSharpQueryStudio.Storage.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Connectors\FSharpQueryStudio.Connectors.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Security\FSharpQueryStudio.Security.fsproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Update="FSharp.Core" Version="10.1.403" />
+    <PackageReference Update="System.Security.Cryptography.Pkcs" Version="10.0.14" />
   </ItemGroup>
 
 </Project>

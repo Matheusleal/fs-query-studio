@@ -2,16 +2,18 @@ namespace FSharpQueryStudio.Results
 
 open System.Collections.Concurrent
 
-/// A tab's full, never-truncated `Results.table` push, retained for as
-/// long as the app runs — see docs/superpowers/specs/2026-08-12-results-export-design.md.
+/// The full, materialized rows of a cell's connector-query or materialized-table
+/// tail value, retained so **Export CSV** can write the whole result set — not
+/// just the on-screen page.
 type RetainedResult = { Columns: string list; Rows: obj array array }
 
-/// Keyed by document URI, one entry per open tab that has ever pushed a
-/// table result. Lives in the Worker process's own memory, independent of
-/// `Results.explicit` (which `Results.reset()` clears before every single
-/// evaluation) — nothing here is ever cleared except by an explicit `set`
-/// (a later run of the same tab overwrites it) or `discard` (the tab
-/// closes). Never persisted to disk; gone on process exit by design.
+/// Keyed by document URI: the most recent exportable grid for each notebook.
+/// `Handlers.runEvaluate` calls `set` when `Projection.projectWithCursor`
+/// returns a retained payload (a `ConnectorQueryResult`, or a materialized
+/// generic table). A later non-table run (`printfn`, a scalar) leaves the
+/// previous entry in place; `discard` removes it when the document closes.
+/// Lives in the Worker process's own memory — never persisted to disk, gone
+/// on process exit by design.
 module ResultRetention =
     let private store = ConcurrentDictionary<string, RetainedResult>()
 

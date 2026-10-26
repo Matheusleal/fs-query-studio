@@ -153,7 +153,8 @@ let ``EvaluateParams round-trips through JSON for both Isolated and Persistent m
         { Source = "1 + 1"
           SessionId = None
           Mode = Isolated
-          DocumentUri = "untitled:Script1.fsx" }
+          DocumentUri = "untitled:Script1.fsx"
+          IsNotebookCell = false }
 
     let isolatedJson = JsonSerializer.Serialize(isolated, Serialization.options)
     let roundTrippedIsolated = JsonSerializer.Deserialize<EvaluateParams>(isolatedJson, Serialization.options)
@@ -163,7 +164,8 @@ let ``EvaluateParams round-trips through JSON for both Isolated and Persistent m
         { Source = "x + 1"
           SessionId = Some "sess-1"
           Mode = Persistent
-          DocumentUri = "file:///workspace/sales.fsx" }
+          DocumentUri = "file:///workspace/sales.fsx"
+          IsNotebookCell = true }
 
     let persistentJson = JsonSerializer.Serialize(persistent, Serialization.options)
     let roundTrippedPersistent = JsonSerializer.Deserialize<EvaluateParams>(persistentJson, Serialization.options)

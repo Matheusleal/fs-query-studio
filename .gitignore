@@ -440,3 +440,9 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# VS Code extension (editors/vscode)
+editors/vscode/node_modules/
+editors/vscode/dist/
+editors/vscode/out/
+editors/vscode/*.vsix

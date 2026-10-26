@@ -1,0 +1,80 @@
+name: vscode-extension
+
+on:
+  push:
+    branches: [main, main-vscode]
+    paths:
+      - "editors/vscode/**"
+      - "src/FSharpQueryStudio.Worker/**"
+      - "src/FSharpQueryStudio.Protocol/**"
+      - ".github/workflows/vscode-extension.yml"
+  pull_request:
+    paths:
+      - "editors/vscode/**"
+      - "src/**"
+      - ".github/workflows/vscode-extension.yml"
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Publish worker
+        run: >
+          dotnet publish src/FSharpQueryStudio.Worker/FSharpQueryStudio.Worker.fsproj
+          -c Release -o editors/vscode/dist/worker
+
+      - name: Install extension deps
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Compile
+        working-directory: editors/vscode
+        run: npm run compile
+
+      - name: Test (unit)
+        working-directory: editors/vscode
+        run: npm test
+
+      - name: Compile integration specs
+        working-directory: editors/vscode
+        run: npm run pretest:vscode
+
+      - name: Test (VS Code extension host, Linux)
+        if: runner.os == 'Linux'
+        working-directory: editors/vscode
+        run: xvfb-run -a npm run test:vscode
+
+      - name: Test (VS Code extension host, non-Linux)
+        if: runner.os != 'Linux'
+        working-directory: editors/vscode
+        run: npm run test:vscode
+
+      # Package + warning-gate + VSIX-contents assertion all live in
+      # editors/vscode/scripts/ now, so a local `npm run package` enforces
+      # exactly what this step does. --skip-worker reuses the "Publish
+      # worker" output from earlier in the job.
+      - name: Package VSIX
+        if: matrix.os == 'ubuntu-latest'
+        working-directory: editors/vscode
+        run: npm run package -- --skip-worker
+
+      - name: Upload VSIX
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: fs-query-studio-vsix
+          path: editors/vscode/fs-query-studio.vsix

@@ -1649,3 +1649,911 @@ Verified: a new permanent regression test (`check on an untitled-scheme document
 
 Files changed: `src/FSharpQueryStudio.Fsac/FsacBridge.fs`, `tests/FSharpQueryStudio.Fsac.Tests/FsacBridgeCheckTests.fs`.
 
+## 2026-08-23 — UI: modern visual pass (indigo accent, real hover/tab-indicator states, fixed hardcoded colors)
+
+Prompted by "still looks like a prototype." Brainstormed (bounded path) to a redesign scope: new indigo (`#6C5CE7`) accent replacing the VS-Code blue, an added depth/hover/selection color layer in both theme dictionaries, real hover states on toolbar buttons and the hand-rolled tab strip, an accent underline on the active tab, subtle rounded corners app-wide, and fixing a few pre-existing color bugs (hardcoded `IndianRed` error text, `WorkspacePanel`'s border using the primary-text brush instead of the border brush, `LogViewerWindow` never setting a themed `Background` at all).
+
+**Key finding: FluentTheme's XAML compiles to IL in Avalonia 12, so its per-state resource keys (`ButtonBackgroundPointerOver`, etc.) aren't discoverable by reading the NuGet package — its `.axaml` files aren't shipped as loose text.** Confirmed this by extracting `Avalonia.Themes.Fluent.dll`'s embedded UTF-16 string literals directly (`[System.Text.Encoding]::Unicode.GetString` over the raw bytes — an ASCII decode finds nothing, since .NET string-heap entries are UTF-16) rather than guessing key names from memory or WPF/WinUI conventions. Confirmed real, exact key names this way: `Button{Background,BorderBrush,Foreground}{,PointerOver,Pressed,Disabled}` and `TabItemHeaderBackground{Selected,Unselected}{,PointerOver,Pressed}` / `TabItemHeaderForeground{Selected,Unselected}`. Confirmed *absent* (so left alone, not guessed): any per-state background resource for `Expander` or `ComboBox`/`TextBox` — those get only `CornerRadius` treatment via ordinary TemplateBinding, plus whatever they inherit for free from the also-real `SystemAccentColor`/`Light1-3`/`Dark1-3` keys (which FluentTheme's shared, undocumented-per-control chrome derives from). `DataGrid`'s Fluent theme (a separate package) yielded zero matches at all by the same method — its row/cell selection styling was left at FluentTheme defaults rather than risk a silently-inert override.
+
+Applied the confirmed keys by re-registering them in a new `Styles.axaml` (`App.Styles`, after `<FluentTheme/>` so it wins the lookup) as `SolidColorBrush`es whose `Color` is itself `{DynamicResource ...}` into this app's own theme tokens — not literal colors — so they still follow the dark/light toggle. The tab strip itself (`MainWindow.axaml.fs`'s `rebuildTabs`, a hand-rolled `Border`+`TextBlock`+`Button` per tab, not a real `TabControl`) needed its own manual `PointerEntered`/`PointerExited` hover handling and an explicit bottom-border accent stripe, since none of FluentTheme's resource keys reach code-built controls outside its templates.
+
+**Not independently verified.** This environment has no way to screenshot the native Avalonia window (same gap noted in the FSAC migration's DEVLOG entries above) — `dotnet build` is clean (0 warnings/errors, all 24 projects, including AXAML compilation of every edited `.axaml` file), which rules out XAML syntax errors and unresolvable `StaticResource`s, but a `DynamicResource` pointed at a wrong key name fails silently (no exception, the override just doesn't take) rather than at build time. Visual confirmation of hover/tab-indicator/accent behavior is still pending a real run by a human.
+
+Unrelated to this work but hit while updating `main` beforehand: `dotnet test` on the freshly-pulled FSAC backend (28 commits ahead, `FSharpQueryStudio.Analysis` → `FSharpQueryStudio.Fsac`) hung indefinitely and leaked dozens of orphaned `dotnet.exe` processes rather than completing or timing out — killed the test task and the orphaned processes (with confirmation, given the blast radius of a blanket process kill) rather than chase it further, since it's pre-existing repo state, not something this change touched.
+
+Files changed: `src/FSharpQueryStudio.App/App.axaml`, `src/FSharpQueryStudio.App/Themes/VsDark.axaml`, `src/FSharpQueryStudio.App/Themes/VsLight.axaml`, `src/FSharpQueryStudio.App/Themes/Styles.axaml` (new), `src/FSharpQueryStudio.Ui/MainWindow.axaml`, `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`, `src/FSharpQueryStudio.Ui/LogViewerWindow.axaml`.
+
+## 2026-08-24 — Feature: connection-name autocomplete inside `Connections.sql/csv/excel/rest`
+
+Scripts pick a registered connection by name as a bare string literal (`Connections.sql "Sales" "select ..."`, Section 10) — typo-prone and impossible to discover from the editor, since FSAC has no idea this app's workspace connections even exist. Asked to make this selectable "sem precisar escrever o nome" (without having to type the name); brainstormed (bounded path) to editor autocomplete over the alternatives (an explicit insert-connection command, or a fully-typed `Connections.Named.X` surface) as the option that reuses the completion UI already in place for every other identifier.
+
+TDD'd `FSharpQueryStudio.Ui.ConnectionNameCompletion.isInsideConnectionNameArgument` (`ConnectionNameCompletion.fs`, 8 tests) — a pure, Avalonia-free regex check for "is this line/column position inside the first, still-open string-literal argument of a `Connections.sql/csv/excel/rest` call", covering the parenthesized-call spelling, an already-open call with no quote yet, a closed string (should no longer match), an unrelated string literal, and an out-of-range line/column (must return `false`, not throw — a stale request racing a document edit shouldn't crash the handler).
+
+Wired into `MainWindow.axaml.fs`'s existing `CompletionRequested` handling: when the check matches, answers directly with `shellViewModel.Connections`' names (`CompletionResolved`, no worker round trip) instead of falling through to FSAC's `CompleteAsync` — FSAC has nothing useful to say inside a string literal, and reusing the same `CompletionResolved`/Monaco-suggestions plumbing every other completion already goes through meant zero Protocol or Worker changes. Two small `editor-host.html` tweaks make the dropdown pop on its own rather than needing Ctrl+Space: added `"` to the completion provider's `triggerCharacters`, and turned on `quickSuggestions.strings` (Monaco's default suppresses quick-suggest inside string literals generally, for good reason elsewhere, but it's exactly where this feature needs to fire).
+
+**Not independently verified** — same gap as the UI pass above: no way to screenshot/drive the native Monaco editor in this environment, so the dropdown's actual appearance and behavior (does it filter as you type, does accepting a suggestion insert cleanly) is unconfirmed beyond the pure-function tests and a clean build.
+
+Verified: `dotnet build FSharpQueryStudio.slnx` — 0 warnings/errors, all 24 projects. `Ui.Tests` 177/177 (including the 8 new tests, watched fail first for the expected "not defined" reason before implementing).
+
+Files changed: `src/FSharpQueryStudio.Ui/ConnectionNameCompletion.fs` (new), `src/FSharpQueryStudio.Ui/MainWindow.axaml.fs`, `src/FSharpQueryStudio.Ui/FSharpQueryStudio.Ui.fsproj`, `src/FSharpQueryStudio.Editor/EditorAssets/editor-host.html`, `tests/FSharpQueryStudio.Ui.Tests/ConnectionNameCompletionTests.fs` (new), `tests/FSharpQueryStudio.Ui.Tests/FSharpQueryStudio.Ui.Tests.fsproj`.
+
+## 2026-09-03 — F1.1: editors/vscode/ npm project scaffold
+
+Created the TypeScript project for the VS Code extension: package.json (command `fs-query-studio.checkWorker`, command-only activation), tsconfig (Node16 modules, strict), esbuild bundle to `dist/extension.js`, vitest with a `vscode` module stub. `passWithNoTests` on so the harness is green before Task 2 adds the first real test. No behavior yet — activate/deactivate are no-ops.
+
+## 2026-09-03 — F1.2: TypeScript mirror of the worker protocol frames
+
+`protocol.ts`: hand-written `WorkerRequestFrame`/`WorkerResponseFrame`/`WorkerErrorInfo`/`HealthInfo` (camelCase, matching the F# `JsonNamingPolicy.CamelCase`), plus `isWorkerVersionSupported` (accepts worker major 0–1) and `newRequestId`.
+
+## 2026-09-03 — F1.3: NDJSON framing for the worker transport (TS side)
+
+`worker/ndjson.ts`: `writeFrame` (JSON + `\n`) and `readFrames` (buffered split on `\n`, `JSON.parse` per line, chunk reassembly, unparseable lines surfaced as `{__parseError}` rather than thrown). Mirrors `src/FSharpQueryStudio.Worker/NdjsonStream.fs`.
+
+## 2026-09-03 — F1.4: dotnet resolution with a .NET 10 floor
+
+`worker/dotnet.ts`: `resolveDotnet` runs `dotnet --version` (honouring `DOTNET_ROOT`), throwing `DotnetNotFoundError` (spawn failure / non-zero exit) or `DotnetTooOldError` (major < 10). Both errors carry a `userMessage` for a notification. Injectable `run` for tests.
+
+## 2026-09-03 — F1.5: worker DLL path resolution
+
+`worker/worker-path.ts`: `resolveWorkerDll` returns `FSQS_WORKER_DLL` (dev override) or the bundled `dist/worker/FSharpQueryStudio.Worker.dll`, throwing `WorkerDllNotFoundError` (with an actionable `userMessage`) if neither exists.
+
+## 2026-09-03 — F1.6: WorkerClient — spawn, send, response correlation
+
+`worker/client.ts`: lazy single spawn, `send` registers the request id as pending and resolves on the matching response frame (order-independent), stdin writes serialized behind a promise chain (the `writeLock` equivalent from `App/WorkerClient.fs`). `SpawnWorker` is injected; `test/fake-child.ts` scripts a process for the unit tests.
+
+## 2026-09-03 — F1.7: WorkerClient — crash detection and restart
+
+On worker stdout close / process exit, every pending request settles with a `worker/crashed` error frame and the pending map clears; the next `send` spawns a fresh process. Optional `onCrash` callback. Mirrors the crash-and-restart ownership in `App/WorkerClient.fs` (no automatic retry of the dead request).
+
+## 2026-09-03 — F1.8: WorkerClient — cooperative-then-forced cancel
+
+`cancel(requestId, gracePeriodMs)`: fires `execution/cancel`, waits out the grace period for the original request to settle, otherwise kills the process and force-settles it with `execution/forciblyStopped`. Ports Section 9's two-step cancellation from `App/WorkerClient.fs`, but does **not** await the cancel ack (the F# `_ack`) — awaiting it would hang the TS client if the worker never acks, and the ack carries nothing the grace-period race needs.
+
+## 2026-09-03 — F1.9: extension activation + `fs-query-studio.checkWorker`
+
+`spawn.ts` wraps `child_process.spawn("dotnet", [dll])` into the `WorkerProcess` shape. `extension.ts`: `runHealthCheck` (dependency-injected, fully unit-tested — dotnet-missing / dotnet-old / worker-missing / version-unsupported / error / ok) drives the `fs-query-studio.checkWorker` command, logging to an "F# Query Studio" output channel and surfacing an actionable "Install .NET" error where relevant. Full suite: 34 unit tests green.
+
+## 2026-09-03 — F1.10: real-worker handshake integration test + dev README
+
+`handshake.integration.test.ts` spawns the actual published worker and asserts a `worker/health` round-trip; skipped (green) when no worker dll is resolvable so `npm test` works without a `dotnet publish`. `editors/vscode/README.md` documents the dev loop.
+
+Finding while wiring it: the worker (FSharp.SystemTextJson) serializes an absent `error`/`result` as an explicit JSON `null`, not by omitting the key — raw frame is `{"id":...,"result":{...},"error":null}`. `WorkerResponseFrame.error` typed `WorkerErrorInfo | null`; consumers already use truthy checks so `null` and `undefined` are handled the same. Worker reports version `1.0.0.0` — inside the supported `0..1` major range.
+
+## 2026-09-03 — F1.11: CI for the VS Code extension
+
+`.github/workflows/vscode-extension.yml`: on changes under `editors/vscode/` or the worker/protocol projects, publishes the worker, then compiles and tests the extension on Ubuntu/Windows/macOS, and uploads a `.vsix` artifact from the Ubuntu job. Local `vsce package` smoke: exits 0, 70.75 MB VSIX (framework-dependent worker, 257 files) — only a non-fatal "LICENSE not found" warning. Added `repository` to `package.json` and `.gitignore` to `.vscodeignore`.
+
+## 2026-09-03 — F1 complete: VS Code extension scaffold
+
+`editors/vscode/` compiles (`tsc --noEmit` + esbuild bundle) and its full suite is green: 34 unit tests + 1 real-worker integration test (`worker/health` round-trip against a `dotnet publish`ed worker). A dependency-injected `WorkerClient` — NDJSON framing, response correlation, crash/restart, cooperative-then-forced cancel, ported from `App/WorkerClient.fs` — spawns the existing F# worker and negotiates protocol version, surfaced through the `fs-query-studio.checkWorker` command and an "F# Query Studio" output channel. Tri-OS CI added. No notebook UI yet — that is F2. The Avalonia app is untouched.
+
+Still pending (interactive, cannot run headless): the F5 Extension Development Host smoke — open `editors/vscode` in VS Code, press F5, run **F# Query Studio: Check Worker**, confirm the output channel shows `Worker healthy: version 1.0.0.0`.
+
+## 2026-09-04 — F1.12: extension-host integration tests (real VS Code)
+
+Automates the F5 smoke. `@vscode/test-cli` + `@vscode/test-electron` download a real VS Code, load `editors/vscode` as a development extension, and run Mocha specs (`test/integration/**`, compiled by `tsconfig.integration.json` to `out/`, config in `.vscode-test.mjs`). Separate from vitest (`npm test` unchanged; new `test:vscode` / `test:all`).
+
+Four specs, all green locally: extension activates; `fs-query-studio.checkWorker` is registered; a bogus `FSQS_WORKER_DLL` yields `worker-missing` without throwing; the command completes a real `worker/health` check against the bundled worker (spawns the .NET worker from inside the extension host). The command handler now returns its `HealthCheckResult` so specs can assert on it directly.
+
+Behaviour change from the finding: `resolveWorkerDll` now treats `FSQS_WORKER_DLL` as authoritative — set-but-missing throws `WorkerDllNotFoundError` instead of silently falling back to the bundled worker (new unit test covers it). CI: unit + extension-host tests on all three OSes, Linux under `xvfb-run`.
+
+## 2026-09-05 — Fix: `npm run compile` broken by the base tsconfig picking up the mocha specs
+
+`tsconfig.json`'s `include: ["src", "test"]` swept in `test/integration/extension.test.ts` too, but its `types` list has no `"mocha"` — `tsc --noEmit` (plain `compile`, not `pretest:vscode`) failed on every mocha global (`describe`/`it`/`afterEach`/`this`). Never caught in the F1.12 session because `compile` wasn't re-run after the integration spec was added — only `pretest:vscode` (which targets `tsconfig.integration.json`, `types: ["node","mocha"]`) and vitest were. Fix: `tsconfig.json` gets `"exclude": ["test/integration"]`; `tsconfig.integration.json` already declares its own `exclude` so it's unaffected. Re-verified: `compile`, `pretest:vscode` + vitest (36 passing), `test:vscode` (4 passing) all green.
+
+## 2026-09-05 — F2.1: protocol types for execution/evaluate + ResultEnvelope
+
+`protocol.ts` gains the F2 wire types: `EvaluateParams`, `SessionResetParams`, `ResultEnvelope` (+ `Column`, `OutputLine`), and `UnionTag` / `readUnionTag` / `makeUnionTag` / `SESSION_MODE_PERSISTENT` for FSharp.SystemTextJson's `{"Case":"..."}` adjacent-tag encoding (fieldless F# union cases are not unwrapped — confirmed against the worker integration tests).
+
+## 2026-09-05 — F2.2: `.fsqnb` JSON codec
+
+`notebook/fsqnb.ts`: pure `deserializeFsqnb` / `serializeFsqnb` over an in-memory `FsqnbDocument` (version 1, code + markdown cells, `metadata`). Empty input → empty notebook; unknown `version` → `FsqnbVersionError` (hard failure, no best-effort); non-JSON / non-object root → `FsqnbError`. Serialize is deterministic (2-space, trailing newline) and round-trip-stable. No VS Code dependency.
+
+## 2026-09-05 — F2.3: NotebookSerializer adapter for `.fsqnb`
+
+`notebook/serializer.ts`: `FsqnbSerializer` wraps the codec into `vscode.NotebookSerializer` (`Uint8Array` ↔ `NotebookData`, code → `Code` cell / markdown → `Markup` cell, language defaulting to `fsharp`). `FSQNB_NOTEBOOK_TYPE = "fsquery-notebook"`. `test/vscode-stub.ts` gains `NotebookCellKind` / `NotebookCellData` / `NotebookData`.
+
+## 2026-09-05 — F2.4: ResultEnvelope → cell-output mapper
+
+`notebook/result.ts`: pure `mapEnvelope` turns a worker `ResultEnvelope` into ordered `OutputItemSpec`s — stdout/stderr lines first, then the value by `kind`: `Error` → an error item (uses `displayText`), `Table` → `formatTextTable` (aligned monospace grid + `(N rows · Mms)` + an F3 truncation note), `NoValue` → nothing unless it carries `displayText`, everything else → the `displayText` string. No renderer yet — that is F3.
+
+## 2026-09-05 — F2.5: window-lifetime worker session singleton
+
+`worker/session.ts`: `resolveWorkerSession` resolves dotnet + the worker dll, spawns one `WorkerClient`, and gates it behind a `worker/health` version check, collapsing every failure into a typed `WorkerUnavailableError` (`dotnet-missing` / `dotnet-old` / `worker-missing` / `version-unsupported` / `error`) with a `userMessage`. `getWorkerSession` memoises the first success (failures clear the memo so a later run retries); `disposeWorkerSession` tears it down for `deactivate`. Dependency-injected `resolveDotnet` / `resolveWorkerDll` / `makeClient` for tests.
+
+## 2026-09-05 — F2.6: NotebookController — cell queue, evaluate, interrupt, restart
+
+`notebook/controller.ts`: `createFsQueryController` builds the `fs-query-studio-kernel` controller for `fsquery-notebook`. `executeHandler` runs cells **sequentially** (the worker is one-eval-at-a-time), one `execution/evaluate` per cell in `Persistent` mode with `sessionId = documentUri = notebook.uri.toString()`, maps the response envelope through `mapEnvelope`, and stops the batch on the first `Error` result or error frame (`worker/crashed` gets a "session was lost" message). A `getWorker` rejection (WorkerUnavailable) becomes a per-cell error output, no crash. `interruptHandler` → `WorkerClient.cancel(inFlightRequestId, 5000)`. `restartKernel` → `session/reset`. `test/vscode-stub.ts` gains `NotebookCellOutput(Item)` and a fake `notebooks.createNotebookController`.
+
+## 2026-09-05 — F2.7: register the notebook — serializer, controller, restart command
+
+`package.json`: `contributes.notebooks` (`fsquery-notebook`, `*.fsqnb`), the `onNotebook:fsquery-notebook` activation event, and a `fs-query-studio.restartKernel` command. `extension.ts` `activate` now registers `FsqnbSerializer`, `createFsQueryController` (fed a `getWorker` that resolves the window's shared `getWorkerSession`), and the restart command (no-ops with a hint when the active editor isn't an `.fsqnb`); `deactivate` disposes the worker session. `checkWorker` and `runHealthCheck` are unchanged.
+
+## 2026-09-05 — F2.8: extension-host integration test for the notebook
+
+`test/integration/notebook.test.ts` + `fixtures/sample.fsqnb`: a real downloaded VS Code opens the fixture as an `fsquery-notebook` (asserts type, cell count, kinds, `fsharp` language), then — only when a bundled worker dll is present — runs cell 2 and asserts captured stdout + tail value, runs cell 3 and asserts the `(3 rows · Nms)` text-grid footer, and runs `fs-query-studio.restartKernel`. The command-based path (`openNotebookDocument` + `notebook.cell.execute`) shipped as-is — no `_test` export hook was needed, `src/` untouched. Worker-backed specs skip green with no `dotnet publish`, matching the F1 pattern (this env: 1 notebook spec runs, 3 skip).
+
+## 2026-09-05 — F2 complete: minimal `.fsqnb` notebook
+
+`.fsqnb` files open, edit, save, and run in VS Code. `FsqnbSerializer` (pure `notebook/fsqnb.ts` codec underneath) handles the version-1 JSON format, never persisting outputs. `createFsQueryController` ("F# Query Studio" kernel, id `fs-query-studio-kernel`) runs code cells sequentially through the existing worker's `execution/evaluate` in Persistent mode, `sessionId = documentUri = notebook uri` — one FSI session per notebook. Cell output comes from the single response envelope (`notebook/result.ts` maps stdout/stderr + value; Table results render as an aligned text grid with a `(N rows · Mms)` footer and an F3-renderer note — no renderer yet). Interrupt → `execution/cancel` via the F1 `WorkerClient.cancel`; `fs-query-studio.restartKernel` → `session/reset`. The worker runs as one shared window-lifetime process behind `worker/session.ts`, gated by a `worker/health` version check that collapses every startup failure into a typed `WorkerUnavailableError` surfaced as cell error output. New: 56 F2-added unit tests + 4 extension-host integration specs (1 running, 3 skipped without a bundled worker). The Avalonia app is untouched; `dist/worker` packaging and CI are unchanged from F1.
+
+Verification (from `editors/vscode`): `npm run compile` green (`tsc --noEmit` clean, esbuild bundle written); `npm test` = 82 passed / 1 skipped (the real-worker handshake spec, no `dotnet publish` here); `npm run test:vscode` = 4 passing / 4 pending (the open-only notebook spec + the 3 pre-existing F1 host specs run; the 3 worker-backed notebook specs + the F1 real-`worker/health` spec skip green with no `dist/worker` publish). The optional worker end-to-end pass (Step 2 — publish a worker so the skipped specs execute) was **not** run: no `dist/worker` publish exists in this environment and building one was out of scope for a docs-only close-out. It is exercised by CI, which publishes the worker before `test:vscode`.
+
+## 2026-09-06 — F3.1: renderer wire types + message contracts
+
+`src/renderer/types.ts`: dependency-free module shared across the host/renderer tiers — `TablePayload` (the `application/x-fsquery-table+json` body: columns, positional rows, `truncated`, `continuationToken`, `elapsedMs`), the renderer↔host message unions (`loadMore` / `exportCsv` out; `rows` / `error` / `exportDone` back), plus `FSQUERY_TABLE_MIME`, `FSQUERY_RENDERER_ID`, `GRID_ROW_HEIGHT_PX`, and an `isRendererToHostMessage` guard.
+
+## 2026-09-06 — F3.2: buildTablePayload (ResultEnvelope → TablePayload)
+
+`notebook/table-payload.ts`: pure `buildTablePayload(env, documentUri)` copies a Table envelope's schema/rows/`isTruncated`/`continuationToken`/`elapsedMs` into the renderer wire body. Type-only imports keep it out of the browser bundle's Node dependency path. Covered for both worker Table paths (`Results.table` real columns + no token; paged tail-value `Value` column + token).
+
+## 2026-09-06 — F3.3: grid core math (windowing + cell formatting)
+
+`src/renderer/grid-core.ts`: pure `visibleRange(scrollTop, rowHeight, viewportHeight, totalRows, overscan=6)` (clamped, empty on zero rows/height) for windowed row rendering, and `formatCell` (blanks nullish, `String()` for primitives, `JSON.stringify` otherwise — mirrors `result.ts::renderCell`).
+
+## 2026-09-06 — F3.4: mapEnvelope emits a table-json output spec
+
+`notebook/result.ts`: `OutputItemSpec` gains `{ kind: "table-json"; payload: TablePayload }`, and `mapEnvelope(env, { documentUri })` now prepends that spec (built via `buildTablePayload`) before the `text/plain` grid for Table envelopes. Called without a `documentUri` it keeps the exact F2 behavior (text only), so the renderer item only appears on the real controller path. Text-grid truncation note reworded ("more rows available in the grid view").
+
+## 2026-09-06 — F3.5: controller writes the table-json MIME item
+
+`notebook/controller.ts`: `toOutputItem` maps a `table-json` spec to `NotebookCellOutputItem.json(payload, "application/x-fsquery-table+json")`, and `runBatch` passes `{ documentUri: sessionId }` into `mapEnvelope` so Table cells now carry three items — stdout/stderr, the renderer JSON, and the `text/plain` fallback. Stub `NotebookCellOutputItem.json` added.
+
+## 2026-09-06 — F3.6: renderer host (messaging → worker RPCs)
+
+`notebook/renderer-host.ts`: `registerRendererHost` subscribes to `NotebookRendererMessaging`, validates inbound messages, and answers `loadMore` via `results/page` (`{ sessionId, continuationToken }`; `results/unknownToken` → "re-run the cell" text) and `exportCsv` via a save dialog + `results/exportCsv` (`results/nothingToExport` → a plain "only Results.table tables" line; a cancelled dialog stays silent). Worker-unavailable and thrown sends collapse into a scoped `error` message. Fully dependency-injected — no `vscode` import.
+
+## 2026-09-06 — F3.7: the results-grid renderer
+
+`src/renderer/index.ts`: browser-side `activate(context)` returning `renderOutputItem` / `disposeOutputItem`. Draws a windowed grid (`visibleRange`, fixed 22px rows, translate-based recycling on scroll), a Data/Schema toolbar toggle, a row-count label, an `Export CSV` button (posts `exportCsv`), and a `Load more` button shown only while a `continuationToken` exists (posts `loadMore`, disables until reply). Inbound `rows` append + retoken, `error` shows a notice (and hides `Load more` for the `loadMore` scope), `exportDone` confirms — all routed by `outputId`. Theme entirely via `--vscode-*` vars. New devDependency: `jsdom` (renderer unit tests run under `// @vitest-environment jsdom`).
+
+## 2026-09-06 — F3.8: renderer bundle + contribution + activation wiring
+
+`esbuild.mjs` now emits two bundles — the node/cjs extension and a browser/esm `media/renderer/index.js` (both watch-aware). `package.json` contributes `notebookRenderer` `fs-query-studio-table` for `application/x-fsquery-table+json` with `requiresMessaging: "optional"`. `extension.ts` `activate` creates the renderer messaging channel and `registerRendererHost` (with a `showSaveDialog`-backed `pickSaveFile`), disposed via `context.subscriptions`. `media/renderer/index.js` is git-ignored.
+
+## 2026-09-06 — F3 complete: results-grid renderer
+
+`.fsqnb` Table cells now render as an interactive grid instead of a text block. `execution/evaluate` Table envelopes carry a new `application/x-fsquery-table+json` item (`buildTablePayload`: columns, positional rows, `truncated`, `continuationToken`, `elapsedMs`) plus the F2 `text/plain` grid as a fallback. `src/renderer/index.ts` (its own browser/esm esbuild bundle → `media/renderer/index.js`, contributed as renderer `fs-query-studio-table`) draws a windowed grid — fixed 22px rows, translate-recycled on scroll — with a Data/Schema toggle, a row counter, `Export CSV`, and `Load more` (shown only while a `continuationToken` exists). `notebook/renderer-host.ts` answers the grid's messages over `NotebookRendererMessaging`: `loadMore` → `results/page`, `exportCsv` → save dialog + `results/exportCsv`. Known limits (same as the Avalonia app): paging only for the FSI tail-value path; CSV export only for `Results.table` tables (`results/nothingToExport` otherwise, surfaced as a plain explanatory line). Multiple Table cells in one notebook share the session's single retained result, so Export CSV / Load more on an older grid can act on a newer cell's data with no error surfaced (mirrors the Avalonia single-result model). New: 33 F3 unit tests (`jsdom` added for the renderer) + 1 extension-host spec (skipped without a bundled worker). No `src/` F# changes; Avalonia untouched.
+
+## 2026-09-06 — F4.1: analysis/* wire types
+
+`src/protocol.ts`: request/response interfaces for the four `analysis/*` methods (`AnalysisCheckParams`, `AnalysisPositionParams` with its 1-based-line / 0-based-column contract, `WireDiagnostic`, and the completion/hover/signature-help result shapes), plus `readSeverity` decoding the `{ "Case": "Error" | "Warning" | "Information" }` DU tag with an Error fallback.
+
+## 2026-09-06 — F4.2: buildAnalysisInput (executed-cell concatenation)
+
+`src/lang/cell-context.ts` (pure, no vscode): `buildAnalysisInput(cells, target, position?)` prepends every executed fsharp code cell (ordered by `executionSummary.executionOrder`, target excluded) newline-joined ahead of the target's live text, returns the concatenated `source`, the prefix line count as `cellLineOffset`, and a 1-based `line` (`position.line + 1 + cellLineOffset`) for interactive requests / `0` for the check path.
+
+## 2026-09-06 — F4.3: diagnostic remap + per-cell version tracking
+
+`src/lang/cell-context.ts`: `mapDiagnosticIntoCell` subtracts `cellLineOffset` from a wire diagnostic's lines, drops any that fall in the prefix, clamps a straddler into `[0, cellLineCount)`, and decodes the severity tag; `versionFor(cellUri, source)` / `forgetVersion` give FSAC a version that moves whenever the concatenated source changes (the cell's own `document.version` does not).
+
+## 2026-09-06 — F4.4: analysis-client (analysis/* RPC wrappers)
+
+`src/lang/analysis-client.ts`: `checkAnalysis` / `completeAnalysis` / `hoverAnalysis` / `signatureHelpAnalysis` over an injected `WorkerLike`, each collapsing an error frame, a null result, or a thrown send into `[]` / `undefined` so a provider never throws on a keystroke (mirrors `App/AnalysisService.fs`).
+
+## 2026-09-06 — F4.5: DiagnosticsManager (debounce + lifecycle)
+
+`src/lang/diagnostics.ts`: a fully dependency-injected `DiagnosticsManager` (no vscode import) — `onCellChanged` debounces 300 ms then runs `buildAnalysisInput` → `checkAnalysis` → `mapDiagnosticIntoCell` → `publish`; `onCellOpened` checks immediately; `onCellClosed` cancels the timer, `forgetVersion`s, and `clear`s; `dispose` cancels every pending timer. A thrown worker send is logged and drops silently, leaving existing squiggles in place.
+
+## 2026-09-06 — F4.6: language providers + registerLanguageFeatures
+
+`src/lang/providers.ts` (the only vscode-bound F4 file): `registerLanguageFeatures` registers completion (`.` trigger), hover, and signature-help providers for `{ language: "fsharp", notebookType: "fsquery-notebook" }`, each resolving the cell + siblings from `workspace.notebookDocuments`, running `buildAnalysisInput`, taking a shared `versionFor(cellUri, source)` version, and mapping the `analysis/*` result to VS Code types (flat `CompletionItem`s, a fenced-fsharp `MarkdownString` hover, one un-indexed `SignatureInformation`). It also owns the `DiagnosticCollection`, wires text/notebook events into a `DiagnosticsManager`, and returns one `Disposable.from(...)`. `test/vscode-stub.ts` gained `languages`, `Position`, `Range`, `Diagnostic`/`DiagnosticSeverity`, `Hover`, `MarkdownString`, `CompletionItem`, `SignatureHelp`/`SignatureInformation`/`ParameterInformation`, `Disposable`, and the `workspace` document events.
+
+## 2026-09-06 — F4.7: activate wires the language providers
+
+`extension.ts`: `activate` now calls `registerLanguageFeatures({ getWorker, log })` (reusing the shared window-lifetime worker session) and disposes it via `context.subscriptions`.
+
+## 2026-09-06 — F4.8: extension-host integration spec
+
+`test/integration/intelligence.test.ts` (+ `fixtures/sample-intelligence.fsqnb`): opens the fixture, executes `let answer = 42`, and asserts `vscode.executeCompletionItemProvider` on the sibling cell offers `answer`; a second spec applies a broken edit and waits for a `"F# Query Studio"`-sourced diagnostic. Both gated on a bundled worker (skipped green without one, run in CI).
+
+## 2026-09-06 — F4 complete: cell intelligence
+
+`.fsqnb` code cells now get F# completion, hover, signature help, and diagnostics, provided by this extension (Ionide never sees `vscode-notebook-cell` documents). New `src/lang/` module: `cell-context.ts` (pure) builds each request's `source` by concatenating the notebook's *executed* fsharp code cells — ordered by `executionSummary.executionOrder`, target excluded — ahead of the target cell's live text, tracks a per-cell `version` that moves whenever that concatenation changes, and maps `analysis/check` diagnostics back into cell coordinates (subtract the prefix line count; drop anything landing in a prefix cell). `analysis-client.ts` wraps `analysis/check|complete|hover|signatureHelp`, collapsing any worker error into an empty result. `diagnostics.ts` — a dependency-injected `DiagnosticsManager` — debounces edits 300 ms, checks a cell once on open, and clears on close/removal. `providers.ts` registers the three interactive providers for `{ language: "fsharp", notebookType: "fsquery-notebook" }`, owns the `"F# Query Studio"` `DiagnosticCollection`, and wires `workspace` text/notebook events into the manager; `extension.ts` calls it with the shared worker session.
+
+Line-base contract (worker's `Prologue.shiftUp`): interactive requests send a **1-based** `line` (`position.line + 1 + cellLineOffset`) and **0-based** `column`; `analysis/check` returns 0-based diagnostics, so the reverse map only subtracts the prefix offset. The `analysis/*` `documentUri` is the cell URI plus a `.fsx` suffix (`analysisDocumentUri`) so FSAC recognises it as a script and actually parses it — the worker treats `documentUri` as an opaque identity — while the real cell `Uri` stays the `DiagnosticCollection` key.
+
+Scope: providers only — **no `contributes.languages` entry and no TextMate grammar** this phase (cell highlighting relies on another `fsharp` grammar being installed). No completion `kind`/`detail`, no active-parameter in signature help, no semantic tokens / references / formatting / code actions (the migration design's stated ceiling). Known limitations, carried from the spec: a cell's diagnostics go stale when an upstream executed cell is edited or re-run (refresh only on the cell's own next edit); after `Restart Kernel` the executed-cells prefix still includes pre-restart cells until VS Code clears their execution summaries; a physically-later cell can contribute to the prefix if it executed earlier; a transient worker error blanks a cell's squiggles for one debounce cycle.
+
+No `src/` F# changes — the worker already answered every `analysis/*` method. Avalonia untouched (retired at F6). New: 48 F4 unit tests across `src/lang/**` + `src/protocol.test.ts`; 2 extension-host specs (pending without a bundled worker, run in CI).
+
+Verification (from `editors/vscode`): `npm run compile` — tsc clean, esbuild bundle written; `npm test` — 166 passed / 1 skipped; `npm run test:vscode` — 4 passing / 7 pending. **Merge gate:** the worker-backed `test/integration/intelligence.test.ts` specs prove the end-to-end analysis path and run only in the `vscode-extension` CI workflow (which publishes the worker) — that run must be green before merge.
+
+## 2026-09-07 — F5.1: connection/list RPC
+
+`Handlers.handleConnectionList` + a `"connection/list"` dispatch arm — a read-only `{ connections }` projection of `Workspace.readConnections (workspaceDir ())`, the list the connections TreeView needs on open (`connection/register` / `connection/remove` only ever return it as a side effect of mutating).
+
+## 2026-09-07 — F5.2: HostChannel (worker-initiated request path)
+
+`src/FSharpQueryStudio.Worker/HostChannel.fs`: `HostChannel(send)` — `Request(method, params)` mints a `host-<32hex>` id (disjoint from every host-minted id), writes a `WorkerRequestFrame` via the injected `send`, and returns a `Task<WorkerResponseFrame>` the read loop completes through `TryComplete` when the matching response arrives. A faulted `send` faults the pending task. Nothing wires it yet.
+
+## 2026-09-07 — F5.3: Handlers secret-store injection seam
+
+`Handlers.configureSecretStore : ISecretStore -> unit` + a module-level `mutable secretStore` (default `WindowsCredentialStore()`), consumed at the two `WorkspaceConnectionResolver` sites (`runEvaluate`, `handleConnectionSchema`) in place of the hard-coded `WindowsCredentialStore()`. No behaviour change yet — same default store; `Program.fs` swaps in the bridge next. Mirrors the existing `workspaceDirOverride` pattern.
+
+## 2026-09-07 — F5.4: Program.fs reverse-channel routing
+
+`NdjsonStream.readLine` (raw line) + a rewritten `loop` that peeks each inbound line: no `"method"` property → deserialise as `WorkerResponseFrame` and hand to `HostChannel.TryComplete` (no dispatch, no reply); otherwise the exact request dispatch as before (evaluate / `analysis/*`+`results/exportCsv` backgrounded / inline default). `main` builds one `HostChannel` writing through the stdout `writeLock` and threads it into `loop`. `loop` is now module-visible (arity +1) for the loop tests. Secret store still `WindowsCredentialStore` — the bridge composes next.
+
+## 2026-09-07 — F5.5: BridgeSecretStore + composed on the worker path
+
+`src/FSharpQueryStudio.Worker/BridgeSecretStore.fs`: `ISecretStore` whose `TryRead` blocks on a host-bound `secret/get` over `HostChannel` (5 s default timeout, constructor-overridable) and degrades to `None` on timeout / error frame / null / non-string / exception — the same "missing secret → connection failure" contract `ConnectionStringSecrets.resolve` already documents. `Save` / `Delete` raise `NotSupportedException` (the extension owns credential writes). `Program.fs` `main` now calls `Handlers.configureSecretStore (BridgeSecretStore hostChannel)`, so a `{password}` connection in the extension host resolves from VS Code `SecretStorage`. Standalone `dotnet run` of the worker keeps `WindowsCredentialStore` only if `main` is bypassed — in practice the worker always runs through `main`, so the bridge is always active; a host that never answers `secret/get` just yields `None`.
+
+## 2026-09-07 — F5.6: connection + host-frame wire types (protocol.ts)
+
+`src/protocol.ts`: `ConnectorKindName`, `ConnectionDefinition` (`kind` as `UnionTag<ConnectorKindName>`, `secretReference: string | null`), `SchemaTable` / `SchemaColumn`, the `connection/list` + `connection/schema` result shapes, `ConnectionRemoveParams` / `ConnectionSchemaParams`, and `HostRequestFrame` + `isHostRequestFrame` (non-empty `method` distinguishes a worker-sent request from a response).
+
+## 2026-09-07 — F5.7: WorkerClient reverse dispatch
+
+`src/worker/client.ts`: `setHostRequestHandler(fn)` + an `onFrame` branch — a frame passing `isHostRequestFrame` (non-empty `method`) is answered via the handler and the reply written back through `writeChain` (`{ id, result }` / `{ id, error }`); no handler → `host/unhandled`; a throwing/rejecting handler → `host/threw`. Response frames keep the existing id-correlation path untouched.
+
+## 2026-09-07 — F5.8: secrets/bridge.ts
+
+`src/secrets/bridge.ts`: `registerSecretBridge({ client, secrets })` installs the `WorkerClient` host-request handler — `secret/get { reference }` → `{ secret: (context.secrets.get(reference)) ?? null }`; unknown method → `host/unknownMethod`, non-string reference → `host/badParams`, a throwing store → `host/secretReadFailed`. No `vscode` import (deps injected structurally).
+
+## 2026-09-07 — F5.9: connections/definition.ts (pure builder)
+
+`src/connections/definition.ts`: `buildConnectionDefinition(input, existing?)` → `{ definition, secret?, secretReference? }`. Per-kind `configuration` (`{ filePath }` / `{ connectionString }` / `{ url, method:"GET", headers:[], queryParams:[], body:null }`), `kind` as `makeUnionTag`. Secret rules mirror `MainWindow.axaml.fs`: blank password on edit keeps the existing `SecretReference`; a typed password reuses it or mints `fqs-conn-<32 hex>`. `secret` is returned only when newly entered.
+
+## 2026-09-07 — F5.10: connections/schema-cache.ts
+
+`src/connections/schema-cache.ts`: `SchemaCache` — `get` / `set` / `clear` over a `Map<connectionId, SchemaTable[]>`. Session-lived, invalidated only by the Refresh command.
+
+## 2026-09-07 — F5.11: connections/tree.ts (TreeDataProvider)
+
+`src/connections/tree.ts`: `ConnectionsTreeProvider` — roots from `connection/list`, a connection expands to `connection/schema` tables (cached in `SchemaCache`, fetched once), a table expands to `name: dataType` columns. An error frame / thrown send / failed `getWorker` collapses to a single `error` node (root level) or error child (schema level); nothing throws out of `getChildren`. `refresh()` fires `onDidChangeTreeData`. Icons: `database` / `table` / `symbol-field` / `warning`; connection nodes carry `contextValue="fsqsConnection"`. `test/vscode-stub.ts` gained `TreeItem`, `TreeItemCollapsibleState`, `ThemeIcon`, `EventEmitter`, `window.registerTreeDataProvider`.
+
+## 2026-09-07 — F5.12: connections/add.ts (add / edit / remove orchestrators)
+
+`src/connections/add.ts`: `runAddConnection` / `runEditConnection` / `runRemoveConnection` over an injected `ConnectionUi` (`pickKind` / `input` / `confirmRemove`) + `SecretWriter` + `getWorker` + `refresh`. Add: kind → name → per-kind fields (file path / connection string + password / url) → `buildConnectionDefinition` → `secrets.store` (only when a new secret) **before** `connection/register` → `refresh`. Edit: kind fixed, fields pre-filled, blank password keeps the existing `SecretReference`. Remove: `confirmRemove` → `connection/remove` → `secrets.delete` (if any) → `refresh`. A cancelled step or an error frame aborts without refreshing. `test/vscode-stub.ts` gained `showQuickPick` / `showInputBox` / `showWarningMessage`.
+
+## 2026-09-07 — F5.13: connection features wired + Activity Bar contribution
+
+`src/connections/commands.ts`: `registerConnectionFeatures({ getWorker, secrets, log })` — builds the `SchemaCache` + `ConnectionsTreeProvider`, the real `ConnectionUi` (`showQuickPick` six kinds / `showInputBox` / modal `showWarningMessage`), registers the `fsQueryStudioConnections` tree and the four `fs-query-studio.connections.*` commands, and returns `{ disposable, api }`. The `api` (`list` / `schema` / `addFromInput` / `remove`) is the integration-test seam — same operations, no UI. `package.json` gains the `fs-query-studio` Activity Bar container + view + `viewsWelcome` + menus + `onView` activation; `media/activitybar.svg` is the container glyph. `extension.ts`: `getWorker` now installs `registerSecretBridge` on the session client the first time it resolves; `activate` registers the connection features and returns `FsQueryStudioApi`.
+
+## 2026-09-07 — F5.14: connections extension-host integration spec
+
+`test/integration/connections.test.ts` (+ `fixtures/sample-connections.db`): via the `activate` API seam, registers a SQLite connection and asserts it appears in `connection/list` and that `connection/schema` returns the fixture's real `widgets` table + `label` column, then removes it. A second spec registers a PostgreSQL connection whose `Host={password}` resolves a `SecretStorage`-stored sentinel and asserts the `connection/schemaFailed` message echoes the *resolved* host (not `{password}`) — an end-to-end proof of the reverse `secret/get` channel. Both gated on a bundled worker (pending/green without one, run in the `vscode-extension` CI workflow).
+
+## 2026-09-07 — F5 complete: connections
+
+The extension manages connections. A new **`fs-query-studio` Activity Bar container** hosts a **Connections** tree: roots from a new `connection/list` RPC, each connection lazily expands to `connection/schema` tables → columns (cached per session, cleared by the **Refresh** command). An **Add Connection** QuickPick (`connections/add.ts`, driven by an injected `ConnectionUi`) covers all six connector kinds — file path for Sqlite/Csv/Excel, connection string + password for SqlServer/PostgreSql, URL for RestJson — writing the password to `context.secrets` **before** `connection/register`, which only ever receives the `SecretReference`. Edit re-registers under the same `Id` (blank password keeps the existing credential); Remove confirms modally, then `connection/remove` + `context.secrets.delete`.
+
+**Reverse RPC channel (worker → host).** The worker can now *initiate* a request: `HostChannel` mints a `host-<32hex>` id, writes a `WorkerRequestFrame` through the stdout `writeLock`, and awaits a response the read loop routes back via `TryComplete`. `Program.fs`'s loop peeks each inbound line — no `method` → it's a reply, hand to `HostChannel`; otherwise dispatch unchanged. `BridgeSecretStore : ISecretStore` (composed in `main` in place of `WindowsCredentialStore` on the worker's active path) answers a synchronous `TryRead` by blocking on a host-bound `secret/get` (5 s timeout, `None` on any failure — the "missing secret → connection failure" contract `ConnectionStringSecrets.resolve` already documents). `WorkerClient.setHostRequestHandler` + `secrets/bridge.ts` answer `secret/get` from VS Code `SecretStorage`; unknown method / bad params / read failure → an error reply. Secrets are now cross-platform (no `WindowsCredentialStore` in the worker path).
+
+Scope, per the F5 spec: **`secret/get` only** — `BridgeSecretStore.Save` / `Delete` raise `NotSupportedException` (the extension owns every credential write); `secret/set` / `secret/delete` over the bridge are unbuilt. No `connection/update` RPC (edit = re-register). No connection-string builder UI or "Test connection" button (schema-on-expand is the implicit test). No file picker for file connectors (free-text path, matching the Avalonia dialog). The Connections view is usable with no notebook open — `onView:fsQueryStudioConnections` resolves the shared worker session.
+
+Known limitations (carried): the schema cache is never invalidated except by **Refresh** (a table added mid-session is invisible until then); `BridgeSecretStore.TryRead`'s 5 s blocking wait ties up the evaluation thread and cannot be cancelled during that window; a single global `workspace.json`, no per-folder scoping; the reverse channel carries exactly one method — it is not yet a general host-service surface.
+
+New `src/` F# files: `HostChannel.fs`, `BridgeSecretStore.fs`. `Handlers.fs` gained `connection/list` + a `configureSecretStore` seam; `Program.fs`'s loop routes response frames; `NdjsonStream.readLine` added. Avalonia untouched (`WindowsCredentialStore` stays in the tree for `App.axaml.fs`, retired at F6). New extension modules: `src/connections/{definition,schema-cache,tree,add,commands}.ts`, `src/secrets/bridge.ts`; `WorkerClient` reverse dispatch; `activate` returns `FsQueryStudioApi`.
+
+Verification: `dotnet test tests/FSharpQueryStudio.Worker.Tests` — 60 passed; `npm test` (editors/vscode) — 197 passed / 1 skipped; `npm run compile` — tsc clean, bundle written; `npm run test:vscode` — 4 passing / 9 pending. **Merge gate:** the worker-backed `test/integration/connections.test.ts` (and the F2–F4 integration specs) run only in the `vscode-extension` CI workflow, which publishes the worker — that run must be green before merge.
+
+## 2026-09-07 — F5 final-review fixes: reverse-channel reply shape + connection/schema backgrounding
+
+Whole-branch review of F5 found two CRITICAL integration defects on the worker↔host reverse channel, each fatal on its own.
+
+**Critical 1 — reply frame-shape mismatch crashed the worker.** `client.ts` `answerHostRequest` built `{ id, result }` or `{ id, error }`; `JSON.stringify` drops the `undefined` key, so the wire line carried only one of the two. The worker's `routeResponse` then ran `JsonSerializer.Deserialize<WorkerResponseFrame>` on it — and FSharp.SystemTextJson 1.4.36 does **not** default a missing `option` record field to `None`, so it threw `JsonException: Missing field … error`. That throw was unguarded all the way out to `main().GetAwaiter().GetResult()` → the worker process **exited on every single reply**. A non-`Error` throw in either `catch` (`client.ts`, `bridge.ts`) made it worse: `(err as Error).message` was `undefined` → dropped key → same worker-killing throw on the non-optional `WorkerErrorInfo.Message`. Fixes: `answerHostRequest` and the secret bridge now always emit **both** `result` and `error` keys (the absent one `null`), and both `catch` sites use `err instanceof Error ? err.message : String(err)`. `routeResponse` was rebuilt to **never throw** — it builds the `WorkerResponseFrame` by hand from the `JsonDocument` it already parsed for the `method` peek (missing `error` key → `None`, no second parse), and wraps every path (non-JSON, valid-JSON-non-object, malformed `error`, missing-field request frame) in a `try/with` that logs the truncated line and skips it, loop alive. A `TryComplete` miss now logs a warning instead of `|> ignore`.
+
+**Critical 2 — `connection/schema` blocked the read loop.** The loop only backgrounded `analysis/*` + `results/exportCsv`; `connection/schema` fell to the inline branch. Its `Resolve` → `BridgeSecretStore.TryRead` path is synchronous up to a 5 s block waiting for the host's `secret/get` reply — a reply only this loop can read. So the loop blocked on the very frame it needed: `TryRead` always timed out to `None`, `{password}` was never substituted, schema navigation could **never** work for a password SqlServer/PostgreSql connection, plus a 5 s full-worker stall per expand (enough to trip `notebook/controller.ts`'s `CANCEL_GRACE_MS` force-kill). Fix: `connection/schema` added to the backgrounded branch guard (one condition), with a comment explaining the reverse-channel deadlock; the F5 design doc's "already `Task.Run`-dispatched" claim corrected.
+
+**CI trigger.** `.github/workflows/vscode-extension.yml` `push` now also fires on `main-vscode`, so `connections.test.ts` + the F2–F4 integration specs actually gate this branch.
+
+Regression tests: `client.test.ts` — every reverse-channel outcome asserts both keys present, plus a `throw "plain string"` → `frame.error.message === "plain string"`. `bridge.test.ts` — non-`Error` throw → `{ error: { code: "host/secretReadFailed", message: "locked" } }`. `ReverseChannelLoopTests.fs` — the loop routes a hand-built `{"id":…,"result":…}` reply (no `error` key) and completes the pending `HostChannel.Request`; the loop survives a non-JSON line and still answers a following `worker/health`. Critical 2 has no clean unit guard without an integration harness — `connections.test.ts` spec (b) is the end-to-end guard once CI runs.
+
+Verification: `dotnet test tests/FSharpQueryStudio.Worker.Tests` — 62 passed; `dotnet build src/FSharpQueryStudio.Worker` — clean; `npm test` (editors/vscode) — 200 passed / 1 skipped; `npm run compile` — tsc clean + esbuild; `npm run test:vscode` — 4 passing / 9 pending (the 2 connections specs pending locally without a bundled worker, as expected).
+
+## 2026-09-07 — F6.1: Integration.Tests loses its Avalonia coupling
+
+`tests/FSharpQueryStudio.Integration.Tests` no longer references `App` or
+`Ui`. Deleted the ten files that drove the Avalonia tier: `WorkerClientTests`
+/ `WorkerClientLoggingTests` (tested `App/WorkerClient.fs`),
+`ExecutionServiceTests`, `Milestone{A..E}AcceptanceTests` (view-model
+acceptance), `PublishedAppTests` (`RequiresPublish` — launched
+`FSharpQueryStudio.App.exe`), and `WindowsCredentialStoreTests` (store
+removed in F6.2). `TestHelpers.fs` trimmed to `workerDllPath` / `withTimeout`
+/ `request` — `wireShell` and the `App`/`Ui` opens are gone. Kept: the
+worker-stdio smoke (`Tests.fs`), `NotebookExecutionTests`, the Testcontainers
+SQL Server / PostgreSQL connector suites, `ConnectionsRegressionTests`,
+`PackageApprovalTests`. No production code touched.
+
+## 2026-09-07 — F6.2: Avalonia tier deleted
+
+`git rm` of `src/FSharpQueryStudio.{App,Ui,Editor}`,
+`tests/FSharpQueryStudio.{Ui,Editor}.Tests`, and
+`src/FSharpQueryStudio.Security/WindowsCredentialStore.fs`.
+`FSharpQueryStudio.slnx` drops the five projects (now 9 src + 10 test).
+`Handlers.fs`'s module-default `secretStore` is now `InMemorySecretStore()`
+(was `WindowsCredentialStore()`) — only reached by a standalone `dotnet run`
+or a test that never calls `configureSecretStore`; `Program.fs` still
+composes `BridgeSecretStore` for the extension host, so secret resolution is
+unchanged there. One `HandlersTests.fs` reset line swapped to
+`InMemorySecretStore()`, and a neighbouring comment lost its stale
+`WindowsCredentialStore` mention. `Security` keeps `ISecretStore` /
+`InMemorySecretStore` / `OriginDetection`. `Directory.Build.targets` dropped
+the now-dead `FSharpQueryStudio.App` disjunct from both `FsacTool`
+restore/publish `Condition`s and the `App`/`Editor` mentions in their
+comments (the `RestoreFsautocomplete` / `PublishFsautocomplete` targets still
+fire for `Worker` + the Fsac/Worker/Integration test projects). Build + the
+non-Docker test suite green (327 passing across 10 test projects; two Fsac
+diagnostics/hover tests are pre-existing FSAC warmup flakes — a different one
+failed on each of two runs, all 36 green on a third).
+
+## 2026-09-07 — F6.3: installer removed, planning docs marked superseded
+
+`git rm -r installer/` (the WiX MSI project — it only packaged
+`FSharpQueryStudio.App.exe`, now gone; nothing in CI or `.slnx` referenced
+it). `docs/fs-studio-plan.md` and `docs/fs-studio-development-plan.md` gain a
+"Superseded (2026-09) — Avalonia host retired at F6" banner; their bodies
+are untouched.
+
+## 2026-09-07 — F6.4: ci.yml drops the retired Avalonia test projects
+
+`.github/workflows/ci.yml` Linux matrix loses the `Ui.Tests` and
+`Editor.Tests` entries (projects deleted in F6.2); the D.8/E.9 comment block
+about Avalonia `NativeWebView` / Monaco / WebKitGTK is replaced by a
+three-line note. The Windows job is unchanged — it builds the now-smaller
+`.slnx`.
+
+## 2026-09-07 — F6.5: VSIX publish metadata
+
+Repo-root `LICENSE` (MIT) + a copy at `editors/vscode/LICENSE` (where `vsce`
+looks). New `editors/vscode/.vscodeignore` ships only `dist/**` (bundle +
+published worker), `media/**`, `package.json`, `README.md`, `LICENSE`.
+`package.json`: `version` 0.1.0, `license` MIT, real `categories`
+(Notebooks / Data Science / Programming Languages), `keywords`, `bugs`,
+`homepage`, `qna`, `galleryBanner`; the redundant
+`onCommand:` activation event dropped. Icon: deferred — see release runbook
+(no ImageMagick / rsvg-convert / inkscape available on this machine, so no
+128x128 PNG was produced and the `icon` key is intentionally absent).
+`vsce package` runs warning-free; `vsce ls` confirms no source or test files
+in the VSIX.
+
+## 2026-09-07 — F6.6: extension README + release runbook
+
+`editors/vscode/README.md` rewritten for end users: requirements, quick
+start, feature list, the stated limitations, and the Ionide-coexistence
+note (dev instructions kept at the bottom). New
+`docs/vscode-extension-release.md` — the manual `vsce publish` process,
+publisher/PAT setup, and the "F6 is publish-ready, not published" statement.
+
+## 2026-09-07 — F6.7: CI asserts the VSIX is clean
+
+`vscode-extension.yml` — `vsce package` now fails on any `WARNING`, and a new
+"Assert VSIX contents" step (ubuntu) checks `vsce ls`: `package.json`,
+`README.md`, `LICENSE`, `dist/extension.js`, `dist/worker/*.dll`, and the
+renderer bundle must be present; nothing under `src/`, `test/`, `out/`,
+`node_modules/`, and no `*.test.ts` / `tsconfig*.json` may be.
+
+## 2026-09-07 — F6 complete: parity + retire
+
+The VS Code extension has reached parity with the retired Avalonia app and
+Avalonia is gone from the tree.
+
+**Parity.** `docs/f6-parity-checklist.md` walks the migration spec's eight
+F6 criteria — write+run a query, all six connectors, CSV export,
+connection-name autocomplete, schema navigation, secrets-out-of-files,
+session persistence, and the log-viewer→OutputChannel downgrade. Seven are
+each tied to a passing automated suite or a recorded manual check, re-walked
+against the post-deletion tree at close-out with no regression.
+Connection-name string-literal autocomplete (`Connections.sql "…"`)
+regressed when `src/FSharpQueryStudio.Ui/ConnectionNameCompletion.fs` was
+deleted in F6.2 — the extension has no replacement provider and F6 forbids
+feature work, so it is recorded as a checklist finding and is F7 backlog.
+
+**Retired.** `git rm` of `src/FSharpQueryStudio.{App,Ui,Editor}`,
+`tests/FSharpQueryStudio.{Ui,Editor}.Tests`,
+`src/FSharpQueryStudio.Security/WindowsCredentialStore.fs`, and `installer/`
+(the WiX MSI). `FSharpQueryStudio.slnx` is down to 9 src + 10 test projects.
+`Integration.Tests` lost its ten Avalonia-coupled files (WorkerClient,
+ExecutionService, Milestone A–E acceptance, PublishedApp) and its
+`TestHelpers.fs` is trimmed to `workerDllPath` / `withTimeout` / `request`;
+it keeps the worker-stdio smoke, `NotebookExecutionTests`, the Testcontainers
+connector suites, `ConnectionsRegressionTests`, and `PackageApprovalTests`.
+The only production change: `Handlers.fs`'s module-default `secretStore` is
+now `InMemorySecretStore()` — `Program.fs` still composes `BridgeSecretStore`
+for the extension host, so secret resolution there is unchanged. `ci.yml`
+drops the two deleted test projects from its Linux matrix. The Avalonia
+planning docs carry a "superseded" banner.
+
+**Publish-ready (not published).** MIT `LICENSE` at the repo root and in
+`editors/vscode/`; a `.vscodeignore` that ships only `dist/**` (bundle +
+worker), `media/**`, `package.json`, `README.md`, `LICENSE`; full
+`package.json` Marketplace metadata (`version` 0.1.0, `license`,
+`categories`, `keywords`, `bugs`, `homepage`, `qna`, `galleryBanner`; the
+redundant `onCommand:` activation event removed). `README.md` is now a
+user-facing overview. `docs/vscode-extension-release.md` is the manual
+`vsce publish` runbook. `vscode-extension.yml` fails packaging on any `vsce`
+warning and asserts the VSIX carries no source/test files. No publisher
+account, PAT, or CI publish secret was created. `main-vscode` is **not**
+merged to `main` — that is a separate decision. The 128×128 `icon` was not
+generated in F6 (no SVG rasterizer on the build machine) — deferred to the
+release runbook; the `icon` key stays absent. The local VSIX packages at
+~70 MB / 265 files (framework-dependent worker shipped as-is, `dotnet` on
+PATH). Three minor CI-gate polish items (swallowed `vsce` error text on
+hard-fail, unanchored forbidden-path grep, unpinned `@vscode/vsce`) are
+noted as deferred CI-gate hardening.
+
+Verification: `dotnet build FSharpQueryStudio.slnx --configuration Release`
+clean (0 warnings / 0 errors); `dotnet test` (non-Docker, non-Publish) 327
+passing / 0 failed / 0 skipped across 10 projects (`Fsac.Tests` 36/36, no
+warmup flake this run); `editors/vscode` `npm test` 201 passing / 0 skipped
+(26 files); `npm run compile` tsc clean + esbuild; `npm run test:vscode` 11
+passing / 2 failing — the two failures are the documented, CI-gated
+exceptions from the parity checklist (`intelligence.test.ts` "reports a
+diagnostic for a broken edit" and `connections.test.ts` `{password}`
+host-echo, both Windows-local only, green in `vscode-extension.yml` on
+Linux); `npx @vscode/vsce package` warning-free; `npx @vscode/vsce ls` clean
+(no `src/`, `test/`, `out/`, `node_modules/`, `*.test.ts`, `tsconfig*`).
+
+## 2026-09-07 — F7.1: connection-name string-literal completion
+
+The one F6 parity criterion that regressed when the Avalonia UI was
+deleted at F6.2 (`FSharpQueryStudio.Ui/ConnectionNameCompletion.fs` had no
+VS Code equivalent). Reinstated as a dedicated completion provider.
+
+New `editors/vscode/src/lang/connection-name-completion.ts`: a pure
+predicate `isInsideConnectionNameArgument(linePrefix)` — a straight port of
+the F# regex `Connections\.(?:sql|csv|excel|rest)\s*\(?\s*"[^"]*$`, covering
+both `Connections.sql "…` and `Connections.sql("…`, single-line only as the
+original was — plus `registerConnectionNameCompletion(deps)`, a *second*
+`registerCompletionItemProvider` on `FSHARP_CELL_SELECTOR` triggered on `"`.
+It reads the cursor's line prefix from `document.getText()` (no `lineAt`, so
+the vscode test stub needs nothing new), and when the predicate matches
+returns the registered connection names as `CompletionItem`s of kind
+`Value` (bare name — the cursor sits between the quotes already). Any other
+position returns `undefined`, so it never competes with the FSAC-forwarding
+provider.
+
+`providers.ts` `LanguageFeaturesDeps` gains an optional
+`listConnectionNames?: () => Promise<string[]>` (optional so the existing
+provider unit tests need no new wiring; `registerLanguageFeatures` falls
+back to `async () => []`). `extension.ts` now registers
+`registerConnectionFeatures` **before** `registerLanguageFeatures` — no
+dependency the other way — and passes
+`listConnectionNames: () => connections.api.list().then(cs => cs.map(c => c.name))`.
+One `connection/list` RPC to the already-running worker session, fired only
+after the predicate matches (i.e. only when the cursor is actually inside a
+`Connections.*` string argument), never on the keystroke path — the same
+pattern the connections tree uses on expand. No cache added.
+
+Tests: new `connection-name-completion.test.ts` — 23 cases: the predicate's
+true/false table (whitespace variants, `("` form, closed strings, wrong
+member names, plain string literals) and the provider (offers names inside
+the argument, `undefined` outside, reads the cursor's own line in a
+multi-line cell, does not query names when the predicate misses).
+`providers.test.ts` and `extension.test.ts` completion-count assertions bump
+`+1 → +2`; the three `providers.test.ts` tests that grab the FSAC provider
+now index `_completion.at(-2)` (FSAC is pushed before the connection-name
+provider). No extension-host integration spec — a registered connection plus
+a live worker is heavier than the unit coverage warrants, matching how the
+F4/F5 providers were tested; noted as F7 integration-suite follow-up.
+
+Verification: `editors/vscode` `npm test` 224 passing / 0 skipped (27
+files); `npm run compile` tsc `--noEmit` clean + esbuild bundle. F6 parity
+checklist row 4 flipped to met.
+
+## 2026-09-07 — F7.7: FSAC never analysed `vscode-notebook-cell:` URIs
+
+`intelligence.test.ts` "reports a diagnostic for a broken edit" failed
+locally (no diagnostic within its 30 s poll) and was CI-gated. Systematic
+debugging: instrumented every pipeline boundary and read the worker
+Serilog log. The extension side was fine — every `FsacBridge.check` call
+timed out after 10 s waiting for `fsharp/documentAnalyzed`, which FSAC
+never sent, and the worker log carried
+`FSAC completion failed … "Couldn't find …\_d:_…_sample-intelligence.fsqnb
+in LoadedProjects"`.
+
+**Root cause.** `FsacBridge.fsacUriFor` builds the synthetic `file://`
+URI it hands FSAC by replacing only `Path.GetInvalidFileNameChars()` —
+which on Windows excludes `#` and `%`. A `vscode-notebook-cell:` URI
+carries a `#<base64 cell handle>` fragment and `%`-encoded path segments,
+so the synthetic string came out as
+`file:///…/_d%3A_…_sample-intelligence.fsqnb#W2sZmlsZQ%3D%3D.fsx`. FSAC
+reads the `#` as a URI fragment delimiter, keeps only
+`…sample-intelligence.fsqnb` as the path, and drops the `.fsx` suffix that
+`analysisDocumentUri` appends so FSAC treats the buffer as an F# script.
+An unknown-extension file in no loaded project is never script-analysed →
+no `documentAnalyzed`, no `publishDiagnostics` → `check` always times out
+to `[]`. (In-cell completion still "worked" in the sibling test because it
+falls back to the executed FSI session's symbol list; `check` has no such
+fallback.)
+
+**Fix.** In `fsacUriFor`, for a non-`file:` caller URI, map every
+character outside `[A-Za-z0-9._-]` to `_` (stricter than
+`GetInvalidFileNameChars`), then append `.fsx` unless the result already
+ends with it. Still deterministic; distinct cell handles stay distinct.
+`fsacUriFor` dropped `private` so a pure test can assert the output shape.
+
+Tests: new `tests/FSharpQueryStudio.Fsac.Tests/FsacBridgeUriTests.fs` — 5
+pure cases (no `#`/`%` in the synthetic URI, always ends `.fsx`,
+deterministic, distinct per handle, `file:` passes through). A first cut
+added a real-FSAC `check` test with the notebook-cell URI shape; it
+reproduced the bug but measurably raised the hit rate of a *pre-existing*
+`Fsac.Tests` suite flake, so it was replaced with the pure test.
+
+Verification: `FsacBridgeUriTests` 5/5 (17 ms); `intelligence.test.ts`
+broken-edit spec now passes in < 1 s (was a 32 s timeout);
+`editors/vscode` `test:vscode` 12 passing / 1 failing (up from 11 / 2 —
+the remaining failure is the documented Windows/Npgsql `{password}`
+host-echo variance, green on Linux CI); `FSharpQueryStudio.Worker.Tests`
+62/62; `editors/vscode` vitest 224/224.
+
+**Pre-existing, not fixed here.** The full `FSharpQueryStudio.Fsac.Tests`
+suite fails ~40 % of runs — a single real-FSAC `check`/`hover` test on a
+`file:` URI returns `[]` (`Assert.NotEmpty` empty) in ~200 ms:
+`fsharp/documentAnalyzed` fires but `latestDiagnosticsByUri` has nothing
+for that URI yet. `awaitDocumentAnalyzed` assumes FSAC always sends
+`publishDiagnostics` before `documentAnalyzed`; under the shared
+long-lived process (especially right after the `KillForTests()` respawn
+test) that ordering does not always hold. Reproduced on a clean
+`main-vscode` tree (2 of 5 runs) with none of F7's changes. Left as an F7
+follow-up — see `docs/tasks/f7-7-fsac-notebook-cell-uri-diagnostics.md`.
+
+## 2026-09-07 — F8: build & publish scripts + release docs
+
+Turned the extension's build/package/publish process from inline-only bash
+in `.github/workflows/vscode-extension.yml` plus a prose runbook into
+Node ESM scripts under `editors/vscode/scripts/`, run through npm scripts.
+Node, not PowerShell/bash: cross-platform with zero new tooling (Node + npm
+already required and already what CI uses), one code path for a
+Windows-primary dev box and mac/linux/CI, idiomatic for a VS Code
+extension.
+
+**Scripts** (`editors/vscode/scripts/`):
+- `lib.mjs` — `run` / `runCapture` (spawn helpers; on Windows the
+  `npm`/`npx` `.cmd` shims need `shell: true`, `dotnet`/`git` do not),
+  repo paths, `assertVsixContents` (a direct port of the required-files +
+  no-`src`/`test`/`out` checks that were bash in the workflow),
+  `parseArgs`.
+- `build.mjs` — `dotnet publish` the worker + `npm run compile`. Flags
+  `--skip-worker`, `--worker-only`, `--configuration`.
+- `package.mjs` — build → `vsce package` → fail on a `WARNING` line (matched
+  case-sensitively, as CI did — a loose `/warning/i` caught Node's own
+  `DeprecationWarning`) → `vsce ls` → `assertVsixContents`.
+- `publish.mjs` — preflight → `package` → `vsce publish --packagePath`.
+  Preflight refuses unless: `doctor` has no hard failure, the git tree is
+  clean (`--allow-dirty` overrides), `package.json` version matches a
+  `vscode-v<version>` tag on HEAD, `CHANGELOG.md` has a `## <version>`
+  heading, and `VSCE_PAT` is set. `--dry-run` runs it all and stops before
+  the publish. The scripts never write the version or the tag — that stays
+  a manual, reviewed step.
+- `doctor.mjs` — read-only ✓/✗ table: .NET ≥ 10, Node ≥ 20, `vsce`
+  resolvable, `publisher.name` vs the `EXTENSION_ID` constant in the 5
+  integration tests (regex read; degrades to a soft note if not found),
+  `media/icon.png` presence, `VSCE_PAT`.
+
+**Wiring:** `editors/vscode/package.json` gains `build`, `build:worker`,
+`package`, `publish`, `doctor`, and `vscode:prepublish` → `build.mjs` (so a
+bare `vsce` can't ship a stale bundle). `.vscodeignore` excludes
+`scripts/**`.
+
+**CI:** `vscode-extension.yml` — the two inline steps (`Package VSIX`
+warning-gate, `Assert VSIX contents`) collapse to one
+`run: npm run package -- --skip-worker` (the worker is published by an
+earlier job step). Single source of truth: a local `npm run package` now
+enforces exactly what CI does.
+
+**Docs:** new `editors/vscode/CHANGELOG.md` (Keep a Changelog; `0.1.0`
+seeded from the F1–F7 feature set, plus an `[Unreleased]` entry for F8);
+new `editors/vscode/scripts/README.md`; `docs/vscode-extension-release.md`
+per-release section rewritten around `npm run doctor` → bump → tag →
+`npm run publish`; a "Building & packaging" table in
+`editors/vscode/README.md`; an **F8** row in the migration design rollout
+table.
+
+No worker or extension **behaviour** change — packaging/tooling and docs
+only.
+
+Verification: `npm run doctor` — prints the table, exits 1 on the one
+expected blocker (`media/icon.png` missing, F6 gap). `npm run package`
+(and `--skip-worker`) — builds `fs-query-studio.vsix`, no `vsce` warnings,
+`✓ VSIX contents OK (263 files)`. `npm run publish -- --dry-run` — reports
+all 5 preflight blockers (icon, dirty tree, no tag, no CHANGELOG heading
+before it was written, no `VSCE_PAT`) and stops. `npm test` 224/224
+unchanged. `media/icon.png` + the `package.json` `"icon"` key remain the
+one thing blocking a first real publish — tracked in the release doc's
+one-time setup.
+
+## 2026-09-08 — F9: "New F# Query Notebook" create commands
+
+Until now the only way to get a `.fsqnb` was to hand-make a file with that
+extension. Added first-class create entry points.
+
+**Module** `src/notebook/new-notebook.ts` — dependency-injected, like
+`connections/add.ts`, so the logic is unit-tested against the `vscode`
+stub with no real API:
+- `emptyNotebookData()` — one `NotebookCellData(Code, "", "fsharp")`,
+  `metadata {}`.
+- `emptyFsqnbBytes()` — `serializeFsqnb` of the same shape, for the
+  on-disk path.
+- `openNewUntitledNotebook(deps)` — `openNotebookDocument(type, data)` with
+  no URI → an untitled notebook → `showNotebookDocument`.
+- `createNotebookFileInFolder(folder, deps)` — `showInputBox` (default
+  `query.fsqnb`, `.fsqnb` appended if absent, name trimmed), re-check
+  existence (`validateInput` is sync and can't stat), `writeFile`, open.
+  Throws `NotebookFileExistsError` (carries `userMessage`) on collision;
+  returns `undefined` on cancel.
+
+**Wiring** `src/extension.ts` — two commands with thin `vscode` adapters
+inside the closures (so `activate` needs nothing new from the stub):
+`fs-query-studio.newNotebook` (untitled) and
+`fs-query-studio.newNotebookHere` (folder, resource arg from the Explorer;
+falls back to `workspaceFolders[0]`).
+
+**Contributions** `package.json`:
+- commands `newNotebook` (`shortTitle: "F# Query Notebook"`) and
+  `newNotebookHere`;
+- `menus.file/newFile` → `newNotebook` (this also populates the Welcome
+  page "New…" list);
+- `menus.explorer/context` → `newNotebookHere`, `when:
+  "explorerViewletVisible && explorerResourceIsFolder"`;
+- `menus.commandPalette` → `newNotebookHere` hidden (`when: false`) — it
+  needs a folder; palette users take `newNotebook`.
+- No `activationEvents` change — the extension-host run confirmed the
+  contributed command activates the extension on first use.
+
+**No worker / renderer / protocol / serializer change.**
+
+TDD: `src/notebook/new-notebook.test.ts` (9 cases) written first, RED on
+the missing module, then GREEN. Verification: `npm test` **235/235** (was
+224; +9 here, +2 in `extension.test.ts` for the new command ids);
+`npm run compile` clean; `vscode-test --grep "fsquery-notebook
+integration"` **5/5**, including a new spec that executes
+`fs-query-studio.newNotebook` and asserts an untitled `fsquery-notebook`
+with one empty `fsharp` cell. A second integration spec for the on-disk
+`newNotebookHere` path was dropped — `showInputBox` has no headless
+resolver and hangs the command to a timeout; cancel/collision/suffix are
+covered by the unit suite. See
+`docs/tasks/f9-new-notebook-command.md`.
+
+## 2026-09-08 — Fix: cell result hidden behind FSI stdout in one output
+
+A user on the packaged VSIX reported "the result is not being displayed
+after running an F# block" — the FSI echo (`val result: … =`) showed, but
+the table grid did not; it was reachable only by manually switching the
+output's presentation from `application/vnd.code.notebook.stdout` to
+`text/plain` / `application/x-fsquery-table+json`.
+
+**Root cause.** `controller.ts`'s `runBatch` put *every* mapped item —
+stdout/stderr lines, the `application/x-fsquery-table+json` payload, and
+the `text/plain` grid — into a **single** `vscode.NotebookCellOutput`.
+VS Code treats the items of one output as alternative representations of
+one value and renders exactly one, chosen by mime priority; it picked the
+stdout mime, hiding the result. `mapEnvelope` itself was fine — the specs
+were already in the right order; the defect was purely in how the
+controller grouped them into outputs.
+
+**Fix.** New pure `groupOutputs(specs): OutputItemSpec[][]` in
+`result.ts`: each stdout/stderr run becomes its own group; a trailing
+group holds the value representations (`table-json` + `text`, still
+alternatives of one value — which is what a multi-item output is *for*).
+Consecutive same-stream specs are merged into one item so a multi-line
+FSI echo is one block, not one output per line. `[]` in → `[]` out; no
+trailing group when there is no value spec. `controller.ts` now does
+`groupOutputs(mapEnvelope(...)).map(g => new NotebookCellOutput(...))` and
+`replaceOutput`s the array. The error / worker-crashed / null-result /
+mapping-throw branches were already single dedicated `errorOutput`s and
+are untouched.
+
+Not addressed (expected behaviour, noted for the user): the same report's
+cell used `Results.table rows` on a materialized `obj[][]` from a CSV,
+which takes the generic nested-collection path and consumes row 0 as
+headers. The right call for a connector query is
+`Connections.csv "name" |> Results.raw`.
+
+TDD: 6 new `groupOutputs` cases in `result.test.ts` (RED:
+`groupOutputs is not a function`), 2 rewritten `controller.test.ts`
+assertions (two-output `[[stdout],[table-json,text]]` shape; flattened
+mime check). Verification: `npm test` **241/241**; `npm run compile`
+clean; `vscode-test --grep "fsquery-notebook integration"` **5/5**. See
+`docs/tasks/fix-notebook-output-mime-priority.md`.
+
+**Revised the same day (commit above superseded before push).** With the
+split fix in place the FSI echo and the grid were *both* visible,
+stacked. The user then clarified: the raw `val result: … =` /
+`val rows: … = [| … |]` dump should **not** be shown by default at all —
+only the table, with the raw dump available behind the output's
+presentation picker. A separate `NotebookCellOutput` can't be
+hidden-by-default (VS Code renders every output), so `groupOutputs` was
+removed. New shape: `mapEnvelope` folds every `env.output` line into the
+**single `text/plain` item** (`streamText + "\n\n" + body`, where `body`
+is the text grid for a Table or `displayText` otherwise) and never emits
+an `application/vnd.code.notebook.stdout` / `.stderr` item at all — that
+mime sits near the top of VS Code's `NOTEBOOK_DISPLAY_ORDER` and would
+always win the default view. A Table result is now one output with
+`[application/x-fsquery-table+json, text/plain]`: the grid renderer
+outranks `text/plain`, so the grid is the default and the folded FSI echo
+is the one-click "raw data" alternative. `Error` returns only the error
+item (echo discarded — a failure must not be buried). `OutputItemSpec`
+lost its `stdout`/`stderr` variants; `toOutputItem` lost those cases;
+`controller.ts` is back to one `new NotebookCellOutput(items)`.
+Verification: `npm test` **236/236**; `npm run compile` clean; full
+`vscode-test` **13/14** (the one failure is the pre-existing
+`KNOWN NPGSQL VARIANCE` in `connections.test.ts`, unrelated).
+
+## 2026-09-08 — Notebook results-grid visual polish
+
+User feedback: the grid "a little bit ugly" — monospace everywhere, weak
+header, cramped toolbar, hard to scan rows; wants native-VS-Code feel.
+
+Renderer (`src/renderer/index.ts` + `types.ts`), no protocol/behaviour
+change:
+- **Typography.** VS Code UI font (`--vscode-font-family` /
+  `--vscode-font-size`) instead of 12px monospace. Numeric columns
+  right-aligned with tabular figures (`.fsq-num`), inferred from each
+  column's first non-null *value* (`computeNumericCols`) rather than the
+  connector-specific `displayType` string; refined as `results/page`
+  rows stream in.
+- **Rows.** Height 22 → 24 (`GRID_ROW_HEIGHT_PX`). Zebra striping via a
+  JS-set `.fsq-odd` class keyed on the *absolute* row index — CSS
+  `:nth-child` would flip parity mid-scroll since only the visible window
+  is mounted. `NULL` shown as faint italic text, not a blank cell. "No
+  rows" placeholder replaces the old empty box.
+- **Header.** Own background (`--vscode-keybindingTable-headerBackground`),
+  bottom rule + 1px shadow so it stays legible while sticky, subtle
+  per-column rule, `title="name · displayType"`.
+- **Chrome.** Whole grid wrapped in a `.fsq-panel` (border + radius +
+  `overflow:hidden`); Data/Schema become a small segmented pair;
+  flat toolbar buttons with hover/active/focus-visible states; row count
+  right-aligned and tabular.
+- Every token has a plain `var(..., fallback)` so a missing VS Code
+  theme variable degrades, never breaks; light + dark both covered.
+
+All class hooks and behaviour (windowing, Load more, Export CSV, schema
+toggle, host messaging) unchanged. TDD: +4 `index.test.ts` cases
+(numeric header+body alignment, `NULL` cell, numeric inference past a
+leading null, "No rows"). Verification: `npx vitest run src/renderer/`
+**19/19**; `npm test` **240/240**; `npm run compile` clean;
+`vscode-test --grep "renderer|fsquery-notebook"` **8/8**. No interactive
+visual check this session (no browser/extension-host screenshotting) —
+a standalone `grid-preview.html` was handed to the user. See
+`docs/tasks/notebook-grid-visual-polish.md`.
+
+## 2026-09-08 — Documentation + README rewrite
+
+User asked to rewrite all documentation and the README and to add a
+new-user tutorial. Scoped (after a check-in) to user- and
+contributor-facing docs only — `DEVLOG.md` and `docs/superpowers/**`
+are history and were left untouched; `docs/README.md` now says so
+explicitly.
+
+Files:
+- **`README.md`** (repo root) — *new*. First real entry point: what the
+  product is, .NET 10 SDK + VS Code ≥ 1.90 requirements, VSIX install,
+  four-step quick start, feature list, repository-layout table, .NET +
+  npm dev commands, Ionide relationship, MIT.
+- **`editors/vscode/README.md`** — rewritten. Marketplace-facing.
+  Adds the cell execution model (auto-`open` of `Connections` /
+  `Results`), a `Connections.*` call table with a parameterized-SQL
+  snippet, a `Results.raw` / `table` / `tableWithColumns` / `text`
+  table, a connection-kinds table (corrected: REST has no secret; the
+  password prompt is separate from the connection string and only
+  `{password}` is persisted), a commands table, limits, dev/build.
+- **`docs/TUTORIAL.md`** — *new*. Twelve-step hands-on walkthrough:
+  prereqs + `Check Worker`, first cell, session persistence, grid from
+  a record seq, register a SQLite connection, query it, `Results.raw`
+  + Export CSV, the `Results.*` variants, CSV/Excel connections,
+  SqlServer/PostgreSql with `{password}`, a REST cell
+  (`RestRequestOptions.Get`, `.Result` on the `Task<JsonElement>`,
+  project to records for a grid), the in-cell-intelligence list, a
+  troubleshooting table.
+- **`docs/README.md`** — *new*. Index splitting "current — read these"
+  from "historical — record, not documentation", with a short note on
+  the Avalonia→VS Code phase history.
+- **`editors/vscode/CHANGELOG.md`** — rewritten. Removed a stray
+  `</content>` tag at EOF; regrouped Unreleased under
+  Added/Changed/Fixed; kept the 0.1.0 section.
+- **`docs/vscode-extension-release.md`**,
+  **`editors/vscode/scripts/README.md`** — rewritten. Removed the
+  stray `</content>` tag at EOF of each; tightened wording; fixed
+  relative doc links. No process change.
+
+No code touched. Verification: every command title, view name,
+notebook type, `engines.vscode`, extension id, and `Connections.*` /
+`Results.*` / `RestRequestOptions` signature in the new prose was
+checked against `editors/vscode/package.json`,
+`src/FSharpQueryStudio.Connectors/Connections.fs`,
+`src/FSharpQueryStudio.Connectors/RestConnector.fs`,
+`src/FSharpQueryStudio.Results/ScriptResults.fs`,
+`src/FSharpQueryStudio.Execution/FsiSession.fs`, and
+`editors/vscode/src/connections/add.ts`.
+
+## 2026-09-08 — Notebook results: capture the FSI tail value, retire the Results module
+
+A cell now renders the value of its **last expression**, polyglot-notebook
+style — no `Results.raw` / `table` / `tableWithColumns` / `text` call, and the
+`Results` module is deleted (`src/FSharpQueryStudio.Results/ScriptResults.fs`,
+~380 lines, plus `ScriptResultsTests.fs`).
+
+**Where the logic went.** `Results.dispatchRows`' shape inference — record
+seq → reflected field names, tuple seq → `Item1..ItemN`, `Map`/dictionary seq
+→ first-seen key union, nested seq → row-0 headers with ragged pad/truncate —
+moved verbatim into `Projection.projectWithCursor`, minus every `columnNames`
+override (there is no override surface any more). `projectWithCursor` gained a
+`ConnectorQueryResult` arm (ported from `Results.raw`) and a third return
+value, `RetainedTable option`, so the worker still knows which results to hold
+for **Export CSV**.
+
+**Tuple headers.** `Results.tableWithColumns` used to be *required* for tuple
+sequences (tuples carry no field names). They now auto-render with positional
+`Item1` / `Item2` / … columns; project to a record for named columns.
+
+**No-value cells.** A cell ending in a `let` or a `printfn` now shows only its
+stdout plus a quiet `NoValue` — the exact `.NET Interactive` behavior. The
+`Results` module's original reason for existing (surfacing *something* when the
+last line produced no `it`) is intentionally gone.
+
+**Retention rule.** `Handlers.runEvaluate` no longer checks
+`Results.currentEnvelope` first — it always projects the tail value.
+`ResultRetention.set` fires only when the projector returns
+`RetainedTable.Some` (a materialized grid). A later non-table run
+(`printfn`, a scalar, a streamed scalar seq) leaves the notebook's last
+exportable grid in place; the old "discard a stale generic Table" guard is
+deleted, because with one projection path a materialized generic table *is*
+the result worth retaining.
+
+**Robustness.** The shape dispatch runs in the worker after FSI returns, so a
+reflection failure (e.g. a `seq` whose first element is a tuple but whose rest
+are not) can't be caught by `EvalInteractionNonThrowing`. The whole dispatch
+body is wrapped: on any exception it falls back to a `Text` envelope of
+`sprintf "%A" value`.
+
+**Prologues.** Both the FSI (`FsiSession.create`) and FSAC (`Prologue.build`)
+prologues drop `open FSharpQueryStudio.Results` — no script-facing surface
+remains in that namespace. The `#r` on the assembly stays (the worker still
+projects its types). The FSAC prologue is now 3 lines; `PrologueTests` updated.
+
+**Docs.** `editors/vscode/README.md` and `docs/TUTORIAL.md` replace the
+`Results.*` tables with a "what a cell shows" table keyed on the last
+expression's shape.
+
+Files: `src/FSharpQueryStudio.Results/Projection.fs`,
+`src/FSharpQueryStudio.Results/ScriptResults.fs` (deleted),
+`src/FSharpQueryStudio.Results/FSharpQueryStudio.Results.fsproj`,
+`src/FSharpQueryStudio.Worker/Handlers.fs`,
+`src/FSharpQueryStudio.Execution/FsiSession.fs`,
+`src/FSharpQueryStudio.Fsac/Prologue.fs`,
+`tests/FSharpQueryStudio.Results.Tests/ProjectionTests.fs` (new),
+`tests/FSharpQueryStudio.Results.Tests/ScriptResultsTests.fs` (deleted),
+`tests/FSharpQueryStudio.Results.Tests/FSharpQueryStudio.Results.Tests.fsproj`,
+`tests/FSharpQueryStudio.Worker.Tests/HandlersTests.fs`,
+`tests/FSharpQueryStudio.Fsac.Tests/PrologueTests.fs`,
+`editors/vscode/src/notebook/result.ts`,
+`editors/vscode/src/notebook/table-payload.ts`,
+`editors/vscode/README.md`, `docs/TUTORIAL.md`,
+`docs/superpowers/specs/2026-09-08-notebook-tail-value-results-design.md` (new),
+`docs/superpowers/plans/2026-09-08-notebook-tail-value-results.md` (new).
+
+## 2026-09-09 — Notebook cells reach the worker as append fragments, not whole-document runs
+
+`execution/evaluate` now lets a client pick the persistent-session update
+policy. `EvaluateParams` gained `IsNotebookCell: bool`. When it is `true` on a
+`Persistent` run with a `SessionId`, `Handlers.runEvaluate` dispatches to
+`SessionStore.appendFragment` instead of `SessionStore.getOrCreate` — the
+notebook policy that grows the session's execution log by one and never
+invalidates, so cell 2 sees cell 1's bindings even when cell 2's text is not a
+prefix of cell 1's. `false` (the whole-document default, F5 Run) keeps
+`getOrCreate`'s prefix-based revise-in-place invalidation.
+
+`appendFragment` has existed since E.4 but was proven mechanism-only,
+in-process — no protocol or worker path selected it. This is the wiring E.4
+deferred: the VS Code notebook controller sets `isNotebookCell: true` on every
+cell submission (`controller.ts`), and the flag rides the wire through
+`protocol.ts` / `Payloads.fs`.
+
+Tests: `EvaluateParams` JSON round-trip carries the new field
+(`Protocol.Tests`); a two-cell worker-level case — `let a = 20` / `let b =
+a + 1` then a bare `b + 1` — asserts the second cell resolves `b` to `22`
+(`HandlersTests.fs`), which `getOrCreate` would have failed by discarding the
+session. Controller test asserts the outgoing param. Full suites green:
+`Protocol.Tests` 10, `Worker.Tests` 63, vscode vitest 243.
+
+Files: `src/FSharpQueryStudio.Protocol/Payloads.fs`,
+`src/FSharpQueryStudio.Worker/Handlers.fs`,
+`editors/vscode/src/protocol.ts`,
+`editors/vscode/src/notebook/controller.ts`,
+`tests/FSharpQueryStudio.Protocol.Tests/Tests.fs`,
+`tests/FSharpQueryStudio.Worker.Tests/HandlersTests.fs`,
+`tests/FSharpQueryStudio.Worker.Tests/HandlersLoggingTests.fs`,
+`editors/vscode/src/notebook/controller.test.ts`.

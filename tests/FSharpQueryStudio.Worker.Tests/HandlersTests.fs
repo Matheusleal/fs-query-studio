@@ -9,6 +9,7 @@ open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Execution
 open FSharpQueryStudio.Storage
 open FSharpQueryStudio.Worker
+open TestHelpers
 
 /// FSAC tracks each `analysis/*` document by `(documentUri, version)`
 /// (Task 12's cutover from FCS's own per-request, stateless
@@ -38,7 +39,8 @@ let private evaluateRequest (id: string) (source: string) : WorkerRequestFrame =
             { Source = source
               SessionId = None
               Mode = Isolated
-              DocumentUri = "untitled:Test.fsx" },
+              DocumentUri = "untitled:Test.fsx"
+              IsNotebookCell = false },
             Serialization.options
         ) }
 
@@ -50,7 +52,25 @@ let private persistentEvaluateRequest (id: string) (source: string) (sessionId: 
             { Source = source
               SessionId = Some sessionId
               Mode = Persistent
-              DocumentUri = "untitled:Test.fsx" },
+              DocumentUri = "untitled:Test.fsx"
+              IsNotebookCell = false },
+            Serialization.options
+        ) }
+
+/// A single notebook cell against a persistent session: the worker
+/// appends `source` to `sessionId`'s session (`SessionStore.appendFragment`),
+/// so a later cell sees an earlier cell's bindings even when its text is
+/// not a prefix of what ran before.
+let private notebookCellRequest (id: string) (source: string) (sessionId: string) : WorkerRequestFrame =
+    { Id = id
+      Method = "execution/evaluate"
+      Params =
+        JsonSerializer.SerializeToElement<EvaluateParams>(
+            { Source = source
+              SessionId = Some sessionId
+              Mode = Persistent
+              DocumentUri = sessionId
+              IsNotebookCell = true },
             Serialization.options
         ) }
 
@@ -62,7 +82,8 @@ let private evaluateRequestFor (id: string) (documentUri: string) (source: strin
             { Source = source
               SessionId = None
               Mode = Isolated
-              DocumentUri = documentUri },
+              DocumentUri = documentUri
+              IsNotebookCell = false },
             Serialization.options
         ) }
 
@@ -288,36 +309,43 @@ let ``handleEvaluate captures printed stdout into the envelope's Output lines`` 
 [<Fact>]
 let ``handleEvaluate rejects a second concurrent evaluate with a structured busy error`` () =
     task {
-        // A plain file check, not a call back into a host assembly - see
-        // Execution.Tests/EvaluationTests.fs for why the earlier
-        // static-field-plus-self-reference design was unreliable.
-        let longRunningScript =
-            "let mutable i = 0 in (while i < 2_000_000_000 && not (System.IO.File.Exists(\".cancel-requested\")) do i <- i + 1); i"
-
         // Reserve the slot synchronously (mirrors Program.fs's own loop)
         // rather than backgrounding the whole handleEvaluate call and
         // hoping a Task.Delay outlasts the threadpool picking it up - a
         // freshly started process's threadpool can take a while to inject
         // worker threads under load, which made this test flaky before.
-        match Handlers.beginEvaluate (evaluateRequest "e1" longRunningScript) with
+        match Handlers.beginEvaluate (evaluateRequest "e1" "1") with
         | Choice2Of2 _ -> failwith "expected to reserve the evaluation slot"
         | Choice1Of2 workDir ->
-            let firstTask =
-                Task.Run(fun () -> Handlers.runEvaluate (evaluateRequest "e1" longRunningScript) workDir)
+            try
+                let sentinelPath =
+                    Path.Combine(workDir, CancellationSignal.SentinelFileName).Replace("\\", "/")
 
-            let! secondResponse = Handlers.dispatch (evaluateRequest "e2" "1")
+                let longRunningScript =
+                    $"let mutable i = 0 in (while i < 2_000_000_000 && not (System.IO.File.Exists(\"{sentinelPath}\")) do i <- i + 1); i"
 
-            Assert.True(secondResponse.Result.IsNone)
+                let firstTask =
+                    task {
+                        do! Task.Yield()
+                        return Handlers.runEvaluate (evaluateRequest "e1" longRunningScript) workDir
+                    }
 
-            match secondResponse.Error with
-            | Some err -> Assert.Equal("execution/busy", err.Code)
-            | None -> failwith "expected a busy error"
+                let! secondResponse = Handlers.dispatch (evaluateRequest "e2" "1") |> withTimeout 45.0
 
-            let! _ = Handlers.dispatch (emptyParamsRequest "c2" "execution/cancel")
-            ()
+                Assert.True(secondResponse.Result.IsNone)
 
-            let! _ = firstTask
-            ()
+                match secondResponse.Error with
+                | Some err -> Assert.Equal("execution/busy", err.Code)
+                | None -> failwith "expected a busy error"
+
+                let! _ = Handlers.dispatch (emptyParamsRequest "c2" "execution/cancel") |> withTimeout 45.0
+                ()
+
+                let! _ = firstTask |> withTimeout 45.0
+                ()
+            finally
+                if Directory.Exists(workDir) then
+                    try Directory.Delete(workDir, true) with _ -> ()
     }
 
 [<Fact>]
@@ -396,6 +424,35 @@ let ``handleEvaluate reuses a Persistent-mode session's bindings across two call
 
         Assert.Equal(ResultKind.Scalar, envelope.Kind)
         Assert.Equal(Some "42", envelope.DisplayText)
+    finally
+        SessionStore.reset sessionId
+
+[<Fact>]
+let ``a notebook cell sees an earlier cell's bindings even when its source is not a prefix of the earlier cell`` () =
+    let sessionId = "nb-" + System.Guid.NewGuid().ToString("N")
+
+    try
+        // Cell 1: two let bindings, last line is a binding (no tail value).
+        let cell1 =
+            Handlers.handleEvaluate (
+                notebookCellRequest "nb1" "let a = 20\nlet b = a + 1" sessionId
+            )
+
+        Assert.True(cell1.Error.IsNone)
+
+        // Cell 2: a bare reference to cell 1's binding. This is NOT a text
+        // prefix of cell 1, so `SessionStore.getOrCreate` would have
+        // discarded the session and `b` would be undefined. `appendFragment`
+        // keeps it.
+        let cell2 = Handlers.handleEvaluate (notebookCellRequest "nb2" "b + 1" sessionId)
+
+        Assert.True(cell2.Error.IsNone)
+
+        let envelope =
+            JsonSerializer.Deserialize<ResultEnvelope>(cell2.Result.Value, Serialization.options)
+
+        Assert.Equal(ResultKind.Scalar, envelope.Kind)
+        Assert.Equal(Some "22", envelope.DisplayText)
     finally
         SessionStore.reset sessionId
 
@@ -896,51 +953,27 @@ let ``execution/evaluate resolves Connections.sql against a connection registere
     }
 
 [<Fact>]
-let ``execution/evaluate shows Results.table's push even when the script's own last statement is a printfn`` () =
-    task {
-        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
-        let csvPath = Path.Combine(tempDir, "test1.csv")
-        Handlers.setWorkspaceDirForTests (Some tempDir)
+let ``execution/evaluate renders a record-list tail expression as a Table with real columns`` () =
+    let script = "[ {| Id = 1; Name = \"Ada\" |}; {| Id = 2; Name = \"Grace\" |} ]"
+    let response = Handlers.handleEvaluate (evaluateRequest "rec1" script)
 
-        try
-            Directory.CreateDirectory tempDir |> ignore
-            File.WriteAllText(csvPath, "id,name\n1,Ada\n2,Alan\n")
-
-            let registerRequest =
-                registerConnectionRequest
-                    "reg1"
-                    { Id = Guid.NewGuid()
-                      Name = "test1"
-                      Kind = Csv
-                      Configuration =
-                        JsonSerializer.SerializeToElement({| FilePath = csvPath |}, Serialization.options)
-                      SecretReference = None
-                      IsTrusted = false }
-
-            let! _ = Handlers.dispatch registerRequest
-
-            let script =
-                "let result = Connections.csv \"test1\"\n"
-                + "let rows = result.Rows |> Seq.toArray\n"
-                + "Results.raw result |> ignore\n"
-                + "printfn \"%A\" rows.[1]"
-
-            let! evalResponse = Handlers.dispatch (evaluateRequest "eval1" script)
-
-            Assert.True(evalResponse.Error.IsNone)
-            let envelope = JsonSerializer.Deserialize<ResultEnvelope>(evalResponse.Result.Value, Serialization.options)
-            Assert.Equal(ResultKind.Table, envelope.Kind)
-            Assert.Equal<string list>([ "id"; "name" ], envelope.Schema |> List.map (fun c -> c.Name))
-            Assert.Equal(2, envelope.Rows.Length)
-        finally
-            Handlers.setWorkspaceDirForTests None
-
-            if Directory.Exists tempDir then
-                Directory.Delete(tempDir, true)
-    }
+    Assert.True(response.Error.IsNone)
+    let env = JsonSerializer.Deserialize<ResultEnvelope>(response.Result.Value, Serialization.options)
+    Assert.Equal(ResultKind.Table, env.Kind)
+    Assert.Equal<string list>([ "Id"; "Name" ], env.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal(2, env.Rows.Length)
 
 [<Fact>]
-let ``execution/evaluate committing a Results.table push, then results/exportCsv, writes the full retained CSV`` () =
+let ``execution/evaluate on a cell that ends in printfn is NoValue plus captured stdout`` () =
+    let response = Handlers.handleEvaluate (evaluateRequest "nv1" "printfn \"just a side effect\"")
+
+    Assert.True(response.Error.IsNone)
+    let env = JsonSerializer.Deserialize<ResultEnvelope>(response.Result.Value, Serialization.options)
+    Assert.Equal(ResultKind.NoValue, env.Kind)
+    Assert.Contains(env.Output, (fun (l: OutputLine) -> l.Text.Contains("just a side effect")))
+
+[<Fact>]
+let ``execution/evaluate committing a connector-query tail expression, then results/exportCsv, writes the full retained CSV`` () =
     task {
         let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
         let csvPath = Path.Combine(tempDir, "test1.csv")
@@ -964,7 +997,7 @@ let ``execution/evaluate committing a Results.table push, then results/exportCsv
 
             let! _ = Handlers.dispatch registerRequest
 
-            let script = "Connections.csv \"test1\" |> Results.raw |> ignore"
+            let script = "Connections.csv \"test1\""
 
             let! evalResponse = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Export1.fsx" script)
             Assert.True(evalResponse.Error.IsNone)
@@ -992,10 +1025,10 @@ let ``a second execution/evaluate under the same DocumentUri overwrites the tab'
             Directory.CreateDirectory tempDir |> ignore
 
             let firstScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.raw |> ignore"
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult)"
 
             let secondScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 2 |]; yield [| box 3 |] } }: ConnectorQueryResult) |> Results.raw |> ignore"
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 2 |]; yield [| box 3 |] } }: ConnectorQueryResult)"
 
             let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Overwrite1.fsx" firstScript)
             let! _ = Handlers.dispatch (evaluateRequestFor "eval2" "untitled:Overwrite1.fsx" secondScript)
@@ -1022,8 +1055,7 @@ let ``an evaluate that doesn't push a table leaves the tab's existing retained r
         try
             Directory.CreateDirectory tempDir |> ignore
 
-            let tableScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.raw |> ignore"
+            let tableScript = "[ {| n = 1 |} ]"
 
             let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Untouched1.fsx" tableScript)
             let! _ = Handlers.dispatch (evaluateRequestFor "eval2" "untitled:Untouched1.fsx" "printfn \"no table here\"")
@@ -1062,7 +1094,7 @@ let ``results/discard removes a retained result, and a repeat call is a no-op`` 
             Directory.CreateDirectory tempDir |> ignore
 
             let tableScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.raw |> ignore"
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult)"
 
             let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Discard1.fsx" tableScript)
 
@@ -1087,50 +1119,6 @@ let ``results/discard removes a retained result, and a repeat call is a no-op`` 
     }
 
 [<Fact>]
-let ``a later generic-projection Table run under the same DocumentUri discards the tab's earlier retained result`` () =
-    task {
-        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
-        let exportPath = Path.Combine(tempDir, "exported.csv")
-        Handlers.setWorkspaceDirForTests (Some tempDir)
-
-        try
-            Directory.CreateDirectory tempDir |> ignore
-
-            let tableScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult) |> Results.raw |> ignore"
-
-            // A generic FSI-tail-value script - no `Results.table` push -
-            // whose last expression is still an `IEnumerable`, which
-            // `Projection.projectWithCursor` turns into a `ResultKind.Table`
-            // envelope without ever touching `ResultRetention`.
-            let genericTableScript = "[ [| box 1 |] ]"
-
-            let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:StaleAfterGeneric1.fsx" tableScript)
-
-            let! genericResponse =
-                Handlers.dispatch (evaluateRequestFor "eval2" "untitled:StaleAfterGeneric1.fsx" genericTableScript)
-
-            Assert.True(genericResponse.Error.IsNone)
-
-            let genericEnvelope =
-                JsonSerializer.Deserialize<ResultEnvelope>(genericResponse.Result.Value, Serialization.options)
-
-            Assert.Equal(ResultKind.Table, genericEnvelope.Kind)
-
-            let! exportResponse =
-                Handlers.dispatch (exportCsvRequest "export1" "untitled:StaleAfterGeneric1.fsx" exportPath)
-
-            match exportResponse.Error with
-            | Some err -> Assert.Equal("results/nothingToExport", err.Code)
-            | None -> failwith "expected a nothingToExport error, not the earlier retained data"
-        finally
-            Handlers.setWorkspaceDirForTests None
-
-            if Directory.Exists tempDir then
-                Directory.Delete(tempDir, true)
-    }
-
-[<Fact>]
 let ``execution/evaluate shows NoValue, not a literal "null", when the script's last statement produces nothing`` () =
     task {
         let! evalResponse = Handlers.dispatch (evaluateRequest "eval1" "let x = 1\nprintfn \"%d\" x")
@@ -1139,4 +1127,100 @@ let ``execution/evaluate shows NoValue, not a literal "null", when the script's 
         let envelope = JsonSerializer.Deserialize<ResultEnvelope>(evalResponse.Result.Value, Serialization.options)
         Assert.Equal(ResultKind.NoValue, envelope.Kind)
         Assert.Equal(None, envelope.DisplayText)
+    }
+
+[<Fact>]
+let ``dispatch on connection/list returns the connections persisted in workspace.json`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-list-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory tmp |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let seeded: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "Sales"
+                  Kind = ConnectorKind.Sqlite
+                  Configuration = JsonDocument.Parse("""{"filePath":"C:/data/sales.db"}""").RootElement
+                  SecretReference = None
+                  IsTrusted = true }
+            Workspace.writeConnections tmp [ seeded ]
+
+            let! response = Handlers.dispatch (emptyParamsRequest "l1" "connection/list")
+
+            Assert.True response.Error.IsNone
+            let payload =
+                JsonSerializer.Deserialize<{| connections: ConnectionDefinition list |}>(
+                    response.Result.Value, Serialization.options)
+            Assert.Equal(1, payload.connections.Length)
+            Assert.Equal("Sales", payload.connections.Head.Name)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Directory.Delete(tmp, true)
+    }
+
+[<Fact>]
+let ``dispatch on connection/list returns an empty list for a fresh workspace`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-list-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory tmp |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let! response = Handlers.dispatch (emptyParamsRequest "l2" "connection/list")
+            let payload =
+                JsonSerializer.Deserialize<{| connections: ConnectionDefinition list |}>(
+                    response.Result.Value, Serialization.options)
+            Assert.Empty payload.connections
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Directory.Delete(tmp, true)
+    }
+
+[<Fact>]
+let ``connection/schema reads {password} from the store configured via configureSecretStore`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-seam-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory tmp |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+
+            // A recording spy: proves the resolver read `{password}` from *this*
+            // injected store (not the module-default `InMemorySecretStore`) — an
+            // environment-independent check, unlike asserting on Npgsql's
+            // host-resolution error text, which varies by OS.
+            let mutable askedFor: string option = None
+            let spy =
+                { new FSharpQueryStudio.Security.ISecretStore with
+                    member _.TryRead reference =
+                        askedFor <- Some reference
+                        Some "s3cr3t"
+                    member _.Save _ _ = ()
+                    member _.Delete _ = () }
+            Handlers.configureSecretStore spy
+
+            let definition: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "pg"
+                  Kind = ConnectorKind.PostgreSql
+                  Configuration =
+                    JsonDocument.Parse("""{"connectionString":"Host={password}-sentinel;Port=5432"}""").RootElement
+                  SecretReference = Some "fqs-conn-seam"
+                  IsTrusted = false }
+            Workspace.writeConnections tmp [ definition ]
+
+            let req: WorkerRequestFrame =
+                { Id = "sc1"
+                  Method = "connection/schema"
+                  Params = JsonSerializer.SerializeToElement(({ Id = definition.Id }: ConnectionSchemaParams), Serialization.options) }
+            let! response = Handlers.dispatch req
+
+            // The injected store was consulted with this connection's
+            // SecretReference — the seam is wired at handleConnectionSchema.
+            Assert.Equal(Some "fqs-conn-seam", askedFor)
+            // And no server at "s3cr3t-sentinel" → a structured schemaFailed
+            // error (not an unhandled exception down the read loop).
+            Assert.Equal(Some "connection/schemaFailed", response.Error |> Option.map (fun e -> e.Code))
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Handlers.configureSecretStore (FSharpQueryStudio.Security.InMemorySecretStore())
+            Directory.Delete(tmp, true)
     }

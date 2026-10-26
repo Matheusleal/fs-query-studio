@@ -1,5 +1,14 @@
 # F# Query Studio — Architecture and Technical Implementation Plan
 
+> **Superseded (2026-09).** The Avalonia desktop host described here was
+> retired in phase **F6** of the VS Code extension migration. F# Query Studio
+> now ships as a VS Code extension under `editors/vscode/`, reusing the F#
+> worker and every `src/` library except the deleted `App`/`Ui`/`Editor`.
+> This document is kept for historical context — architecture, protocol
+> shapes, milestone history. See
+> `docs/superpowers/specs/2026-09-03-vscode-extension-migration-design.md`
+> and `docs/DEVLOG.md` for the current system.
+
 ## 1. Product Definition
 
 **F# Query Studio** is a Windows desktop application for writing, analyzing, and executing F# query scripts. It is inspired by query tools such as SSMS and DAX Studio, but F# is the query language.

@@ -18,6 +18,19 @@ type FsacProcess(fsautocompleteDllPath: string) =
     let mutable current: (Process * LspClient) option = None
     let startLock = new SemaphoreSlim(1, 1)
 
+    let killProc (proc: Process) =
+        try
+            if not proc.HasExited then
+                proc.Kill(entireProcessTree = true)
+        with _ -> ()
+
+    do
+        AppDomain.CurrentDomain.ProcessExit.Add(fun _ ->
+            match current with
+            | Some(proc, _) -> killProc proc
+            | None -> ()
+        )
+
     let spawn () : Process * LspClient =
         let psi =
             ProcessStartInfo(
@@ -109,11 +122,7 @@ type FsacProcess(fsautocompleteDllPath: string) =
                     // killed before spawning its replacement so it isn't
                     // leaked.
                     match current with
-                    | Some(staleProc, _) when not staleProc.HasExited ->
-                        try
-                            staleProc.Kill()
-                        with _ ->
-                            ()
+                    | Some(staleProc, _) -> killProc staleProc
                     | _ -> ()
 
                     let proc, client = spawn ()
@@ -121,12 +130,7 @@ type FsacProcess(fsautocompleteDllPath: string) =
                     let! winner = Task.WhenAny(handshakeTask, Task.Delay(TimeSpan.FromSeconds 15.0))
 
                     if winner <> handshakeTask then
-                        try
-                            if not proc.HasExited then
-                                proc.Kill()
-                        with _ ->
-                            ()
-
+                        killProc proc
                         current <- None
                         return failwith "fsautocomplete did not complete the initialize handshake within 15s"
                     else
@@ -135,12 +139,7 @@ type FsacProcess(fsautocompleteDllPath: string) =
                             current <- Some(proc, client)
                             return client
                         with ex ->
-                            try
-                                if not proc.HasExited then
-                                    proc.Kill()
-                            with _ ->
-                                ()
-
+                            killProc proc
                             current <- None
                             return raise ex
             finally
@@ -151,20 +150,29 @@ type FsacProcess(fsautocompleteDllPath: string) =
     /// be exercised deterministically, without relying on a real fault.
     member _.KillForTests() : unit =
         match current with
-        | Some(proc, _) when not proc.HasExited -> proc.Kill()
+        | Some(proc, _) when not proc.HasExited ->
+            try
+                proc.Kill(entireProcessTree = true)
+                proc.WaitForExit(5000) |> ignore
+            with _ ->
+                ()
         | _ -> ()
 
     /// Best-effort graceful shutdown — never throws past this call, same
     /// convention as `Handlers.deleteAnalysisWorkDir`'s own best-effort
     /// cleanup. Wired to the Worker process's own exit in a later task.
-    member _.Shutdown() : unit =
+    member this.Shutdown() : unit =
         match current with
         | Some(proc, _) ->
             try
                 if not proc.HasExited then
-                    proc.Kill()
+                    proc.Kill(entireProcessTree = true)
+                    proc.WaitForExit(2000) |> ignore
             with _ ->
                 ()
 
             current <- None
         | None -> ()
+
+    interface IDisposable with
+        member this.Dispose() = this.Shutdown()

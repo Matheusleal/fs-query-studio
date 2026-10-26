@@ -17,7 +17,7 @@ let ``evaluate captures printed output and returns the final expression's value`
                     return Evaluation.evaluate session """printfn "hi"; 1 + 1"""
                 }
 
-            let! outcome = work |> withTimeout 60.0
+            let! outcome = work |> withTimeout 45.0
 
             Assert.Contains("hi", outcome.Output)
             Assert.True(outcome.Exception.IsNone)
@@ -41,7 +41,7 @@ let ``evaluate captures the exception's own message when a concretely-typed scri
                     return Evaluation.evaluate session "(failwith \"boom\" : int)"
                 }
 
-            let! outcome = work |> withTimeout 60.0
+            let! outcome = work |> withTimeout 45.0
 
             match outcome.Exception with
             | Some ex -> Assert.Equal("boom", ex.Message)
@@ -72,7 +72,7 @@ let ``a bare generic failwith never runs, so its own message never surfaces`` ()
                     return Evaluation.evaluate session "failwith \"boom\""
                 }
 
-            let! outcome = work |> withTimeout 60.0
+            let! outcome = work |> withTimeout 45.0
 
             match outcome.Exception with
             | Some ex -> Assert.NotEqual<string>("boom", ex.Message)
@@ -109,21 +109,23 @@ let ``evaluate stops a cooperative loop early once CancellationSignal is request
 
             let script =
                 """
-let mutable i = 0
-while i < 2_000_000_000 && not (System.IO.File.Exists(".cancel-requested")) do
-    i <- i + 1
-i
-"""
+                let mutable i = 0
+                while i < 2_000_000_000 && not (System.IO.File.Exists(".cancel-requested")) do
+                    i <- i + 1
+                i
+                """
 
             let evalTask =
-                Task.Run(fun () ->
+                async {
                     let session = FsiSession.create workDir
-                    Evaluation.evaluate session script)
+                    return Evaluation.evaluate session script
+                }
+                |> Async.StartAsTask
 
             do! Task.Delay(200)
             CancellationSignal.requestCancel workDir
 
-            let! outcome = evalTask |> withTimeout 60.0
+            let! outcome = evalTask |> withTimeout 45.0
 
             Assert.True(outcome.Exception.IsNone)
 
@@ -159,7 +161,7 @@ let ``persistent mode: bindings survive across two sequential evaluations under 
                     return Evaluation.evaluate session "let x = 41"
                 }
 
-            let! firstOutcome = first |> withTimeout 60.0
+            let! firstOutcome = first |> withTimeout 45.0
             Assert.True(firstOutcome.Exception.IsNone)
 
             let second =
@@ -168,7 +170,7 @@ let ``persistent mode: bindings survive across two sequential evaluations under 
                     return Evaluation.evaluate session "let x = 41\nx + 1"
                 }
 
-            let! secondOutcome = second |> withTimeout 60.0
+            let! secondOutcome = second |> withTimeout 45.0
 
             match secondOutcome.Value with
             | Some fsiValue -> Assert.Equal(box 42, fsiValue.ReflectionValue)
@@ -204,7 +206,7 @@ let ``persistent mode: editing already-executed text invalidates the session, dr
                     return Evaluation.evaluate session "let x = 41\nlet y = 59"
                 }
 
-            let! round1Outcome = round1 |> withTimeout 60.0
+            let! round1Outcome = round1 |> withTimeout 45.0
             Assert.True(round1Outcome.Exception.IsNone)
 
             // Not a pure append of round 1's text: the "let y = 59" line
@@ -215,7 +217,7 @@ let ``persistent mode: editing already-executed text invalidates the session, dr
                     return Evaluation.evaluate session "let x = 41"
                 }
 
-            let! round2Outcome = round2 |> withTimeout 60.0
+            let! round2Outcome = round2 |> withTimeout 45.0
             Assert.True(round2Outcome.Exception.IsNone)
 
             // A pure append of round 2's (post-invalidation) text.
@@ -225,7 +227,7 @@ let ``persistent mode: editing already-executed text invalidates the session, dr
                     return Evaluation.evaluate session "let x = 41\ny"
                 }
 
-            let! round3Outcome = round3 |> withTimeout 60.0
+            let! round3Outcome = round3 |> withTimeout 45.0
 
             Assert.True(round3Outcome.Exception.IsSome, "expected 'y' to be undefined against the fresh, post-invalidation session")
             Assert.NotEmpty(round3Outcome.Diagnostics)
@@ -246,7 +248,7 @@ let ``isolated mode: bindings do not survive across two fresh sessions`` () =
                     return Evaluation.evaluate session "let x = 41"
                 }
 
-            let! firstOutcome = first |> withTimeout 60.0
+            let! firstOutcome = first |> withTimeout 45.0
             Assert.True(firstOutcome.Exception.IsNone)
 
             let second =
@@ -255,7 +257,7 @@ let ``isolated mode: bindings do not survive across two fresh sessions`` () =
                     return Evaluation.evaluate session "x + 1"
                 }
 
-            let! secondOutcome = second |> withTimeout 60.0
+            let! secondOutcome = second |> withTimeout 45.0
 
             Assert.True(secondOutcome.Exception.IsSome)
             Assert.NotEmpty(secondOutcome.Diagnostics)
@@ -275,7 +277,7 @@ let ``evaluate captures stderr-worthy diagnostics without throwing`` () =
                     return Evaluation.evaluate session "let x: int = \"not an int\""
                 }
 
-            let! outcome = work |> withTimeout 60.0
+            let! outcome = work |> withTimeout 45.0
 
             Assert.NotEmpty(outcome.Diagnostics)
         finally

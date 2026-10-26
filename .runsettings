@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <!-- Configure general test runner properties -->
+  <RunConfiguration>
+    <MaxCpuCount>1</MaxCpuCount>
+  </RunConfiguration>
+
+  <!-- Configure blame hang collector to kill and report hanging tests after 45 seconds -->
+  <DataCollectionRunSettings>
+    <DataCollectors>
+      <DataCollector friendlyName="blame" enabled="True">
+        <Configuration>
+          <CollectDump DumpType="Mini" />
+          <CollectDumpOnTestSessionHang TestTimeout="45s" HangDumpType="Mini" />
+        </Configuration>
+      </DataCollector>
+    </DataCollectors>
+  </DataCollectionRunSettings>
+</RunSettings>

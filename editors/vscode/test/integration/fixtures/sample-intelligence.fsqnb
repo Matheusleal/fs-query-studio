@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "cells": [
+    { "kind": "markdown", "value": "# F4 cell intelligence fixture" },
+    { "kind": "code", "language": "fsharp", "value": "let answer = 42" },
+    { "kind": "code", "language": "fsharp", "value": "answ" }
+  ],
+  "metadata": {}
+}

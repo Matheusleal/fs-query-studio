@@ -19,7 +19,9 @@ let private startWorker () =
         )
 
     let proc = new Process(StartInfo = psi)
+    proc.ErrorDataReceived.Add(fun _ -> ())
     proc.Start() |> ignore
+    proc.BeginErrorReadLine()
     proc
 
 let private roundTrip (proc: Process) (req: WorkerRequestFrame) : Task<WorkerResponseFrame option> =
@@ -58,7 +60,7 @@ let ``a throwing script returns a structured Error result and the worker survive
             // characterization test in Execution.Tests) - annotate the type
             // so this actually exercises a runtime exception.
             let evaluateParams =
-                """{"source":"(failwith \"boom\" : int)","sessionId":null,"mode":{"Case":"Isolated"},"documentUri":"untitled:Test.fsx"}"""
+                """{"source":"(failwith \"boom\" : int)","sessionId":null,"mode":{"Case":"Isolated"},"documentUri":"untitled:Test.fsx","isNotebookCell":false}"""
             let! errorResponse = roundTrip proc (request "it-2" "execution/evaluate" evaluateParams)
 
             match errorResponse with

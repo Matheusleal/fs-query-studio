@@ -1,7 +1,7 @@
 namespace FSharpQueryStudio.Fsac
 
 /// The controlled prologue every script checked through FSAC gets
-/// prepended with, so `Connections.sql`/`Results.table` resolve
+/// prepended with, so `Connections.sql` resolves
 /// unqualified — matching what real execution (`Execution.FsiSession
 /// .create`) already does, and what `Analysis.AnalysisContext` used to do
 /// via FCS `otherFlags`. Unlike `otherFlags` (an FCS-project-options-only
@@ -26,7 +26,7 @@ module Prologue =
         let connectorsPath = (typeof<FSharpQueryStudio.Connectors.IConnector>).Assembly.Location
         let resultsPath = (typeof<FSharpQueryStudio.Results.PagingCursor>).Assembly.Location
 
-        $"#r \"{escapeForStringLiteral connectorsPath}\"\n#r \"{escapeForStringLiteral resultsPath}\"\nopen FSharpQueryStudio.Connectors\nopen FSharpQueryStudio.Results\n"
+        $"#r \"{escapeForStringLiteral connectorsPath}\"\n#r \"{escapeForStringLiteral resultsPath}\"\nopen FSharpQueryStudio.Connectors\n"
 
     /// The number of real (newline-terminated) lines `prologueText`
     /// occupies — computed from the actual text rather than a hardcoded

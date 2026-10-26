@@ -2,12 +2,14 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
   build-and-test:
     name: Build and test (Windows)
     runs-on: windows-latest
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -22,41 +24,21 @@ jobs:
 
       # SQL Server/PostgreSQL connector tests use Testcontainers, which
       # needs Linux Docker containers - not reliably available on
-      # GitHub-hosted Windows runners. RequiresPublish (D.7) does a full
-      # self-contained publish and a real windowed launch, too heavy to
-      # run on every push. Both are excluded here and run locally
-      # instead - this filter is an escape hatch, not a way to skip
-      # everything else.
-      - run: dotnet test FSharpQueryStudio.slnx --no-build --configuration Release --filter "Category!=RequiresDocker&Category!=RequiresPublish"
+      # GitHub-hosted Windows runners. Excluded here and run on the Linux
+      # job / locally instead - this filter is an escape hatch, not a way
+      # to skip everything else.
+      - run: dotnet test FSharpQueryStudio.slnx --no-build --configuration Release --filter "Category!=RequiresDocker" --settings .runsettings --blame-hang --blame-hang-timeout 45s --logger "console;verbosity=normal"
 
   build-and-test-linux:
     name: Build and test (Linux)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
 
-    # D.8: Section 14's "run analysis/execution/protocol tests on Windows
-    # plus future Linux/macOS CI agents as soon as feasible, even before
-    # the UI is officially shipped there." Each project runs individually
-    # rather than through FSharpQueryStudio.slnx so a single failing
-    # project doesn't hide the others' results.
-    #
-    # E.9: Ui.Tests/Editor.Tests joined this matrix once actually
-    # verified - NativeWebView (Avalonia.Controls.WebView) is Avalonia's
-    # own cross-platform control, not a Windows-only WebView2 wrapper,
-    # and every project here targets plain net10.0. Confirmed locally in
-    # an mcr.microsoft.com/dotnet/sdk:10.0 Linux container before relying
-    # on a CI push to find out, same as D.8. Both suites are pure
-    # headless ViewModel/protocol-bridge logic (no real MainWindow/WebView
-    # ever constructed), so this does not yet prove Monaco actually
-    # renders through WebKitGTK on Linux - that would need a real
-    # windowed launch (Xvfb, WebKitGTK, a Linux counterpart to D.7's
-    # RequiresPublish test) which is intentionally out of scope here.
-    # `App` has no dedicated test project (Section 4's stated exception)
-    # so it isn't part of this matrix, but a plain `dotnet build` of it
-    # was also confirmed to succeed in the same container.
-    #
-    # Docker-backed SQL Server/PostgreSQL tests are NOT excluded here:
-    # ubuntu-latest ships Docker with native Linux container support, so
-    # unlike the Windows job, RequiresDocker tests just work.
+    # Runs the reused libraries + the F# worker on Linux, each project
+    # individually so one failure doesn't mask the others. The VS Code
+    # extension itself is built and tested cross-OS in vscode-extension.yml.
+    # Docker-backed SQL Server / PostgreSQL tests are NOT excluded here:
+    # ubuntu-latest has native Linux container support.
     strategy:
       fail-fast: false
       matrix:
@@ -70,8 +52,6 @@ jobs:
           - tests/FSharpQueryStudio.Security.Tests/FSharpQueryStudio.Security.Tests.fsproj
           - tests/FSharpQueryStudio.Worker.Tests/FSharpQueryStudio.Worker.Tests.fsproj
           - tests/FSharpQueryStudio.Integration.Tests/FSharpQueryStudio.Integration.Tests.fsproj
-          - tests/FSharpQueryStudio.Ui.Tests/FSharpQueryStudio.Ui.Tests.fsproj
-          - tests/FSharpQueryStudio.Editor.Tests/FSharpQueryStudio.Editor.Tests.fsproj
 
     steps:
       - uses: actions/checkout@v4
@@ -80,4 +60,4 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - run: dotnet test "${{ matrix.project }}" --configuration Release --filter "Category!=RequiresPublish"
+      - run: dotnet test "${{ matrix.project }}" --configuration Release --settings .runsettings --blame-hang --blame-hang-timeout 45s --logger "console;verbosity=normal"

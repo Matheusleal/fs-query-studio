@@ -1,5 +1,10 @@
 # F# Query Studio — Development Plan
 
+> **Superseded (2026-09).** This milestone task list covered the Avalonia
+> desktop build, retired in phase **F6** of the VS Code extension migration.
+> Kept for historical context. Current work is tracked in `docs/DEVLOG.md`
+> and the `docs/superpowers/` specs and plans.
+
 Companion to [`fs-studio-plan.md`](./fs-studio-plan.md), which is the source of truth for architecture, protocol shapes, and project structure. This document breaks that architecture's five-milestone roadmap into a granular, sequential task list for solo execution.
 
 ## How to use this plan

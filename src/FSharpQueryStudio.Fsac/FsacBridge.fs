@@ -20,7 +20,7 @@ module FsacBridge =
 
     /// One shared `FsacProcess` for the Worker's whole lifetime, same
     /// "one long-lived instance" shape as `AnalysisContext.checker`.
-    let sharedProcess = FsacProcess(fsacDllPath ())
+    let sharedProcess = new FsacProcess(fsacDllPath ())
 
     /// FSAC round-trips whatever `documentUri` this module sends in
     /// `didOpen`/`didChange` through its own absolute-path normalization
@@ -78,21 +78,56 @@ module FsacBridge =
     /// through this first. The *caller's* own original uri is what ever
     /// reaches the wire back out (`DefinitionLocation.FilePath`, etc.);
     /// this synthetic identity never leaks past this module.
-    let private fsacUriFor (documentUri: string) : string =
+    /// Public only so `FsacBridgeUriTests` can assert the synthetic uri is
+    /// a well-formed `file://` one (no `#`/`%` to break uri parsing, and a
+    /// `.fsx` extension) without a real FSAC round trip; nothing outside
+    /// this module calls it in production.
+    let fsacUriFor (documentUri: string) : string =
         if documentUri.StartsWith("file:", StringComparison.OrdinalIgnoreCase) then
             documentUri
         else
-            let name =
+            let rawName =
                 match documentUri.IndexOf(':') with
                 | -1 -> documentUri
                 | i -> documentUri.Substring(i + 1)
 
-            let invalidChars = Path.GetInvalidFileNameChars()
+            // One path segment safe to sit inside a `file://` uri: every
+            // character outside `[A-Za-z0-9._-]` becomes `_`. Deliberately
+            // stricter than `Path.GetInvalidFileNameChars()` - a
+            // `vscode-notebook-cell:` uri (the VS Code extension's cell
+            // identity) carries a `#<base64 cell handle>` fragment and
+            // `%`-encoded path segments, and neither `#` nor `%` is an
+            // invalid *filename* char on Windows, yet both break `file://`
+            // uri parsing: FSAC reads the `#` as a fragment delimiter,
+            // drops everything after it (including the `.fsx` suffix that
+            // marks the buffer as an F# script), and so never analyses the
+            // document - every `check` then times out and returns `[]`.
+            let sanitized =
+                String(
+                    rawName.ToCharArray()
+                    |> Array.map (fun c ->
+                        if
+                            (c >= 'A' && c <= 'Z')
+                            || (c >= 'a' && c <= 'z')
+                            || (c >= '0' && c <= '9')
+                            || c = '.'
+                            || c = '_'
+                            || c = '-'
+                        then
+                            c
+                        else
+                            '_')
+                )
 
-            let safeChars =
-                name.ToCharArray() |> Array.map (fun c -> if Array.contains c invalidChars then '_' else c)
+            // Guarantee the `.fsx` extension FSAC keys script analysis on,
+            // even for a caller uri whose own suffix was mangled above or
+            // never had one.
+            let safeName =
+                if sanitized.EndsWith(".fsx", StringComparison.OrdinalIgnoreCase) then
+                    sanitized
+                else
+                    sanitized + ".fsx"
 
-            let safeName = String(safeChars)
             let fullPath = Path.Combine(untitledUriRoot, safeName).Replace('\\', '/')
             $"file:///{fullPath.TrimStart('/')}"
 
@@ -118,12 +153,15 @@ module FsacBridge =
     let private registerWaiter (key: struct (string * int)) (tcs: TaskCompletionSource<Diagnostic list>) : unit =
         diagnosticsPending.AddOrUpdate(key, [ tcs ], (fun _ existing -> tcs :: existing)) |> ignore
 
-    /// The most recent `publishDiagnostics` push for each (canonicalized)
-    /// uri. FSAC's own pushes carry no `version` — see
-    /// `registerDiagnosticsHandler`'s doc comment — so this is keyed on
-    /// uri alone and read back out once `fsharp/documentAnalyzed` confirms
-    /// which version those diagnostics belong to.
+    let private latestExpectedVersionByUri = ConcurrentDictionary<string, int>()
+
+    /// The most recent `publishDiagnostics` push for each (canonicalized) uri.
     let private latestDiagnosticsByUri = ConcurrentDictionary<string, Diagnostic list>()
+
+    /// Waiters held after documentAnalyzed when diagnostics are still empty,
+    /// in case typecheck publishDiagnostics arrives shortly.
+    let private waitingForPublishDiagnostics =
+        ConcurrentDictionary<string, TaskCompletionSource<Diagnostic list> list>()
 
     let private mapSeverity (severity: int option) : DiagnosticSeverity =
         match severity with
@@ -164,30 +202,21 @@ module FsacBridge =
     /// can hand back a brand new `LspClient` instance (with its own
     /// private `notificationHandlers`, unrelated to any previous one's)
     /// after a respawn.
-    ///
-    /// The brief's original design correlated a pending `check` directly
-    /// off `textDocument/publishDiagnostics`'s own `(uri, version)`. Real
-    /// fsautocomplete 0.83.0 doesn't work that way: its
-    /// `publishDiagnostics` push carries no `version` field at all
-    /// (confirmed against the real process during this task — every
-    /// notification's `params` was just `{uri, diagnostics}`), so there is
-    /// no version to correlate against directly. What FSAC *does* send is
-    /// its own custom `fsharp/documentAnalyzed` notification,
-    /// `{textDocument: {uri, version}}`, once — per every run observed —
-    /// *after* the `publishDiagnostics` push carrying that version's
-    /// results. So `documentAnalyzed` is the actual "diagnostics for this
-    /// (uri, version) are ready" signal `check` waits on here; the
-    /// diagnostics themselves are read back out of the latest
-    /// `publishDiagnostics` push seen for that uri. This still keeps the
-    /// version-staleness guard the design calls for: a `documentAnalyzed`
-    /// for a version nobody is waiting on (superseded, or unrelated) finds
-    /// no pending entry and is dropped.
     let private registerDiagnosticsHandler (client: LspClient) =
         client.OnNotification(
             "textDocument/publishDiagnostics",
             fun paramsEl ->
                 let uri = canonicalizeUri (paramsEl.GetProperty("uri").GetString())
-                latestDiagnosticsByUri.[uri] <- parseDiagnostics paramsEl
+                let diagnostics = parseDiagnostics paramsEl
+
+                latestDiagnosticsByUri.[uri] <- diagnostics
+
+                // If documentAnalyzed has already fired and is waiting for non-empty diagnostics:
+                if not diagnostics.IsEmpty then
+                    match waitingForPublishDiagnostics.TryRemove(uri) with
+                    | true, waiters ->
+                        waiters |> List.iter (fun tcs -> tcs.TrySetResult(diagnostics) |> ignore)
+                    | false, _ -> ()
         )
 
         client.OnNotification(
@@ -200,19 +229,29 @@ module FsacBridge =
                 match diagnosticsPending.TryRemove(struct (uri, version)) with
                 | false, _ -> ()
                 | true, waiters ->
-                    let diagnostics =
+                    let currentDiags =
                         match latestDiagnosticsByUri.TryGetValue(uri) with
                         | true, d -> d
                         | false, _ -> []
 
-                    // Every waiter currently registered for this key gets
-                    // the same result - not just the one that happened to
-                    // register first. A waiter that already gave up and
-                    // fell through to its own timeout is harmless to
-                    // resolve again here: `TrySetResult` on an
-                    // already-completed `TaskCompletionSource` just
-                    // returns `false`.
-                    waiters |> List.iter (fun tcs -> tcs.TrySetResult(diagnostics) |> ignore)
+                    if not currentDiags.IsEmpty then
+                        // We already have non-empty typecheck diagnostics:
+                        waiters |> List.iter (fun tcs -> tcs.TrySetResult(currentDiags) |> ignore)
+                    else
+                        // Current diagnostics are empty (e.g. initial syntax parse).
+                        // Hold waiters briefly in case typecheck diagnostics arrive in the pipe:
+                        waitingForPublishDiagnostics.AddOrUpdate(uri, waiters, (fun _ existing -> existing @ waiters)) |> ignore
+
+                        Task.Delay(150).ContinueWith(fun (_: Task) ->
+                            match waitingForPublishDiagnostics.TryRemove(uri) with
+                            | true, remainingWaiters ->
+                                let finalDiags =
+                                    match latestDiagnosticsByUri.TryGetValue(uri) with
+                                    | true, d -> d
+                                    | false, _ -> []
+                                remainingWaiters |> List.iter (fun tcs -> tcs.TrySetResult(finalDiags) |> ignore)
+                            | false, _ -> ()
+                        ) |> ignore
         )
 
     /// Every `documentUri` this Worker process has ever `didOpen`'d, so
@@ -272,14 +311,20 @@ module FsacBridge =
         // didOpen-vs-didChange without needing to track the synthetic
         // identity separately.
         let wireUri = fsacUriFor documentUri
+        let canonicalUri = canonicalizeUri wireUri
 
         let isFirstOpenForThisDocument =
             lock syncLock (fun () ->
                 if isNewClient client then
                     openDocuments.Clear()
+                    latestExpectedVersionByUri.Clear()
+                    latestDiagnosticsByUri.Clear()
+                    waitingForPublishDiagnostics.Clear()
                     registerDiagnosticsHandler client
                     lastKnownClient <- Some client
 
+                latestExpectedVersionByUri.[canonicalUri] <- version
+                latestDiagnosticsByUri.[canonicalUri] <- []
                 openDocuments.TryAdd(documentUri, true))
 
         if isFirstOpenForThisDocument then
@@ -334,6 +379,9 @@ module FsacBridge =
 
             if winner = (tcs.Task :> Task) then
                 let! diagnostics = tcs.Task
+                // Allow any trailing analyzer notification from FSAC for this parse
+                // to settle so it does not bleed into a subsequent check for the same uri:
+                do! Task.Delay(50)
                 return Some diagnostics
             else
                 // Logged here rather than at each of this function's callers

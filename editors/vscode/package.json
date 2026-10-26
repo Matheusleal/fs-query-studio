@@ -1,0 +1,199 @@
+{
+  "name": "fs-query-studio",
+  "publisher": "fs-query-studio",
+  "displayName": "F# Query Studio",
+  "description": "Write, analyze, and run F# query scripts against SQL, files, and REST APIs.",
+  "license": "MIT",
+  "version": "0.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Matheusleal/fs-query-studio.git",
+    "directory": "editors/vscode"
+  },
+  "categories": [
+    "Notebooks",
+    "Data Science",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "fsharp",
+    "f#",
+    "sql",
+    "query",
+    "notebook",
+    "database",
+    "rest",
+    "csv"
+  ],
+  "bugs": {
+    "url": "https://github.com/Matheusleal/fs-query-studio/issues"
+  },
+  "homepage": "https://github.com/Matheusleal/fs-query-studio#readme",
+  "qna": "marketplace",
+  "galleryBanner": {
+    "color": "#4B267D",
+    "theme": "dark"
+  },
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=20"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onNotebook:fsquery-notebook",
+    "onView:fsQueryStudioConnections"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "fs-query-studio.checkWorker",
+        "title": "F# Query Studio: Check Worker"
+      },
+      {
+        "command": "fs-query-studio.newNotebook",
+        "title": "F# Query Studio: New F# Query Notebook",
+        "shortTitle": "F# Query Notebook"
+      },
+      {
+        "command": "fs-query-studio.newNotebookHere",
+        "title": "F# Query Studio: New F# Query Notebook Here",
+        "shortTitle": "F# Query Notebook"
+      },
+      {
+        "command": "fs-query-studio.restartKernel",
+        "title": "F# Query Studio: Restart Notebook Session"
+      },
+      {
+        "command": "fs-query-studio.connections.add",
+        "title": "F# Query Studio: Connections: Add Connection",
+        "icon": "$(add)"
+      },
+      {
+        "command": "fs-query-studio.connections.edit",
+        "title": "F# Query Studio: Connections: Edit Connection",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "fs-query-studio.connections.remove",
+        "title": "F# Query Studio: Connections: Remove Connection",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "fs-query-studio.connections.refresh",
+        "title": "F# Query Studio: Connections: Refresh",
+        "icon": "$(refresh)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "fs-query-studio",
+          "title": "F# Query Studio",
+          "icon": "media/activitybar.svg"
+        }
+      ]
+    },
+    "views": {
+      "fs-query-studio": [
+        {
+          "id": "fsQueryStudioConnections",
+          "name": "Connections"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "fsQueryStudioConnections",
+        "contents": "No connections registered yet.\n[Add Connection](command:fs-query-studio.connections.add)"
+      }
+    ],
+    "menus": {
+      "file/newFile": [
+        {
+          "command": "fs-query-studio.newNotebook",
+          "group": "notebook"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "fs-query-studio.newNotebookHere",
+          "when": "explorerViewletVisible && explorerResourceIsFolder",
+          "group": "navigation@30"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "fs-query-studio.newNotebookHere",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "fs-query-studio.connections.add",
+          "when": "view == fsQueryStudioConnections",
+          "group": "navigation"
+        },
+        {
+          "command": "fs-query-studio.connections.refresh",
+          "when": "view == fsQueryStudioConnections",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "fs-query-studio.connections.edit",
+          "when": "view == fsQueryStudioConnections && viewItem == fsqsConnection",
+          "group": "inline"
+        },
+        {
+          "command": "fs-query-studio.connections.remove",
+          "when": "view == fsQueryStudioConnections && viewItem == fsqsConnection"
+        }
+      ]
+    },
+    "notebooks": [
+      {
+        "type": "fsquery-notebook",
+        "displayName": "F# Query Notebook",
+        "selector": [
+          { "filenamePattern": "*.fsqnb" }
+        ]
+      }
+    ],
+    "notebookRenderer": [
+      {
+        "id": "fs-query-studio-table",
+        "displayName": "F# Query Studio Results Grid",
+        "entrypoint": "./media/renderer/index.js",
+        "requiresMessaging": "optional",
+        "mimeTypes": ["application/x-fsquery-table+json"]
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc --noEmit && node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "test": "vitest run",
+    "pretest:vscode": "tsc -p tsconfig.integration.json && node esbuild.mjs",
+    "test:vscode": "vscode-test",
+    "test:all": "npm test && npm run test:vscode",
+    "build:worker": "node scripts/build.mjs --worker-only",
+    "build": "node scripts/build.mjs",
+    "vscode:prepublish": "node scripts/build.mjs",
+    "package": "node scripts/package.mjs",
+    "publish": "node scripts/publish.mjs",
+    "doctor": "node scripts/doctor.mjs"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/test-cli": "^0.0.10",
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.23.0",
+    "jsdom": "^25.0.1",
+    "mocha": "^10.8.2",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}

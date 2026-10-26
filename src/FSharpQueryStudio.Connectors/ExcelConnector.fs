@@ -40,7 +40,7 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
 
     /// Reads at most `maxRows` data rows from the target sheet - Section
     /// 10's "bounded worksheet reads" - defaulting to the same 500-row
-    /// preview bound `Results.Projection` uses elsewhere. Columns come
+    /// preview bound the results `Projection` module uses elsewhere. Columns come
     /// from the sheet's first used row when `options.HasHeader`, else
     /// synthesized as `Column1`, `Column2`, ... with every used row
     /// treated as data.

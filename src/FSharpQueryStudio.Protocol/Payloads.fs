@@ -23,11 +23,19 @@ type SessionMode =
 /// (see `FSharpQueryStudio.Results.ResultRetention`) to commit into when
 /// the script pushes a table. Additive: `SessionId`'s own meaning is
 /// untouched.
+/// `IsNotebookCell` picks the persistent-session update policy: `true`
+/// means `Source` is a single notebook cell to append to the running
+/// session (`SessionStore.appendFragment` — later cells see earlier
+/// cells' bindings, and a cell that isn't a text prefix of the last one
+/// never invalidates); `false` (the whole-document default) keeps
+/// `SessionStore.getOrCreate`'s revise-in-place invalidation. Only
+/// consulted for `Persistent` mode with a `SessionId`.
 type EvaluateParams =
     { Source: string
       SessionId: string option
       Mode: SessionMode
-      DocumentUri: string }
+      DocumentUri: string
+      IsNotebookCell: bool }
 
 /// `analysis/check` request payload — see Section 7's method table.
 type AnalysisCheckParams =

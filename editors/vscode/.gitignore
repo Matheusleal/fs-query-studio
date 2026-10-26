@@ -1,0 +1,7 @@
+node_modules/
+dist/
+out/
+.vscode-test/
+*.vsix
+media/renderer/index.js
+media/renderer/index.js.map

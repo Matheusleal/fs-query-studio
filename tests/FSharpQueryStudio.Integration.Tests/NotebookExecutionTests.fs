@@ -47,7 +47,7 @@ let ``notebook/persistent session: later cells see earlier cells' bindings`` () 
                         return Evaluation.evaluate session cell.Text
                     }
 
-                let! outcome = run |> withTimeout 60.0
+                let! outcome = run |> withTimeout 45.0
                 lastOutcome <- outcome
 
             Assert.True(lastOutcome.Exception.IsNone)
@@ -82,7 +82,7 @@ let ``isolated per-cell execution: later cells do not see earlier cells' binding
                         return Evaluation.evaluate session cell.Text
                     }
 
-                let! outcome = run |> withTimeout 60.0
+                let! outcome = run |> withTimeout 45.0
                 lastOutcome <- outcome
 
             Assert.True(lastOutcome.Exception.IsSome, "expected 'x' to be undefined in a fresh, unrelated session")
