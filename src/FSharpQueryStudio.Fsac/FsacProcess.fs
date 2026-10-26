@@ -151,7 +151,12 @@ type FsacProcess(fsautocompleteDllPath: string) =
     /// be exercised deterministically, without relying on a real fault.
     member _.KillForTests() : unit =
         match current with
-        | Some(proc, _) when not proc.HasExited -> proc.Kill()
+        | Some(proc, _) when not proc.HasExited ->
+            try
+                proc.Kill()
+                proc.WaitForExit(5000) |> ignore
+            with _ ->
+                ()
         | _ -> ()
 
     /// Best-effort graceful shutdown — never throws past this call, same
@@ -163,6 +168,7 @@ type FsacProcess(fsautocompleteDllPath: string) =
             try
                 if not proc.HasExited then
                     proc.Kill()
+                    proc.WaitForExit(2000) |> ignore
             with _ ->
                 ()
 
