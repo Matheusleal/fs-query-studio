@@ -141,6 +141,10 @@ module Handlers =
 
             let stopwatch = Stopwatch.StartNew()
 
+            let connections = Workspace.readConnections (workspaceDir ())
+            Connections.configure (WorkspaceConnectionResolver(connections, secretStore))
+            EntityBackgroundGenerator.ensureGenerated (workspaceDir ()) connections secretStore
+
             let session =
                 match evalParams.Mode, evalParams.SessionId with
                 | Persistent, Some sessionId when evalParams.IsNotebookCell ->
@@ -159,9 +163,6 @@ module Handlers =
                 | Isolated, _ ->
                     Log.Information("Creating FSI session in {WorkingDirectory}", workDir)
                     FsiSession.create workDir
-
-            let connections = Workspace.readConnections (workspaceDir ())
-            Connections.configure (WorkspaceConnectionResolver(connections, secretStore))
 
             let outcome = Evaluation.evaluate session evalParams.Source
             stopwatch.Stop()
@@ -502,6 +503,7 @@ module Handlers =
             JsonSerializer.Deserialize<ConnectionDefinition>(request.Params, Serialization.options)
 
         let updated = Workspace.registerConnection (workspaceDir ()) connection
+        EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) updated secretStore
 
         { Id = request.Id
           Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
@@ -530,6 +532,7 @@ module Handlers =
             JsonSerializer.Deserialize<ConnectionRemoveParams>(request.Params, Serialization.options)
 
         let updated = Workspace.removeConnection (workspaceDir ()) removeParams.Id
+        EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) updated secretStore
 
         { Id = request.Id
           Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
@@ -569,6 +572,8 @@ module Handlers =
 
                     let connector = resolver.Resolve(definition.Name)
                     let! tables = connector.DiscoverSchemaAsync(CancellationToken.None)
+
+                    EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) connections secretStore
 
                     let result: ConnectionSchemaResult =
                         { Tables =

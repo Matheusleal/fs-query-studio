@@ -62,8 +62,16 @@ module FsiSession =
                 "FSharp.Data.SqlProvider.dll"
             )
 
+        let appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+        let generatedFile = Path.Combine(appData, "FSharpQueryStudio", "generated", "GeneratedEntities.fs")
+        let generatedLoad =
+            if File.Exists generatedFile then
+                $"#load @\"{generatedFile}\"\nopen FSharpQueryStudio.Generated\n"
+            else
+                ""
+
         let prologue =
-            $"#r @\"{connectorsAssemblyPath}\"\n#r @\"{resultsAssemblyPath}\"\n#r @\"{sqlProviderCommonAssemblyPath}\"\n#r @\"{sqlProviderAssemblyPath}\"\nopen System.Linq\nopen FSharpQueryStudio.Connectors\nopen FSharp.Data.Sql"
+            $"#r @\"{connectorsAssemblyPath}\"\n#r @\"{resultsAssemblyPath}\"\n#r @\"{sqlProviderCommonAssemblyPath}\"\n#r @\"{sqlProviderAssemblyPath}\"\n{generatedLoad}open System.Linq\nopen FSharpQueryStudio.Connectors\nopen FSharp.Data.Sql"
 
         fsi.EvalInteractionNonThrowing(prologue) |> ignore
 

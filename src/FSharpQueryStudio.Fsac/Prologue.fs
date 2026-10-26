@@ -32,7 +32,15 @@ module Prologue =
                 "FSharp.Data.SqlProvider.dll"
             )
 
-        $"#r \"{escapeForStringLiteral connectorsPath}\"\n#r \"{escapeForStringLiteral resultsPath}\"\n#r \"{escapeForStringLiteral sqlProviderCommonPath}\"\n#r \"{escapeForStringLiteral sqlProviderPath}\"\nopen System.Linq\nopen FSharpQueryStudio.Connectors\nopen FSharp.Data.Sql\n"
+        let appData = System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData)
+        let generatedFile = System.IO.Path.Combine(appData, "FSharpQueryStudio", "generated", "GeneratedEntities.fs")
+        let generatedLoad =
+            if System.IO.File.Exists generatedFile then
+                $"#load \"{escapeForStringLiteral generatedFile}\"\nopen FSharpQueryStudio.Generated\n"
+            else
+                ""
+
+        $"#r \"{escapeForStringLiteral connectorsPath}\"\n#r \"{escapeForStringLiteral resultsPath}\"\n#r \"{escapeForStringLiteral sqlProviderCommonPath}\"\n#r \"{escapeForStringLiteral sqlProviderPath}\"\n{generatedLoad}open System.Linq\nopen FSharpQueryStudio.Connectors\nopen FSharp.Data.Sql\n"
 
     /// The number of real (newline-terminated) lines `prologueText`
     /// occupies — computed from the actual text rather than a hardcoded

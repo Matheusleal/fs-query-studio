@@ -246,9 +246,17 @@ module Connections =
                     $"{clean}Db"
 
             let keywords =
-                set [ "type"; "module"; "open"; "let"; "val"; "member"; "as"; "match"; "with"; "if"; "then"; "else";
-                      "end"; "in"; "do"; "done"; "to"; "downto"; "new"; "default"; "override"; "static"; "interface";
-                      "class"; "struct"; "inherit"; "abstract"; "rec"; "public"; "private"; "internal" ]
+                set [ "abstract"; "and"; "as"; "assert"; "base"; "begin"; "class"; "default"; "delegate";
+                      "do"; "done"; "downcast"; "downto"; "elif"; "else"; "end"; "exception"; "extern";
+                      "false"; "finally"; "fixed"; "for"; "fun"; "function"; "global"; "if"; "in";
+                      "inherit"; "inline"; "interface"; "internal"; "lazy"; "let"; "match"; "member";
+                      "module"; "mutable"; "namespace"; "new"; "not"; "null"; "of"; "open"; "or";
+                      "override"; "private"; "public"; "rec"; "return"; "static"; "struct"; "then";
+                      "to"; "true"; "try"; "type"; "upcast"; "use"; "val"; "void"; "when"; "while";
+                      "with"; "yield"; "atomic"; "break"; "checked"; "component"; "const"; "constraint";
+                      "constructor"; "continue"; "eager"; "event"; "external"; "functor"; "include";
+                      "method"; "mixin"; "object"; "parallel"; "process"; "protected"; "pure"; "sealed";
+                      "tailcall"; "trait"; "virtual"; "volatile" ]
 
             let escapeIdent (s: string) =
                 if System.Text.RegularExpressions.Regex.IsMatch(s, @"^[a-zA-Z][a-zA-Z0-9_]*$") && not (Set.contains s keywords) then
