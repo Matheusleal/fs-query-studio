@@ -191,12 +191,26 @@ export class Position {
 }
 
 export class Range {
+  start: Position;
+  end: Position;
   constructor(
-    public startLine: number,
-    public startCharacter: number,
-    public endLine: number,
-    public endCharacter: number,
-  ) {}
+    startLineOrPos: number | Position,
+    startCharOrPos: number | Position,
+    endLine?: number,
+    endCharacter?: number,
+  ) {
+    if (typeof startLineOrPos === "object" && typeof startCharOrPos === "object") {
+      this.start = startLineOrPos;
+      this.end = startCharOrPos;
+    } else {
+      this.start = new Position(startLineOrPos as number, startCharOrPos as number);
+      this.end = new Position(endLine ?? 0, endCharacter ?? 0);
+    }
+  }
+  get startLine() { return this.start.line; }
+  get startCharacter() { return this.start.character; }
+  get endLine() { return this.end.line; }
+  get endCharacter() { return this.end.character; }
 }
 
 export enum DiagnosticSeverity {
@@ -279,6 +293,26 @@ export class SignatureHelp {
   activeParameter = 0;
 }
 
+export class Location {
+  constructor(
+    public uri: unknown,
+    public range: Range,
+  ) {}
+}
+
+export class WorkspaceEdit {
+  _changes = new Map<string, Array<{ range: Range; newText: string }>>();
+  replace(uri: { toString(): string }, range: Range, newText: string): void {
+    const key = uri.toString();
+    const list = this._changes.get(key) ?? [];
+    list.push({ range, newText });
+    this._changes.set(key, list);
+  }
+  get(uri: { toString(): string }): Array<{ range: Range; newText: string }> {
+    return this._changes.get(uri.toString()) ?? [];
+  }
+}
+
 export const Disposable = {
   from: (...items: Array<{ dispose: () => void }>) => ({
     dispose: () => items.forEach((i) => i.dispose?.()),
@@ -289,6 +323,8 @@ export const languages = {
   _completion: [] as Array<{ selector: unknown; provider: unknown; triggers: string[] }>,
   _hover: [] as Array<{ selector: unknown; provider: unknown }>,
   _signature: [] as Array<{ selector: unknown; provider: unknown; triggers: string[] }>,
+  _definition: [] as Array<{ selector: unknown; provider: unknown }>,
+  _rename: [] as Array<{ selector: unknown; provider: unknown }>,
   _collections: [] as Array<{ name: string; set: unknown }>,
   registerCompletionItemProvider(
     selector: unknown,
@@ -308,6 +344,14 @@ export const languages = {
     ...triggers: string[]
   ): Disposable {
     this._signature.push({ selector, provider, triggers });
+    return { dispose: () => {} };
+  },
+  registerDefinitionProvider(selector: unknown, provider: unknown): Disposable {
+    this._definition.push({ selector, provider });
+    return { dispose: () => {} };
+  },
+  registerRenameProvider(selector: unknown, provider: unknown): Disposable {
+    this._rename.push({ selector, provider });
     return { dispose: () => {} };
   },
   createDiagnosticCollection(name: string) {

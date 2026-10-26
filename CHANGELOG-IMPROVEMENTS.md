@@ -132,7 +132,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 
 ### [ITEM-08] Ativação de Provedores Go-to-Definition e Rename no VS Code
 - **Subagente**: `vscode-lang-features`
-- **Status**: 🟡 Planejado
+- **Status**: 🟢 Concluído
 - **Arquivos a modificar**:
   - `editors/vscode/src/protocol.ts`
   - `editors/vscode/src/lang/analysis-client.ts`
@@ -140,4 +140,4 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
   - Testes em `editors/vscode/test/`
 - **Critério de Aceite**: Navegação para definição (F12) e renomeação de identificadores (F2) funcionam nativamente nas células de notebook F#.
 - **Registro de Mudanças**:
-  - *Aguardando início.*
+  - `STEP-12 Concluído`: Ativados os endpoints de análise `analysis/definition` e `analysis/rename` no cliente TypeScript (`analysis-client.ts`), com mapeamento bidirecional de células e linhas de notebook (`mapSourcePositionToCell` e `mapSourceRangeToCell` em `providers.ts`). Registrados `DefinitionProvider` e `RenameProvider` no VS Code. Todos os 245 testes unitários e de integração do VS Code passando com sucesso.

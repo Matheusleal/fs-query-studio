@@ -202,6 +202,29 @@ export interface AnalysisSignatureHelpResult {
   signatureHelp: SignatureHelpInfo | null;
 }
 
+export interface DefinitionLocation {
+  filePath: string;
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+}
+
+export interface AnalysisDefinitionResult {
+  location: DefinitionLocation | null;
+}
+
+export interface RenameEdit {
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+}
+
+export interface AnalysisRenameResult {
+  edits: RenameEdit[] | null;
+}
+
 // --- F5: connections + reverse channel ---
 
 export type ConnectorKindName =

@@ -40,17 +40,21 @@ function worker(result: unknown): { getWorker: () => Promise<{ send: () => Promi
 const token = { isCancellationRequested: false } as never;
 
 describe("registerLanguageFeatures", () => {
-  it("registers the FSAC + connection-name completion, hover, and signature-help providers and a diagnostic collection", () => {
+  it("registers the FSAC + connection-name completion, hover, signature-help, definition, and rename providers and a diagnostic collection", () => {
     const before = {
       c: vscode.languages._completion.length,
       h: vscode.languages._hover.length,
       s: vscode.languages._signature.length,
+      def: vscode.languages._definition.length,
+      ren: vscode.languages._rename.length,
       d: vscode.languages._collections.length,
     };
     const sub = registerLanguageFeatures({ getWorker: async () => ({ send: async () => ({ id: "1" }) }), log: () => {} });
     expect(vscode.languages._completion.length).toBe(before.c + 2);
     expect(vscode.languages._hover.length).toBe(before.h + 1);
     expect(vscode.languages._signature.length).toBe(before.s + 1);
+    expect(vscode.languages._definition.length).toBe(before.def + 1);
+    expect(vscode.languages._rename.length).toBe(before.ren + 1);
     expect(vscode.languages._collections.length).toBe(before.d + 1);
     sub.dispose();
   });
@@ -133,5 +137,53 @@ describe("registerLanguageFeatures", () => {
     expect(help!.signatures[0].label).toBe("id(x: 'a) : 'a");
     expect(help!.signatures[0].parameters.map((p) => p.label)).toEqual(["x: 'a"]);
     expect(help!.activeParameter).toBe(0);
+  });
+
+  it("definition maps analysis location to a Location, or undefined when not found", async () => {
+    const cell = fsharpCellDoc("c2", "answer");
+    stageNotebook([fsharpCellDoc("c1", "let answer = 42"), cell]);
+
+    registerLanguageFeatures({
+      ...worker({ location: { filePath: "c2.fsx", startLine: 0, startColumn: 4, endLine: 0, endColumn: 10 } }),
+      log: () => {},
+    });
+    let provider = vscode.languages._definition.at(-1)!.provider as {
+      provideDefinition: (d: unknown, p: unknown, t: unknown) => Promise<vscode.Location | undefined>;
+    };
+    const loc = await provider.provideDefinition(cell, new vscode.Position(0, 2), token);
+    expect(loc).toBeDefined();
+    expect(loc!.range.start.line).toBe(0);
+    expect(loc!.range.start.character).toBe(4);
+
+    registerLanguageFeatures({ ...worker({ location: null }), log: () => {} });
+    provider = vscode.languages._definition.at(-1)!.provider as typeof provider;
+    expect(await provider.provideDefinition(cell, new vscode.Position(0, 2), token)).toBeUndefined();
+  });
+
+  it("rename maps edits to a WorkspaceEdit, or undefined when not found", async () => {
+    const cell = fsharpCellDoc("c2", "answer + answer");
+    stageNotebook([cell]);
+
+    registerLanguageFeatures({
+      ...worker({
+        edits: [
+          { startLine: 0, startColumn: 0, endLine: 0, endColumn: 6 },
+          { startLine: 0, startColumn: 9, endLine: 0, endColumn: 15 },
+        ],
+      }),
+      log: () => {},
+    });
+    let provider = vscode.languages._rename.at(-1)!.provider as {
+      provideRenameEdits: (d: unknown, p: unknown, n: string, t: unknown) => Promise<vscode.WorkspaceEdit | undefined>;
+    };
+    const edit = await provider.provideRenameEdits(cell, new vscode.Position(0, 2), "solution", token);
+    expect(edit).toBeDefined();
+    const changes = edit!.get(cell.uri);
+    expect(changes).toHaveLength(2);
+    expect(changes[0].newText).toBe("solution");
+
+    registerLanguageFeatures({ ...worker({ edits: null }), log: () => {} });
+    provider = vscode.languages._rename.at(-1)!.provider as typeof provider;
+    expect(await provider.provideRenameEdits(cell, new vscode.Position(0, 2), "solution", token)).toBeUndefined();
   });
 });

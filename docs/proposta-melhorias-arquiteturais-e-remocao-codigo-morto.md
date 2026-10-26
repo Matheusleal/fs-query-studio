@@ -249,5 +249,5 @@ A tabela abaixo centraliza o status de execução de cada etapa de melhoria, ind
 | **STEP-09** | Reuso de `HttpClient` e descarte determinístico de leitores ADO.NET | Fase 2 | `connectors-refactor` | 🟢 Concluído | `RestConnector` singleton de `HttpClient` e `CommandBehavior.CloseConnection` em SQL connectors |
 | **STEP-10** | Uniformização de telemetria nos métodos `Connections.csv` e `excel` | Fase 2 | `connectors-refactor` | 🟢 Concluído | `logOnceDrained` com Serilog aplicado a `Connections.csv` e `Connections.excel` |
 | **STEP-11** | Otimização de reflexão em dicionários (`Projection.fs`) | Fase 3 | `projection-performance` | 🟢 Concluído | Cache de `IDictionaryAccessor` com eliminação de reflexão por célula (47 testes verdes) |
-| **STEP-12** | Ativação de Go-to-Definition e Rename na extensão VS Code | Fase 3 | `vscode-lang-features` | 🟡 Pendente | `npm test` e `npm run test:vscode` verdes com os novos provedores |
+| **STEP-12** | Ativação de Go-to-Definition e Rename na extensão VS Code | Fase 3 | `vscode-lang-features` | 🟢 Concluído | `DefinitionProvider` e `RenameProvider` registrados e 245 testes unitários/integração do VS Code verdes |
 
