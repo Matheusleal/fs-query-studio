@@ -102,7 +102,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 
 ### [ITEM-06] Refatoração de Conectores, Sockets HTTP e DataReaders
 - **Subagente**: `connectors-refactor`
-- **Status**: 🟡 Em Progresso
+- **Status**: 🟢 Concluído
 - **Arquivos a modificar**:
   - `src/FSharpQueryStudio.Connectors/IConnector.fs`
   - `src/FSharpQueryStudio.Connectors/SqliteConnector.fs`
@@ -114,6 +114,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 - **Registro de Mudanças**:
   - `STEP-08 Concluído`: `ConnectorQueryResult` e `IQueryableConnector` desacoplados de `SqliteConnector.fs` e movidos para `IConnector.fs`. Conectores SQL e fakes agora dependem diretamente do contrato canônico de abstrações. 285 testes verdes.
   - `STEP-09 Concluído`: `RestConnector` agora reutiliza uma instância singleton de `HttpClient` quando nenhum cliente customizado é injetado, prevenindo exaustão de sockets TCP. Conectores SQL (`SqliteConnector`, `SqlServerConnector`, `PostgreSqlConnector`) agora abrem leitores com `CommandBehavior.CloseConnection`, assegurando fechamento e descarte determinístico de conexões ADO.NET. 49 testes de conectores verdes.
+  - `STEP-10 Concluído`: `Connections.csv` e `Connections.excel` agora utilizam `logOnceDrained` com medição de tempo (`Stopwatch`) e contagem lazy de linhas, unificando a telemetria do Serilog entre todos os conectores (SQL, CSV e Excel). Testes de enumeração adicionados em `ConnectionsTests.fs`. 49 testes de conectores verdes.
 
 ---
 
