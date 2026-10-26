@@ -22,7 +22,7 @@ let ``TryRead returns the host's secret`` () =
     let channel = HostChannel(fun f -> sent.Add f; Task.CompletedTask)
     let store = BridgeSecretStore(channel) :> ISecretStore
 
-    let read = Task.Run(fun () -> store.TryRead "fqs-conn-1")
+    let read = async { return store.TryRead "fqs-conn-1" } |> Async.StartAsTask
     // let the Request frame be written, then answer it
     SpinWait.SpinUntil((fun () -> sent.Count = 1), 1000) |> ignore
     replyWith (Some(box {| secret = "hunter2" |})) None channel sent.[0].Id
@@ -35,7 +35,7 @@ let ``TryRead returns None on an error frame`` () =
     let channel = HostChannel(fun f -> sent.Add f; Task.CompletedTask)
     let store = BridgeSecretStore(channel) :> ISecretStore
 
-    let read = Task.Run(fun () -> store.TryRead "x")
+    let read = async { return store.TryRead "x" } |> Async.StartAsTask
     SpinWait.SpinUntil((fun () -> sent.Count = 1), 1000) |> ignore
     replyWith None (Some { Code = "host/unknownMethod"; Message = "no" }) channel sent.[0].Id
 
@@ -47,7 +47,7 @@ let ``TryRead returns None on a null secret`` () =
     let channel = HostChannel(fun f -> sent.Add f; Task.CompletedTask)
     let store = BridgeSecretStore(channel) :> ISecretStore
 
-    let read = Task.Run(fun () -> store.TryRead "x")
+    let read = async { return store.TryRead "x" } |> Async.StartAsTask
     SpinWait.SpinUntil((fun () -> sent.Count = 1), 1000) |> ignore
     replyWith (Some(box {| secret = (null: string) |})) None channel sent.[0].Id
 

@@ -151,8 +151,17 @@ let rec private loopWith (stdin: TextReader) (stdout: TextWriter) (host: HostCha
                         (task {
                             use _ = Correlation.pushCorrelationId request.Id
                             Log.Debug("Handling request {Method}", request.Method)
-                            let response = Handlers.runEvaluate request workDir
-                            do! writeResponse stdout response
+                            try
+                                let response = Handlers.runEvaluate request workDir
+                                do! writeResponse stdout response
+                            with ex ->
+                                Log.Error(ex, "Unhandled exception dispatching {Method}", request.Method)
+                                do!
+                                    writeResponse
+                                        stdout
+                                        { Id = request.Id
+                                          Result = None
+                                          Error = Some { Code = "worker/requestFailed"; Message = ex.Message } }
                         })
                         :> Task)
                     |> ignore

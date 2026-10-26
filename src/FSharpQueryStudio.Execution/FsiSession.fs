@@ -29,12 +29,13 @@ module FsiSession =
 
         let output = new StringWriter()
         let errors = new StringWriter()
+        let stdin = new StringReader("")
         Console.SetOut(output)
         Console.SetError(errors)
+        Console.SetIn(stdin)
 
-        let argv = [| "fsi.exe"; "--noninteractive"; "--nologo"; "--gui-" |]
+        let argv = [| "fsi.exe"; "--noninteractive"; "--nologo"; "--gui-"; "--readline-"; "--simpleresolution" |]
         let config = FsiEvaluationSession.GetDefaultConfiguration()
-        let stdin = new StringReader("")
 
         let fsi =
             FsiEvaluationSession.Create(config, argv, stdin, output, errors, collectible = true)

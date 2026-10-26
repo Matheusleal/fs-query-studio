@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <PackageReference Include="Serilog" Version="4.4.0" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -31,8 +32,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Update="FSharp.Core" Version="10.1.402" />
-    <PackageReference Update="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+    <PackageReference Update="FSharp.Core" Version="10.1.403" />
+    <PackageReference Update="System.Security.Cryptography.Pkcs" Version="10.0.14" />
   </ItemGroup>
 
 </Project>

@@ -323,7 +323,8 @@ let ``handleEvaluate rejects a second concurrent evaluate with a structured busy
         | Choice2Of2 _ -> failwith "expected to reserve the evaluation slot"
         | Choice1Of2 workDir ->
             let firstTask =
-                Task.Run(fun () -> Handlers.runEvaluate (evaluateRequest "e1" longRunningScript) workDir)
+                async { return Handlers.runEvaluate (evaluateRequest "e1" longRunningScript) workDir }
+                |> Async.StartAsTask
 
             let! secondResponse = Handlers.dispatch (evaluateRequest "e2" "1")
 

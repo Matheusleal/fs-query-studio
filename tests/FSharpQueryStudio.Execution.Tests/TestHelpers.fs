@@ -5,13 +5,14 @@ open System.IO
 open System.Threading.Tasks
 
 let withTimeout (seconds: float) (work: Task<'T>) : Task<'T> =
+    let timeoutSec = min seconds 45.0
     task {
-        let! winner = Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds seconds))
+        let! winner = Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds timeoutSec))
 
         if winner = (work :> Task) then
             return! work
         else
-            return failwith $"timed out after {seconds}s"
+            return failwith $"timed out after {timeoutSec}s"
     }
 
 let tempWorkingDirectory () =

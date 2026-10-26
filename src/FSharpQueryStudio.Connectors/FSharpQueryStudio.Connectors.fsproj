@@ -17,7 +17,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
     <!-- Pin past the transitive 2.1.11 default, which NU1903 flags for
          GHSA-2m69-gcr7-jv3q. -->
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
@@ -26,6 +26,7 @@
     <PackageReference Include="Npgsql" Version="10.0.3" />
     <PackageReference Include="ClosedXML" Version="0.105.1" />
     <PackageReference Include="Serilog" Version="4.4.0" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
 
   <ItemGroup>
@@ -34,8 +35,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Update="FSharp.Core" Version="10.1.402" />
-    <PackageReference Update="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+    <PackageReference Update="FSharp.Core" Version="10.1.403" />
+    <PackageReference Update="System.Security.Cryptography.Pkcs" Version="10.0.14" />
   </ItemGroup>
 
 </Project>

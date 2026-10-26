@@ -9,13 +9,14 @@ let workerDllPath () =
     Path.Combine(AppContext.BaseDirectory, "FSharpQueryStudio.Worker.dll")
 
 let withTimeout (seconds: float) (work: Task<'T>) : Task<'T> =
+    let timeoutSec = min seconds 45.0
     task {
-        let! winner = Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds seconds))
+        let! winner = Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds timeoutSec))
 
         if winner = (work :> Task) then
             return! work
         else
-            return failwith $"timed out after {seconds}s waiting for the worker process"
+            return failwith $"timed out after {timeoutSec}s waiting for the worker process"
     }
 
 let request (id: string) (method_: string) (paramsJson: string) : WorkerRequestFrame =

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<RunSettings>
+  <!-- Configure general test runner properties -->
+  <RunConfiguration>
+    <MaxCpuCount>1</MaxCpuCount>
+  </RunConfiguration>
+  <!-- Configure blame hang collector to kill and report hanging tests after 45 seconds -->
+  <LoggerRunSettings>
+    <Loggers>
+      <Logger friendlyName="blame" enabled="True">
+        <Configuration>
+          <CollectDumpAfterMansTimeoutSeconds>45</CollectDumpAfterMansTimeoutSeconds>
+        </Configuration>
+      </Logger>
+    </Loggers>
+  </LoggerRunSettings>
+</RunSettings>
