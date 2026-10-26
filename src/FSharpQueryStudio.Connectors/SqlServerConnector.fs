@@ -1,6 +1,7 @@
 namespace FSharpQueryStudio.Connectors
 
 open System
+open System.Data
 open System.Threading
 open System.Threading.Tasks
 open Microsoft.Data.SqlClient
@@ -28,7 +29,7 @@ type SqlServerConnector(connectionString: string) =
         let command = connection.CreateCommand()
         command.CommandText <- sql
         SqlServerConnector.BindParameters(command, parameters)
-        let reader = command.ExecuteReader()
+        let reader = command.ExecuteReader(CommandBehavior.CloseConnection)
         let columns = [ for i in 0 .. reader.FieldCount - 1 -> reader.GetName(i) ]
 
         let rows =

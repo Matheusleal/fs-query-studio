@@ -55,11 +55,14 @@ module private RestRequests =
 
         request
 
+module private RestConnectorDefaults =
+    let sharedHttpClient = new HttpClient()
+
 /// REST/JSON connector — Section 10. `baseOptions` is the endpoint used
 /// for `IConnector.TestConnectionAsync`; every other call configures its
 /// own request explicitly.
 type RestConnector(baseOptions: RestRequestOptions, ?httpClient: HttpClient) =
-    let httpClient = defaultArg httpClient (new HttpClient())
+    let httpClient = defaultArg httpClient RestConnectorDefaults.sharedHttpClient
 
     /// Sends one configured request and parses the response body as
     /// JSON — Section 10's configuration plus JSON-parsing requirement.

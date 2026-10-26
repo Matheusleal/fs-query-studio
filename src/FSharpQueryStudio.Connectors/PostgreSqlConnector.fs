@@ -1,6 +1,7 @@
 namespace FSharpQueryStudio.Connectors
 
 open System
+open System.Data
 open System.Threading
 open System.Threading.Tasks
 open Npgsql
@@ -28,7 +29,7 @@ type PostgreSqlConnector(connectionString: string) =
         let command = connection.CreateCommand()
         command.CommandText <- sql
         PostgreSqlConnector.BindParameters(command, parameters)
-        let reader = command.ExecuteReader()
+        let reader = command.ExecuteReader(CommandBehavior.CloseConnection)
         let columns = [ for i in 0 .. reader.FieldCount - 1 -> reader.GetName(i) ]
 
         let rows =

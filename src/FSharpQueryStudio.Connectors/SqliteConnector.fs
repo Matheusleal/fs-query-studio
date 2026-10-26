@@ -1,6 +1,7 @@
 namespace FSharpQueryStudio.Connectors
 
 open System
+open System.Data
 open System.Threading
 open System.Threading.Tasks
 open Microsoft.Data.Sqlite
@@ -31,7 +32,7 @@ type SqliteConnector(filePath: string) =
         let command = connection.CreateCommand()
         command.CommandText <- sql
         SqliteConnector.BindParameters(command, parameters)
-        let reader = command.ExecuteReader()
+        let reader = command.ExecuteReader(CommandBehavior.CloseConnection)
         let columns = [ for i in 0 .. reader.FieldCount - 1 -> reader.GetName(i) ]
 
         let rows =

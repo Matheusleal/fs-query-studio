@@ -113,6 +113,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 - **Critério de Aceite**: `IQueryableConnector` e `ConnectorQueryResult` movidos para `IConnector.fs`, `HttpClient` singleton no `RestConnector`, fechamento determinístico de DataReaders e telemetria no `Connections.csv`/`excel`.
 - **Registro de Mudanças**:
   - `STEP-08 Concluído`: `ConnectorQueryResult` e `IQueryableConnector` desacoplados de `SqliteConnector.fs` e movidos para `IConnector.fs`. Conectores SQL e fakes agora dependem diretamente do contrato canônico de abstrações. 285 testes verdes.
+  - `STEP-09 Concluído`: `RestConnector` agora reutiliza uma instância singleton de `HttpClient` quando nenhum cliente customizado é injetado, prevenindo exaustão de sockets TCP. Conectores SQL (`SqliteConnector`, `SqlServerConnector`, `PostgreSqlConnector`) agora abrem leitores com `CommandBehavior.CloseConnection`, assegurando fechamento e descarte determinístico de conexões ADO.NET. 49 testes de conectores verdes.
 
 ---
 
