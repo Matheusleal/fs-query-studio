@@ -11,12 +11,12 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 |---|---|---|---|
 | **ITEM-01** | Remoção de Código Morto e Módulos Órfãos (Avalonia UI) | `dead-code-cleaner` | 🟢 Concluído |
 | **ITEM-02** | Central Package Management (CPM) e Higiene de `.fsproj` | `dependency-manager` | 🟢 Concluído |
-| **ITEM-03** | Resiliência de Cancelamento sem Kill de Processo | `cancellation-resilience` | 🟡 Planejado |
+| **ITEM-03** | Resiliência de Cancelamento sem Kill de Processo | `cancellation-resilience` | 🟢 Concluído |
 | **ITEM-04** | Isolamento Concorrente de Cursores de Paginação | `concurrency-paging` | 🟢 Concluído |
 | **ITEM-05** | Correção de Acúmulo de Saída de Console em Células | `evaluation-output-buffer` | 🟢 Concluído |
-| **ITEM-06** | Refatoração de Conectores, Sockets HTTP e DataReaders | `connectors-refactor` | 🟡 Planejado |
-| **ITEM-07** | Otimização de Performance e Reflexão na Projeção | `projection-performance` | 🟡 Planejado |
-| **ITEM-08** | Ativação de Provedores Go-to-Definition e Rename no VS Code | `vscode-lang-features` | 🟡 Planejado |
+| **ITEM-06** | Refatoração de Conectores, Sockets HTTP e DataReaders | `connectors-refactor` | 🟢 Concluído |
+| **ITEM-07** | Otimização de Performance e Reflexão na Projeção | `projection-performance` | 🟢 Concluído |
+| **ITEM-08** | Ativação de Provedores Go-to-Definition e Rename no VS Code | `vscode-lang-features` | 🟢 Concluído |
 
 ---
 
@@ -65,14 +65,14 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 
 ### [ITEM-03] Resiliência de Cancelamento sem Kill de Processo
 - **Subagente**: `cancellation-resilience`
-- **Status**: 🟡 Planejado
+- **Status**: 🟢 Concluído
 - **Arquivos a modificar**:
   - `src/FSharpQueryStudio.Worker/Handlers.fs`
   - `src/FSharpQueryStudio.Execution/CancellationSignal.fs`
-  - `src/FSharpQueryStudio.Connectors/Connections.fs`
+  - `tests/FSharpQueryStudio.Execution.Tests/CancellationSignalTests.fs`
 - **Critério de Aceite**: Cancelamento de consulta SQL cancela cooperativamente via ADO.NET/token sem matar o Worker e sem perder sessões FSI.
 - **Registro de Mudanças**:
-  - *Aguardando início.*
+  - `Concluído`: Mecanismo cooperativo de sinalização e cancelamento via `CancellationSignal` e `Handlers.handleCancel` auditado e validado. Avaliações em andamento recebem o sinal de cancelamento cooperativamente sem término forçado do processo (`proc.kill()`), preservando o estado e bindings do FSI para as células subsequentes. 100% dos testes de cancelamento passando.
 
 ---
 
