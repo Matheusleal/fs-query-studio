@@ -148,4 +148,65 @@ describe("registerConnectionNameCompletion", () => {
     expect(called).toBe(0);
     sub.dispose();
   });
+
+  it("filters connections by method category when listConnections is supplied", async () => {
+    const allConnections = [
+      { name: "pg-db", kind: "PostgreSql" as const },
+      { name: "sqlserver-db", kind: "SqlServer" as const },
+      { name: "sqlite-db", kind: "Sqlite" as const },
+      { name: "customers-csv", kind: "Csv" as const },
+      { name: "sales-excel", kind: "Excel" as const },
+      { name: "users-api", kind: "RestJson" as const },
+    ];
+
+    const sub = registerConnectionNameCompletion({
+      listConnections: async () => allConnections,
+    });
+    const provider = vscode.languages._completion[vscode.languages._completion.length - 1]
+      .provider as {
+      provideCompletionItems(doc: unknown, pos: unknown, tok: unknown): Promise<unknown[] | undefined>;
+    };
+
+    // 1. Connections.connect and Connections.sql should ONLY return Database connections
+    const dbLine = 'let db = Connections.connect "';
+    const dbItems = (await provider.provideCompletionItems(
+      cellDoc(dbLine),
+      new vscode.Position(0, dbLine.length),
+      token,
+    )) as Array<{ label: string; detail?: string }>;
+    expect(dbItems.map((i) => i.label)).toEqual(["pg-db", "sqlserver-db", "sqlite-db"]);
+    expect(dbItems.map((i) => i.detail)).toEqual(["PostgreSql", "SqlServer", "Sqlite"]);
+
+    // 2. Connections.connectCsv and Connections.csv should ONLY return CSV connections
+    const csvLine = 'let csv = Connections.connectCsv "';
+    const csvItems = (await provider.provideCompletionItems(
+      cellDoc(csvLine),
+      new vscode.Position(0, csvLine.length),
+      token,
+    )) as Array<{ label: string; detail?: string }>;
+    expect(csvItems.map((i) => i.label)).toEqual(["customers-csv"]);
+    expect(csvItems[0].detail).toBe("Csv");
+
+    // 3. Connections.connectExcel and Connections.excel should ONLY return Excel connections
+    const excelLine = 'let excel = Connections.connectExcel "';
+    const excelItems = (await provider.provideCompletionItems(
+      cellDoc(excelLine),
+      new vscode.Position(0, excelLine.length),
+      token,
+    )) as Array<{ label: string; detail?: string }>;
+    expect(excelItems.map((i) => i.label)).toEqual(["sales-excel"]);
+    expect(excelItems[0].detail).toBe("Excel");
+
+    // 4. Connections.connectRest and Connections.queryJson should ONLY return RestJson connections
+    const restLine = 'let api = Connections.connectRest "';
+    const restItems = (await provider.provideCompletionItems(
+      cellDoc(restLine),
+      new vscode.Position(0, restLine.length),
+      token,
+    )) as Array<{ label: string; detail?: string }>;
+    expect(restItems.map((i) => i.label)).toEqual(["users-api"]);
+    expect(restItems[0].detail).toBe("RestJson");
+
+    sub.dispose();
+  });
 });

@@ -28,8 +28,7 @@ const DIAGNOSTIC_SOURCE = "F# Query Studio";
 export interface LanguageFeaturesDeps {
   getWorker: () => Promise<WorkerLike>;
   log: (line: string) => void;
-  /** Registered connection names, for `Connections.sql "…"` completion.
-   *  Absent in tests that don't exercise that provider. */
+  listConnections?: () => Promise<Array<{ name: string; kind?: import("../protocol").ConnectorKindName }>>;
   listConnectionNames?: () => Promise<string[]>;
 }
 
@@ -317,7 +316,8 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
   });
 
   const connectionNameCompletion = registerConnectionNameCompletion({
-    listConnectionNames: deps.listConnectionNames ?? (async () => []),
+    listConnections: deps.listConnections,
+    listConnectionNames: deps.listConnectionNames,
   });
 
   const collection = vscode.languages.createDiagnosticCollection(DIAGNOSTIC_SOURCE);

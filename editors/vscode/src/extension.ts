@@ -4,7 +4,7 @@ import { resolveDotnet, DotnetNotFoundError, DotnetTooOldError } from "./worker/
 import { resolveWorkerDll, WorkerDllNotFoundError } from "./worker/worker-path";
 import { WorkerClient } from "./worker/client";
 import { spawnWorkerProcess } from "./worker/spawn";
-import { isWorkerVersionSupported, type HealthInfo, type WorkerResponseFrame } from "./protocol";
+import { isWorkerVersionSupported, readUnionTag, type HealthInfo, type WorkerResponseFrame, type ConnectorKindName } from "./protocol";
 import { FsqnbSerializer, FSQNB_NOTEBOOK_TYPE } from "./notebook/serializer";
 import { openNewUntitledNotebook, createNotebookFileInFolder } from "./notebook/new-notebook";
 import { createFsQueryController, restartKernel } from "./notebook/controller";
@@ -181,6 +181,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
   const languageFeatures = registerLanguageFeatures({
     getWorker,
     log: (line) => outputChannel!.appendLine(line),
+    listConnections: async () => {
+      const list = await connections.api.list();
+      return list.map((c) => ({
+        name: c.name,
+        kind: readUnionTag(c.kind) as ConnectorKindName | undefined,
+      }));
+    },
     listConnectionNames: async () =>
       (await connections.api.list()).map((c) => c.name),
   });
