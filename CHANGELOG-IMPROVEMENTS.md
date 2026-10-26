@@ -13,7 +13,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 | **ITEM-02** | Central Package Management (CPM) e Higiene de `.fsproj` | `dependency-manager` | 🟢 Concluído |
 | **ITEM-03** | Resiliência de Cancelamento sem Kill de Processo | `cancellation-resilience` | 🟡 Planejado |
 | **ITEM-04** | Isolamento Concorrente de Cursores de Paginação | `concurrency-paging` | 🟡 Planejado |
-| **ITEM-05** | Correção de Acúmulo de Saída de Console em Células | `evaluation-output-buffer` | 🟡 Planejado |
+| **ITEM-05** | Correção de Acúmulo de Saída de Console em Células | `evaluation-output-buffer` | 🟢 Concluído |
 | **ITEM-06** | Refatoração de Conectores, Sockets HTTP e DataReaders | `connectors-refactor` | 🟡 Planejado |
 | **ITEM-07** | Otimização de Performance e Reflexão na Projeção | `projection-performance` | 🟡 Planejado |
 | **ITEM-08** | Ativação de Provedores Go-to-Definition e Rename no VS Code | `vscode-lang-features` | 🟡 Planejado |
@@ -89,13 +89,13 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 
 ### [ITEM-05] Correção de Acúmulo de Saída de Console em Células
 - **Subagente**: `evaluation-output-buffer`
-- **Status**: 🟡 Planejado
+- **Status**: 🟢 Concluído
 - **Arquivos a modificar**:
   - `src/FSharpQueryStudio.Execution/Evaluation.fs`
   - `tests/FSharpQueryStudio.Execution.Tests/EvaluationTests.fs`
 - **Critério de Aceite**: Execuções consecutivas na mesma sessão exibem apenas a saída de console gerada na célula em execução.
 - **Registro de Mudanças**:
-  - *Aguardando início.*
+  - `STEP-06 Concluído`: `Evaluation.evaluate` agora limpa os buffers de `session.Output` e `session.Errors` antes de cada execução. Novo teste `evaluate clears previous stdout and stderr between consecutive evaluations in the same session` adicionado e validado. (284 testes verdes).
 
 ---
 
