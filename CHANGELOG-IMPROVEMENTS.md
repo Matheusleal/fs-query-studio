@@ -52,13 +52,13 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 
 ### [ITEM-02] Central Package Management (CPM) e Higiene de `.fsproj`
 - **Subagente**: `dependency-manager`
-- **Status**: 🟡 Planejado
+- **Status**: 🟡 Em Progresso
 - **Arquivos a modificar/criar**:
   - `Directory.Packages.props` (criação)
   - 19 arquivos `.fsproj` (limpeza de versões e remoção de `System.Security.Cryptography.Pkcs`)
 - **Critério de Aceite**: Build e restore determinísticos via CPM sem dependências órfãs.
 - **Registro de Mudanças**:
-  - *Aguardando início.*
+  - `STEP-04 Concluído`: Central Package Management habilitado via `Directory.Packages.props`, inclusão centralizada de `FSharp.Core` no `Directory.Build.props`, e remoção de atributos `Version` e diretivas `Update` redundantes nos 19 arquivos `.fsproj`. Restore e build determinísticos com 283 testes passando.
 
 ---
 
