@@ -8,6 +8,7 @@ open Xunit
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Security
 open FSharpQueryStudio.Worker
+open TestHelpers
 
 let private replyWith (result: obj option) (error: WorkerErrorInfo option) (channel: HostChannel) (id: string) =
     channel.TryComplete
@@ -18,40 +19,61 @@ let private replyWith (result: obj option) (error: WorkerErrorInfo option) (chan
 
 [<Fact>]
 let ``TryRead returns the host's secret`` () =
-    let sent = System.Collections.Generic.List<WorkerRequestFrame>()
-    let channel = HostChannel(fun f -> sent.Add f; Task.CompletedTask)
-    let store = BridgeSecretStore(channel) :> ISecretStore
+    task {
+        let sent = System.Collections.Generic.List<WorkerRequestFrame>()
+        let channel = HostChannel(fun f -> sent.Add f; Task.CompletedTask)
+        let store = BridgeSecretStore(channel) :> ISecretStore
 
-    let read = async { return store.TryRead "fqs-conn-1" } |> Async.StartAsTask
-    // let the Request frame be written, then answer it
-    SpinWait.SpinUntil((fun () -> sent.Count = 1), 1000) |> ignore
-    replyWith (Some(box {| secret = "hunter2" |})) None channel sent.[0].Id
+        let read =
+            task {
+                do! Task.Yield()
+                return store.TryRead "fqs-conn-1"
+            }
+        // let the Request frame be written, then answer it
+        SpinWait.SpinUntil((fun () -> sent.Count = 1), 1000) |> ignore
+        replyWith (Some(box {| secret = "hunter2" |})) None channel sent.[0].Id
 
-    Assert.Equal(Some "hunter2", read.Result)
+        let! result = read |> withTimeout 45.0
+        Assert.Equal(Some "hunter2", result)
+    }
 
 [<Fact>]
 let ``TryRead returns None on an error frame`` () =
-    let sent = System.Collections.Generic.List<WorkerRequestFrame>()
-    let channel = HostChannel(fun f -> sent.Add f; Task.CompletedTask)
-    let store = BridgeSecretStore(channel) :> ISecretStore
+    task {
+        let sent = System.Collections.Generic.List<WorkerRequestFrame>()
+        let channel = HostChannel(fun f -> sent.Add f; Task.CompletedTask)
+        let store = BridgeSecretStore(channel) :> ISecretStore
 
-    let read = async { return store.TryRead "x" } |> Async.StartAsTask
-    SpinWait.SpinUntil((fun () -> sent.Count = 1), 1000) |> ignore
-    replyWith None (Some { Code = "host/unknownMethod"; Message = "no" }) channel sent.[0].Id
+        let read =
+            task {
+                do! Task.Yield()
+                return store.TryRead "x"
+            }
+        SpinWait.SpinUntil((fun () -> sent.Count = 1), 1000) |> ignore
+        replyWith None (Some { Code = "host/unknownMethod"; Message = "no" }) channel sent.[0].Id
 
-    Assert.Equal(None, read.Result)
+        let! result = read |> withTimeout 45.0
+        Assert.Equal(None, result)
+    }
 
 [<Fact>]
 let ``TryRead returns None on a null secret`` () =
-    let sent = System.Collections.Generic.List<WorkerRequestFrame>()
-    let channel = HostChannel(fun f -> sent.Add f; Task.CompletedTask)
-    let store = BridgeSecretStore(channel) :> ISecretStore
+    task {
+        let sent = System.Collections.Generic.List<WorkerRequestFrame>()
+        let channel = HostChannel(fun f -> sent.Add f; Task.CompletedTask)
+        let store = BridgeSecretStore(channel) :> ISecretStore
 
-    let read = async { return store.TryRead "x" } |> Async.StartAsTask
-    SpinWait.SpinUntil((fun () -> sent.Count = 1), 1000) |> ignore
-    replyWith (Some(box {| secret = (null: string) |})) None channel sent.[0].Id
+        let read =
+            task {
+                do! Task.Yield()
+                return store.TryRead "x"
+            }
+        SpinWait.SpinUntil((fun () -> sent.Count = 1), 1000) |> ignore
+        replyWith (Some(box {| secret = (null: string) |})) None channel sent.[0].Id
 
-    Assert.Equal(None, read.Result)
+        let! result = read |> withTimeout 45.0
+        Assert.Equal(None, result)
+    }
 
 [<Fact>]
 let ``TryRead returns None when the host never replies (timeout)`` () =

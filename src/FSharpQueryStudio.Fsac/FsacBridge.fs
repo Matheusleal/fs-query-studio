@@ -20,7 +20,7 @@ module FsacBridge =
 
     /// One shared `FsacProcess` for the Worker's whole lifetime, same
     /// "one long-lived instance" shape as `AnalysisContext.checker`.
-    let sharedProcess = FsacProcess(fsacDllPath ())
+    let sharedProcess = new FsacProcess(fsacDllPath ())
 
     /// FSAC round-trips whatever `documentUri` this module sends in
     /// `didOpen`/`didChange` through its own absolute-path normalization

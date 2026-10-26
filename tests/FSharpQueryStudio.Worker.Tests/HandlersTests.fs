@@ -9,6 +9,7 @@ open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Execution
 open FSharpQueryStudio.Storage
 open FSharpQueryStudio.Worker
+open TestHelpers
 
 /// FSAC tracks each `analysis/*` document by `(documentUri, version)`
 /// (Task 12's cutover from FCS's own per-request, stateless
@@ -308,37 +309,43 @@ let ``handleEvaluate captures printed stdout into the envelope's Output lines`` 
 [<Fact>]
 let ``handleEvaluate rejects a second concurrent evaluate with a structured busy error`` () =
     task {
-        // A plain file check, not a call back into a host assembly - see
-        // Execution.Tests/EvaluationTests.fs for why the earlier
-        // static-field-plus-self-reference design was unreliable.
-        let longRunningScript =
-            "let mutable i = 0 in (while i < 2_000_000_000 && not (System.IO.File.Exists(\".cancel-requested\")) do i <- i + 1); i"
-
         // Reserve the slot synchronously (mirrors Program.fs's own loop)
         // rather than backgrounding the whole handleEvaluate call and
         // hoping a Task.Delay outlasts the threadpool picking it up - a
         // freshly started process's threadpool can take a while to inject
         // worker threads under load, which made this test flaky before.
-        match Handlers.beginEvaluate (evaluateRequest "e1" longRunningScript) with
+        match Handlers.beginEvaluate (evaluateRequest "e1" "1") with
         | Choice2Of2 _ -> failwith "expected to reserve the evaluation slot"
         | Choice1Of2 workDir ->
-            let firstTask =
-                async { return Handlers.runEvaluate (evaluateRequest "e1" longRunningScript) workDir }
-                |> Async.StartAsTask
+            try
+                let sentinelPath =
+                    Path.Combine(workDir, CancellationSignal.SentinelFileName).Replace("\\", "/")
 
-            let! secondResponse = Handlers.dispatch (evaluateRequest "e2" "1")
+                let longRunningScript =
+                    $"let mutable i = 0 in (while i < 2_000_000_000 && not (System.IO.File.Exists(\"{sentinelPath}\")) do i <- i + 1); i"
 
-            Assert.True(secondResponse.Result.IsNone)
+                let firstTask =
+                    task {
+                        do! Task.Yield()
+                        return Handlers.runEvaluate (evaluateRequest "e1" longRunningScript) workDir
+                    }
 
-            match secondResponse.Error with
-            | Some err -> Assert.Equal("execution/busy", err.Code)
-            | None -> failwith "expected a busy error"
+                let! secondResponse = Handlers.dispatch (evaluateRequest "e2" "1") |> withTimeout 45.0
 
-            let! _ = Handlers.dispatch (emptyParamsRequest "c2" "execution/cancel")
-            ()
+                Assert.True(secondResponse.Result.IsNone)
 
-            let! _ = firstTask
-            ()
+                match secondResponse.Error with
+                | Some err -> Assert.Equal("execution/busy", err.Code)
+                | None -> failwith "expected a busy error"
+
+                let! _ = Handlers.dispatch (emptyParamsRequest "c2" "execution/cancel") |> withTimeout 45.0
+                ()
+
+                let! _ = firstTask |> withTimeout 45.0
+                ()
+            finally
+                if Directory.Exists(workDir) then
+                    try Directory.Delete(workDir, true) with _ -> ()
     }
 
 [<Fact>]

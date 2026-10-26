@@ -11,7 +11,7 @@ let private fsacDllPath () =
 [<Fact>]
 let ``EnsureClient starts fsautocomplete and completes the initialize handshake`` () =
     task {
-        let fsac = FsacProcess(fsacDllPath ())
+        use fsac = new FsacProcess(fsacDllPath ())
         let! client = fsac.EnsureClient()
 
         let! result = client.SendRequest("textDocument/hover", {| textDocument = {| uri = "file:///doesnotexist.fsx" |}; position = {| line = 0; character = 0 |} |})
@@ -28,7 +28,7 @@ let ``EnsureClient starts fsautocomplete and completes the initialize handshake`
 [<Fact>]
 let ``EnsureClient respawns after the process is killed`` () =
     task {
-        let fsac = FsacProcess(fsacDllPath ())
+        use fsac = new FsacProcess(fsacDllPath ())
         let! _firstClient = fsac.EnsureClient()
         fsac.KillForTests()
 
