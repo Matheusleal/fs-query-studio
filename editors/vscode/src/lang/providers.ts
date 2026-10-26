@@ -261,7 +261,11 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
         return undefined;
       }
       const docUriStr = analysisDocumentUri(document.uri.toString());
-      if (loc.filePath === docUriStr || loc.filePath.includes("vscode-notebook-cell")) {
+      if (
+        loc.filePath === docUriStr ||
+        loc.filePath.includes("vscode-notebook-cell") ||
+        loc.filePath.includes("fqs-fsac-untitled-")
+      ) {
         const mapped = mapSourceRangeToCell(
           resolved.cells,
           resolved.target,
@@ -272,7 +276,10 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
         );
         return new vscode.Location(mapped.uri, mapped.range);
       }
-      const fileUri = vscode.Uri.file(loc.filePath);
+      const fileUri =
+        loc.filePath.startsWith("file://") || loc.filePath.startsWith("file:")
+          ? vscode.Uri.parse(loc.filePath)
+          : vscode.Uri.file(loc.filePath);
       const range = new vscode.Range(loc.startLine, loc.startColumn, loc.endLine, loc.endColumn);
       return new vscode.Location(fileUri, range);
     },

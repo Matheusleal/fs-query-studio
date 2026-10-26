@@ -33,8 +33,8 @@ module FsacBridge =
     /// and the uri FSAC echoes — makes the two compare equal regardless
     /// of which form either side happens to use.
     let private canonicalizeUri (uri: string) : string =
-        let decoded = Uri.UnescapeDataString(uri)
-        Regex.Replace(decoded, "^file:///[A-Za-z]:/", "file:///", RegexOptions.IgnoreCase)
+        let decoded = Uri.UnescapeDataString(uri).Replace('\\', '/')
+        Regex.Replace(decoded, "^file:///[A-Za-z]:/", "file:///", RegexOptions.IgnoreCase).ToLowerInvariant()
 
     /// A this-Worker-process-unique base directory synthetic FSAC-facing
     /// uris (see `fsacUriFor`) are namespaced under, so two different
@@ -663,7 +663,7 @@ module FsacBridge =
                     // caller's own original `documentUri` (not FSAC's
                     // echoed form) as `FilePath`.
                     let filePath, lineAdjustment =
-                        if canonicalizeUri resolvedUri = canonicalizeUri (fsacUriFor documentUri) then
+                        if String.Equals(canonicalizeUri resolvedUri, canonicalizeUri (fsacUriFor documentUri), StringComparison.OrdinalIgnoreCase) then
                             documentUri, true
                         else
                             resolvedUri, false

@@ -22,6 +22,9 @@ module Prologue =
     /// Doubling backslashes first makes the literal round-trip intact.
     let private escapeForStringLiteral (path: string) : string = path.Replace("\\", "\\\\")
 
+    let mutable private workspaceDirOverride: string option = None
+    let setWorkspaceDirForTests (dir: string option) : unit = workspaceDirOverride <- dir
+
     let build () : string =
         let connectorsPath = (typeof<FSharpQueryStudio.Connectors.IConnector>).Assembly.Location
         let resultsPath = (typeof<FSharpQueryStudio.Results.PagingCursor>).Assembly.Location
@@ -32,8 +35,14 @@ module Prologue =
                 "FSharp.Data.SqlProvider.dll"
             )
 
-        let appData = System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData)
-        let generatedFile = System.IO.Path.Combine(appData, "FSharpQueryStudio", "generated", "GeneratedEntities.fs")
+        let baseDir =
+            defaultArg
+                workspaceDirOverride
+                (System.IO.Path.Combine(
+                    System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
+                    "FSharpQueryStudio"
+                ))
+        let generatedFile = System.IO.Path.Combine(baseDir, "generated", "GeneratedEntities.fs")
         let generatedLoad =
             if System.IO.File.Exists generatedFile then
                 $"#load \"{escapeForStringLiteral generatedFile}\"\nopen FSharpQueryStudio.Generated\n"

@@ -66,7 +66,9 @@ module Handlers =
             workspaceDirOverride
             (Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FSharpQueryStudio"))
 
-    let setWorkspaceDirForTests (dir: string option) : unit = workspaceDirOverride <- dir
+    let setWorkspaceDirForTests (dir: string option) : unit =
+        workspaceDirOverride <- dir
+        FSharpQueryStudio.Fsac.Prologue.setWorkspaceDirForTests dir
 
     /// The secret store the worker's connection resolver reads `{password}`
     /// tokens from. The default `InMemorySecretStore` serves a standalone
@@ -268,6 +270,13 @@ module Handlers =
           Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
           Error = None }
 
+    let private ensureEntitiesReady () =
+        try
+            let connections = Workspace.readConnections (workspaceDir ())
+            EntityBackgroundGenerator.ensureGenerated (workspaceDir ()) connections secretStore
+        with ex ->
+            Log.Warning("FS Query Studio: Failed to ensure entities ready before analysis: {Error}", ex.Message)
+
     /// Parses/type-checks the request's source snapshot via FSAC, over the
     /// shared `FsacBridge.sharedProcess` LSP connection (Section 8, step
     /// 3-4). Unlike the old FCS-direct handler, this has no per-request
@@ -276,6 +285,7 @@ module Handlers =
     /// `AnalysisContext` tracked it as a `SourceText`.
     let handleAnalysisCheck (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
+            ensureEntitiesReady ()
             let checkParams =
                 JsonSerializer.Deserialize<AnalysisCheckParams>(request.Params, Serialization.options)
 
@@ -323,6 +333,7 @@ module Handlers =
     /// `FsacBridge.definition` itself, so this handler doesn't need it.
     let handleAnalysisDefinition (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
+            ensureEntitiesReady ()
             let definitionParams =
                 JsonSerializer.Deserialize<AnalysisDefinitionParams>(request.Params, Serialization.options)
 

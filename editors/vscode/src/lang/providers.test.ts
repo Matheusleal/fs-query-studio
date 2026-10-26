@@ -160,6 +160,34 @@ describe("registerLanguageFeatures", () => {
     expect(await provider.provideDefinition(cell, new vscode.Position(0, 2), token)).toBeUndefined();
   });
 
+  it("definition maps external file URI properly using vscode.Uri.parse", async () => {
+    const cell = fsharpCellDoc("c2", "Connections.sql");
+    stageNotebook([cell]);
+
+    registerLanguageFeatures({
+      ...worker({
+        location: {
+          filePath: "file:///d:/repo/GeneratedEntities.fs",
+          startLine: 12,
+          startColumn: 4,
+          endLine: 12,
+          endColumn: 20,
+        },
+      }),
+      log: () => {},
+    });
+    const provider = vscode.languages._definition.at(-1)!.provider as {
+      provideDefinition: (d: unknown, p: unknown, t: unknown) => Promise<vscode.Location | undefined>;
+    };
+    const loc = await provider.provideDefinition(cell, new vscode.Position(0, 2), token);
+    expect(loc).toBeDefined();
+    const uri = loc!.uri as { scheme: string; fsPath: string };
+    expect(uri.scheme).toBe("file");
+    expect(uri.fsPath.replace(/\\/g, "/")).toContain("GeneratedEntities.fs");
+    expect(loc!.range.start.line).toBe(12);
+    expect(loc!.range.start.character).toBe(4);
+  });
+
   it("rename maps edits to a WorkspaceEdit, or undefined when not found", async () => {
     const cell = fsharpCellDoc("c2", "answer + answer");
     stageNotebook([cell]);

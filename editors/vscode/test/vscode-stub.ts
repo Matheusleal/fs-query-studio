@@ -61,11 +61,14 @@ export const commands = {
 
 export const env = { openExternal: async (_uri: unknown) => true };
 export const Uri = {
-  parse: (s: string) => ({ toString: () => s, fsPath: s }),
-  file: (p: string) => ({ toString: () => `file://${p}`, fsPath: p }),
+  parse: (s: string) => {
+    const scheme = s.includes(":") ? s.substring(0, s.indexOf(":")) : "file";
+    return { scheme, toString: () => s, fsPath: s };
+  },
+  file: (p: string) => ({ scheme: "file", toString: () => `file://${p}`, fsPath: p }),
   joinPath: (base: { toString(): string }, ...segments: string[]) => {
     const joined = [base.toString().replace(/\/+$/, ""), ...segments].join("/");
-    return { toString: () => joined, fsPath: joined };
+    return { scheme: "file", toString: () => joined, fsPath: joined };
   },
 };
 
@@ -295,7 +298,7 @@ export class SignatureHelp {
 
 export class Location {
   constructor(
-    public uri: unknown,
+    public uri: { scheme?: string; fsPath?: string; toString(): string },
     public range: Range,
   ) {}
 }
