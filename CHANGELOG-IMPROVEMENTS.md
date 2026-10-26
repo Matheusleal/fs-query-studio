@@ -44,7 +44,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
   - Diretórios vazios `src/FSharpQueryStudio.Analysis` e `tests/FSharpQueryStudio.Analysis.Tests`
 - **Critério de Aceite**: `dotnet build` e `dotnet test` compilam com 0 warnings e 100% de testes ativos passando.
 - **Registro de Mudanças**:
-  - *Aguardando início.*
+  - `STEP-01 Concluído`: Diretórios fantasmas `src/FSharpQueryStudio.Analysis` e `tests/FSharpQueryStudio.Analysis.Tests` removidos do filesystem.
 
 ---
 

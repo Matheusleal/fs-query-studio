@@ -238,7 +238,7 @@ A tabela abaixo centraliza o status de execução de cada etapa de melhoria, ind
 
 | Step | Item | Fase | Subagente Responsável | Status | Gate de Validação |
 |---|---|---|---|---|---|
-| **STEP-01** | Exclusão de diretórios vazios/fantasmas (`Analysis`) | Fase 1 | `dead-code-cleaner` | 🟡 Pendente | Diretórios removidos do filesystem sem impacto no git status |
+| **STEP-01** | Exclusão de diretórios vazios/fantasmas (`Analysis`) | Fase 1 | `dead-code-cleaner` | 🟢 Concluído | Diretórios removidos do filesystem sem impacto no git status |
 | **STEP-02** | Purga de módulos órfãos de UI/Desktop (`UiState`, `EditorRequest`, etc.) | Fase 1 | `dead-code-cleaner` | 🟡 Pendente | `dotnet build` sem referências faltantes (`TreatWarningsAsErrors=true`) |
 | **STEP-03** | Remoção de 9 arquivos de teste unitário/integração órfãos | Fase 1 | `dead-code-cleaner` | 🟡 Pendente | `dotnet test` executando apenas testes de código ativo com 100% pass |
 | **STEP-04** | Implantação de Central Package Management (`Directory.Packages.props`) | Fase 1 | `dependency-manager` | 🟡 Pendente | `dotnet restore` e `dotnet build` determinísticos |
