@@ -1,6 +1,7 @@
 namespace FSharpQueryStudio.Worker
 
 open System
+open System.Collections.Concurrent
 open System.Diagnostics
 open System.IO
 open System.Reflection
@@ -45,14 +46,11 @@ module Handlers =
     /// where to write the cancellation sentinel. `None` when idle.
     let mutable private currentWorkDir: string option = None
 
-    /// The still-open continuation for the current evaluation's truncated
-    /// Table result, if any — Section 7's `results/page`. Keyed by the
-    /// token handed to the client in `ResultEnvelope.ContinuationToken`.
-    /// One worker handles one evaluation at a time (Section 9), so there
-    /// is only ever one paging cursor to track; a fresh evaluate replaces
-    /// or clears it, which is what "expires when the session is reset"
-    /// means in a worker that never actually holds multiple sessions.
-    let mutable private currentPaging: (string * PagingCursor) option = None
+    /// Active continuation cursors for truncated Table results — Section 7's
+    /// `results/page`. Keyed by the token handed to the client in
+    /// `ResultEnvelope.ContinuationToken`. Supports concurrent notebook tabs.
+    let private pagingCursors = ConcurrentDictionary<string, PagingCursor>()
+    let private sessionTokens = ConcurrentDictionary<string, string>()
 
     /// The persistent, single per-machine workspace directory — connections,
     /// trust metadata, package approvals — `%LOCALAPPDATA%\FSharpQueryStudio`
@@ -112,7 +110,17 @@ module Handlers =
             Directory.CreateDirectory(workDir) |> ignore
             CancellationSignal.reset workDir
             currentWorkDir <- Some workDir
-            currentPaging <- None // a fresh evaluation invalidates any previous continuation token
+            try
+                let evalParams = JsonSerializer.Deserialize<EvaluateParams>(request.Params, Serialization.options)
+                let sessionKey =
+                    evalParams.SessionId
+                    |> Option.defaultValue (
+                        if String.IsNullOrEmpty evalParams.DocumentUri then "default" else evalParams.DocumentUri
+                    )
+                match sessionTokens.TryGetValue(sessionKey) with
+                | true, oldToken -> pagingCursors.TryRemove(oldToken) |> ignore
+                | false, _ -> ()
+            with _ -> ()
             Choice1Of2 workDir
 
     /// Isolated by default (Section 9): a fresh session in the reserved
@@ -182,11 +190,22 @@ module Handlers =
                                 { Columns = t.Columns; Rows = t.Rows }
                         | None -> ()
 
+                    let sessionKey =
+                        evalParams.SessionId
+                        |> Option.defaultValue (
+                            if String.IsNullOrEmpty evalParams.DocumentUri then "default" else evalParams.DocumentUri
+                        )
+
+                    match sessionTokens.TryGetValue(sessionKey) with
+                    | true, oldToken -> pagingCursors.TryRemove(oldToken) |> ignore
+                    | false, _ -> ()
+
                     let continuationToken =
                         cursor
                         |> Option.map (fun c ->
                             let token = Guid.NewGuid().ToString("N")
-                            currentPaging <- Some(token, c)
+                            pagingCursors.[token] <- c
+                            sessionTokens.[sessionKey] <- token
                             token)
 
                     { projected with
@@ -225,6 +244,9 @@ module Handlers =
 
         Log.Information("Resetting persistent session {SessionId}", resetParams.SessionId)
         SessionStore.reset resetParams.SessionId
+        match sessionTokens.TryRemove(resetParams.SessionId) with
+        | true, oldToken -> pagingCursors.TryRemove(oldToken) |> ignore
+        | false, _ -> ()
 
         { Id = request.Id
           Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
@@ -404,15 +426,16 @@ module Handlers =
         let pageParams =
             JsonSerializer.Deserialize<ResultPageRequest>(request.Params, Serialization.options)
 
-        match currentPaging with
-        | Some(token, cursor) when token = pageParams.ContinuationToken ->
+        match pagingCursors.TryGetValue(pageParams.ContinuationToken) with
+        | true, cursor ->
             let rows, hasMore = cursor.TakePage(Projection.PreviewRowLimit)
-            currentPaging <- if hasMore then Some(token, cursor) else None
+            if not hasMore then
+                pagingCursors.TryRemove(pageParams.ContinuationToken) |> ignore
 
             let page: ResultPage =
                 { Rows = rows |> Array.map (fun r -> [| r |])
                   IsTruncated = hasMore
-                  ContinuationToken = (if hasMore then Some token else None) }
+                  ContinuationToken = (if hasMore then Some pageParams.ContinuationToken else None) }
 
             { Id = request.Id
               Result = Some(JsonSerializer.SerializeToElement(page, Serialization.options))

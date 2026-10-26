@@ -12,7 +12,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 | **ITEM-01** | Remoção de Código Morto e Módulos Órfãos (Avalonia UI) | `dead-code-cleaner` | 🟢 Concluído |
 | **ITEM-02** | Central Package Management (CPM) e Higiene de `.fsproj` | `dependency-manager` | 🟢 Concluído |
 | **ITEM-03** | Resiliência de Cancelamento sem Kill de Processo | `cancellation-resilience` | 🟡 Planejado |
-| **ITEM-04** | Isolamento Concorrente de Cursores de Paginação | `concurrency-paging` | 🟡 Planejado |
+| **ITEM-04** | Isolamento Concorrente de Cursores de Paginação | `concurrency-paging` | 🟢 Concluído |
 | **ITEM-05** | Correção de Acúmulo de Saída de Console em Células | `evaluation-output-buffer` | 🟢 Concluído |
 | **ITEM-06** | Refatoração de Conectores, Sockets HTTP e DataReaders | `connectors-refactor` | 🟡 Planejado |
 | **ITEM-07** | Otimização de Performance e Reflexão na Projeção | `projection-performance` | 🟡 Planejado |
@@ -78,12 +78,13 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 
 ### [ITEM-04] Isolamento Concorrente de Cursores de Paginação
 - **Subagente**: `concurrency-paging`
-- **Status**: 🟡 Planejado
+- **Status**: 🟢 Concluído
 - **Arquivos a modificar**:
   - `src/FSharpQueryStudio.Worker/Handlers.fs`
+  - `tests/FSharpQueryStudio.Worker.Tests/HandlersTests.fs`
 - **Critério de Aceite**: `currentPaging` suporta múltiplos cursores simultâneos via `ConcurrentDictionary`, evitando race conditions entre abas de notebook.
 - **Registro de Mudanças**:
-  - *Aguardando início.*
+  - `STEP-07 Concluído`: Substituição de cursor mutável único por `ConcurrentDictionary<string, PagingCursor>` e `ConcurrentDictionary<string, string>` em `Handlers.fs`. Múltiplas abas e notebooks concorrentes mantêm cursores independentes sem colisão. Novo teste unitário validando concorrência adicionado e 285 testes verdes.
 
 ---
 

@@ -244,7 +244,7 @@ A tabela abaixo centraliza o status de execução de cada etapa de melhoria, ind
 | **STEP-04** | Implantação de Central Package Management (`Directory.Packages.props`) | Fase 1 | `dependency-manager` | 🟢 Concluído | `dotnet restore` e `dotnet build` determinísticos com 283 testes passando |
 | **STEP-05** | Remoção da dependência inútil `System.Security.Cryptography.Pkcs` | Fase 1 | `dependency-manager` | 🟢 Concluído | Pacote removido de todos os 19 `.fsproj` com build limpo e 283 testes passando |
 | **STEP-06** | Reset de saída de console entre células consecutivas (`Evaluation.fs`) | Fase 2 | `evaluation-output-buffer` | 🟢 Concluído | Novo teste de `EvaluationTests` validando isolamento de `stdout` (284 testes verdes) |
-| **STEP-07** | Concorrência de cursores de paginação (`ConcurrentDictionary`) | Fase 2 | `concurrency-paging` | 🟡 Pendente | Testes de paginação com tokens concorrentes sem colisão |
+| **STEP-07** | Concorrência de cursores de paginação (`ConcurrentDictionary`) | Fase 2 | `concurrency-paging` | 🟢 Concluído | Testes de paginação com tokens concorrentes sem colisão (285 testes verdes) |
 | **STEP-08** | Desacoplamento de `IQueryableConnector` para `IConnector.fs` | Fase 2 | `connectors-refactor` | 🟡 Pendente | Compilação limpa de todos os conectores e testes |
 | **STEP-09** | Reuso de `HttpClient` e descarte determinístico de leitores ADO.NET | Fase 2 | `connectors-refactor` | 🟡 Pendente | Testes de integração de banco e HTTP sem leaks de recursos |
 | **STEP-10** | Uniformização de telemetria nos métodos `Connections.csv` e `excel` | Fase 2 | `connectors-refactor` | 🟡 Pendente | Eventos de Serilog verificados em testes de conectores |
