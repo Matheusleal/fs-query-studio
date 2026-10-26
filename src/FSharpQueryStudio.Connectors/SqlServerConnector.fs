@@ -101,5 +101,8 @@ type SqlServerConnector(connectionString: string) =
 
         member this.DiscoverSchemaAsync(ct: CancellationToken) = this.DiscoverSchemaAsync(ct)
 
+    member _.ConnectionString = connectionString
+
     interface IQueryableConnector with
+        member _.ConnectionString = connectionString
         member this.ExecuteQuery (sql: string) (parameters: (string * obj) list) = this.ExecuteQuery sql parameters

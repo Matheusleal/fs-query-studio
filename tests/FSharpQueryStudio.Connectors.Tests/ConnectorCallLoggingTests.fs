@@ -25,6 +25,7 @@ type private FakeQueryableConnector(rows: obj array list) =
         member _.DiscoverSchemaAsync(_ct: CancellationToken) = Task.FromResult []
 
     interface IQueryableConnector with
+        member _.ConnectionString = "Data Source=:memory:"
         member _.ExecuteQuery (_sql: string) (_parameters: (string * obj) list) : ConnectorQueryResult =
             { Columns = [ "Name" ]; Rows = rows }
 

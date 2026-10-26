@@ -47,15 +47,17 @@ module FsiSession =
         // interaction, before any user source, so it never shifts the
         // user script's own line numbers - Diagnostic mapping elsewhere
         // in this project is 1-based on FCS's own line numbers and must
-        // stay aligned with exactly what the user typed.
         let connectorsAssemblyPath =
             typeof<FSharpQueryStudio.Connectors.IConnector>.Assembly.Location
 
         let resultsAssemblyPath =
             typeof<FSharpQueryStudio.Results.PagingCursor>.Assembly.Location
 
+        let sqlProviderAssemblyPath =
+            typeof<FSharp.Data.Sql.Common.DatabaseProviderTypes>.Assembly.Location
+
         let prologue =
-            $"#r @\"{connectorsAssemblyPath}\"\n#r @\"{resultsAssemblyPath}\"\nopen FSharpQueryStudio.Connectors"
+            $"#r @\"{connectorsAssemblyPath}\"\n#r @\"{resultsAssemblyPath}\"\n#r @\"{sqlProviderAssemblyPath}\"\nopen System.Linq\nopen FSharpQueryStudio.Connectors\nopen FSharp.Data.Sql"
 
         fsi.EvalInteractionNonThrowing(prologue) |> ignore
 

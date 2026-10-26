@@ -25,8 +25,9 @@ module Prologue =
     let build () : string =
         let connectorsPath = (typeof<FSharpQueryStudio.Connectors.IConnector>).Assembly.Location
         let resultsPath = (typeof<FSharpQueryStudio.Results.PagingCursor>).Assembly.Location
+        let sqlProviderPath = (typeof<FSharp.Data.Sql.Common.DatabaseProviderTypes>).Assembly.Location
 
-        $"#r \"{escapeForStringLiteral connectorsPath}\"\n#r \"{escapeForStringLiteral resultsPath}\"\nopen FSharpQueryStudio.Connectors\n"
+        $"#r \"{escapeForStringLiteral connectorsPath}\"\n#r \"{escapeForStringLiteral resultsPath}\"\n#r \"{escapeForStringLiteral sqlProviderPath}\"\nopen System.Linq\nopen FSharpQueryStudio.Connectors\nopen FSharp.Data.Sql\n"
 
     /// The number of real (newline-terminated) lines `prologueText`
     /// occupies — computed from the actual text rather than a hardcoded

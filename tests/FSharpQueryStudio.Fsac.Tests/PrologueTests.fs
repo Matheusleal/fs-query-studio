@@ -4,12 +4,13 @@ open Xunit
 open FSharpQueryStudio.Fsac
 
 [<Fact>]
-let ``build emits real #r lines for Connectors and Results and opens Connectors`` () =
+let ``build emits real #r lines for Connectors, Results and SQLProvider and opens Connectors and FSharp.Data.Sql`` () =
     let text = Prologue.build ()
     Assert.Contains("#r \"", text)
     Assert.Contains("open FSharpQueryStudio.Connectors", text)
+    Assert.Contains("open FSharp.Data.Sql", text)
     Assert.DoesNotContain("open FSharpQueryStudio.Results", text)
-    Assert.Equal(2, (text.Split('\n') |> Array.filter (fun l -> l.StartsWith("#r ")) |> Array.length))
+    Assert.Equal(3, (text.Split('\n') |> Array.filter (fun l -> l.StartsWith("#r ")) |> Array.length))
 
 [<Fact>]
 let ``lineCount matches the number of real lines build() occupies`` () =
@@ -31,8 +32,6 @@ let ``shiftUp then shiftDown is the identity`` () =
 
 [<Fact>]
 let ``shiftUp and shiftDown use the real prologue's actual line count`` () =
-    // build() is 3 real lines: two #r lines, one open line. A caller's
-    // real line 1 should land on line 4 in the prologue-prefixed
-    // document, and an FSAC-reported line 4 should shift back to 1.
-    Assert.Equal(4, Prologue.shiftUp 1)
-    Assert.Equal(1, Prologue.shiftDown 4)
+    let expectedShift = 1 + Prologue.lineCount (Prologue.build ())
+    Assert.Equal(expectedShift, Prologue.shiftUp 1)
+    Assert.Equal(1, Prologue.shiftDown expectedShift)

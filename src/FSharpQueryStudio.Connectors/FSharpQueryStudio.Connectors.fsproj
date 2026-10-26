@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -26,6 +26,7 @@
     <PackageReference Include="Npgsql" />
     <PackageReference Include="ClosedXML" />
     <PackageReference Include="Serilog" />
+    <PackageReference Include="SQLProvider" />
   </ItemGroup>
 
   <ItemGroup>

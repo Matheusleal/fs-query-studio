@@ -8,6 +8,10 @@ open System.Text.Json
 open Serilog
 open FSharpQueryStudio.Protocol
 
+open System.Collections.Concurrent
+open System.Linq
+open Microsoft.FSharp.Reflection
+
 /// Resolves a named, already-configured connection to its live
 /// connector instance — Section 13's workspace connection registry,
 /// abstracted so `Connections` (and its tests) don't depend on how that
@@ -46,14 +50,73 @@ module Connections =
     let private unsupported (name: string) (operation: string) (connector: IConnector) =
         failwith $"Connection '{name}' (kind {connector.Kind}) does not support {operation}."
 
+    let private mapperCache = ConcurrentDictionary<Type * string, obj array -> obj>()
+
+    let getMapper<'T> (columns: string list) : (obj array -> 'T) =
+        let targetType = typeof<'T>
+        let key = (targetType, String.concat "," columns)
+        let rawMapper: obj array -> obj =
+            mapperCache.GetOrAdd(
+                key,
+                Func<Type * string, obj array -> obj>(fun _ ->
+                    if targetType = typeof<obj array> then
+                        (fun row -> box row)
+                    elif FSharpType.IsRecord(targetType) then
+                        let fields = FSharpType.GetRecordFields(targetType)
+                        let colIndices =
+                            fields
+                            |> Array.mapi (fun defaultIdx f ->
+                                let byName =
+                                    columns
+                                    |> List.tryFindIndex (fun c -> String.Equals(c, f.Name, StringComparison.OrdinalIgnoreCase))
+                                match byName with
+                                | Some idx -> idx
+                                | None -> if defaultIdx < columns.Length then defaultIdx else 0
+                            )
+                        let ctor = FSharpValue.PreComputeRecordConstructor(targetType)
+                        fun (row: obj array) ->
+                            let args: obj array = Array.zeroCreate fields.Length
+                            for i in 0 .. fields.Length - 1 do
+                                let idx = colIndices.[i]
+                                let raw = if idx < row.Length then row.[idx] else null
+                                let isNullVal = isNull raw || Convert.IsDBNull(raw)
+                                let propType = fields.[i].PropertyType
+                                let isOption = propType.IsGenericType && propType.GetGenericTypeDefinition() = typedefof<option<_>>
+
+                                if isOption then
+                                    let cases = FSharpType.GetUnionCases(propType)
+                                    let noneCase = cases |> Array.find (fun c -> c.Name = "None")
+                                    let someCase = cases |> Array.find (fun c -> c.Name = "Some")
+                                    if isNullVal then
+                                        args.[i] <- FSharpValue.MakeUnion(noneCase, [||])
+                                    else
+                                        let innerType = propType.GetGenericArguments().[0]
+                                        let converted =
+                                            if innerType.IsInstanceOfType(raw) then raw
+                                            else Convert.ChangeType(raw, innerType)
+                                        args.[i] <- FSharpValue.MakeUnion(someCase, [| converted |])
+                                else
+                                    if isNullVal then
+                                        args.[i] <- null
+                                    elif propType.IsInstanceOfType(raw) then
+                                        args.[i] <- raw
+                                    else
+                                        args.[i] <- Convert.ChangeType(raw, propType)
+                            ctor args
+                    else
+                        fun (row: obj array) ->
+                            if row.Length > 0 && not (isNull row.[0]) && not (Convert.IsDBNull(row.[0])) then
+                                Convert.ChangeType(row.[0], targetType)
+                            else
+                                null
+                )
+            )
+        fun (row: obj array) -> unbox<'T> (rawMapper row)
+
     /// Wraps `rows` so the row count and elapsed time (Section 15's
     /// connector-call logging: kind, elapsed time, row count — never
     /// parameter values) are logged once the caller finishes enumerating
-    /// them, not eagerly on the call itself. Eagerly counting would force
-    /// full materialization of what may be a reader-backed sequence,
-    /// defeating C.5/C.13's reader-based paging; a caller that never
-    /// fully drains `rows` (e.g. it truncates a huge result) simply never
-    /// triggers the log event, which is the correct tradeoff here.
+    /// them, not eagerly on the call itself.
     let private logOnceDrained (kind: ConnectorKind) (stopwatch: Stopwatch) (rows: obj array seq) : obj array seq =
         seq {
             let mutable rowCount = 0
@@ -71,6 +134,13 @@ module Connections =
                 stopwatch.ElapsedMilliseconds
             )
         }
+
+    /// Resolves the raw ADO.NET connection string for a named SQL connection
+    /// (e.g. for use with SQLProvider: SqlDataProvider<...>).
+    let getConnectionString (name: string) : string =
+        match resolve name with
+        | :? IQueryableConnector as c -> c.ConnectionString
+        | other -> unsupported name "Connections.getConnectionString" other
 
     /// Runs a parameterized SQL query against a named SQLite/SQL Server/
     /// PostgreSQL connection. `parameters` are always bound through the
@@ -107,3 +177,43 @@ module Connections =
         match resolve name with
         | :? RestConnector as c -> c.SendAsync options ct
         | other -> unsupported name "Connections.rest" other
+
+    /// Runs a query and streams strongly-typed records/primitives with high performance.
+    let query<'T> (name: string) (sqlText: string) (parameters: (string * obj) list) : 'T seq =
+        let r = sql name sqlText parameters
+        let mapper = getMapper<'T> r.Columns
+        seq {
+            for row in r.Rows do
+                yield mapper row
+        }
+
+    /// Reads CSV rows into strongly-typed records/primitives with high performance.
+    let queryCsv<'T> (name: string) : 'T seq =
+        let r = csv name
+        let mapper = getMapper<'T> r.Columns
+        seq {
+            for row in r.Rows do
+                yield mapper row
+        }
+
+    /// Reads Excel rows into strongly-typed records/primitives with high performance.
+    let queryExcel<'T> (name: string) (maxRows: int option) : 'T seq =
+        let r = excel name maxRows
+        let mapper = getMapper<'T> r.Columns
+        seq {
+            for row in r.Rows do
+                yield mapper row
+        }
+
+[<AutoOpen>]
+module ConnectorQueryResultExtensions =
+    type ConnectorQueryResult with
+        member this.As<'T>() : 'T seq =
+            let mapper = Connections.getMapper<'T> this.Columns
+            seq {
+                for row in this.Rows do
+                    yield mapper row
+            }
+
+        member this.AsQueryable<'T>() : IQueryable<'T> =
+            this.As<'T>().AsQueryable()

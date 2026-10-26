@@ -137,3 +137,65 @@ let ``Connections.rest routes to the resolved REST connector and sends the reque
 
         Assert.True(result.GetProperty("ok").GetBoolean())
     }
+
+type OrderRecord = { Id: int; Name: string }
+type OrderWithOptions = { Id: int; Name: string; Notes: string option }
+
+[<Fact>]
+let ``Connections.getConnectionString returns the ADO.NET connection string for a SQL connector`` () =
+    let sqlite = tempSqliteWithOrders ()
+    Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
+
+    let connStr = Connections.getConnectionString "Sales"
+    Assert.Contains("Data Source=", connStr)
+
+[<Fact>]
+let ``Connections.query maps rows to strongly-typed records and supports F# query LINQ expressions`` () =
+    let sqlite = tempSqliteWithOrders ()
+    Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
+
+    let orders = Connections.query<OrderRecord> "Sales" "select Id, Name from Orders" []
+
+    let filtered =
+        query {
+            for o in orders do
+            where (o.Id = 2)
+            select o.Name
+        }
+        |> Seq.toList
+
+    Assert.Equal<string list>([ "Bob" ], filtered)
+
+[<Fact>]
+let ``ConnectorQueryResult.As maps null/DBNull values to F# None and values to Some`` () =
+    let sqlite = tempSqliteWithOrders ()
+    sqlite.ExecuteQuery "alter table Orders add column Notes text" [] |> ignore
+    sqlite.ExecuteQuery "update Orders set Notes = 'Urgent' where Id = 1" [] |> ignore
+    Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
+
+    let orders =
+        (Connections.sql "Sales" "select Id, Name, Notes from Orders order by Id" []).As<OrderWithOptions>()
+        |> Seq.toList
+
+    Assert.Equal(2, orders.Length)
+    Assert.Equal(Some "Urgent", orders.[0].Notes)
+    Assert.Equal(None, orders.[1].Notes)
+
+[<Fact>]
+let ``Connections.queryCsv streams CSV rows into strongly-typed records and allows LINQ filtering`` () =
+    let path = Path.Combine(Path.GetTempPath(), "fqs-connections-" + Guid.NewGuid().ToString("N") + ".csv")
+    File.WriteAllText(path, "Id,Name\n1,Alpha\n2,Beta\n")
+    let csv = CsvConnector(path)
+    Connections.configure(FakeResolver(Map.ofList [ "Feed", csv :> IConnector ]))
+
+    let items = Connections.queryCsv<OrderRecord> "Feed"
+
+    let names =
+        query {
+            for item in items do
+            where (item.Id = 1)
+            select item.Name
+        }
+        |> Seq.toList
+
+    Assert.Equal<string list>([ "Alpha" ], names)
