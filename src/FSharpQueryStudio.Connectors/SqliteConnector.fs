@@ -58,7 +58,7 @@ type SqliteConnector(filePath: string) =
             use listTables = connection.CreateCommand()
 
             listTables.CommandText <-
-                "select name from sqlite_master where type = 'table' and name not like 'sqlite\\_%' escape '\\'"
+                "select name from sqlite_master where type in ('table', 'view') and name not like 'sqlite\\_%' escape '\\'"
 
             let tableNames = ResizeArray<string>()
             use! tableReader = listTables.ExecuteReaderAsync(ct)

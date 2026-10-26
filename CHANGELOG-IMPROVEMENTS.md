@@ -17,7 +17,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 | **ITEM-06** | Refatoração de Conectores, Sockets HTTP e DataReaders | `connectors-refactor` | 🟢 Concluído |
 | **ITEM-07** | Otimização de Performance e Reflexão na Projeção | `projection-performance` | 🟢 Concluído |
 | **ITEM-08** | Ativação de Provedores Go-to-Definition e Rename no VS Code | `vscode-lang-features` | 🟢 Concluído |
-| **ITEM-09** | Descoberta Multi-Schema e Consultas LINQ com Type Provider | `schema-discovery`, `linq-type-provider`, `integration-tests` | 🟡 Em Progresso |
+| **ITEM-09** | Descoberta Multi-Schema e Consultas LINQ com Type Provider | `schema-discovery`, `linq-type-provider`, `integration-tests` | 🟢 Concluído |
 
 ---
 
@@ -147,7 +147,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 
 ### [ITEM-09] Descoberta Multi-Schema e Consultas LINQ com Type Provider
 - **Subagentes**: `schema-discovery`, `linq-type-provider`, `integration-tests`
-- **Status**: 🟡 Em Progresso
+- **Status**: 🟢 Concluído
 - **Objetivos**:
   - **Descoberta Multi-Schema**: Expandir a descoberta de schemas em todos os bancos suportados (PostgreSQL, SQL Server, SQLite) para incluir múltiplos schemas de usuário (ex: `dbo`, schemas customizados), nomeando tabelas com prefixo do schema quando fora do default (ex: `dbo.MinhaTabela`).
   - **Type Provider & Consultas LINQ**: Adicionar suporte ao `SQLProvider` (`FSharp.Data.SqlProvider`) com gerenciamento centralizado de pacotes (CPM) e helpers LINQ de alta performance (`asQueryable`, mapeamentos tipados) sem degradação de throughput.
@@ -157,5 +157,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
   2. Suporte a consultas LINQ com tipagem estática e operadores `query { ... }` funcionando nas conexões.
   3. 100% dos testes passando localmente e no container Linux (`docker run`).
 - **Registro de Mudanças**:
-  - `STEP-13 [Em Progresso]`: Inicialização da branch `feature/multi-schema-discovery-and-linq` e planejamento dos subagentes.
+  - `STEP-13 Concluído`: Subagente `schema-discovery` expandiu a descoberta de metadados em `PostgreSqlConnector.fs` (removido filtro restritivo de `public`, suportando schemas como `dbo` e views), `SqlServerConnector.fs` (preservação de schemas e views) e `SqliteConnector.fs` (suporte a views).
+  - `STEP-14 Concluído`: Subagente `linq-type-provider` adicionou `SQLProvider` via CPM (`Directory.Packages.props`), helpers LINQ de alta performance (`query<'T>`, `queryCsv<'T>`, `queryExcel<'T>`, `result.As<'T>()`, `result.AsQueryable<'T>()`) com mapeamento dinâmico sem reflexão repetida por linha, e injeção automática de `SQLProvider` e `System.Linq` no `Prologue.fs` e `FsiSession.fs`.
+  - `STEP-15 Concluído`: Subagente `integration-tests` implementou `LocalDatabaseIntegrationTests.fs`, validando criação e consulta em arquivos locais SQLite e containers Docker para PostgreSQL e SQL Server com schemas e LINQ. 291 testes passaram no container Linux e 245 testes no VS Code.
 
