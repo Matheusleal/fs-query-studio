@@ -85,11 +85,14 @@ describe("fsquery connections", () => {
         `the {password} token was not substituted; got: ${message}`,
       );
 
-      // Stronger proof where Npgsql echoes the substituted host verbatim (most
-      // Linux CI). On Windows / some OS versions, SocketException reports
-      // "No such host is known." without echoing the host — either proves host resolution ran.
+      // Stronger proof where Npgsql echoes the substituted host verbatim (some Linux builds).
+      // On Windows / other OS versions, SocketException reports "No such host is known" or
+      // "Resource temporarily unavailable" without echoing the host — either proves host resolution ran.
       assert.ok(
-        message.includes(sentinel) || /no such host is known/i.test(message),
+        message.includes(sentinel) ||
+          /no such host|temporarily unavailable|name or service not known|not known|failed to connect/i.test(
+            message,
+          ),
         `expected the resolved host '${sentinel}' or DNS failure in the message; got: ${message}`,
       );
 

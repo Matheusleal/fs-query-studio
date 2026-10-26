@@ -153,12 +153,15 @@ module FsacBridge =
     let private registerWaiter (key: struct (string * int)) (tcs: TaskCompletionSource<Diagnostic list>) : unit =
         diagnosticsPending.AddOrUpdate(key, [ tcs ], (fun _ existing -> tcs :: existing)) |> ignore
 
+    let private latestExpectedVersionByUri = ConcurrentDictionary<string, int>()
+
     /// The most recent `publishDiagnostics` push for each (canonicalized)
-    /// uri. FSAC's own pushes carry no `version` — see
-    /// `registerDiagnosticsHandler`'s doc comment — so this is keyed on
-    /// uri alone and read back out once `fsharp/documentAnalyzed` confirms
-    /// which version those diagnostics belong to.
-    let private latestDiagnosticsByUri = ConcurrentDictionary<string, Diagnostic list>()
+    /// uri paired with the version expected at that time.
+    let private latestDiagnosticsByUri = ConcurrentDictionary<string, int * Diagnostic list>()
+
+    /// Tracks waiters if `documentAnalyzed` for a given version arrives before `publishDiagnostics`.
+    let private analyzedWaitingForDiagnostics =
+        ConcurrentDictionary<string, int * TaskCompletionSource<Diagnostic list> list>()
 
     let private mapSeverity (severity: int option) : DiagnosticSeverity =
         match severity with
@@ -222,7 +225,20 @@ module FsacBridge =
             "textDocument/publishDiagnostics",
             fun paramsEl ->
                 let uri = canonicalizeUri (paramsEl.GetProperty("uri").GetString())
-                latestDiagnosticsByUri.[uri] <- parseDiagnostics paramsEl
+                let diagnostics = parseDiagnostics paramsEl
+                let version =
+                    match latestExpectedVersionByUri.TryGetValue(uri) with
+                    | true, v -> v
+                    | false, _ -> 0
+
+                latestDiagnosticsByUri.[uri] <- (version, diagnostics)
+
+                // If documentAnalyzed for this version was already waiting for publishDiagnostics:
+                match analyzedWaitingForDiagnostics.TryGetValue(uri) with
+                | true, (analyzedVersion, waiters) when analyzedVersion <= version ->
+                    analyzedWaitingForDiagnostics.TryRemove(uri) |> ignore
+                    waiters |> List.iter (fun tcs -> tcs.TrySetResult(diagnostics) |> ignore)
+                | _ -> ()
         )
 
         client.OnNotification(
@@ -235,19 +251,14 @@ module FsacBridge =
                 match diagnosticsPending.TryRemove(struct (uri, version)) with
                 | false, _ -> ()
                 | true, waiters ->
-                    let diagnostics =
-                        match latestDiagnosticsByUri.TryGetValue(uri) with
-                        | true, d -> d
-                        | false, _ -> []
-
-                    // Every waiter currently registered for this key gets
-                    // the same result - not just the one that happened to
-                    // register first. A waiter that already gave up and
-                    // fell through to its own timeout is harmless to
-                    // resolve again here: `TrySetResult` on an
-                    // already-completed `TaskCompletionSource` just
-                    // returns `false`.
-                    waiters |> List.iter (fun tcs -> tcs.TrySetResult(diagnostics) |> ignore)
+                    // Check if publishDiagnostics for this version (or newer) has already arrived:
+                    match latestDiagnosticsByUri.TryGetValue(uri) with
+                    | true, (diagVersion, diagnostics) when diagVersion >= version ->
+                        waiters |> List.iter (fun tcs -> tcs.TrySetResult(diagnostics) |> ignore)
+                    | _ ->
+                        // publishDiagnostics for this version hasn't arrived yet!
+                        // Hold the waiters so they resolve as soon as publishDiagnostics arrives.
+                        analyzedWaitingForDiagnostics.[uri] <- (version, waiters)
         )
 
     /// Every `documentUri` this Worker process has ever `didOpen`'d, so
@@ -307,14 +318,19 @@ module FsacBridge =
         // didOpen-vs-didChange without needing to track the synthetic
         // identity separately.
         let wireUri = fsacUriFor documentUri
+        let canonicalUri = canonicalizeUri wireUri
 
         let isFirstOpenForThisDocument =
             lock syncLock (fun () ->
                 if isNewClient client then
                     openDocuments.Clear()
+                    latestExpectedVersionByUri.Clear()
+                    latestDiagnosticsByUri.Clear()
+                    analyzedWaitingForDiagnostics.Clear()
                     registerDiagnosticsHandler client
                     lastKnownClient <- Some client
 
+                latestExpectedVersionByUri.[canonicalUri] <- version
                 openDocuments.TryAdd(documentUri, true))
 
         if isFirstOpenForThisDocument then
