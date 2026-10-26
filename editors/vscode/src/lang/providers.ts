@@ -3,12 +3,15 @@ import {
   analysisDocumentUri,
   buildAnalysisInput,
   versionFor,
+  CODE_CELL_KIND,
   type AnalysisCell,
   type CellDiagnostic,
 } from "./cell-context";
 import {
   completeAnalysis,
+  definitionAnalysis,
   hoverAnalysis,
+  renameAnalysis,
   signatureHelpAnalysis,
   type WorkerLike,
 } from "./analysis-client";
@@ -94,6 +97,58 @@ function hoverMarkdown(info: {
     md.appendMarkdown(`\n${info.xmlDoc}`);
   }
   return md;
+}
+
+function mapSourcePositionToCell(
+  cells: readonly AnalysisCell[],
+  target: AnalysisCell,
+  sourceLine: number,
+  sourceColumn: number,
+): { uri: vscode.Uri; position: vscode.Position } {
+  const targetUri = target.document.uri.toString();
+  const prefixCells = cells
+    .filter(
+      (c) =>
+        c.kind === CODE_CELL_KIND &&
+        c.document.languageId === "fsharp" &&
+        c.document.uri.toString() !== targetUri &&
+        c.executionSummary?.executionOrder != null,
+    )
+    .sort(
+      (a, b) =>
+        (a.executionSummary!.executionOrder ?? 0) - (b.executionSummary!.executionOrder ?? 0),
+    );
+
+  let currentLine = 0;
+  for (const cell of prefixCells) {
+    const text = cell.document.getText();
+    const lineCount = text === "" ? 1 : text.split("\n").length;
+    if (sourceLine >= currentLine && sourceLine < currentLine + lineCount) {
+      return {
+        uri: vscode.Uri.parse(cell.document.uri.toString()),
+        position: new vscode.Position(sourceLine - currentLine, sourceColumn),
+      };
+    }
+    currentLine += lineCount;
+  }
+
+  return {
+    uri: vscode.Uri.parse(target.document.uri.toString()),
+    position: new vscode.Position(Math.max(0, sourceLine - currentLine), sourceColumn),
+  };
+}
+
+function mapSourceRangeToCell(
+  cells: readonly AnalysisCell[],
+  target: AnalysisCell,
+  startLine: number,
+  startCol: number,
+  endLine: number,
+  endCol: number,
+): { uri: vscode.Uri; range: vscode.Range } {
+  const start = mapSourcePositionToCell(cells, target, startLine, startCol);
+  const end = mapSourcePositionToCell(cells, target, endLine, endCol);
+  return { uri: start.uri, range: new vscode.Range(start.position, end.position) };
 }
 
 export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Disposable {
@@ -185,6 +240,82 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
     ",",
   );
 
+  const definition = vscode.languages.registerDefinitionProvider(FSHARP_CELL_SELECTOR, {
+    async provideDefinition(document, position, token) {
+      const resolved = resolveCell(document);
+      if (!resolved || token.isCancellationRequested) {
+        return undefined;
+      }
+      const { source, line, column } = buildAnalysisInput(resolved.cells, resolved.target, {
+        line: position.line,
+        character: position.character,
+      });
+      const version = versionFor(document.uri.toString(), source);
+      const loc = await definitionAnalysis(await deps.getWorker(), {
+        documentUri: analysisDocumentUri(document.uri.toString()),
+        version,
+        source,
+        line,
+        column,
+      });
+      if (!loc) {
+        return undefined;
+      }
+      const docUriStr = analysisDocumentUri(document.uri.toString());
+      if (loc.filePath === docUriStr || loc.filePath.includes("vscode-notebook-cell")) {
+        const mapped = mapSourceRangeToCell(
+          resolved.cells,
+          resolved.target,
+          loc.startLine,
+          loc.startColumn,
+          loc.endLine,
+          loc.endColumn,
+        );
+        return new vscode.Location(mapped.uri, mapped.range);
+      }
+      const fileUri = vscode.Uri.file(loc.filePath);
+      const range = new vscode.Range(loc.startLine, loc.startColumn, loc.endLine, loc.endColumn);
+      return new vscode.Location(fileUri, range);
+    },
+  });
+
+  const rename = vscode.languages.registerRenameProvider(FSHARP_CELL_SELECTOR, {
+    async provideRenameEdits(document, position, newName, token) {
+      const resolved = resolveCell(document);
+      if (!resolved || token.isCancellationRequested) {
+        return undefined;
+      }
+      const { source, line, column } = buildAnalysisInput(resolved.cells, resolved.target, {
+        line: position.line,
+        character: position.character,
+      });
+      const version = versionFor(document.uri.toString(), source);
+      const edits = await renameAnalysis(await deps.getWorker(), {
+        documentUri: analysisDocumentUri(document.uri.toString()),
+        version,
+        source,
+        line,
+        column,
+      });
+      if (!edits || edits.length === 0) {
+        return undefined;
+      }
+      const workspaceEdit = new vscode.WorkspaceEdit();
+      for (const edit of edits) {
+        const mapped = mapSourceRangeToCell(
+          resolved.cells,
+          resolved.target,
+          edit.startLine,
+          edit.startColumn,
+          edit.endLine,
+          edit.endColumn,
+        );
+        workspaceEdit.replace(mapped.uri, mapped.range, newName);
+      }
+      return workspaceEdit;
+    },
+  });
+
   const connectionNameCompletion = registerConnectionNameCompletion({
     listConnectionNames: deps.listConnectionNames ?? (async () => []),
   });
@@ -230,6 +361,8 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
     connectionNameCompletion,
     hover,
     signature,
+    definition,
+    rename,
     collection,
     { dispose: () => manager.dispose() },
     onChange,

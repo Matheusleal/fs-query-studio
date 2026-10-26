@@ -2,7 +2,9 @@ import {
   newRequestId,
   type AnalysisCheckParams,
   type AnalysisPositionParams,
+  type DefinitionLocation,
   type HoverInfo,
+  type RenameEdit,
   type SignatureHelpInfo,
   type WireDiagnostic,
   type WorkerResponseFrame,
@@ -84,6 +86,32 @@ export function signatureHelpAnalysis(
     "analysis/signatureHelp",
     params,
     (r) => (r.signatureHelp as SignatureHelpInfo | null) ?? undefined,
+    undefined,
+  );
+}
+
+export function definitionAnalysis(
+  worker: WorkerLike,
+  params: AnalysisPositionParams,
+): Promise<DefinitionLocation | undefined> {
+  return call(
+    worker,
+    "analysis/definition",
+    params,
+    (r) => (r.location as DefinitionLocation | null) ?? undefined,
+    undefined,
+  );
+}
+
+export function renameAnalysis(
+  worker: WorkerLike,
+  params: AnalysisPositionParams,
+): Promise<RenameEdit[] | undefined> {
+  return call(
+    worker,
+    "analysis/rename",
+    params,
+    (r) => (r.edits as RenameEdit[] | null) ?? undefined,
     undefined,
   );
 }

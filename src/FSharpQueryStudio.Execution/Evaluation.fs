@@ -17,6 +17,9 @@ module Evaluation =
           Exception: exn option }
 
     let evaluate (session: FsiSession.Session) (source: string) : EvaluationOutcome =
+        session.Output.GetStringBuilder().Clear() |> ignore
+        session.Errors.GetStringBuilder().Clear() |> ignore
+
         let result, diagnostics = session.Fsi.EvalInteractionNonThrowing(source)
 
         let value, exn =

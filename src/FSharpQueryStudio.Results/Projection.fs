@@ -2,6 +2,7 @@ namespace FSharpQueryStudio.Results
 
 open System
 open System.Collections
+open System.Collections.Concurrent
 open System.Collections.Generic
 open System.Reflection
 open Microsoft.FSharp.Reflection
@@ -58,133 +59,123 @@ module Projection =
         FSharpType.GetRecordFields(t, recordBindingFlags)
         |> Array.map (fun p -> p.GetValue(value))
 
+    type private IDictionaryAccessor =
+        abstract GetKeys: obj -> string list
+        abstract GetValue: obj -> string -> obj
+
+    let private dictionaryCache = ConcurrentDictionary<Type, IDictionaryAccessor option>()
+
+    let private createDictionaryAccessor (typ: Type) : IDictionaryAccessor option =
+        if isNull typ then None
+        elif typeof<IDictionary>.IsAssignableFrom(typ) then
+            Some
+                { new IDictionaryAccessor with
+                    member _.GetKeys(obj: obj) =
+                        match obj with
+                        | :? IDictionary as d ->
+                            let list = ResizeArray<string>()
+                            for k in d.Keys do
+                                if not (isNull k) then list.Add(string k)
+                            list |> List.ofSeq
+                        | _ -> []
+
+                    member _.GetValue(obj: obj) (key: string) =
+                        match obj with
+                        | :? IDictionary as d ->
+                            if d.Contains(key) then d.[key] else null
+                        | _ -> null }
+        else
+            // Check for generic IDictionary<K,V>, IReadOnlyDictionary<K,V>, or FSharpMap
+            let interfaces = typ.GetInterfaces()
+            let genericDictInterface =
+                interfaces
+                |> Array.tryFind (fun i ->
+                    i.IsGenericType &&
+                    (i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>> ||
+                     i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IReadOnlyDictionary<_, _>>))
+
+            let isFSharpMap =
+                typ.IsGenericType && typ.GetGenericTypeDefinition().Name = "FSharpMap`2"
+
+            match genericDictInterface with
+            | Some gi ->
+                let keysProperty = gi.GetProperty("Keys")
+                let containsKeyMethod = gi.GetMethod("ContainsKey")
+                let itemProperty = gi.GetProperty("Item")
+
+                Some
+                    { new IDictionaryAccessor with
+                        member _.GetKeys(obj: obj) =
+                            if isNull obj || isNull keysProperty then []
+                            else
+                                match keysProperty.GetValue(obj) with
+                                | :? IEnumerable as seq ->
+                                    let list = ResizeArray<string>()
+                                    for k in seq do
+                                        if not (isNull k) then list.Add(string k)
+                                    list |> List.ofSeq
+                                | _ -> []
+
+                        member _.GetValue(obj: obj) (key: string) =
+                            if isNull obj || isNull containsKeyMethod || isNull itemProperty then null
+                            else
+                                try
+                                    let contains = containsKeyMethod.Invoke(obj, [| box key |]) :?> bool
+                                    if contains then itemProperty.GetValue(obj, [| box key |])
+                                    else null
+                                with _ -> null }
+            | None when isFSharpMap ->
+                let keysProperty = typ.GetProperty("Keys")
+                let containsKeyMethod = typ.GetMethod("ContainsKey")
+                let itemProperty = typ.GetProperty("Item")
+
+                Some
+                    { new IDictionaryAccessor with
+                        member _.GetKeys(obj: obj) =
+                            if isNull obj || isNull keysProperty then []
+                            else
+                                match keysProperty.GetValue(obj) with
+                                | :? IEnumerable as seq ->
+                                    let list = ResizeArray<string>()
+                                    for k in seq do
+                                        if not (isNull k) then list.Add(string k)
+                                    list |> List.ofSeq
+                                | _ -> []
+
+                        member _.GetValue(obj: obj) (key: string) =
+                            if isNull obj || isNull containsKeyMethod || isNull itemProperty then null
+                            else
+                                try
+                                    let contains = containsKeyMethod.Invoke(obj, [| box key |]) :?> bool
+                                    if contains then itemProperty.GetValue(obj, [| box key |])
+                                    else null
+                                with _ -> null }
+            | None -> None
+
+    let private getDictionaryAccessor (typ: Type) : IDictionaryAccessor option =
+        if isNull typ then None
+        else dictionaryCache.GetOrAdd(typ, createDictionaryAccessor)
+
     /// Check if a type is dictionary-like (implements IDictionary<K,V> for any K,V,
     /// or is a non-generic IDictionary, or is an F# Map)
     let private isDictionary (typ: System.Type) : bool =
-        if typ = null then false
-        else
-            let interfaces = typ.GetInterfaces()
-            // Check for non-generic IDictionary
-            let hasNonGenericIDictionary =
-                interfaces
-                |> Array.exists (fun i -> i = typeof<IDictionary>)
-            // Check for any IDictionary<K,V> generic interface
-            let hasGenericIDictionary =
-                interfaces
-                |> Array.exists (fun i ->
-                    i.IsGenericType &&
-                    i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>>)
-            // Check if it's an F# Map type
-            let isFSharpMap =
-                typ.IsGenericType &&
-                typ.GetGenericTypeDefinition().Name = "FSharpMap`2"
-
-            hasNonGenericIDictionary || hasGenericIDictionary || isFSharpMap
+        (getDictionaryAccessor typ).IsSome
 
     /// Extract all keys from a dictionary-like object as strings
     let private getDictionaryKeys (obj: obj) : string list =
-        if obj = null then []
+        if isNull obj then []
         else
-            let typ = obj.GetType()
-            let interfaces = typ.GetInterfaces()
-
-            // Try non-generic IDictionary first
-            let nonGenericInterface = interfaces |> Array.tryFind (fun i -> i = typeof<IDictionary>)
-            match nonGenericInterface with
-            | Some _ ->
-                try
-                    let dict = obj :?> IDictionary
-                    dict.Keys
-                    |> Seq.cast<obj>
-                    |> Seq.map string
-                    |> List.ofSeq
-                with _ ->
-                    // If casting fails, try generic approach
-                    let genericInterface =
-                        interfaces
-                        |> Array.tryFind (fun i ->
-                            i.IsGenericType &&
-                            i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>>)
-                    match genericInterface with
-                    | Some gi ->
-                        let keysProperty = gi.GetProperty("Keys")
-                        if keysProperty <> null then
-                            let keys = keysProperty.GetValue(obj) :?> System.Collections.IEnumerable
-                            keys
-                            |> Seq.cast<obj>
-                            |> Seq.map string
-                            |> List.ofSeq
-                        else []
-                    | None -> []
-            | None ->
-                // Try generic IDictionary<K,V>
-                let genericInterface =
-                    interfaces
-                    |> Array.tryFind (fun i ->
-                        i.IsGenericType &&
-                        i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>>)
-                match genericInterface with
-                | Some gi ->
-                    let keysProperty = gi.GetProperty("Keys")
-                    if keysProperty <> null then
-                        let keys = keysProperty.GetValue(obj) :?> System.Collections.IEnumerable
-                        keys
-                        |> Seq.cast<obj>
-                        |> Seq.map string
-                        |> List.ofSeq
-                    else []
-                | None -> []
+            match getDictionaryAccessor (obj.GetType()) with
+            | Some acc -> acc.GetKeys(obj)
+            | None -> []
 
     /// Get a value from a dictionary-like object, or null if key not found
     let private getDictionaryValue (obj: obj) (key: string) : obj =
-        if obj = null then null
+        if isNull obj then null
         else
-            let typ = obj.GetType()
-            let interfaces = typ.GetInterfaces()
-
-            // Try non-generic IDictionary first
-            let nonGenericInterface = interfaces |> Array.tryFind (fun i -> i = typeof<IDictionary>)
-            match nonGenericInterface with
-            | Some _ ->
-                try
-                    let dict = obj :?> IDictionary
-                    if dict.Contains(key) then dict.[key] else null
-                with _ ->
-                    // If casting fails, try generic approach
-                    let genericInterface =
-                        interfaces
-                        |> Array.tryFind (fun i ->
-                            i.IsGenericType &&
-                            i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>>)
-                    match genericInterface with
-                    | Some gi ->
-                        let containsKeyMethod = gi.GetMethod("ContainsKey")
-                        let itemProperty = gi.GetProperty("Item")
-                        if containsKeyMethod <> null && itemProperty <> null then
-                            let containsKey = containsKeyMethod.Invoke(obj, [| key |]) :?> bool
-                            if containsKey then
-                                itemProperty.GetValue(obj, [| key |])
-                            else null
-                        else null
-                    | None -> null
-            | None ->
-                // Try generic IDictionary<K,V>
-                let genericInterface =
-                    interfaces
-                    |> Array.tryFind (fun i ->
-                        i.IsGenericType &&
-                        i.GetGenericTypeDefinition() = typedefof<System.Collections.Generic.IDictionary<_, _>>)
-                match genericInterface with
-                | Some gi ->
-                    let containsKeyMethod = gi.GetMethod("ContainsKey")
-                    let itemProperty = gi.GetProperty("Item")
-                    if containsKeyMethod <> null && itemProperty <> null then
-                        let containsKey = containsKeyMethod.Invoke(obj, [| key |]) :?> bool
-                        if containsKey then
-                            itemProperty.GetValue(obj, [| key |])
-                        else null
-                    else null
-                | None -> null
+            match getDictionaryAccessor (obj.GetType()) with
+            | Some acc -> acc.GetValue obj key
+            | None -> null
 
     /// Same shape as `project`, plus the live `PagingCursor` a truncated
     /// Table result was cut off at — Section 7's `results/page`. `None`

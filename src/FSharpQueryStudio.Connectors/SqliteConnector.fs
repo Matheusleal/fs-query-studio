@@ -1,24 +1,11 @@
 namespace FSharpQueryStudio.Connectors
 
 open System
+open System.Data
 open System.Threading
 open System.Threading.Tasks
 open Microsoft.Data.Sqlite
 open FSharpQueryStudio.Protocol
-
-/// One `ExecuteQuery` result: the projected column order, and the rows
-/// read lazily through the still-open `SqliteDataReader` behind them —
-/// Section 10's "reader-based paging". Nothing is materialized beyond
-/// what the caller actually enumerates.
-type ConnectorQueryResult = { Columns: string list; Rows: obj array seq }
-
-/// Implemented by every SQL-capable connector (SQLite/SQL Server/
-/// PostgreSQL) — lets `Connections.sql` and connector-call logging
-/// (C.17) reach any of them, or a test fake, through one interface
-/// instead of matching on each concrete connector type.
-type IQueryableConnector =
-    inherit IConnector
-    abstract ExecuteQuery: sql: string -> parameters: (string * obj) list -> ConnectorQueryResult
 
 /// SQLite connector — Section 10. `filePath` names a local `.db` file;
 /// SQLite creates it automatically on first connection if it doesn't
@@ -45,7 +32,7 @@ type SqliteConnector(filePath: string) =
         let command = connection.CreateCommand()
         command.CommandText <- sql
         SqliteConnector.BindParameters(command, parameters)
-        let reader = command.ExecuteReader()
+        let reader = command.ExecuteReader(CommandBehavior.CloseConnection)
         let columns = [ for i in 0 .. reader.FieldCount - 1 -> reader.GetName(i) ]
 
         let rows =

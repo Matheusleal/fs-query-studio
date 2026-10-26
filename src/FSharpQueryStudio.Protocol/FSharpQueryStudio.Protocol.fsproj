@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -10,22 +10,11 @@
     <Compile Include="Payloads.fs" />
     <Compile Include="Results.fs" />
     <Compile Include="Connections.fs" />
-    <Compile Include="Packages.fs" />
-    <Compile Include="Trust.fs" />
-    <Compile Include="UiState.fs" />
-    <Compile Include="EditorRequest.fs" />
-    <Compile Include="HostNotification.fs" />
     <Compile Include="Serialization.fs" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="FSharp.SystemTextJson" Version="1.4.36" />
-    <PackageReference Include="System.Security.Cryptography.Pkcs" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Update="FSharp.Core" Version="10.1.403" />
-    <PackageReference Update="System.Security.Cryptography.Pkcs" Version="10.0.14" />
+    <PackageReference Include="FSharp.SystemTextJson" />
   </ItemGroup>
 
 </Project>

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
@@ -6,21 +6,16 @@
 
   <ItemGroup>
     <Compile Include="Tests.fs" />
-    <Compile Include="PackagesTests.fs" />
-    <Compile Include="TrustTests.fs" />
-    <Compile Include="UiStateTests.fs" />
-    <Compile Include="PackageLockTests.fs" />
-    <Compile Include="FsProjTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" Version="10.1.0">
+    <PackageReference Include="coverlet.collector">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
-    <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1">
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
@@ -29,11 +24,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Storage\FSharpQueryStudio.Storage.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Security\FSharpQueryStudio.Security.fsproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Update="FSharp.Core" Version="10.1.403" />
-    <PackageReference Update="System.Security.Cryptography.Pkcs" Version="10.0.13" />
   </ItemGroup>
 
 </Project>

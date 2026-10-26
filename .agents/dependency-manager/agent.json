@@ -1,0 +1,4 @@
+{
+  "name": "dependency-manager",
+  "description": "Subagente especialista em Central Package Management (CPM) em .NET, resolução de dependências NuGet e higienização dos arquivos .fsproj do F# Query Studio."
+}

@@ -18,18 +18,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="FSharp.Compiler.Service" Version="43.12.403" />
-    <PackageReference Include="System.Security.Cryptography.Pkcs" />
+    <PackageReference Include="FSharp.Compiler.Service" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\FSharpQueryStudio.Connectors\FSharpQueryStudio.Connectors.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Results\FSharpQueryStudio.Results.fsproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Update="FSharp.Core" Version="10.1.403" />
-    <PackageReference Update="System.Security.Cryptography.Pkcs" Version="10.0.14" />
   </ItemGroup>
 
 </Project>

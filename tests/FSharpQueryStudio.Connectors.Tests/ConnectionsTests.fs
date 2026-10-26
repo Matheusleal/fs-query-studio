@@ -84,6 +84,10 @@ let ``Connections.csv routes to the resolved CSV connector and reads its rows`` 
     let result = Connections.csv "Feed"
 
     Assert.Equal<string list>([ "Id"; "Name" ], result.Columns)
+    let rows = result.Rows |> Seq.toList
+    Assert.Equal(1, rows.Length)
+    Assert.Equal(box "1", rows.[0].[0])
+    Assert.Equal(box "Sales", rows.[0].[1])
 
 [<Fact>]
 let ``Connections.excel routes to the resolved Excel connector and reads its rows`` () =
@@ -102,6 +106,9 @@ let ``Connections.excel routes to the resolved Excel connector and reads its row
     let result = Connections.excel "Book" None
 
     Assert.Equal<string list>([ "Id" ], result.Columns)
+    let rows = result.Rows |> Seq.toList
+    Assert.Equal(1, rows.Length)
+    Assert.Equal(box 1.0, rows.[0].[0])
 
 [<Fact>]
 let ``Connections.rest routes to the resolved REST connector and sends the request`` () =

@@ -87,13 +87,19 @@ module Connections =
     /// Reads a named CSV connection's rows.
     let csv (name: string) : ConnectorQueryResult =
         match resolve name with
-        | :? CsvConnector as c -> c.ReadRows()
+        | :? CsvConnector as c ->
+            let stopwatch = Stopwatch.StartNew()
+            let result = c.ReadRows()
+            { result with Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows }
         | other -> unsupported name "Connections.csv" other
 
     /// Reads a named Excel connection's rows, bounded to `maxRows`.
     let excel (name: string) (maxRows: int option) : ConnectorQueryResult =
         match resolve name with
-        | :? ExcelConnector as c -> c.ReadRows(?maxRows = maxRows)
+        | :? ExcelConnector as c ->
+            let stopwatch = Stopwatch.StartNew()
+            let result = c.ReadRows(?maxRows = maxRows)
+            { result with Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows }
         | other -> unsupported name "Connections.excel" other
 
     /// Sends a configured request through a named REST/JSON connection.

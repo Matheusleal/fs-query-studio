@@ -406,6 +406,36 @@ let ``a new evaluate invalidates a previous result's continuation token`` () =
     }
 
 [<Fact>]
+let ``evaluations in different documents or sessions maintain independent continuation tokens concurrently`` () =
+    task {
+        let docA = "untitled:DocA.fsx"
+        let docB = "untitled:DocB.fsx"
+
+        let respA = Handlers.handleEvaluate (evaluateRequestFor "evalA" docA "[1 .. 510]")
+        let envA = JsonSerializer.Deserialize<ResultEnvelope>(respA.Result.Value, Serialization.options)
+        let tokenA = envA.ContinuationToken |> Option.get
+
+        let respB = Handlers.handleEvaluate (evaluateRequestFor "evalB" docB "[1001 .. 1510]")
+        let envB = JsonSerializer.Deserialize<ResultEnvelope>(respB.Result.Value, Serialization.options)
+        let tokenB = envB.ContinuationToken |> Option.get
+
+        // Both tokens must remain valid and return their own distinct pages
+        let! pageResponseA = Handlers.dispatch (resultsPageRequest "pageA" "sA" tokenA)
+        let! pageResponseB = Handlers.dispatch (resultsPageRequest "pageB" "sB" tokenB)
+
+        Assert.True(pageResponseA.Result.IsSome)
+        Assert.True(pageResponseB.Result.IsSome)
+
+        let pageA = JsonSerializer.Deserialize<ResultPage>(pageResponseA.Result.Value, Serialization.options)
+        let pageB = JsonSerializer.Deserialize<ResultPage>(pageResponseB.Result.Value, Serialization.options)
+
+        Assert.Equal(10, pageA.Rows.Length)
+        Assert.Equal(10, pageB.Rows.Length)
+        Assert.Equal("501", pageA.Rows.[0].[0].ToString())
+        Assert.Equal("1501", pageB.Rows.[0].[0].ToString())
+    }
+
+[<Fact>]
 let ``handleEvaluate reuses a Persistent-mode session's bindings across two calls under the same SessionId`` () =
     let sessionId = "sess-" + System.Guid.NewGuid().ToString("N")
 

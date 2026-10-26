@@ -5,23 +5,6 @@ open Xunit
 open FSharpQueryStudio.Protocol
 
 [<Fact>]
-let ``EditorEnvelope round-trips through JSON`` () =
-    let original =
-        { Id = "e1"
-          Kind = "textChanged"
-          Payload = JsonDocument.Parse("""{"documentUri":"file:///a.fsx"}""").RootElement }
-
-    let json = JsonSerializer.Serialize(original, Serialization.options)
-    let roundTripped = JsonSerializer.Deserialize<EditorEnvelope>(json, Serialization.options)
-
-    Assert.Equal(original.Id, roundTripped.Id)
-    Assert.Equal(original.Kind, roundTripped.Kind)
-    Assert.Equal(
-        original.Payload.GetProperty("documentUri").GetString(),
-        roundTripped.Payload.GetProperty("documentUri").GetString()
-    )
-
-[<Fact>]
 let ``WorkerRequestFrame round-trips through JSON`` () =
     let original =
         { Id = "30c714ec"
@@ -132,20 +115,6 @@ let ``ResultPageRequest and ResultPage round-trip through JSON`` () =
     Assert.Equal(page.IsTruncated, roundTrippedPage.IsTruncated)
     Assert.Equal(page.ContinuationToken, roundTrippedPage.ContinuationToken)
     Assert.Equal("a", roundTrippedPage.Rows.[0].[0].ToString())
-
-[<Fact>]
-let ``ApprovedPackage round-trips through JSON`` () =
-    let original: ApprovedPackage =
-        { Name = "FSharp.Data"
-          Version = "6.3.0"
-          Source = "nuget.org"
-          ResolvedAssets = [ "FSharp.Data.dll"; "FSharp.Data.Http.dll" ]
-          Hash = "deadbeef" }
-
-    let json = JsonSerializer.Serialize(original, Serialization.options)
-    let roundTripped = JsonSerializer.Deserialize<ApprovedPackage>(json, Serialization.options)
-
-    Assert.Equal(original, roundTripped)
 
 [<Fact>]
 let ``EvaluateParams round-trips through JSON for both Isolated and Persistent modes`` () =

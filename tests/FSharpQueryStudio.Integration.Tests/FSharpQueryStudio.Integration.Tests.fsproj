@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
@@ -14,26 +14,24 @@
     <Compile Include="SqlServerConnectorTests.fs" />
     <Compile Include="PostgreSqlConnectorTests.fs" />
     <Compile Include="ConnectionsRegressionTests.fs" />
-    <Compile Include="PackageApprovalTests.fs" />
     <Compile Include="NotebookExecutionTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="coverlet.collector" Version="10.1.0">
+    <PackageReference Include="coverlet.collector">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
-    <PackageReference Include="SSH.NET" Version="2026.0.0" />
-    <PackageReference Include="System.Security.Cryptography.Pkcs" />
-    <PackageReference Include="xunit" Version="2.9.3" />
-    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1">
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="SSH.NET" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Testcontainers.MsSql" Version="4.16.0" />
-    <PackageReference Include="Testcontainers.PostgreSql" Version="4.16.0" />
-    <PackageReference Include="ClosedXML" Version="0.105.1" />
+    <PackageReference Include="Testcontainers.MsSql" />
+    <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="ClosedXML" />
   </ItemGroup>
 
   <ItemGroup>
@@ -42,11 +40,6 @@
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Security\FSharpQueryStudio.Security.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors\FSharpQueryStudio.Connectors.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Storage\FSharpQueryStudio.Storage.fsproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Update="FSharp.Core" Version="10.1.403" />
-    <PackageReference Update="System.Security.Cryptography.Pkcs" Version="10.0.14" />
   </ItemGroup>
 
 </Project>

@@ -283,3 +283,28 @@ let ``evaluate captures stderr-worthy diagnostics without throwing`` () =
         finally
             cleanupWorkingDirectory workDir
     }
+
+[<Fact>]
+let ``evaluate clears previous stdout and stderr between consecutive evaluations in the same session`` () =
+    task {
+        let workDir = tempWorkingDirectory ()
+
+        try
+            let work =
+                task {
+                    let session = FsiSession.create workDir
+                    let firstOutcome = Evaluation.evaluate session """printfn "first_output"; 1"""
+                    let secondOutcome = Evaluation.evaluate session """printfn "second_output"; 2"""
+                    return (firstOutcome, secondOutcome)
+                }
+
+            let! (firstOutcome, secondOutcome) = work |> withTimeout 45.0
+
+            Assert.Contains("first_output", firstOutcome.Output)
+            Assert.DoesNotContain("second_output", firstOutcome.Output)
+
+            Assert.Contains("second_output", secondOutcome.Output)
+            Assert.DoesNotContain("first_output", secondOutcome.Output)
+        finally
+            cleanupWorkingDirectory workDir
+    }

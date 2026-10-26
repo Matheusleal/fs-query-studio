@@ -1,0 +1,4 @@
+{
+  "name": "projection-performance",
+  "description": "Subagente especialista em otimização de performance e reflexão na projeção de resultados (Projection.fs), reduzindo overhead de alocações e serialização de tabelas."
+}
