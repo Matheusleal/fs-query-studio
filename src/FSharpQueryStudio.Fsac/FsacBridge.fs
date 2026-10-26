@@ -155,13 +155,13 @@ module FsacBridge =
 
     let private latestExpectedVersionByUri = ConcurrentDictionary<string, int>()
 
-    /// The most recent `publishDiagnostics` push for each (canonicalized)
-    /// uri paired with the version expected at that time.
-    let private latestDiagnosticsByUri = ConcurrentDictionary<string, int * Diagnostic list>()
+    /// The most recent `publishDiagnostics` push for each (canonicalized) uri.
+    let private latestDiagnosticsByUri = ConcurrentDictionary<string, Diagnostic list>()
 
-    /// Tracks waiters if `documentAnalyzed` for a given version arrives before `publishDiagnostics`.
-    let private analyzedWaitingForDiagnostics =
-        ConcurrentDictionary<string, int * TaskCompletionSource<Diagnostic list> list>()
+    /// Waiters held after documentAnalyzed when diagnostics are still empty,
+    /// in case typecheck publishDiagnostics arrives shortly.
+    let private waitingForPublishDiagnostics =
+        ConcurrentDictionary<string, TaskCompletionSource<Diagnostic list> list>()
 
     let private mapSeverity (severity: int option) : DiagnosticSeverity =
         match severity with
@@ -202,43 +202,21 @@ module FsacBridge =
     /// can hand back a brand new `LspClient` instance (with its own
     /// private `notificationHandlers`, unrelated to any previous one's)
     /// after a respawn.
-    ///
-    /// The brief's original design correlated a pending `check` directly
-    /// off `textDocument/publishDiagnostics`'s own `(uri, version)`. Real
-    /// fsautocomplete 0.83.0 doesn't work that way: its
-    /// `publishDiagnostics` push carries no `version` field at all
-    /// (confirmed against the real process during this task — every
-    /// notification's `params` was just `{uri, diagnostics}`), so there is
-    /// no version to correlate against directly. What FSAC *does* send is
-    /// its own custom `fsharp/documentAnalyzed` notification,
-    /// `{textDocument: {uri, version}}`, once — per every run observed —
-    /// *after* the `publishDiagnostics` push carrying that version's
-    /// results. So `documentAnalyzed` is the actual "diagnostics for this
-    /// (uri, version) are ready" signal `check` waits on here; the
-    /// diagnostics themselves are read back out of the latest
-    /// `publishDiagnostics` push seen for that uri. This still keeps the
-    /// version-staleness guard the design calls for: a `documentAnalyzed`
-    /// for a version nobody is waiting on (superseded, or unrelated) finds
-    /// no pending entry and is dropped.
     let private registerDiagnosticsHandler (client: LspClient) =
         client.OnNotification(
             "textDocument/publishDiagnostics",
             fun paramsEl ->
                 let uri = canonicalizeUri (paramsEl.GetProperty("uri").GetString())
                 let diagnostics = parseDiagnostics paramsEl
-                let version =
-                    match latestExpectedVersionByUri.TryGetValue(uri) with
-                    | true, v -> v
-                    | false, _ -> 0
 
-                latestDiagnosticsByUri.[uri] <- (version, diagnostics)
+                latestDiagnosticsByUri.[uri] <- diagnostics
 
-                // If documentAnalyzed for this version was already waiting for publishDiagnostics:
-                match analyzedWaitingForDiagnostics.TryGetValue(uri) with
-                | true, (analyzedVersion, waiters) when analyzedVersion <= version ->
-                    analyzedWaitingForDiagnostics.TryRemove(uri) |> ignore
-                    waiters |> List.iter (fun tcs -> tcs.TrySetResult(diagnostics) |> ignore)
-                | _ -> ()
+                // If documentAnalyzed has already fired and is waiting for non-empty diagnostics:
+                if not diagnostics.IsEmpty then
+                    match waitingForPublishDiagnostics.TryRemove(uri) with
+                    | true, waiters ->
+                        waiters |> List.iter (fun tcs -> tcs.TrySetResult(diagnostics) |> ignore)
+                    | false, _ -> ()
         )
 
         client.OnNotification(
@@ -251,14 +229,29 @@ module FsacBridge =
                 match diagnosticsPending.TryRemove(struct (uri, version)) with
                 | false, _ -> ()
                 | true, waiters ->
-                    // Check if publishDiagnostics for this version (or newer) has already arrived:
-                    match latestDiagnosticsByUri.TryGetValue(uri) with
-                    | true, (diagVersion, diagnostics) when diagVersion >= version ->
-                        waiters |> List.iter (fun tcs -> tcs.TrySetResult(diagnostics) |> ignore)
-                    | _ ->
-                        // publishDiagnostics for this version hasn't arrived yet!
-                        // Hold the waiters so they resolve as soon as publishDiagnostics arrives.
-                        analyzedWaitingForDiagnostics.[uri] <- (version, waiters)
+                    let currentDiags =
+                        match latestDiagnosticsByUri.TryGetValue(uri) with
+                        | true, d -> d
+                        | false, _ -> []
+
+                    if not currentDiags.IsEmpty then
+                        // We already have non-empty typecheck diagnostics:
+                        waiters |> List.iter (fun tcs -> tcs.TrySetResult(currentDiags) |> ignore)
+                    else
+                        // Current diagnostics are empty (e.g. initial syntax parse).
+                        // Hold waiters briefly in case typecheck diagnostics arrive in the pipe:
+                        waitingForPublishDiagnostics.AddOrUpdate(uri, waiters, (fun _ existing -> existing @ waiters)) |> ignore
+
+                        Task.Delay(150).ContinueWith(fun (_: Task) ->
+                            match waitingForPublishDiagnostics.TryRemove(uri) with
+                            | true, remainingWaiters ->
+                                let finalDiags =
+                                    match latestDiagnosticsByUri.TryGetValue(uri) with
+                                    | true, d -> d
+                                    | false, _ -> []
+                                remainingWaiters |> List.iter (fun tcs -> tcs.TrySetResult(finalDiags) |> ignore)
+                            | false, _ -> ()
+                        ) |> ignore
         )
 
     /// Every `documentUri` this Worker process has ever `didOpen`'d, so
@@ -326,11 +319,12 @@ module FsacBridge =
                     openDocuments.Clear()
                     latestExpectedVersionByUri.Clear()
                     latestDiagnosticsByUri.Clear()
-                    analyzedWaitingForDiagnostics.Clear()
+                    waitingForPublishDiagnostics.Clear()
                     registerDiagnosticsHandler client
                     lastKnownClient <- Some client
 
                 latestExpectedVersionByUri.[canonicalUri] <- version
+                latestDiagnosticsByUri.[canonicalUri] <- []
                 openDocuments.TryAdd(documentUri, true))
 
         if isFirstOpenForThisDocument then
@@ -385,6 +379,9 @@ module FsacBridge =
 
             if winner = (tcs.Task :> Task) then
                 let! diagnostics = tcs.Task
+                // Allow any trailing analyzer notification from FSAC for this parse
+                // to settle so it does not bleed into a subsequent check for the same uri:
+                do! Task.Delay(50)
                 return Some diagnostics
             else
                 // Logged here rather than at each of this function's callers
