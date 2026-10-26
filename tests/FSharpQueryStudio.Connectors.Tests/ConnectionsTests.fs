@@ -199,3 +199,31 @@ let ``Connections.queryCsv streams CSV rows into strongly-typed records and allo
         |> Seq.toList
 
     Assert.Equal<string list>([ "Alpha" ], names)
+
+[<Fact>]
+let ``Connections.get and Connections.connect return DatabaseConnection exposing Query, Queryable, Schema and Tables`` () =
+    let sqlite = tempSqliteWithOrders ()
+    Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
+
+    let conn = Connections.get "Sales"
+    Assert.Equal("Sales", conn.Name)
+    Assert.NotEmpty(conn.ConnectionString)
+    Assert.Contains("Orders", conn.Tables)
+    Assert.NotEmpty(conn.Schema)
+
+    let items = conn.Query<OrderRecord>("select Id, Name from Orders where Id = @id", [ "@id", box 1 ])
+    let filtered =
+        query {
+            for x in items do
+            where (x.Id = 1)
+            select x.Name
+        }
+        |> Seq.toList
+
+    Assert.Equal<string list>([ "Alice" ], filtered)
+
+    let connAlias = Connections.connect "Sales"
+    Assert.Equal("Sales", connAlias.Name)
+    let execResult = connAlias.Execute("select count(*) from Orders")
+    Assert.Equal(1, Seq.length execResult.Rows)
+

@@ -53,11 +53,17 @@ module FsiSession =
         let resultsAssemblyPath =
             typeof<FSharpQueryStudio.Results.PagingCursor>.Assembly.Location
 
-        let sqlProviderAssemblyPath =
+        let sqlProviderCommonAssemblyPath =
             typeof<FSharp.Data.Sql.Common.DatabaseProviderTypes>.Assembly.Location
 
+        let sqlProviderAssemblyPath =
+            System.IO.Path.Combine(
+                System.IO.Path.GetDirectoryName(sqlProviderCommonAssemblyPath),
+                "FSharp.Data.SqlProvider.dll"
+            )
+
         let prologue =
-            $"#r @\"{connectorsAssemblyPath}\"\n#r @\"{resultsAssemblyPath}\"\n#r @\"{sqlProviderAssemblyPath}\"\nopen System.Linq\nopen FSharpQueryStudio.Connectors\nopen FSharp.Data.Sql"
+            $"#r @\"{connectorsAssemblyPath}\"\n#r @\"{resultsAssemblyPath}\"\n#r @\"{sqlProviderCommonAssemblyPath}\"\n#r @\"{sqlProviderAssemblyPath}\"\nopen System.Linq\nopen FSharpQueryStudio.Connectors\nopen FSharp.Data.Sql"
 
         fsi.EvalInteractionNonThrowing(prologue) |> ignore
 

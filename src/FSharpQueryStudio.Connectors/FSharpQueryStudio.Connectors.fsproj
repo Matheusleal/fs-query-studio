@@ -26,7 +26,15 @@
     <PackageReference Include="Npgsql" />
     <PackageReference Include="ClosedXML" />
     <PackageReference Include="Serilog" />
-    <PackageReference Include="SQLProvider" />
+    <PackageReference Include="SQLProvider" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(PkgSQLProvider)\typeproviders\fsharp41\net10.0\FSharp.Data.SqlProvider.DesignTime.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest"
+          Visible="false"
+          Condition="Exists('$(PkgSQLProvider)\typeproviders\fsharp41\net10.0\FSharp.Data.SqlProvider.DesignTime.dll')" />
   </ItemGroup>
 
   <ItemGroup>

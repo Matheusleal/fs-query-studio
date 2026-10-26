@@ -107,9 +107,20 @@ type PostgreSqlLocalIntegrationTests(fixture: PostgreSqlContainerFixture) =
 
             Assert.Equal<string list>([ "Backbone_dev" ], activeNames)
 
-            // 3. Validar obtenção de connection string
+            // 3. Validar obtenção de connection string e objeto de conexão com autocomplete
             let connStr = Connections.getConnectionString "Backbone_dev"
             Assert.Contains("Host=", connStr)
+
+            let dbConn = Connections.connect "Backbone_dev"
+            Assert.Contains("dbo.connections", dbConn.Tables)
+            let typedItems = dbConn.Query<LocalPgConnection>("select id, name, active from dbo.connections where id = 1")
+            let namesFromConn =
+                query {
+                    for x in typedItems do
+                    select x.Name
+                }
+                |> Seq.toList
+            Assert.Equal<string list>([ "Backbone_dev" ], namesFromConn)
         }
 
 [<Collection("SqlServer container")>]

@@ -10,7 +10,7 @@ let ``build emits real #r lines for Connectors, Results and SQLProvider and open
     Assert.Contains("open FSharpQueryStudio.Connectors", text)
     Assert.Contains("open FSharp.Data.Sql", text)
     Assert.DoesNotContain("open FSharpQueryStudio.Results", text)
-    Assert.Equal(3, (text.Split('\n') |> Array.filter (fun l -> l.StartsWith("#r ")) |> Array.length))
+    Assert.Equal(4, (text.Split('\n') |> Array.filter (fun l -> l.StartsWith("#r ")) |> Array.length))
 
 [<Fact>]
 let ``lineCount matches the number of real lines build() occupies`` () =

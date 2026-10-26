@@ -205,6 +205,37 @@ module Connections =
                 yield mapper row
         }
 
+    /// Represents an active database connection with first-class query and schema discovery members for autocomplete.
+    type DatabaseConnection(name: string, connector: IQueryableConnector) =
+        member _.Name = name
+        member _.ConnectionString = connector.ConnectionString
+        member _.Execute(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            let p = defaultArg parameters []
+            sql name sqlText p
+        member _.Query<'T>(sqlText: string, ?parameters: (string * obj) list) : 'T seq =
+            let p = defaultArg parameters []
+            query<'T> name sqlText p
+        member _.Queryable<'T>(sqlText: string, ?parameters: (string * obj) list) : IQueryable<'T> =
+            let p = defaultArg parameters []
+            (query<'T> name sqlText p).AsQueryable()
+        member _.DiscoverSchemaAsync(?ct: CancellationToken) =
+            let token = defaultArg ct CancellationToken.None
+            connector.DiscoverSchemaAsync(token)
+        member this.Tables : string list =
+            this.DiscoverSchemaAsync().Result |> List.map (fun t -> t.Name)
+        member this.Schema : ConnectorTable list =
+            this.DiscoverSchemaAsync().Result
+
+    /// Retrieves a first-class connection object exposing Query, Queryable, Execute, Schema and Tables.
+    let get (name: string) : DatabaseConnection =
+        match resolve name with
+        | :? IQueryableConnector as qc -> DatabaseConnection(name, qc)
+        | other -> unsupported name "Connections.get" other
+
+    /// Alias for `Connections.get`.
+    let connect (name: string) : DatabaseConnection = get name
+
+
 [<AutoOpen>]
 module ConnectorQueryResultExtensions =
     type ConnectorQueryResult with
