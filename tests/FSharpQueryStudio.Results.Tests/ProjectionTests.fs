@@ -110,6 +110,17 @@ let ``a Dictionary<string,obj> sequence infers union-of-keys columns`` () =
     Assert.Equal<obj array>([| box 2; null; box 30 |], env.Rows.[1])
 
 [<Fact>]
+let ``large sequence of FSharpMap rows projects accurately and efficiently with cached accessors`` () =
+    let maps =
+        [ for i in 1..200 ->
+            Map.ofList [ ("id", box i); ("name", box $"Item {i}"); ("active", box (i % 2 = 0)) ] ]
+    let env = envOf (box maps)
+    Assert.Equal<string list>([ "active"; "id"; "name" ], env.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal(200, env.Rows.Length)
+    Assert.Equal<obj array>([| box false; box 1; box "Item 1" |], env.Rows.[0])
+    Assert.Equal<obj array>([| box true; box 200; box "Item 200" |], env.Rows.[199])
+
+[<Fact>]
 let ``a nested collection consumes row 0 as headers`` () =
     let grid = [ [| "id"; "name" |]; [| "1"; "Ada" |]; [| "2"; "Grace" |] ]
     let env = envOf (box grid)

@@ -120,13 +120,13 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 
 ### [ITEM-07] Otimização de Performance e Reflexão na Projeção
 - **Subagente**: `projection-performance`
-- **Status**: 🟡 Planejado
+- **Status**: 🟢 Concluído
 - **Arquivos a modificar**:
   - `src/FSharpQueryStudio.Results/Projection.fs`
   - `tests/FSharpQueryStudio.Results.Tests/ProjectionTests.fs`
 - **Critério de Aceite**: Eliminação de reflexão dinâmica repetida por célula na renderização de dicionários e mapas.
 - **Registro de Mudanças**:
-  - *Aguardando início.*
+  - `STEP-11 Concluído`: Implementado cache thread-safe (`ConcurrentDictionary<Type, IDictionaryAccessor option>`) com abstração `IDictionaryAccessor` em `Projection.fs`. Tipos derivados de `IDictionary` agora executam sem nenhuma reflexão dinâmica via cast direto, e tipos genéricos/F# Maps realizam lookup de `PropertyInfo`/`MethodInfo` apenas uma única vez por tipo. A duração da suíte de testes de `Results` foi reduzida em mais de 10x (de ~950ms para ~60ms). Novo teste de projeção de grande volume adicionado (47 testes verdes).
 
 ---
 
