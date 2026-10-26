@@ -47,30 +47,41 @@ of building locally.
    later cells (one FSI session per notebook). **F# Query Studio: Restart
    Notebook Session** clears it.
 3. **Add a connection** — open the **F# Query Studio** view in the Activity Bar
-   and **Add Connection**: SQLite / CSV / Excel (file path), SQL Server /
-   PostgreSQL (connection string), or REST JSON (URL). Secrets go to the OS
+   and **Add Connection**: SQLite / CSV / Excel / JSON (file path), SQL Server /
+   PostgreSQL / MySQL (connection string), or REST JSON (URL). Secrets go to the OS
    keychain, never to disk in the workspace.
-4. **Query it** — `Connections.sql "my-conn" "select * from Orders" []`, run the
-   cell, and the result renders as a grid with a schema tab and **Export CSV**.
+4. **Query it with LINQ or SQL** — either typed with LINQ:
+   ```fsharp
+   let db = (Connections.connect "my-conn").asEntities
+   query { for u in db.Users do where (u.IsActive) select u }
+   ```
+   Or with raw SQL:
+   `Connections.sql "my-conn" "select * from Orders" []`.
+   Run the cell, and the result renders as a grid with a schema tab and **Export CSV**.
 
 Full walkthrough: **[`docs/TUTORIAL.md`](docs/TUTORIAL.md)**.
+Comprehensive User Guide: **[`editors/vscode/USER_GUIDE.md`](editors/vscode/USER_GUIDE.md)** (or click `$(book)` in VS Code).
 
 ## What you get
 
 - **Notebook execution** — every `.fsqnb` code cell runs against a persistent,
   per-notebook FSI session; stdout / stderr stream live; cancel a running cell
   from the toolbar.
-- **Query API** — `Connections.sql` / `csv` / `excel` / `rest` reach connections
+- **Strongly-typed LINQ queries** — automatic background entity generation for
+  databases (PostgreSQL, SQL Server, MySQL, SQLite) and flat files (CSV, Excel, JSON).
+- **Query API** — `Connections.connect` / `sql` / `csv` / `excel` / `json` / `rest` reach connections
   by name through a parameterized, injection-safe surface. A cell renders the
   value of its last expression — collections become a grid, connector queries add
   **Export CSV**, scalars print as text; no special call needed.
 - **Results grid** — virtualized table, schema view, CSV export, paged loading
   for large results.
-- **In-cell F# intelligence** — completion, hover, signature help, and
-  diagnostics for notebook cells, including connection-name completion inside
-  `Connections.*` string literals.
-- **Connection management** — an Activity Bar tree of connections → tables →
+- **In-cell F# intelligence** — completion, hover, signature help, diagnostics, and
+  **Go to Definition (`F12`)** across cells and generated entity types, plus
+  type-filtered connection name autocomplete.
+- **Connection management** — an Activity Bar tree of connections → schemas → tables →
   columns, lazily loaded; add / edit / remove via guided pickers.
+- **Built-in Documentation** — click the `$(book)` icon in the Connections view toolbar
+  or the Notebook editor title bar to open the User Guide directly in VS Code.
 
 Detail and limits: **[`editors/vscode/README.md`](editors/vscode/README.md)**.
 

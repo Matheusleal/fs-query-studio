@@ -263,6 +263,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     },
   );
 
+  const openDocsCommand = vscode.commands.registerCommand(
+    "fs-query-studio.openDocs",
+    async () => {
+      const candidates = [
+        vscode.Uri.joinPath(context.extensionUri, "USER_GUIDE.md"),
+        vscode.Uri.joinPath(context.extensionUri, "README.md"),
+        vscode.Uri.joinPath(context.extensionUri, "readme.md"),
+      ];
+      let docUri = candidates[0];
+      for (const candidate of candidates) {
+        try {
+          await vscode.workspace.fs.stat(candidate);
+          docUri = candidate;
+          break;
+        } catch {
+          // continue
+        }
+      }
+      try {
+        await vscode.commands.executeCommand("markdown.showPreview", docUri);
+      } catch {
+        const doc = await vscode.workspace.openTextDocument(docUri);
+        await vscode.window.showTextDocument(doc, { preview: true });
+      }
+    },
+  );
+
   context.subscriptions.push(
     command,
     notebookSerializer,
@@ -271,6 +298,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     newNotebookCommand,
     newNotebookHereCommand,
     restartCommand,
+    openDocsCommand,
     languageFeatures,
     connections.disposable,
     outputChannel,

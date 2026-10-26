@@ -8,6 +8,7 @@ ship* the project and what exists as a *historical record*.
 | File | For |
 |---|---|
 | [`../README.md`](../README.md) | Project overview, requirements, install, repo layout. Start here. |
+| [`../editors/vscode/USER_GUIDE.md`](../editors/vscode/USER_GUIDE.md) | Comprehensive User Guide covering LINQ, all connectors, UI and commands. |
 | [`../editors/vscode/README.md`](../editors/vscode/README.md) | Full feature and API reference for the extension (also the Marketplace description). |
 | [`TUTORIAL.md`](TUTORIAL.md) | Hands-on walkthrough: first notebook → connection → query → CSV export. |
 | [`vscode-extension-release.md`](vscode-extension-release.md) | The manual runbook for packaging and publishing a release. |

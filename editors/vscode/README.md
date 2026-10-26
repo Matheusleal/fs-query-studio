@@ -46,13 +46,34 @@ open FSharpQueryStudio.Connectors   // the Connections.* API
 
 | Call | Kinds | Returns |
 |---|---|---|
-| `Connections.sql name sqlText parameters` | SQLite, SQL Server, PostgreSQL | `ConnectorQueryResult` |
+| `Connections.connect name` | All connections (DB, CSV, Excel, JSON) | `IConnector` with `.asEntities` for LINQ queries |
+| `Connections.sql name sqlText parameters` | SQLite, SQL Server, PostgreSQL, MySQL | `ConnectorQueryResult` |
 | `Connections.csv name` | CSV | `ConnectorQueryResult` |
-| `Connections.excel name maxRows` | Excel | `ConnectorQueryResult` |
+| `Connections.excel name maxRows` | Excel (XLSX) | `ConnectorQueryResult` |
+| `Connections.json name` | JSON | `ConnectorQueryResult` |
 | `Connections.rest name options ct` | REST JSON | `Task<JsonElement>` |
 
-`parameters` is an `(string * obj) list` — always bound through the driver's own
-parameter API, never concatenated into the SQL text:
+### LINQ Queries with Automatic Strongly-Typed Entities
+
+F# Query Studio generates typed entities in background for all registered connections. You can query databases, CSV, Excel, and JSON files using idiomatic F# LINQ query expressions:
+
+```fsharp
+let conn = Connections.connect "Sales"
+let db = conn.asEntities
+
+query {
+    for u in db.Users do
+    where (u.Email.Contains("@") && u.IsActive)
+    sortBy u.CreatedAt
+    select (u.Name, u.Email)
+}
+```
+
+Multi-schema PostgreSQL and SQL Server databases are mapped naturally under schema namespaces (e.g. `db.Sales.Orders`).
+
+### Raw SQL Queries
+
+`parameters` is an `(string * obj) list` — always bound through the driver's own parameter API, never concatenated into the SQL text:
 
 ```fsharp
 Connections.sql
@@ -69,7 +90,7 @@ Interactive would echo. You don't call anything special.
 | Last expression | Renders as |
 |---|---|
 | A connector query (`Connections.sql …`, `Connections.csv …`, …) | A grid, with a working **Export CSV** |
-| A sequence of records | A grid; columns are the record fields |
+| A sequence of records / LINQ query result | A grid; columns are the record fields |
 | A sequence of tuples | A grid; columns are `Item1`, `Item2`, … |
 | A sequence of `Map`s / dictionaries | A grid; columns are the union of keys |
 | A sequence of collections (e.g. `int[] list`, rows of arrays) | A grid; the first inner collection becomes the column headers, the rest are the rows |
@@ -92,11 +113,15 @@ To force plain structured text, end the cell with `sprintf "%A" value`.
   right-aligned numeric columns, zebra rows, a schema tab, CSV export, and paged
   "load more" for large results. The grid is the default view; FSI's `val … =`
   echo and any `printf` output move to the output's "raw data" presentation.
-- **In-cell F# intelligence** — completion, hover, signature help, and
-  diagnostics, provided by this extension's worker (not Ionide). Includes
-  connection-name completion inside `Connections.*` string literals.
-- **Connection management** — an Activity Bar tree of connections → tables →
+- **In-cell F# intelligence** — completion, hover, signature help, diagnostics, and
+  **Go to Definition (`F12`)** across cells and generated entity types.
+- **Type-specific connection auto-complete** — string literals inside `Connections.sql`
+  and `Connections.connect` only suggest database connections, `Connections.csv` only
+  suggests CSV connections, `Connections.excel` only suggests Excel, etc.
+- **Connection management** — an Activity Bar tree of connections → schemas → tables →
   columns, lazily loaded; add / edit / remove via guided pickers.
+- **Built-in Documentation** — click the `$(book)` icon in the Connections view toolbar
+  or the Notebook editor title bar to open the full User Guide side-by-side.
 
 ## Connection kinds
 
@@ -105,8 +130,10 @@ To force plain structured text, end the cell with `sprintf "%A" value`.
 | SQLite | absolute database-file path | — |
 | CSV | absolute `.csv` file path | — |
 | Excel | absolute `.xlsx` file path | — |
-| SQL Server | connection string — put `{password}` where the secret goes | optional password, prompted separately, stored in the OS keychain |
+| JSON | absolute `.json` file path | — |
 | PostgreSQL | connection string — put `{password}` where the secret goes | optional password, prompted separately, stored in the OS keychain |
+| SQL Server | connection string — put `{password}` where the secret goes | optional password, prompted separately, stored in the OS keychain |
+| MySQL | connection string — put `{password}` where the secret goes | optional password, prompted separately, stored in the OS keychain |
 | REST JSON | base URL | — |
 
 The non-secret parts are saved to `workspace.json` in the workspace. When a
@@ -118,16 +145,17 @@ RPC to the worker, and never lands in the workspace file or the notebook.
 
 | Command | Does |
 |---|---|
+| **F# Query Studio: Open Documentation** | Opens the comprehensive User Guide in markdown preview (icon `$(book)`). |
 | **F# Query Studio: New F# Query Notebook** | Opens a new untitled `.fsqnb` with one empty cell. |
 | **F# Query Studio: New F# Query Notebook Here** | Explorer folder context menu — writes and opens a `.fsqnb` in that folder. |
 | **F# Query Studio: Restart Notebook Session** | Discards the active notebook's FSI session. |
 | **F# Query Studio: Check Worker** | Reports worker health and protocol version; explains what to fix if `dotnet` is missing. |
 | **F# Query Studio: Connections: Add / Edit / Remove / Refresh** | Manage the connections tree. |
 
+For detailed examples and tutorials, see [`USER_GUIDE.md`](USER_GUIDE.md).
+
 ## Limitations
 
-- In-cell intelligence is completion / hover / signature help / diagnostics
-  only — no find-all-references, formatting, code actions, or cross-cell rename.
 - One evaluation runs at a time, including across multiple open `.fsqnb` files in
   the same window.
 - Requires `dotnet` on `PATH`; there is no self-contained build yet.

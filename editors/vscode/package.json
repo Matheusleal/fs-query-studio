@@ -82,6 +82,12 @@
         "command": "fs-query-studio.connections.refresh",
         "title": "F# Query Studio: Connections: Refresh",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "fs-query-studio.openDocs",
+        "title": "F# Query Studio: Open Documentation",
+        "shortTitle": "Documentation",
+        "icon": "$(book)"
       }
     ],
     "viewsContainers": {
@@ -104,7 +110,7 @@
     "viewsWelcome": [
       {
         "view": "fsQueryStudioConnections",
-        "contents": "No connections registered yet.\n[Add Connection](command:fs-query-studio.connections.add)"
+        "contents": "No connections registered yet.\n[Add Connection](command:fs-query-studio.connections.add)\n\n[Open Documentation](command:fs-query-studio.openDocs)"
       }
     ],
     "menus": {
@@ -129,13 +135,25 @@
       ],
       "view/title": [
         {
+          "command": "fs-query-studio.openDocs",
+          "when": "view == fsQueryStudioConnections",
+          "group": "navigation@10"
+        },
+        {
           "command": "fs-query-studio.connections.add",
           "when": "view == fsQueryStudioConnections",
-          "group": "navigation"
+          "group": "navigation@20"
         },
         {
           "command": "fs-query-studio.connections.refresh",
           "when": "view == fsQueryStudioConnections",
+          "group": "navigation@30"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "fs-query-studio.openDocs",
+          "when": "notebookType == fsquery-notebook",
           "group": "navigation"
         }
       ],
