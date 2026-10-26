@@ -6,11 +6,6 @@
 
   <ItemGroup>
     <Compile Include="Workspace.fs" />
-    <Compile Include="Packages.fs" />
-    <Compile Include="Trust.fs" />
-    <Compile Include="PackageApproval.fs" />
-    <Compile Include="PackageLock.fs" />
-    <Compile Include="FsProj.fs" />
   </ItemGroup>
 
   <ItemGroup>

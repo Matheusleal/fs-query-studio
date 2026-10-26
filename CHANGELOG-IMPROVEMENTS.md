@@ -9,7 +9,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 
 | ID | Item de Melhoria | Subagente Responsável | Status Atual |
 |---|---|---|---|
-| **ITEM-01** | Remoção de Código Morto e Módulos Órfãos (Avalonia UI) | `dead-code-cleaner` | 🟡 Planejado |
+| **ITEM-01** | Remoção de Código Morto e Módulos Órfãos (Avalonia UI) | `dead-code-cleaner` | 🟢 Concluído |
 | **ITEM-02** | Central Package Management (CPM) e Higiene de `.fsproj` | `dependency-manager` | 🟡 Planejado |
 | **ITEM-03** | Resiliência de Cancelamento sem Kill de Processo | `cancellation-resilience` | 🟡 Planejado |
 | **ITEM-04** | Isolamento Concorrente de Cursores de Paginação | `concurrency-paging` | 🟡 Planejado |
@@ -24,7 +24,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 
 ### [ITEM-01] Remoção de Código Morto e Módulos Órfãos
 - **Subagente**: `dead-code-cleaner`
-- **Status**: 🟡 Planejado
+- **Status**: 🟢 Concluído
 - **Arquivos a remover**:
   - `src/FSharpQueryStudio.Protocol/UiState.fs`
   - `src/FSharpQueryStudio.Storage/UiState.fs`
@@ -46,6 +46,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 - **Registro de Mudanças**:
   - `STEP-01 Concluído`: Diretórios fantasmas `src/FSharpQueryStudio.Analysis` e `tests/FSharpQueryStudio.Analysis.Tests` removidos do filesystem.
   - `STEP-02 Concluído`: Módulos órfãos de UI/Desktop (`UiState`, `EditorRequest`, `HostNotification`, `Frames.EditorEnvelope`, `LogFileReader`, `DiagnosticBundle`, `OriginDetection`) e seus testes removidos dos projetos e do repositório. Build e testes 100% verdes.
+  - `STEP-03 Concluído`: Subsistemas de Packages, Trust e FsProj removidos de Storage, Protocol e testes (`PackagesTests`, `TrustTests`, `PackageLockTests`, `FsProjTests`, `PackageApprovalTests`). 283 testes ativos passando sem warnings.
 
 ---
 

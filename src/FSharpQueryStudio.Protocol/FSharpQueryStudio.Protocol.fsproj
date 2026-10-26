@@ -10,8 +10,6 @@
     <Compile Include="Payloads.fs" />
     <Compile Include="Results.fs" />
     <Compile Include="Connections.fs" />
-    <Compile Include="Packages.fs" />
-    <Compile Include="Trust.fs" />
     <Compile Include="Serialization.fs" />
   </ItemGroup>
 

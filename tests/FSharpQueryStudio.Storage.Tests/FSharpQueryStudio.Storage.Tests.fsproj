@@ -6,10 +6,6 @@
 
   <ItemGroup>
     <Compile Include="Tests.fs" />
-    <Compile Include="PackagesTests.fs" />
-    <Compile Include="TrustTests.fs" />
-    <Compile Include="PackageLockTests.fs" />
-    <Compile Include="FsProjTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

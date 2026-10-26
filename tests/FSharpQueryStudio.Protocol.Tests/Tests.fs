@@ -117,20 +117,6 @@ let ``ResultPageRequest and ResultPage round-trip through JSON`` () =
     Assert.Equal("a", roundTrippedPage.Rows.[0].[0].ToString())
 
 [<Fact>]
-let ``ApprovedPackage round-trips through JSON`` () =
-    let original: ApprovedPackage =
-        { Name = "FSharp.Data"
-          Version = "6.3.0"
-          Source = "nuget.org"
-          ResolvedAssets = [ "FSharp.Data.dll"; "FSharp.Data.Http.dll" ]
-          Hash = "deadbeef" }
-
-    let json = JsonSerializer.Serialize(original, Serialization.options)
-    let roundTripped = JsonSerializer.Deserialize<ApprovedPackage>(json, Serialization.options)
-
-    Assert.Equal(original, roundTripped)
-
-[<Fact>]
 let ``EvaluateParams round-trips through JSON for both Isolated and Persistent modes`` () =
     let isolated: EvaluateParams =
         { Source = "1 + 1"

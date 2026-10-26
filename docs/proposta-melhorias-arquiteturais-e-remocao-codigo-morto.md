@@ -240,7 +240,7 @@ A tabela abaixo centraliza o status de execução de cada etapa de melhoria, ind
 |---|---|---|---|---|---|
 | **STEP-01** | Exclusão de diretórios vazios/fantasmas (`Analysis`) | Fase 1 | `dead-code-cleaner` | 🟢 Concluído | Diretórios removidos do filesystem sem impacto no git status |
 | **STEP-02** | Purga de módulos órfãos de UI/Desktop (`UiState`, `EditorRequest`, etc.) | Fase 1 | `dead-code-cleaner` | 🟢 Concluído | `dotnet build` sem referências faltantes (`TreatWarningsAsErrors=true`) e 296 testes verdes |
-| **STEP-03** | Remoção de 9 arquivos de teste unitário/integração órfãos | Fase 1 | `dead-code-cleaner` | 🟡 Pendente | `dotnet test` executando apenas testes de código ativo com 100% pass |
+| **STEP-03** | Remoção de 9 arquivos de teste unitário/integração órfãos | Fase 1 | `dead-code-cleaner` | 🟢 Concluído | `dotnet test` executando apenas testes de código ativo com 100% pass (283 testes) |
 | **STEP-04** | Implantação de Central Package Management (`Directory.Packages.props`) | Fase 1 | `dependency-manager` | 🟡 Pendente | `dotnet restore` e `dotnet build` determinísticos |
 | **STEP-05** | Remoção da dependência inútil `System.Security.Cryptography.Pkcs` | Fase 1 | `dependency-manager` | 🟡 Pendente | Pacote removido de todos os 19 `.fsproj` com build limpo |
 | **STEP-06** | Reset de saída de console entre células consecutivas (`Evaluation.fs`) | Fase 2 | `evaluation-output-buffer` | 🟡 Pendente | Novo teste de `EvaluationTests` validando isolamento de `stdout` |
