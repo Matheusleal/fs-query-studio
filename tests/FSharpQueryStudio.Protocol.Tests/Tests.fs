@@ -5,23 +5,6 @@ open Xunit
 open FSharpQueryStudio.Protocol
 
 [<Fact>]
-let ``EditorEnvelope round-trips through JSON`` () =
-    let original =
-        { Id = "e1"
-          Kind = "textChanged"
-          Payload = JsonDocument.Parse("""{"documentUri":"file:///a.fsx"}""").RootElement }
-
-    let json = JsonSerializer.Serialize(original, Serialization.options)
-    let roundTripped = JsonSerializer.Deserialize<EditorEnvelope>(json, Serialization.options)
-
-    Assert.Equal(original.Id, roundTripped.Id)
-    Assert.Equal(original.Kind, roundTripped.Kind)
-    Assert.Equal(
-        original.Payload.GetProperty("documentUri").GetString(),
-        roundTripped.Payload.GetProperty("documentUri").GetString()
-    )
-
-[<Fact>]
 let ``WorkerRequestFrame round-trips through JSON`` () =
     let original =
         { Id = "30c714ec"

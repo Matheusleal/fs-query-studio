@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
@@ -7,8 +7,6 @@
   <ItemGroup>
     <Compile Include="Tests.fs" />
     <Compile Include="LoggerSetupTests.fs" />
-    <Compile Include="LogFileReaderTests.fs" />
-    <Compile Include="DiagnosticBundleTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -12,9 +12,6 @@
     <Compile Include="Connections.fs" />
     <Compile Include="Packages.fs" />
     <Compile Include="Trust.fs" />
-    <Compile Include="UiState.fs" />
-    <Compile Include="EditorRequest.fs" />
-    <Compile Include="HostNotification.fs" />
     <Compile Include="Serialization.fs" />
   </ItemGroup>
 

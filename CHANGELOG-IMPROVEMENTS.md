@@ -45,6 +45,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 - **Critério de Aceite**: `dotnet build` e `dotnet test` compilam com 0 warnings e 100% de testes ativos passando.
 - **Registro de Mudanças**:
   - `STEP-01 Concluído`: Diretórios fantasmas `src/FSharpQueryStudio.Analysis` e `tests/FSharpQueryStudio.Analysis.Tests` removidos do filesystem.
+  - `STEP-02 Concluído`: Módulos órfãos de UI/Desktop (`UiState`, `EditorRequest`, `HostNotification`, `Frames.EditorEnvelope`, `LogFileReader`, `DiagnosticBundle`, `OriginDetection`) e seus testes removidos dos projetos e do repositório. Build e testes 100% verdes.
 
 ---
 

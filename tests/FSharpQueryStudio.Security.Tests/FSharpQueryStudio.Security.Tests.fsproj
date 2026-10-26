@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
@@ -6,7 +6,6 @@
 
   <ItemGroup>
     <Compile Include="Tests.fs" />
-    <Compile Include="OriginDetectionTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

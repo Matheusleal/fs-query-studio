@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -8,8 +8,6 @@
     <Compile Include="Correlation.fs" />
     <Compile Include="Redaction.fs" />
     <Compile Include="LoggerSetup.fs" />
-    <Compile Include="LogFileReader.fs" />
-    <Compile Include="DiagnosticBundle.fs" />
   </ItemGroup>
 
   <ItemGroup>

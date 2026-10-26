@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -8,7 +8,6 @@
     <Compile Include="Workspace.fs" />
     <Compile Include="Packages.fs" />
     <Compile Include="Trust.fs" />
-    <Compile Include="UiState.fs" />
     <Compile Include="PackageApproval.fs" />
     <Compile Include="PackageLock.fs" />
     <Compile Include="FsProj.fs" />

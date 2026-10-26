@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
@@ -7,15 +7,10 @@
   <ItemGroup>
     <Compile Include="ISecretStore.fs" />
     <Compile Include="InMemorySecretStore.fs" />
-    <Compile Include="OriginDetection.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.Security.Cryptography.Pkcs" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
