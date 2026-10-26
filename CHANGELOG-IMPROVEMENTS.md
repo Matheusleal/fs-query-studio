@@ -102,7 +102,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 
 ### [ITEM-06] Refatoração de Conectores, Sockets HTTP e DataReaders
 - **Subagente**: `connectors-refactor`
-- **Status**: 🟡 Planejado
+- **Status**: 🟡 Em Progresso
 - **Arquivos a modificar**:
   - `src/FSharpQueryStudio.Connectors/IConnector.fs`
   - `src/FSharpQueryStudio.Connectors/SqliteConnector.fs`
@@ -112,7 +112,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
   - `src/FSharpQueryStudio.Connectors/PostgreSqlConnector.fs`
 - **Critério de Aceite**: `IQueryableConnector` e `ConnectorQueryResult` movidos para `IConnector.fs`, `HttpClient` singleton no `RestConnector`, fechamento determinístico de DataReaders e telemetria no `Connections.csv`/`excel`.
 - **Registro de Mudanças**:
-  - *Aguardando início.*
+  - `STEP-08 Concluído`: `ConnectorQueryResult` e `IQueryableConnector` desacoplados de `SqliteConnector.fs` e movidos para `IConnector.fs`. Conectores SQL e fakes agora dependem diretamente do contrato canônico de abstrações. 285 testes verdes.
 
 ---
 
