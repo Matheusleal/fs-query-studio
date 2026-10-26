@@ -211,13 +211,23 @@ module Connections =
         member _.ConnectionString = connector.ConnectionString
         member _.Execute(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
             let p = defaultArg parameters []
-            sql name sqlText p
+            match resolver with
+            | Some _ -> sql name sqlText p
+            | None -> connector.ExecuteQuery sqlText p
         member _.Query<'T>(sqlText: string, ?parameters: (string * obj) list) : 'T seq =
             let p = defaultArg parameters []
-            query<'T> name sqlText p
-        member _.Queryable<'T>(sqlText: string, ?parameters: (string * obj) list) : IQueryable<'T> =
+            match resolver with
+            | Some _ -> query<'T> name sqlText p
+            | None ->
+                let (r: ConnectorQueryResult) = connector.ExecuteQuery sqlText p
+                let mapper = getMapper<'T> r.Columns
+                seq {
+                    for row in r.Rows do
+                        yield mapper row
+                }
+        member this.Queryable<'T>(sqlText: string, ?parameters: (string * obj) list) : IQueryable<'T> =
             let p = defaultArg parameters []
-            (query<'T> name sqlText p).AsQueryable()
+            (this.Query<'T>(sqlText, p)).AsQueryable()
         member _.DiscoverSchemaAsync(?ct: CancellationToken) =
             let token = defaultArg ct CancellationToken.None
             connector.DiscoverSchemaAsync(token)
