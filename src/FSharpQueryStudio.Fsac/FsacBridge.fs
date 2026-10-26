@@ -155,13 +155,9 @@ module FsacBridge =
 
     let private latestExpectedVersionByUri = ConcurrentDictionary<string, int>()
 
-    /// The most recent `publishDiagnostics` push for each (canonicalized) uri.
-    let private latestDiagnosticsByUri = ConcurrentDictionary<string, Diagnostic list>()
-
-    /// Waiters held after documentAnalyzed when diagnostics are still empty,
-    /// in case typecheck publishDiagnostics arrives shortly.
-    let private waitingForPublishDiagnostics =
-        ConcurrentDictionary<string, TaskCompletionSource<Diagnostic list> list>()
+    /// The most recent `publishDiagnostics` push for each (canonicalized uri, version).
+    let private latestDiagnosticsByUriAndVersion =
+        ConcurrentDictionary<struct (string * int), Diagnostic list>()
 
     let private mapSeverity (severity: int option) : DiagnosticSeverity =
         match severity with
@@ -209,14 +205,16 @@ module FsacBridge =
                 let uri = canonicalizeUri (paramsEl.GetProperty("uri").GetString())
                 let diagnostics = parseDiagnostics paramsEl
 
-                latestDiagnosticsByUri.[uri] <- diagnostics
+                let version =
+                    match paramsEl.TryGetProperty("version") with
+                    | true, v when v.ValueKind = JsonValueKind.Number -> v.GetInt32()
+                    | _ ->
+                        match latestExpectedVersionByUri.TryGetValue(uri) with
+                        | true, v -> v
+                        | false, _ -> 1
 
-                // If documentAnalyzed has already fired and is waiting for non-empty diagnostics:
-                if not diagnostics.IsEmpty then
-                    match waitingForPublishDiagnostics.TryRemove(uri) with
-                    | true, waiters ->
-                        waiters |> List.iter (fun tcs -> tcs.TrySetResult(diagnostics) |> ignore)
-                    | false, _ -> ()
+                let key = struct (uri, version)
+                latestDiagnosticsByUriAndVersion.[key] <- diagnostics
         )
 
         client.OnNotification(
@@ -225,33 +223,22 @@ module FsacBridge =
                 let textDocument = paramsEl.GetProperty("textDocument")
                 let uri = canonicalizeUri (textDocument.GetProperty("uri").GetString())
                 let version = textDocument.GetProperty("version").GetInt32()
+                let key = struct (uri, version)
 
-                match diagnosticsPending.TryRemove(struct (uri, version)) with
+                match diagnosticsPending.TryRemove(key) with
                 | false, _ -> ()
                 | true, waiters ->
-                    let currentDiags =
-                        match latestDiagnosticsByUri.TryGetValue(uri) with
-                        | true, d -> d
-                        | false, _ -> []
-
-                    if not currentDiags.IsEmpty then
-                        // We already have non-empty typecheck diagnostics:
-                        waiters |> List.iter (fun tcs -> tcs.TrySetResult(currentDiags) |> ignore)
-                    else
-                        // Current diagnostics are empty (e.g. initial syntax parse).
-                        // Hold waiters briefly in case typecheck diagnostics arrive in the pipe:
-                        waitingForPublishDiagnostics.AddOrUpdate(uri, waiters, (fun _ existing -> existing @ waiters)) |> ignore
-
-                        Task.Delay(150).ContinueWith(fun (_: Task) ->
-                            match waitingForPublishDiagnostics.TryRemove(uri) with
-                            | true, remainingWaiters ->
-                                let finalDiags =
-                                    match latestDiagnosticsByUri.TryGetValue(uri) with
-                                    | true, d -> d
-                                    | false, _ -> []
-                                remainingWaiters |> List.iter (fun tcs -> tcs.TrySetResult(finalDiags) |> ignore)
-                            | false, _ -> ()
-                        ) |> ignore
+                    // FSAC fires documentAnalyzed when compiler AST analysis completes for this version.
+                    // Post-analysis publishDiagnostics (including linter/analyzers) land on the wire
+                    // within ~10-20ms. Delay 100ms so that the final diagnostics for this version
+                    // overwrite any in-flight trailing diagnostics from earlier versions:
+                    Task.Delay(100).ContinueWith(fun (_: Task) ->
+                        let finalDiags =
+                            match latestDiagnosticsByUriAndVersion.TryGetValue(key) with
+                            | true, d -> d
+                            | false, _ -> []
+                        waiters |> List.iter (fun tcs -> tcs.TrySetResult(finalDiags) |> ignore)
+                    ) |> ignore
         )
 
     /// Every `documentUri` this Worker process has ever `didOpen`'d, so
@@ -318,13 +305,12 @@ module FsacBridge =
                 if isNewClient client then
                     openDocuments.Clear()
                     latestExpectedVersionByUri.Clear()
-                    latestDiagnosticsByUri.Clear()
-                    waitingForPublishDiagnostics.Clear()
+                    latestDiagnosticsByUriAndVersion.Clear()
                     registerDiagnosticsHandler client
                     lastKnownClient <- Some client
 
                 latestExpectedVersionByUri.[canonicalUri] <- version
-                latestDiagnosticsByUri.[canonicalUri] <- []
+                latestDiagnosticsByUriAndVersion.[struct (canonicalUri, version)] <- []
                 openDocuments.TryAdd(documentUri, true))
 
         if isFirstOpenForThisDocument then
