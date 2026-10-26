@@ -13,9 +13,14 @@ describe("isInsideConnectionNameArgument", () => {
     'Connections.csv "',
     'Connections.excel "',
     'Connections.rest "',
+    'Connections.connect "',
+    'Connections.get "',
+    'Connections.query "',
     'Connections.sql("',
+    'Connections.connect("',
     'Connections.sql ( "',
     '  let x = Connections.sql "prod',
+    '  let c = Connections.connect "prod',
     'Connections.rest   "partial name with spaces',
   ])("is true for prefix %j", (prefix) => {
     expect(isInsideConnectionNameArgument(prefix)).toBe(true);
