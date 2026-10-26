@@ -242,7 +242,7 @@ A tabela abaixo centraliza o status de execução de cada etapa de melhoria, ind
 | **STEP-02** | Purga de módulos órfãos de UI/Desktop (`UiState`, `EditorRequest`, etc.) | Fase 1 | `dead-code-cleaner` | 🟢 Concluído | `dotnet build` sem referências faltantes (`TreatWarningsAsErrors=true`) e 296 testes verdes |
 | **STEP-03** | Remoção de 9 arquivos de teste unitário/integração órfãos | Fase 1 | `dead-code-cleaner` | 🟢 Concluído | `dotnet test` executando apenas testes de código ativo com 100% pass (283 testes) |
 | **STEP-04** | Implantação de Central Package Management (`Directory.Packages.props`) | Fase 1 | `dependency-manager` | 🟢 Concluído | `dotnet restore` e `dotnet build` determinísticos com 283 testes passando |
-| **STEP-05** | Remoção da dependência inútil `System.Security.Cryptography.Pkcs` | Fase 1 | `dependency-manager` | 🟡 Pendente | Pacote removido de todos os 19 `.fsproj` com build limpo |
+| **STEP-05** | Remoção da dependência inútil `System.Security.Cryptography.Pkcs` | Fase 1 | `dependency-manager` | 🟢 Concluído | Pacote removido de todos os 19 `.fsproj` com build limpo e 283 testes passando |
 | **STEP-06** | Reset de saída de console entre células consecutivas (`Evaluation.fs`) | Fase 2 | `evaluation-output-buffer` | 🟡 Pendente | Novo teste de `EvaluationTests` validando isolamento de `stdout` |
 | **STEP-07** | Concorrência de cursores de paginação (`ConcurrentDictionary`) | Fase 2 | `concurrency-paging` | 🟡 Pendente | Testes de paginação com tokens concorrentes sem colisão |
 | **STEP-08** | Desacoplamento de `IQueryableConnector` para `IConnector.fs` | Fase 2 | `connectors-refactor` | 🟡 Pendente | Compilação limpa de todos os conectores e testes |

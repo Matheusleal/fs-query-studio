@@ -19,7 +19,6 @@
 
   <ItemGroup>
     <PackageReference Include="FSharp.Compiler.Service" />
-    <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
 
   <ItemGroup>

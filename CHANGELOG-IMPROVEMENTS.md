@@ -10,7 +10,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 | ID | Item de Melhoria | Subagente Responsável | Status Atual |
 |---|---|---|---|
 | **ITEM-01** | Remoção de Código Morto e Módulos Órfãos (Avalonia UI) | `dead-code-cleaner` | 🟢 Concluído |
-| **ITEM-02** | Central Package Management (CPM) e Higiene de `.fsproj` | `dependency-manager` | 🟡 Planejado |
+| **ITEM-02** | Central Package Management (CPM) e Higiene de `.fsproj` | `dependency-manager` | 🟢 Concluído |
 | **ITEM-03** | Resiliência de Cancelamento sem Kill de Processo | `cancellation-resilience` | 🟡 Planejado |
 | **ITEM-04** | Isolamento Concorrente de Cursores de Paginação | `concurrency-paging` | 🟡 Planejado |
 | **ITEM-05** | Correção de Acúmulo de Saída de Console em Células | `evaluation-output-buffer` | 🟡 Planejado |
@@ -52,13 +52,14 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 
 ### [ITEM-02] Central Package Management (CPM) e Higiene de `.fsproj`
 - **Subagente**: `dependency-manager`
-- **Status**: 🟡 Em Progresso
+- **Status**: 🟢 Concluído
 - **Arquivos a modificar/criar**:
   - `Directory.Packages.props` (criação)
   - 19 arquivos `.fsproj` (limpeza de versões e remoção de `System.Security.Cryptography.Pkcs`)
 - **Critério de Aceite**: Build e restore determinísticos via CPM sem dependências órfãs.
 - **Registro de Mudanças**:
   - `STEP-04 Concluído`: Central Package Management habilitado via `Directory.Packages.props`, inclusão centralizada de `FSharp.Core` no `Directory.Build.props`, e remoção de atributos `Version` e diretivas `Update` redundantes nos 19 arquivos `.fsproj`. Restore e build determinísticos com 283 testes passando.
+  - `STEP-05 Concluído`: Remoção de `System.Security.Cryptography.Pkcs` de todos os 19 arquivos `.fsproj`. Pinned transitivamente via `CentralPackageTransitivePinningEnabled` no `Directory.Packages.props` mitigando vulnerabilidades sem redundância no código-fonte. 283 testes passando com 0 warnings.
 
 ---
 

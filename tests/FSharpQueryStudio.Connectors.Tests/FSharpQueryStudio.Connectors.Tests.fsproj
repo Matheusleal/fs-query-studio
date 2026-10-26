@@ -28,7 +28,6 @@
     <PackageReference Include="ClosedXML" />
     <PackageReference Include="Serilog" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" />
-    <PackageReference Include="System.Security.Cryptography.Pkcs" />
     <PackageReference Include="xunit" />
     <PackageReference Include="xunit.runner.visualstudio">
       <PrivateAssets>all</PrivateAssets>

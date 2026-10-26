@@ -17,7 +17,6 @@
 
   <ItemGroup>
     <PackageReference Include="Serilog" />
-    <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
 
   <ItemGroup>

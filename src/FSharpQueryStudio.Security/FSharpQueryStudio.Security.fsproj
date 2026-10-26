@@ -9,8 +9,4 @@
     <Compile Include="InMemorySecretStore.fs" />
   </ItemGroup>
 
-  <ItemGroup>
-    <PackageReference Include="System.Security.Cryptography.Pkcs" />
-  </ItemGroup>
-
 </Project>

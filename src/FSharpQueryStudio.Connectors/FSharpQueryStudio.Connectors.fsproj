@@ -26,7 +26,6 @@
     <PackageReference Include="Npgsql" />
     <PackageReference Include="ClosedXML" />
     <PackageReference Include="Serilog" />
-    <PackageReference Include="System.Security.Cryptography.Pkcs" />
   </ItemGroup>
 
   <ItemGroup>
