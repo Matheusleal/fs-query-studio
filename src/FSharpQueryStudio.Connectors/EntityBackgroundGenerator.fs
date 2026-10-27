@@ -369,11 +369,13 @@ module EntityBackgroundGenerator =
         (connections: ConnectionDefinition list)
         (secretStore: ISecretStore)
         : unit =
-        let targetPath = generatedFilePath workspaceDir
-        if not (File.Exists targetPath) then
-            try
-                (generateForConnectionsAsync workspaceDir connections secretStore).GetAwaiter().GetResult() |> ignore
-            with ex ->
-                Log.Warning("FS Query Studio: Initial entity generation failed: {Error}", ex.Message)
+        if List.isEmpty connections then ()
         else
-            triggerBackgroundGeneration workspaceDir connections secretStore
+            let targetPath = generatedFilePath workspaceDir
+            if not (File.Exists targetPath) then
+                try
+                    (generateForConnectionsAsync workspaceDir connections secretStore).GetAwaiter().GetResult() |> ignore
+                with ex ->
+                    Log.Warning("FS Query Studio: Initial entity generation failed: {Error}", ex.Message)
+            else
+                triggerBackgroundGeneration workspaceDir connections secretStore
