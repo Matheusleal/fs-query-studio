@@ -55,13 +55,24 @@ async function collectFields(
   const input: ConnectionFormInput = { kind, name: name.trim() };
 
   if (kind === "Sqlite" || kind === "Csv" || kind === "Excel") {
-    const filePath = await ui.input({
+    const rawFilePath = await ui.input({
       prompt: "Absolute file path",
       value: existing ? stringProp(existing.configuration, "filePath") : undefined,
       placeHolder: "/path/to/file",
     });
-    if (filePath === undefined) return undefined;
-    input.filePath = filePath;
+    if (rawFilePath === undefined) return undefined;
+    input.filePath = rawFilePath.trim().replace(/^["']|["']$/g, "").trim();
+
+    if (kind === "Csv") {
+      const delim = await ui.input({
+        prompt: "Delimiter (optional: comma, semicolon, tab. Leave blank for auto-detect)",
+        value: existing ? stringProp(existing.configuration, "delimiter") : undefined,
+        placeHolder: "Leave blank for auto-detect (, ; \\t |)",
+      });
+      if (delim !== undefined && delim.trim().length > 0) {
+        input.delimiter = delim.trim();
+      }
+    }
   } else if (kind === "SqlServer" || kind === "PostgreSql") {
     const isPg = kind === "PostgreSql";
     const connectionString = await ui.input({
