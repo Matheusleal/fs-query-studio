@@ -115,15 +115,21 @@ async function register(
     await deps.secrets.store(built.secretReference, built.secret);
   }
   const worker = await deps.getWorker();
+  deps.log(
+    `Registering connection '${built.definition.name}' (${readUnionTag(built.definition.kind)})...`,
+  );
   const frame = await worker.send({
     id: newRequestId(),
     method: "connection/register",
     params: built.definition,
   });
   if (frame.error) {
-    deps.log(`connection/register failed: ${frame.error.message}`);
+    deps.log(
+      `connection/register for '${built.definition.name}' failed: [${frame.error.code}] ${frame.error.message}`,
+    );
     return false;
   }
+  deps.log(`connection/register for '${built.definition.name}' succeeded.`);
   return true;
 }
 

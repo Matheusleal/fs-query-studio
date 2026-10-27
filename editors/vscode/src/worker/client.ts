@@ -26,6 +26,7 @@ export type SpawnWorker = () => WorkerProcess;
 export interface WorkerClientOptions {
   spawn: SpawnWorker;
   onCrash?: () => void;
+  log?: (line: string) => void;
 }
 
 const CRASHED_ERROR = {
@@ -40,6 +41,7 @@ interface Pending {
 export class WorkerClient {
   private readonly spawn: SpawnWorker;
   private readonly onCrash?: () => void;
+  private readonly log?: (line: string) => void;
   private current: WorkerProcess | undefined;
   private readonly pending = new Map<string, Pending>();
   private writeChain: Promise<void> = Promise.resolve();
@@ -48,6 +50,7 @@ export class WorkerClient {
   constructor(options: WorkerClientOptions) {
     this.spawn = options.spawn;
     this.onCrash = options.onCrash;
+    this.log = options.log;
   }
 
   setHostRequestHandler(handler: HostRequestHandler): void {
@@ -60,12 +63,26 @@ export class WorkerClient {
 
   send(request: WorkerRequestFrame): Promise<WorkerResponseFrame> {
     const proc = this.ensureProcess();
+    this.log?.(`[Host -> Worker] ${request.method} (${request.id})`);
     return new Promise<WorkerResponseFrame>((resolve) => {
-      this.pending.set(request.id, { resolve });
+      this.pending.set(request.id, {
+        resolve: (frame) => {
+          if (frame.error) {
+            this.log?.(
+              `[Worker -> Host] Error on ${request.method} (${request.id}): [${frame.error.code}] ${frame.error.message}`,
+            );
+          } else {
+            this.log?.(`[Worker -> Host] Result on ${request.method} (${request.id})`);
+          }
+          resolve(frame);
+        },
+      });
       this.writeChain = this.writeChain
         .then(() => writeFrame(proc.stdin, request))
-        .catch(() => {
-          /* a failed write surfaces as an exit via readFrames onEnd */
+        .catch((err) => {
+          this.log?.(
+            `[Host -> Worker] Failed to send ${request.method} (${request.id}): ${(err as Error)?.message ?? String(err)}`,
+          );
         });
     });
   }
@@ -74,6 +91,7 @@ export class WorkerClient {
     // Fire the cooperative cancel and move on — the ack frame carries nothing
     // the grace-period race needs, and awaiting it would hang if the worker
     // never acks. Mirrors `App/WorkerClient.fs` minus the discarded `_ack`.
+    this.log?.(`[Host -> Worker] Cancelling request ${requestId} (gracePeriodMs: ${gracePeriodMs})`);
     void this.send({ id: newRequestId(), method: "execution/cancel", params: {} });
 
     const waiter = this.pending.get(requestId);
@@ -94,6 +112,7 @@ export class WorkerClient {
 
     const outcome = await Promise.race([settled, timedOut]);
     if (outcome === "timeout" && this.pending.has(requestId)) {
+      this.log?.(`[Host] Worker timed out on cancel (${requestId}); terminating process.`);
       const stillPending = this.pending.get(requestId)!;
       this.pending.delete(requestId);
       this.current?.kill();
@@ -109,8 +128,11 @@ export class WorkerClient {
   }
 
   dispose(): void {
-    this.current?.kill();
-    this.current = undefined;
+    if (this.current) {
+      this.log?.("[Host] Disposing worker process.");
+      this.current.kill();
+      this.current = undefined;
+    }
   }
 
   protected ensureProcess(): WorkerProcess {
@@ -119,11 +141,36 @@ export class WorkerClient {
     }
     const proc = this.spawn();
     this.current = proc;
+    this.log?.(`[Worker] Started process with PID ${proc.pid ?? "unknown"}.`);
+
+    if (proc.stderr && typeof proc.stderr.on === "function") {
+      let stderrBuffer = "";
+      proc.stderr.on("data", (chunk: Buffer | string) => {
+        stderrBuffer += chunk.toString();
+        const lines = stderrBuffer.split(/\r?\n/);
+        stderrBuffer = lines.pop() ?? "";
+        for (const line of lines) {
+          if (line.trim().length > 0) {
+            this.log?.(`[Worker stderr] ${line}`);
+          }
+        }
+      });
+      proc.stderr.on("end", () => {
+        if (stderrBuffer.trim().length > 0) {
+          this.log?.(`[Worker stderr] ${stderrBuffer}`);
+          stderrBuffer = "";
+        }
+      });
+    }
+
     readFrames(proc.stdout, {
       onFrame: (frame) => this.onFrame(frame),
       onEnd: () => this.onExit(),
     });
-    proc.onExit(() => this.onExit());
+    proc.onExit((codeOrErr?: unknown) => {
+      this.log?.(`[Worker] Process exited${codeOrErr !== undefined ? `: ${String(codeOrErr)}` : ""}.`);
+      this.onExit();
+    });
     return proc;
   }
 
@@ -148,6 +195,7 @@ export class WorkerClient {
     if (!proc) {
       return;
     }
+    this.log?.(`[Worker -> Host] Request ${method} (${id})`);
     // Every reply frame MUST carry BOTH `result` and `error` keys, even when
     // one is null. `JSON.stringify` omits `undefined` properties, and the
     // worker's `WorkerResponseFrame` (FSharp.SystemTextJson) does NOT default
@@ -180,15 +228,27 @@ export class WorkerClient {
         };
       }
     }
-    this.writeChain = this.writeChain.then(() => writeFrame(proc.stdin, reply)).catch(() => {
-      /* a failed write surfaces as an exit via readFrames onEnd */
-    });
+    if (reply.error) {
+      this.log?.(
+        `[Host -> Worker] Reply error on ${method} (${id}): [${reply.error.code}] ${reply.error.message}`,
+      );
+    } else {
+      this.log?.(`[Host -> Worker] Reply result on ${method} (${id})`);
+    }
+    this.writeChain = this.writeChain
+      .then(() => writeFrame(proc.stdin, reply))
+      .catch((err) => {
+        this.log?.(
+          `[Host -> Worker] Failed to send reply frame for ${method} (${id}): ${(err as Error)?.message ?? String(err)}`,
+        );
+      });
   }
 
   protected onExit(): void {
     if (!this.current) {
       return;
     }
+    this.log?.("[Host] Worker process disconnected; aborting pending requests.");
     this.current = undefined;
     for (const [id, waiter] of this.pending) {
       waiter.resolve({ id, error: { ...CRASHED_ERROR } });

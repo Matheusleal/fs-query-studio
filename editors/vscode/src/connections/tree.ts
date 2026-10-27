@@ -151,6 +151,7 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
       });
       if (frame.error) {
         this.lastSchemaError = `${def.name}: ${frame.error.message}`;
+        this.deps.log(`connection/schema for '${def.name}' failed: [${frame.error.code}] ${frame.error.message}`);
         return undefined;
       }
       const tables = (frame.result as ConnectionSchemaResult).tables ?? [];
