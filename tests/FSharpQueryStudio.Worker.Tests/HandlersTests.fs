@@ -1310,3 +1310,71 @@ let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or em
                 if Directory.Exists tmp then Directory.Delete(tmp, true)
             with _ -> ()
     }
+
+[<Fact>]
+let ``evaluating sample_demo notebook cells succeeds against generated samples`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-eval-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let escapedTmp = tmp.Replace("\\", "\\\\")
+            let req1: WorkerRequestFrame =
+                { Id = "s1"
+                  Method = "workspace/createSampleData"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+            let! res1 = Handlers.dispatch req1
+            Assert.True(res1.Error.IsNone)
+
+            let notebookPath = Path.Combine(tmp, "sample_demo.fsqnb")
+            Assert.True(File.Exists notebookPath)
+            let doc = JsonDocument.Parse(File.ReadAllText notebookPath)
+            let codeCells =
+                doc.RootElement.GetProperty("cells").EnumerateArray()
+                |> Seq.filter (fun c -> c.GetProperty("kind").GetString() = "code")
+                |> Seq.map (fun c -> c.GetProperty("value").GetString())
+                |> Seq.toList
+
+            Assert.Equal(9, codeCells.Length)
+
+            for idx, code in List.indexed codeCells do
+                let evalReq = notebookCellRequest $"cell-{idx + 1}" code "sample_demo.fsqnb"
+                let! evalRes = Handlers.dispatch evalReq
+                let errMsg = match evalRes.Error with Some e -> e.Message | None -> ""
+                Assert.True(evalRes.Error.IsNone, $"Cell {idx + 1} error: {errMsg}")
+                let env = JsonSerializer.Deserialize<ResultEnvelope>(evalRes.Result.Value.GetRawText(), Serialization.options)
+                let outputText = env.Output |> List.map (fun o -> o.Text) |> String.concat "\n"
+                Assert.True(
+                    (env.Kind = ResultKind.Table || env.Kind = ResultKind.Scalar),
+                    $"Cell {idx + 1} expected Table or Scalar outcome but got {env.Kind}. DisplayText: {env.DisplayText}. Output: {outputText}. Code:\n{code}"
+                )
+
+            let notebookPtPath = Path.Combine(tmp, "sample_demo_pt.fsqnb")
+            Assert.True(File.Exists notebookPtPath)
+            let docPt = JsonDocument.Parse(File.ReadAllText notebookPtPath)
+            let codeCellsPt =
+                docPt.RootElement.GetProperty("cells").EnumerateArray()
+                |> Seq.filter (fun c -> c.GetProperty("kind").GetString() = "code")
+                |> Seq.map (fun c -> c.GetProperty("value").GetString())
+                |> Seq.toList
+
+            Assert.Equal(9, codeCellsPt.Length)
+
+            for idx, code in List.indexed codeCellsPt do
+                let evalReq = notebookCellRequest $"cell-pt-{idx + 1}" code "sample_demo_pt.fsqnb"
+                let! evalRes = Handlers.dispatch evalReq
+                let errMsg = match evalRes.Error with Some e -> e.Message | None -> ""
+                Assert.True(evalRes.Error.IsNone, $"PT Cell {idx + 1} error: {errMsg}")
+                let env = JsonSerializer.Deserialize<ResultEnvelope>(evalRes.Result.Value.GetRawText(), Serialization.options)
+                let outputText = env.Output |> List.map (fun o -> o.Text) |> String.concat "\n"
+                Assert.True(
+                    (env.Kind = ResultKind.Table || env.Kind = ResultKind.Scalar),
+                    $"PT Cell {idx + 1} expected Table or Scalar outcome but got {env.Kind}. DisplayText: {env.DisplayText}. Output: {outputText}. Code:\n{code}"
+                )
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+            try
+                if Directory.Exists tmp then Directory.Delete(tmp, true)
+            with _ -> ()
+    }

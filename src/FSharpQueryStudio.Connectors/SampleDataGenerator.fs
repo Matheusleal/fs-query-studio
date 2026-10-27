@@ -349,7 +349,7 @@ CSV files are automatically discovered, inferred, and mapped to strongly-typed r
 
                 mkCode """
 // 5. Connect to the first CSV feed (SalesFeed) and filter electronics purchases
-let salesFeed = (Connections.connect "SalesFeed").asEntities
+let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
 
 query {
     for row in salesFeed.Rows do
@@ -375,7 +375,7 @@ A second CSV source is registered alongside `SalesFeed`. Both CSV sources genera
 
                 mkCode """
 // 6. Connect to the second CSV feed (CustomersFeed)
-let loyaltyFeed = (Connections.connect "CustomersFeed").asEntities
+let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
 
 query {
     for row in loyaltyFeed.Rows do
@@ -608,7 +608,7 @@ Arquivos CSV são mapeados como registros fortemente tipados com inferência aut
 
                 mkCode """
 // 5. Conecta ao primeiro arquivo CSV (SalesFeed) e filtra compras de Eletrônicos
-let salesFeed = (Connections.connect "SalesFeed").asEntities
+let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
 
 query {
     for row in salesFeed.Rows do
@@ -634,7 +634,7 @@ Uma segunda fonte CSV registrada ao lado de `SalesFeed`. Ambas possuem inferênc
 
                 mkCode """
 // 6. Conecta ao segundo arquivo CSV (CustomersFeed)
-let loyaltyFeed = (Connections.connect "CustomersFeed").asEntities
+let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
 
 query {
     for row in loyaltyFeed.Rows do

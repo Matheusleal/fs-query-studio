@@ -139,6 +139,32 @@ module Handlers =
     /// uncaught script exception becomes a structured Error result
     /// (Section 11), never an unhandled crash — EvalInteractionNonThrowing
     /// already keeps it from propagating.
+    let resolveWorkspaceForDocument (docUriStr: string) : string =
+        try
+            if not (String.IsNullOrWhiteSpace docUriStr) then
+                let uri = Uri(docUriStr)
+                if uri.IsFile then
+                    let dir = Path.GetDirectoryName(uri.LocalPath)
+                    if not (String.IsNullOrWhiteSpace dir) && Directory.Exists dir then
+                        let rec findWorkspace (current: DirectoryInfo) (depth: int) =
+                            if depth <= 0 || isNull current then None
+                            elif File.Exists(Path.Combine(current.FullName, "generated", "GeneratedEntities.fs"))
+                                 || File.Exists(Path.Combine(current.FullName, ".fsquery", "connections.json")) then
+                                Some current.FullName
+                            else
+                                findWorkspace current.Parent (depth - 1)
+                        match findWorkspace (DirectoryInfo(dir)) 4 with
+                        | Some found -> found
+                        | None -> dir
+                    else
+                        workspaceDir ()
+                else
+                    workspaceDir ()
+            else
+                workspaceDir ()
+        with _ ->
+            workspaceDir ()
+
     let runEvaluate (request: WorkerRequestFrame) (workDir: string) : WorkerResponseFrame =
         try
             let evalParams =
@@ -146,28 +172,35 @@ module Handlers =
 
             let stopwatch = Stopwatch.StartNew()
 
-            let connections = Workspace.readConnections (workspaceDir ())
+            let targetWs = resolveWorkspaceForDocument evalParams.DocumentUri
+            let connections = Workspace.readConnections targetWs
             Connections.configure (WorkspaceConnectionResolver(connections, secretStore))
-            EntityBackgroundGenerator.ensureGenerated (workspaceDir ()) connections secretStore
+            EntityBackgroundGenerator.ensureGenerated targetWs connections secretStore
 
             let session =
                 match evalParams.Mode, evalParams.SessionId with
                 | Persistent, Some sessionId when evalParams.IsNotebookCell ->
                     Log.Information(
-                        "Appending notebook cell to persistent FSI session {SessionId} in {WorkingDirectory}",
+                        "Appending notebook cell to persistent FSI session {SessionId} in {WorkingDirectory} with workspace {WorkspaceDir}",
                         sessionId,
-                        workDir
+                        workDir,
+                        targetWs
                     )
-                    SessionStore.appendFragment sessionId workDir evalParams.Source
+                    SessionStore.appendFragmentInWorkspace sessionId workDir evalParams.Source targetWs
                 | Persistent, Some sessionId ->
-                    Log.Information("Evaluating persistent FSI session {SessionId} in {WorkingDirectory}", sessionId, workDir)
-                    SessionStore.getOrCreate sessionId workDir evalParams.Source
+                    Log.Information(
+                        "Evaluating persistent FSI session {SessionId} in {WorkingDirectory} with workspace {WorkspaceDir}",
+                        sessionId,
+                        workDir,
+                        targetWs
+                    )
+                    SessionStore.getOrCreateInWorkspace sessionId workDir evalParams.Source targetWs
                 | Persistent, None ->
                     Log.Warning("Persistent mode requested without a SessionId; falling back to an isolated session")
-                    FsiSession.create workDir
+                    FsiSession.createInWorkspace workDir targetWs
                 | Isolated, _ ->
-                    Log.Information("Creating FSI session in {WorkingDirectory}", workDir)
-                    FsiSession.create workDir
+                    Log.Information("Creating FSI session in {WorkingDirectory} with workspace {WorkspaceDir}", workDir, targetWs)
+                    FsiSession.createInWorkspace workDir targetWs
 
             let outcome = Evaluation.evaluate session evalParams.Source
             stopwatch.Stop()
@@ -176,7 +209,19 @@ module Handlers =
 
             let envelope =
                 match outcome.Exception with
-                | Some ex -> { Projection.projectError ex stopwatch.ElapsedMilliseconds with Output = output }
+                | Some ex ->
+                    let diagMsg =
+                        if outcome.Diagnostics.Length > 0 then
+                            outcome.Diagnostics
+                            |> Array.map (fun d ->
+                                let sub = if String.IsNullOrEmpty d.Subcategory then "error" else d.Subcategory
+                                $"{sub} FS{d.ErrorNumber:D4}: {d.Message} (line {d.StartLine})")
+                            |> String.concat "\n"
+                        elif not (String.IsNullOrWhiteSpace outcome.ErrorOutput) then
+                            outcome.ErrorOutput
+                        else
+                            ""
+                    { Projection.projectErrorWithDetails ex (if String.IsNullOrWhiteSpace diagMsg then None else Some diagMsg) stopwatch.ElapsedMilliseconds with Output = output }
                 | None ->
                     let value =
                         outcome.Value |> Option.map (fun v -> v.ReflectionValue) |> Option.toObj
@@ -682,12 +727,23 @@ module Handlers =
                   SecretReference = None
                   IsTrusted = true }
 
+            let _ = Workspace.registerConnection dir sqliteDef
+            let _ = Workspace.registerConnection dir sqlite2Def
+            let _ = Workspace.registerConnection dir csvDef
+            let updatedInDir = Workspace.registerConnection dir csv2Def
+
             let _ = Workspace.registerConnection (workspaceDir ()) sqliteDef
             let _ = Workspace.registerConnection (workspaceDir ()) sqlite2Def
             let _ = Workspace.registerConnection (workspaceDir ()) csvDef
-            let updated = Workspace.registerConnection (workspaceDir ()) csv2Def
-            Connections.configure (WorkspaceConnectionResolver(updated, secretStore))
-            EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) updated secretStore
+            let updatedGlobal = Workspace.registerConnection (workspaceDir ()) csv2Def
+
+            Connections.configure (WorkspaceConnectionResolver(updatedInDir, secretStore))
+            try
+                (EntityBackgroundGenerator.generateForConnectionsAsync dir updatedInDir secretStore).GetAwaiter().GetResult() |> ignore
+                if dir <> (workspaceDir ()) then
+                    (EntityBackgroundGenerator.generateForConnectionsAsync (workspaceDir ()) updatedGlobal secretStore).GetAwaiter().GetResult() |> ignore
+            with ex ->
+                Log.Warning("FS Query Studio: Entity generation after sample creation failed: {Error}", ex.Message)
 
             let result: SampleCreateResult =
                 { SqlitePath = files.SqlitePath

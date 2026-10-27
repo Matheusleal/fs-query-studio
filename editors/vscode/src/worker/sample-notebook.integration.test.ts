@@ -1,0 +1,141 @@
+import { describe, it, expect } from "vitest";
+import * as path from "node:path";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { resolveDotnet } from "./dotnet";
+import { resolveWorkerDll } from "./worker-path";
+import { WorkerClient } from "./client";
+import { spawnWorkerProcess } from "./spawn";
+import {
+  newRequestId,
+  readUnionTag,
+  SESSION_MODE_PERSISTENT,
+  type ResultEnvelope,
+} from "../protocol";
+import { deserializeFsqnb } from "../notebook/fsqnb";
+
+const extensionRoot = path.resolve(__dirname, "..", "..");
+
+let workerDll: string | undefined;
+try {
+  workerDll = resolveWorkerDll(extensionRoot, process.env);
+} catch {
+  workerDll = undefined;
+}
+
+describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
+  it(
+    "creates sample data and executes all cells of sample_demo.fsqnb and sample_demo_pt.fsqnb successfully",
+    async () => {
+      const dotnet = await resolveDotnet();
+      const client = new WorkerClient({
+        spawn: () => spawnWorkerProcess(dotnet.command, workerDll!),
+      });
+
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "fqs-sample-vitest-"));
+
+      try {
+        // 1. Create sample data
+        const createRes = await client.send({
+          id: newRequestId(),
+          method: "workspace/createSampleData",
+          params: { targetDir: tempDir, targetDirectory: tempDir },
+        });
+
+        expect(createRes.error ?? undefined).toBeUndefined();
+        const data = createRes.result as {
+          sqlitePath: string;
+          sqlite2Path?: string;
+          csvPath: string;
+          csv2Path?: string;
+          notebookPath: string;
+          notebookPtPath?: string;
+        };
+
+        expect(fs.existsSync(data.sqlitePath)).toBe(true);
+        expect(fs.existsSync(data.sqlite2Path!)).toBe(true);
+        expect(fs.existsSync(data.csvPath)).toBe(true);
+        expect(fs.existsSync(data.csv2Path!)).toBe(true);
+        expect(fs.existsSync(data.notebookPath)).toBe(true);
+        expect(fs.existsSync(data.notebookPtPath!)).toBe(true);
+
+        const generatedEntities = path.join(tempDir, "generated", "GeneratedEntities.fs");
+        expect(fs.existsSync(generatedEntities)).toBe(true);
+
+        // 2. Test sample_demo.fsqnb
+        const nbContent = fs.readFileSync(data.notebookPath, "utf-8");
+        const doc = deserializeFsqnb(nbContent);
+        const codeCells = doc.cells.filter((c) => c.kind === "code");
+        expect(codeCells.length).toBe(9);
+
+        const sessionIdEn = `file:///${data.notebookPath.replace(/\\/g, "/")}`;
+
+        for (let i = 0; i < codeCells.length; i++) {
+          const cell = codeCells[i];
+          const evalRes = await client.send({
+            id: newRequestId(),
+            method: "execution/evaluate",
+            params: {
+              source: cell.value,
+              sessionId: sessionIdEn,
+              mode: SESSION_MODE_PERSISTENT,
+              documentUri: sessionIdEn,
+              isNotebookCell: true,
+            },
+          });
+
+          expect(evalRes.error ?? undefined).toBeUndefined();
+          const envelope = evalRes.result as ResultEnvelope;
+          const kind = readUnionTag(envelope.kind);
+          if (kind === "Error") {
+            throw new Error(
+              `sample_demo.fsqnb cell ${i + 1} failed: ${envelope.displayText}\nOutput: ${JSON.stringify(envelope.output)}`,
+            );
+          }
+          expect(["Table", "Scalar"]).toContain(kind);
+        }
+
+        // 3. Test sample_demo_pt.fsqnb
+        const nbPtContent = fs.readFileSync(data.notebookPtPath!, "utf-8");
+        const docPt = deserializeFsqnb(nbPtContent);
+        const codeCellsPt = docPt.cells.filter((c) => c.kind === "code");
+        expect(codeCellsPt.length).toBe(9);
+
+        const sessionIdPt = `file:///${data.notebookPtPath!.replace(/\\/g, "/")}`;
+
+        for (let i = 0; i < codeCellsPt.length; i++) {
+          const cell = codeCellsPt[i];
+          const evalRes = await client.send({
+            id: newRequestId(),
+            method: "execution/evaluate",
+            params: {
+              source: cell.value,
+              sessionId: sessionIdPt,
+              mode: SESSION_MODE_PERSISTENT,
+              documentUri: sessionIdPt,
+              isNotebookCell: true,
+            },
+          });
+
+          expect(evalRes.error ?? undefined).toBeUndefined();
+          const envelope = evalRes.result as ResultEnvelope;
+          const kind = readUnionTag(envelope.kind);
+          if (kind === "Error") {
+            throw new Error(
+              `sample_demo_pt.fsqnb cell ${i + 1} failed: ${envelope.displayText}\nOutput: ${JSON.stringify(envelope.output)}`,
+            );
+          }
+          expect(["Table", "Scalar"]).toContain(kind);
+        }
+      } finally {
+        client.dispose();
+        try {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+        } catch {
+          // ignore cleanup errors on Windows
+        }
+      }
+    },
+    120_000,
+  );
+});

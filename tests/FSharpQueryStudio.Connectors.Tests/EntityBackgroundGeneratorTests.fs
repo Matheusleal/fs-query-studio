@@ -108,9 +108,10 @@ let ``generateForConnectionsAsync handles multiple CSV data sources without omit
         Assert.Contains("type FSharpQueryStudio.Connectors.Connections.CsvConnection with", code)
         Assert.Contains("member this.SalesFeed = SalesFeedCsv.Data(this)", code)
         Assert.Contains("member this.CustomersFeed = CustomersFeedCsv.Data(this)", code)
-        Assert.Contains("member this.asEntities", code)
-        Assert.Contains("\"SalesFeed\" -> box (SalesFeedCsv.Data(this))", code)
-        Assert.Contains("\"CustomersFeed\" -> box (CustomersFeedCsv.Data(this))", code)
+        Assert.Contains("member this.asEntities = AllCsvEntities(this)", code)
+        Assert.Contains("type AllCsvEntities(conn: FSharpQueryStudio.Connectors.Connections.CsvConnection) =", code)
+        Assert.Contains("member _.SalesFeed = SalesFeedCsv.Data(conn)", code)
+        Assert.Contains("member _.CustomersFeed = CustomersFeedCsv.Data(conn)", code)
     finally
         try Directory.Delete(tempDir, true) with _ -> ()
 
@@ -192,8 +193,10 @@ let ``generateForConnectionsAsync handles multiple SQLite and multiple CSV data 
         Assert.Contains("type FSharpQueryStudio.Connectors.Connections.DatabaseConnection with", code)
         Assert.Contains("member this.SampleStore = SampleStoreDb.Database(this)", code)
         Assert.Contains("member this.InventoryStore = InventoryStoreDb.Database(this)", code)
-        Assert.Contains("\"SampleStore\" -> box (SampleStoreDb.Database(this))", code)
-        Assert.Contains("\"InventoryStore\" -> box (InventoryStoreDb.Database(this))", code)
+        Assert.Contains("member this.asEntities = AllDatabaseEntities(this)", code)
+        Assert.Contains("type AllDatabaseEntities(conn: FSharpQueryStudio.Connectors.Connections.DatabaseConnection) =", code)
+        Assert.Contains("member _.Customers = (SampleStoreDb.Database(conn)).Customers", code)
+        Assert.Contains("member _.Warehouses = (InventoryStoreDb.Database(conn)).Warehouses", code)
 
         // CSV modules and CsvConnection extension
         Assert.Contains("module SalesFeedCsv =", code)
@@ -201,8 +204,8 @@ let ``generateForConnectionsAsync handles multiple SQLite and multiple CSV data 
         Assert.Contains("type FSharpQueryStudio.Connectors.Connections.CsvConnection with", code)
         Assert.Contains("member this.SalesFeed = SalesFeedCsv.Data(this)", code)
         Assert.Contains("member this.CustomersFeed = CustomersFeedCsv.Data(this)", code)
-        Assert.Contains("\"SalesFeed\" -> box (SalesFeedCsv.Data(this))", code)
-        Assert.Contains("\"CustomersFeed\" -> box (CustomersFeedCsv.Data(this))", code)
+        Assert.Contains("member this.asEntities = AllCsvEntities(this)", code)
+        Assert.Contains("type AllCsvEntities(conn: FSharpQueryStudio.Connectors.Connections.CsvConnection) =", code)
     finally
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
         try Directory.Delete(tempDir, true) with _ -> ()

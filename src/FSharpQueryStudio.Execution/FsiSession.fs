@@ -24,7 +24,7 @@ module FsiSession =
     /// `Console.WriteLine` calls go through `System.Console.Out`, which is
     /// a separate global unless explicitly redirected too. Both are
     /// pointed at the same writers so captured output is complete.
-    let create (workingDirectory: string) : Session =
+    let createInWorkspace (workingDirectory: string) (workspaceDirectory: string) : Session =
         Directory.SetCurrentDirectory(workingDirectory)
 
         let output = new StringWriter()
@@ -40,13 +40,6 @@ module FsiSession =
         let fsi =
             FsiEvaluationSession.Create(config, argv, stdin, output, errors, collectible = true)
 
-        // Every script reaches the controlled `Connections.sql`/`csv`/
-        // `excel`/`rest` API (Section 10/11) with no
-        // #r/open of its own - the architecture spec's own example script
-        // calls `Connections.sql "Sales" ...` directly. Run as a separate
-        // interaction, before any user source, so it never shifts the
-        // user script's own line numbers - Diagnostic mapping elsewhere
-        // in this project is 1-based on FCS's own line numbers and must
         let connectorsAssemblyPath =
             typeof<FSharpQueryStudio.Connectors.IConnector>.Assembly.Location
 
@@ -63,23 +56,31 @@ module FsiSession =
             )
 
         let appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+        let wsGenerated =
+            if not (String.IsNullOrEmpty workspaceDirectory) then
+                Path.Combine(workspaceDirectory, "generated", "GeneratedEntities.fs")
+            else
+                ""
         let localGenerated = Path.Combine(workingDirectory, "generated", "GeneratedEntities.fs")
         let globalGenerated = Path.Combine(appData, "FSharpQueryStudio", "generated", "GeneratedEntities.fs")
         let generatedFile =
-            if File.Exists localGenerated then localGenerated
-            elif File.Exists globalGenerated then globalGenerated
-            else localGenerated
-
-        let generatedLoad =
-            if File.Exists generatedFile then
-                $"#load @\"{generatedFile}\"\nopen FSharpQueryStudio.Generated\n"
+            if not (String.IsNullOrEmpty workspaceDirectory) then
+                if File.Exists wsGenerated then wsGenerated else ""
+            elif File.Exists localGenerated then
+                localGenerated
+            elif File.Exists globalGenerated then
+                globalGenerated
             else
                 ""
 
-        let prologue =
-            $"#r @\"{connectorsAssemblyPath}\"\n#r @\"{resultsAssemblyPath}\"\n{generatedLoad}open System.Linq\nopen FSharpQueryStudio.Connectors\n"
+        let basePrologue =
+            $"#r @\"{connectorsAssemblyPath}\"\n#r @\"{resultsAssemblyPath}\"\nopen System.Linq\nopen FSharpQueryStudio.Connectors\n"
 
-        fsi.EvalInteractionNonThrowing(prologue) |> ignore
+        fsi.EvalInteractionNonThrowing(basePrologue) |> ignore
+
+        if not (String.IsNullOrEmpty generatedFile) && File.Exists generatedFile then
+            let generatedLoad = $"#load @\"{generatedFile}\"\nopen FSharpQueryStudio.Generated\n"
+            fsi.EvalInteractionNonThrowing(generatedLoad) |> ignore
 
         // Clear whatever FSI's own reference/echo messages the prologue
         // produced (e.g. "--> Referenced ...") - a script's own captured
@@ -91,3 +92,6 @@ module FsiSession =
         { Fsi = fsi
           Output = output
           Errors = errors }
+
+    let create (workingDirectory: string) : Session =
+        createInWorkspace workingDirectory ""

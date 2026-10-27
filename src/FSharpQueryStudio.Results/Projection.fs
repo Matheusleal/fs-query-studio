@@ -351,6 +351,14 @@ module Projection =
         { emptyEnvelope ResultKind.Error elapsedMs with
             DisplayText = Some ex.Message }
 
+    let projectErrorWithDetails (ex: exn) (details: string option) (elapsedMs: int64) : ResultEnvelope =
+        let msg =
+            match details with
+            | Some d when not (String.IsNullOrWhiteSpace d) && ex.Message.Contains("Operation could not be completed due to earlier error") -> d
+            | _ -> ex.Message
+        { emptyEnvelope ResultKind.Error elapsedMs with
+            DisplayText = Some msg }
+
     /// A worker-level error (crash, busy) — see A.8/A.9's `WorkerErrorInfo`
     /// — reads the same as a script-level Error to whatever's displaying
     /// results; the caller didn't get to run at all, but the UI still
