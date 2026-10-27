@@ -62,13 +62,16 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
         const generatedEntities = path.join(tempDir, "generated", "GeneratedEntities.fs");
         expect(fs.existsSync(generatedEntities)).toBe(true);
 
-        // 2. Test sample_demo.fsqnb
+        // 2. Test sample_demo.fsqnb using VS Code Windows URI format (with %3A)
         const nbContent = fs.readFileSync(data.notebookPath, "utf-8");
         const doc = deserializeFsqnb(nbContent);
         const codeCells = doc.cells.filter((c) => c.kind === "code");
         expect(codeCells.length).toBe(9);
 
-        const sessionIdEn = `file:///${data.notebookPath.replace(/\\/g, "/")}`;
+        // VS Code on Windows formats document URIs like: file:///c%3A/path/to/notebook.fsqnb
+        const vscodeUriEn = `file:///${data.notebookPath.replace(/\\/g, "/").replace(":", "%3A")}`;
+
+        const expectedEnRowCounts = [2, 8, 6, 4, 5, 3, 6, 5, 4];
 
         for (let i = 0; i < codeCells.length; i++) {
           const cell = codeCells[i];
@@ -77,9 +80,9 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
             method: "execution/evaluate",
             params: {
               source: cell.value,
-              sessionId: sessionIdEn,
+              sessionId: vscodeUriEn,
               mode: SESSION_MODE_PERSISTENT,
-              documentUri: sessionIdEn,
+              documentUri: vscodeUriEn,
               isNotebookCell: true,
             },
           });
@@ -93,15 +96,20 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
             );
           }
           expect(["Table", "Scalar"]).toContain(kind);
+          if (kind === "Table") {
+            expect(envelope.rows.length).toBe(expectedEnRowCounts[i]);
+          }
         }
 
-        // 3. Test sample_demo_pt.fsqnb
+        // 3. Test sample_demo_pt.fsqnb using VS Code Windows URI format (with %3A)
         const nbPtContent = fs.readFileSync(data.notebookPtPath!, "utf-8");
         const docPt = deserializeFsqnb(nbPtContent);
         const codeCellsPt = docPt.cells.filter((c) => c.kind === "code");
         expect(codeCellsPt.length).toBe(9);
 
-        const sessionIdPt = `file:///${data.notebookPtPath!.replace(/\\/g, "/")}`;
+        const vscodeUriPt = `file:///${data.notebookPtPath!.replace(/\\/g, "/").replace(":", "%3A")}`;
+
+        const expectedPtRowCounts = [2, 8, 6, 4, 5, 3, 6, 5, 4];
 
         for (let i = 0; i < codeCellsPt.length; i++) {
           const cell = codeCellsPt[i];
@@ -110,9 +118,9 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
             method: "execution/evaluate",
             params: {
               source: cell.value,
-              sessionId: sessionIdPt,
+              sessionId: vscodeUriPt,
               mode: SESSION_MODE_PERSISTENT,
-              documentUri: sessionIdPt,
+              documentUri: vscodeUriPt,
               isNotebookCell: true,
             },
           });
@@ -126,6 +134,9 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
             );
           }
           expect(["Table", "Scalar"]).toContain(kind);
+          if (kind === "Table") {
+            expect(envelope.rows.length).toBe(expectedPtRowCounts[i]);
+          }
         }
       } finally {
         client.dispose();

@@ -142,9 +142,15 @@ module Handlers =
     let resolveWorkspaceForDocument (docUriStr: string) : string =
         try
             if not (String.IsNullOrWhiteSpace docUriStr) then
-                let uri = Uri(docUriStr)
+                let unescaped = Uri.UnescapeDataString docUriStr
+                let uri = Uri(unescaped)
                 if uri.IsFile then
-                    let dir = Path.GetDirectoryName(uri.LocalPath)
+                    let rawDir = Path.GetDirectoryName(uri.LocalPath)
+                    let dir =
+                        if not (String.IsNullOrEmpty rawDir) && rawDir.Length >= 3 && (rawDir.[0] = '/' || rawDir.[0] = '\\') && Char.IsLetter(rawDir.[1]) && rawDir.[2] = ':' then
+                            rawDir.Substring(1)
+                        else
+                            rawDir
                     if not (String.IsNullOrWhiteSpace dir) && Directory.Exists dir then
                         let rec findWorkspace (current: DirectoryInfo) (depth: int) =
                             if depth <= 0 || isNull current then None

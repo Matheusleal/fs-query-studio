@@ -106,12 +106,12 @@ let ``generateForConnectionsAsync handles multiple CSV data sources without omit
 
         // asEntities generated and handles multiple CSVs
         Assert.Contains("type FSharpQueryStudio.Connectors.Connections.CsvConnection with", code)
-        Assert.Contains("member this.SalesFeed = SalesFeedCsv.Data(this)", code)
-        Assert.Contains("member this.CustomersFeed = CustomersFeedCsv.Data(this)", code)
+        Assert.Contains("member this.SalesFeed = SalesFeedCsv.Data(\"SalesFeed\")", code)
+        Assert.Contains("member this.CustomersFeed = CustomersFeedCsv.Data(\"CustomersFeed\")", code)
         Assert.Contains("member this.asEntities = AllCsvEntities(this)", code)
         Assert.Contains("type AllCsvEntities(conn: FSharpQueryStudio.Connectors.Connections.CsvConnection) =", code)
-        Assert.Contains("member _.SalesFeed = SalesFeedCsv.Data(conn)", code)
-        Assert.Contains("member _.CustomersFeed = CustomersFeedCsv.Data(conn)", code)
+        Assert.Contains("member _.SalesFeed = SalesFeedCsv.Data(\"SalesFeed\")", code)
+        Assert.Contains("member _.CustomersFeed = CustomersFeedCsv.Data(\"CustomersFeed\")", code)
     finally
         try Directory.Delete(tempDir, true) with _ -> ()
 
@@ -191,19 +191,19 @@ let ``generateForConnectionsAsync handles multiple SQLite and multiple CSV data 
         Assert.Contains("module SampleStoreDb =", code)
         Assert.Contains("module InventoryStoreDb =", code)
         Assert.Contains("type FSharpQueryStudio.Connectors.Connections.DatabaseConnection with", code)
-        Assert.Contains("member this.SampleStore = SampleStoreDb.Database(this)", code)
-        Assert.Contains("member this.InventoryStore = InventoryStoreDb.Database(this)", code)
+        Assert.Contains("member this.SampleStore = SampleStoreDb.Database(\"SampleStore\")", code)
+        Assert.Contains("member this.InventoryStore = InventoryStoreDb.Database(\"InventoryStore\")", code)
         Assert.Contains("member this.asEntities = AllDatabaseEntities(this)", code)
         Assert.Contains("type AllDatabaseEntities(conn: FSharpQueryStudio.Connectors.Connections.DatabaseConnection) =", code)
-        Assert.Contains("member _.Customers = (SampleStoreDb.Database(conn)).Customers", code)
-        Assert.Contains("member _.Warehouses = (InventoryStoreDb.Database(conn)).Warehouses", code)
+        Assert.Contains("member _.Customers = (SampleStoreDb.Database(\"SampleStore\")).Customers", code)
+        Assert.Contains("member _.Warehouses = (InventoryStoreDb.Database(\"InventoryStore\")).Warehouses", code)
 
         // CSV modules and CsvConnection extension
         Assert.Contains("module SalesFeedCsv =", code)
         Assert.Contains("module CustomersFeedCsv =", code)
         Assert.Contains("type FSharpQueryStudio.Connectors.Connections.CsvConnection with", code)
-        Assert.Contains("member this.SalesFeed = SalesFeedCsv.Data(this)", code)
-        Assert.Contains("member this.CustomersFeed = CustomersFeedCsv.Data(this)", code)
+        Assert.Contains("member this.SalesFeed = SalesFeedCsv.Data(\"SalesFeed\")", code)
+        Assert.Contains("member this.CustomersFeed = CustomersFeedCsv.Data(\"CustomersFeed\")", code)
         Assert.Contains("member this.asEntities = AllCsvEntities(this)", code)
         Assert.Contains("type AllCsvEntities(conn: FSharpQueryStudio.Connectors.Connections.CsvConnection) =", code)
     finally
