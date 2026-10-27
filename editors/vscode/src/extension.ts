@@ -329,13 +329,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
 
         const data = res.result as {
           sqlitePath: string;
+          sqlite2Path?: string;
           csvPath: string;
+          csv2Path?: string;
           notebookPath: string;
           notebookPtPath?: string;
         };
 
         log(
-          `[Workspace] Sample data created successfully: SQLite=${data.sqlitePath}, CSV=${data.csvPath}, Notebook=${data.notebookPath}, NotebookPt=${data.notebookPtPath}`,
+          `[Workspace] Sample data created successfully: SQLite=${data.sqlitePath}, SQLite2=${data.sqlite2Path}, CSV=${data.csvPath}, CSV2=${data.csv2Path}, Notebook=${data.notebookPath}, NotebookPt=${data.notebookPtPath}`,
         );
 
         await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
@@ -354,8 +356,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
         }
 
         const successMsg = isPt
-          ? "Banco de dados SQLite ('sample_store.db'), CSV ('sales_feed.csv') e notebooks interativos ('sample_demo_pt.fsqnb', 'sample_demo.fsqnb') criados com sucesso!"
-          : "Sample SQLite database ('sample_store.db'), CSV ('sales_feed.csv'), and interactive notebooks ('sample_demo.fsqnb', 'sample_demo_pt.fsqnb') created successfully!";
+          ? "Bancos de dados SQLite ('sample_store.db', 'inventory.db'), CSVs ('sales_feed.csv', 'customers_feed.csv') e notebooks interativos ('sample_demo_pt.fsqnb', 'sample_demo.fsqnb') criados com sucesso!"
+          : "Sample SQLite databases ('sample_store.db', 'inventory.db'), CSVs ('sales_feed.csv', 'customers_feed.csv'), and interactive notebooks ('sample_demo.fsqnb', 'sample_demo_pt.fsqnb') created successfully!";
 
         void vscode.window.showInformationMessage(successMsg);
       } catch (err) {

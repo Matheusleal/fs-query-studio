@@ -618,7 +618,9 @@ module Handlers =
 
     type SampleCreateResult =
         { SqlitePath: string
+          Sqlite2Path: string
           CsvPath: string
+          Csv2Path: string
           NotebookPath: string
           NotebookPtPath: string
           RegisteredConnections: string list }
@@ -656,6 +658,14 @@ module Handlers =
                   SecretReference = None
                   IsTrusted = true }
 
+            let sqlite2Def: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "InventoryStore"
+                  Kind = ConnectorKind.Sqlite
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = files.Sqlite2Path |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
             let csvDef: ConnectionDefinition =
                 { Id = Guid.NewGuid()
                   Name = "SalesFeed"
@@ -664,17 +674,29 @@ module Handlers =
                   SecretReference = None
                   IsTrusted = true }
 
+            let csv2Def: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "CustomersFeed"
+                  Kind = ConnectorKind.Csv
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = files.Csv2Path |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
             let _ = Workspace.registerConnection (workspaceDir ()) sqliteDef
-            let updated2 = Workspace.registerConnection (workspaceDir ()) csvDef
-            Connections.configure (WorkspaceConnectionResolver(updated2, secretStore))
-            EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) updated2 secretStore
+            let _ = Workspace.registerConnection (workspaceDir ()) sqlite2Def
+            let _ = Workspace.registerConnection (workspaceDir ()) csvDef
+            let updated = Workspace.registerConnection (workspaceDir ()) csv2Def
+            Connections.configure (WorkspaceConnectionResolver(updated, secretStore))
+            EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) updated secretStore
 
             let result: SampleCreateResult =
                 { SqlitePath = files.SqlitePath
+                  Sqlite2Path = files.Sqlite2Path
                   CsvPath = files.CsvPath
+                  Csv2Path = files.Csv2Path
                   NotebookPath = files.NotebookPath
                   NotebookPtPath = files.NotebookPtPath
-                  RegisteredConnections = [ "SampleStore"; "SalesFeed" ] }
+                  RegisteredConnections = [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed" ] }
 
             { Id = request.Id
               Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))

@@ -1268,6 +1268,26 @@ let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or em
             Assert.True(res1.Error.IsNone, (match res1.Error with Some e -> e.Message | None -> ""))
             Assert.True(res1.Result.IsSome)
 
+            let r1 = res1.Result.Value
+            let sqlite1 = r1.GetProperty("sqlitePath").GetString()
+            let sqlite2 = r1.GetProperty("sqlite2Path").GetString()
+            let csv1 = r1.GetProperty("csvPath").GetString()
+            let csv2 = r1.GetProperty("csv2Path").GetString()
+            let nb1 = r1.GetProperty("notebookPath").GetString()
+            let nb2 = r1.GetProperty("notebookPtPath").GetString()
+            Assert.True(File.Exists sqlite1, $"sqlitePath should exist: {sqlite1}")
+            Assert.True(File.Exists sqlite2, $"sqlite2Path should exist: {sqlite2}")
+            Assert.True(File.Exists csv1, $"csvPath should exist: {csv1}")
+            Assert.True(File.Exists csv2, $"csv2Path should exist: {csv2}")
+            Assert.True(File.Exists nb1, $"notebookPath should exist: {nb1}")
+            Assert.True(File.Exists nb2, $"notebookPtPath should exist: {nb2}")
+
+            let regConns =
+                r1.GetProperty("registeredConnections").EnumerateArray()
+                |> Seq.map (fun el -> el.GetString())
+                |> Seq.toList
+            Assert.Equal<string list>([ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed" ], regConns)
+
             // Test 2: with targetDirectory
             let req2: WorkerRequestFrame =
                 { Id = "s2"
