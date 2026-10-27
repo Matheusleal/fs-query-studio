@@ -146,6 +146,96 @@ module CsvDelimiter =
         with _ ->
             ','
 
+/// Type inference helpers for CSV data sources.
+module CsvTypeInference =
+    let cleanSample (s: string) : string =
+        if isNull s then ""
+        else s.Trim().Trim('"', '\'')
+
+    let isSentinel (s: string) : bool =
+        if isNull s then false
+        else
+            let t = s.Trim().Trim('"', '\'')
+            String.Equals(t, "n/a", StringComparison.OrdinalIgnoreCase)
+            || t = "-"
+            || String.Equals(t, "null", StringComparison.OrdinalIgnoreCase)
+
+    let isEmpty (s: string) : bool =
+        if isNull s then true
+        else
+            let t = s.Trim().Trim('"', '\'')
+            String.IsNullOrEmpty t
+
+    let isMissingOrSentinel (s: string) : bool =
+        isEmpty s || isSentinel s
+
+    /// Infers an F# type from up to 200 sample string values.
+    /// When sentinel values ("N/A", "-", "null") are encountered,
+    /// or when a numeric/date/bool column contains empty values,
+    /// the type is converted to an option type (e.g. `decimal option`, `int option`, `string option`).
+    let inferType (samples: string seq) : string =
+        let sampleList = samples |> Seq.truncate 200 |> Seq.toList
+        let hasSentinel = sampleList |> List.exists isSentinel
+        let hasEmpty = sampleList |> List.exists isEmpty
+
+        let validValues =
+            sampleList
+            |> List.map cleanSample
+            |> List.filter (fun s -> not (isMissingOrSentinel s))
+
+        if List.isEmpty validValues then
+            if hasSentinel then "string option" else "string"
+        else
+            let baseType =
+                if validValues |> List.forall (fun s ->
+                    match Int32.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+                    | true, _ -> true | false, _ -> false) then
+                    "int"
+                elif validValues |> List.forall (fun s ->
+                    match Int64.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+                    | true, _ -> true | false, _ -> false) then
+                    "int64"
+                elif validValues |> List.forall (fun s ->
+                    let style = NumberStyles.Number ||| NumberStyles.AllowLeadingSign
+                    match Decimal.TryParse(s, style, CultureInfo.InvariantCulture) with
+                    | true, _ -> true
+                    | false, _ ->
+                        match Decimal.TryParse(s.Replace(",", "."), style, CultureInfo.InvariantCulture) with
+                        | true, _ -> true
+                        | false, _ -> false) then
+                    "decimal"
+                elif validValues |> List.forall (fun s ->
+                    let style = NumberStyles.Float ||| NumberStyles.AllowThousands
+                    match Double.TryParse(s, style, CultureInfo.InvariantCulture) with
+                    | true, _ -> true
+                    | false, _ ->
+                        match Double.TryParse(s.Replace(",", "."), style, CultureInfo.InvariantCulture) with
+                        | true, _ -> true
+                        | false, _ -> false) then
+                    "double"
+                elif validValues |> List.forall (fun s ->
+                    match Boolean.TryParse(s) with
+                    | true, _ -> true
+                    | false, _ ->
+                        let l = s.ToLowerInvariant()
+                        l = "true" || l = "false" || l = "1" || l = "0") then
+                    "bool"
+                elif validValues |> List.forall (fun s ->
+                    match DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None) with
+                    | true, _ -> true
+                    | false, _ ->
+                        match DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.None) with
+                        | true, _ -> true
+                        | false, _ -> false) then
+                    "System.DateTime"
+                else
+                    "string"
+
+            if hasSentinel || (hasEmpty && baseType <> "string") then
+                $"{baseType} option"
+            else
+                baseType
+
 /// CSV connector — Section 10. `filePath` names a local `.csv` file;
 /// `options` controls delimiter, encoding, and whether the first record
 /// is a header row. Automatically cleans surrounding quotes and auto-detects
@@ -218,15 +308,24 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
 
         member _.TestConnectionAsync(_ct: CancellationToken) : Task<bool> = Task.FromResult(File.Exists cleanPath)
 
-        /// A CSV file is one table named after the file itself, with
-        /// header-derived column names and a `string` `DataType` for
-        /// every column - the file's raw cell values are always text
-        /// until a script applies `CsvConversions`.
+        /// Discovers CSV schema by inspecting the header and inferring data types
+        /// across the first 200 rows. When "N/A", "-", or "null" sentinels are found,
+        /// the column is typed as an option type (e.g. `decimal option`, `string option`).
         member this.DiscoverSchemaAsync(_ct: CancellationToken) : Task<ConnectorTable list> =
-            let columns = this.ReadRows().Columns
+            let qr = this.ReadRows()
+            let rowsSample = qr.Rows |> Seq.truncate 200 |> Seq.toList
+            let columns = qr.Columns
+
+            let colsWithTypes =
+                columns
+                |> List.mapi (fun idx colName ->
+                    let samples = rowsSample |> Seq.map (fun r -> if idx < r.Length then string r.[idx] else "")
+                    let colType = CsvTypeInference.inferType samples
+                    { Name = colName; DataType = colType }: ConnectorColumn
+                )
 
             let table: ConnectorTable =
                 { Name = Path.GetFileNameWithoutExtension(cleanPath)
-                  Columns = columns |> List.map (fun name -> ({ Name = name; DataType = "string" }: ConnectorColumn)) }
+                  Columns = colsWithTypes }
 
             Task.FromResult [ table ]

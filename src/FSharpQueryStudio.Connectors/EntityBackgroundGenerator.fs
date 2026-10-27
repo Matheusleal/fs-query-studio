@@ -42,68 +42,12 @@ module EntityBackgroundGenerator =
         else
             $"``{s}``"
 
-    let cleanSample (s: string) : string =
-        if isNull s then ""
-        else s.Trim().Trim('"', '\'')
+    let cleanSample (s: string) : string = CsvTypeInference.cleanSample s
 
-    /// Infers an F# type from a collection of sample string values.
-    let inferType (samples: string seq) : string =
-        let nonEmpties =
-            samples
-            |> Seq.map cleanSample
-            |> Seq.filter (fun s -> s <> "")
-            |> Seq.truncate 100
-            |> Seq.toList
-
-        if List.isEmpty nonEmpties then
-            "string"
-        elif nonEmpties |> List.forall (fun s ->
-            match Int32.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture) with
-            | true, _ -> true | false, _ -> false) then
-            "int"
-        elif nonEmpties |> List.forall (fun s ->
-            match Int64.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture) with
-            | true, _ -> true | false, _ -> false) then
-            "int64"
-        elif nonEmpties |> List.forall (fun s ->
-            let style = NumberStyles.Number ||| NumberStyles.AllowLeadingSign
-            match Decimal.TryParse(s, style, CultureInfo.InvariantCulture) with
-            | true, _ -> true
-            | false, _ ->
-                match Decimal.TryParse(s.Replace(",", "."), style, CultureInfo.InvariantCulture) with
-                | true, _ -> true
-                | false, _ -> false) then
-            "decimal"
-        elif nonEmpties |> List.forall (fun s ->
-            let style = NumberStyles.Float ||| NumberStyles.AllowThousands
-            match Double.TryParse(s, style, CultureInfo.InvariantCulture) with
-            | true, _ -> true
-            | false, _ ->
-                match Double.TryParse(s.Replace(",", "."), style, CultureInfo.InvariantCulture) with
-                | true, _ -> true
-                | false, _ -> false) then
-            "double"
-        elif nonEmpties |> List.forall (fun s ->
-            match Boolean.TryParse(s) with
-            | true, _ -> true
-            | false, _ ->
-                let l = s.ToLowerInvariant()
-                l = "true" || l = "false" || l = "1" || l = "0") then
-            "bool"
-        elif nonEmpties |> List.forall (fun s ->
-            match DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None) with
-            | true, _ -> true
-            | false, _ ->
-                match DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.None) with
-                | true, _ -> true
-                | false, _ -> false) then
-            "System.DateTime"
-        elif nonEmpties |> List.forall (fun s ->
-            match Guid.TryParse(s) with
-            | true, _ -> true | false, _ -> false) then
-            "System.Guid"
-        else
-            "string"
+    /// Infers an F# type from a collection of sample string values (up to 200 rows).
+    /// When sentinel values ("N/A", "-", "null") or empty values in non-string columns are encountered,
+    /// the inferred type becomes an option type (e.g. `decimal option`, `int option`, `string option`).
+    let inferType (samples: string seq) : string = CsvTypeInference.inferType samples
 
     /// Sanitizes and deduplicates column headers so they form valid, unique F# record fields.
     let sanitizeColumns (cols: string list) : string list =
@@ -262,7 +206,7 @@ module EntityBackgroundGenerator =
                                 let moduleName = makeUniqueModuleName $"{cleanName}Csv"
                                 let propName = makeUniquePropName cleanName
                                 let qr = cc.ReadRows()
-                                let rowsSample = qr.Rows |> Seq.truncate 50 |> Seq.toList
+                                let rowsSample = qr.Rows |> Seq.truncate 200 |> Seq.toList
                                 let sanitizedCols = sanitizeColumns qr.Columns
 
                                 sb.AppendLine($"module {moduleName} =") |> ignore
@@ -293,8 +237,8 @@ module EntityBackgroundGenerator =
                                 sb.AppendLine($"module {moduleName} =") |> ignore
                                 for tbl in tables do
                                     let sheetClean = cleanIdentifier tbl.Name
-                                    let qr = ec.ReadRows(sheetName = tbl.Name, maxRows = 50)
-                                    let rowsSample = qr.Rows |> Seq.truncate 50 |> Seq.toList
+                                    let qr = ec.ReadRows(sheetName = tbl.Name, maxRows = 200)
+                                    let rowsSample = qr.Rows |> Seq.truncate 200 |> Seq.toList
                                     let sanitizedCols = sanitizeColumns qr.Columns
 
                                     sb.AppendLine($"    module {sheetClean} =") |> ignore

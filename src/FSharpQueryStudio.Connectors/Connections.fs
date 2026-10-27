@@ -60,9 +60,15 @@ module Connections =
             raw
         elif raw :? string then
             let rawStr = (raw :?> string).Trim().Trim('"', '\'')
+            let isSentinelOrEmpty =
+                String.IsNullOrEmpty rawStr
+                || String.Equals(rawStr, "n/a", StringComparison.OrdinalIgnoreCase)
+                || rawStr = "-"
+                || String.Equals(rawStr, "null", StringComparison.OrdinalIgnoreCase)
+
             if targetType = typeof<string> then
                 box rawStr
-            elif String.IsNullOrEmpty rawStr then
+            elif isSentinelOrEmpty then
                 null
             elif targetType = typeof<decimal> then
                 let clean = rawStr
@@ -229,7 +235,18 @@ module Connections =
                                     let cases = FSharpType.GetUnionCases(propType)
                                     let noneCase = cases |> Array.find (fun c -> c.Name = "None")
                                     let someCase = cases |> Array.find (fun c -> c.Name = "Some")
-                                    if isNullVal then
+                                    let isOptionNone =
+                                        isNullVal
+                                        || (match raw with
+                                            | :? string as s ->
+                                                let t = s.Trim().Trim('"', '\'')
+                                                String.IsNullOrEmpty t
+                                                || String.Equals(t, "n/a", StringComparison.OrdinalIgnoreCase)
+                                                || t = "-"
+                                                || String.Equals(t, "null", StringComparison.OrdinalIgnoreCase)
+                                            | _ -> false)
+
+                                    if isOptionNone then
                                         args.[i] <- FSharpValue.MakeUnion(noneCase, [||])
                                     else
                                         let innerType = propType.GetGenericArguments().[0]

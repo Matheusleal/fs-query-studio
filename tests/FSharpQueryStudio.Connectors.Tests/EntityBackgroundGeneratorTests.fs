@@ -31,8 +31,24 @@ let ``inferType infers decimal for values with dot or comma decimal parts and ha
     // DateTime
     Assert.Equal("System.DateTime", EntityBackgroundGenerator.inferType [ "2026-10-27"; "2026-10-28T12:00:00Z" ])
 
-    // Mixed text fallback to string
-    Assert.Equal("string", EntityBackgroundGenerator.inferType [ "355272835.53"; "N/A" ])
+    // Sentinel values N/A, -, null trigger option types
+    Assert.Equal("decimal option", EntityBackgroundGenerator.inferType [ "355272835.53"; "N/A" ])
+    Assert.Equal("decimal option", EntityBackgroundGenerator.inferType [ "100.50"; "-" ])
+    Assert.Equal("int option", EntityBackgroundGenerator.inferType [ "1"; "null"; "42" ])
+    Assert.Equal("string option", EntityBackgroundGenerator.inferType [ "Alice"; "N/A"; "Bob" ])
+    Assert.Equal("string option", EntityBackgroundGenerator.inferType [ "Alice"; "-"; "Bob" ])
+    Assert.Equal("string option", EntityBackgroundGenerator.inferType [ "Alice"; "null"; "Bob" ])
+
+    // Non-sentinel mixed text fallback to regular string
+    Assert.Equal("string", EntityBackgroundGenerator.inferType [ "355272835.53"; "TextoInvalido" ])
+
+    // 200 rows sampling: sentinel at row 150 triggers option
+    let rows200WithSentinel = [ for i in 1 .. 200 -> if i = 150 then "N/A" else "100.50" ]
+    Assert.Equal("decimal option", EntityBackgroundGenerator.inferType rows200WithSentinel)
+
+    // 200 rows sampling: clean 200 rows has no option
+    let rows200Clean = [ for _ in 1 .. 200 -> "100.50" ]
+    Assert.Equal("decimal", EntityBackgroundGenerator.inferType rows200Clean)
 
 [<Fact>]
 let ``sanitizeColumns removes empty column names and deduplicates identical headers`` () =

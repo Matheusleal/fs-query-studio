@@ -190,3 +190,28 @@ let ``CsvConnector trims surrounding quotes from Windows copy-as-path`` () =
     Assert.Equal<string list>([ "Id"; "Name" ], result.Columns)
     let rows = result.Rows |> Seq.toList
     Assert.Equal<obj list>([ box "1"; box "Product" ], rows.[0] |> Array.toList)
+
+[<Fact>]
+let ``DiscoverSchemaAsync infers column types and wraps in option when N/A, -, or null is found`` () =
+    task {
+        let content =
+            "Id,Amount,Discount,Status,Notes\n" +
+            "1,100.50,10.00,Active,First note\n" +
+            "2,200.00,N/A,Active,-\n" +
+            "3,300.00,-,Pending,null\n"
+        let path = tempCsvFile Encoding.UTF8 content
+        let connector = CsvConnector(path) :> IConnector
+
+        let! tables = connector.DiscoverSchemaAsync(CancellationToken.None)
+        let table = tables |> List.exactlyOne
+
+        let colTypes = table.Columns |> List.map (fun c -> (c.Name, c.DataType))
+        Assert.Equal<(string * string) list>(
+            [ ("Id", "int")
+              ("Amount", "decimal")
+              ("Discount", "decimal option")
+              ("Status", "string")
+              ("Notes", "string option") ],
+            colTypes
+        )
+    }
