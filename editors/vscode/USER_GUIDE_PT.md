@@ -89,7 +89,7 @@ Clique no botão **`Create Sample Data`** (`$(database)`) no cabeçalho do paine
    - `OrderItems` (`Id`, `OrderId`, `ProductId`, `Quantity`, `UnitPrice`)
 2. **`sales_feed.csv`**: Arquivo CSV de vendas com 10 transações reais:
    - `TransactionId`, `Date`, `StoreCity`, `Category`, `Product`, `Quantity`, `UnitPrice`, `Total`
-3. **`sample_demo.fsqnb`**: Notebook interativo executável, pré-configurado com exemplos de LINQ, Joins, consultas em CSV e SQL tradicional.
+3. **`sample_demo_pt.fsqnb` e `sample_demo.fsqnb`**: Notebooks interativos executáveis com formatação rica, tabelas comparativas, atalhos de teclado e exemplos completos de LINQ, Joins relacionais, agregações analíticas (`sumBy`, `groupBy`), consultas em CSV e SQL tradicional.
 4. As conexões `SampleStore` e `SalesFeed` são registradas no seu workspace e os tipos de entidades são mapeados automaticamente em segundo plano!
 
 ---

@@ -331,26 +331,33 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
           sqlitePath: string;
           csvPath: string;
           notebookPath: string;
+          notebookPtPath?: string;
         };
 
         log(
-          `[Workspace] Sample data created successfully: SQLite=${data.sqlitePath}, CSV=${data.csvPath}, Notebook=${data.notebookPath}`,
+          `[Workspace] Sample data created successfully: SQLite=${data.sqlitePath}, CSV=${data.csvPath}, Notebook=${data.notebookPath}, NotebookPt=${data.notebookPtPath}`,
         );
 
         await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
 
+        const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+        const targetNotebook =
+          isPt && data.notebookPtPath ? data.notebookPtPath : data.notebookPath;
+
         try {
           const doc = await vscode.workspace.openNotebookDocument(
-            vscode.Uri.file(data.notebookPath),
+            vscode.Uri.file(targetNotebook),
           );
           await vscode.window.showNotebookDocument(doc);
         } catch {
           // ignore error if notebook viewer fails to open immediately
         }
 
-        void vscode.window.showInformationMessage(
-          "Sample SQLite database ('sample_store.db'), CSV ('sales_feed.csv'), and interactive notebook ('sample_demo.fsqnb') created successfully!",
-        );
+        const successMsg = isPt
+          ? "Banco de dados SQLite ('sample_store.db'), CSV ('sales_feed.csv') e notebooks interativos ('sample_demo_pt.fsqnb', 'sample_demo.fsqnb') criados com sucesso!"
+          : "Sample SQLite database ('sample_store.db'), CSV ('sales_feed.csv'), and interactive notebooks ('sample_demo.fsqnb', 'sample_demo_pt.fsqnb') created successfully!";
+
+        void vscode.window.showInformationMessage(successMsg);
       } catch (err) {
         const msg = (err as Error).message;
         log(`[Workspace] Error creating sample data: ${msg}`);
