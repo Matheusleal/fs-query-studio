@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <IsPackable>false</IsPackable>
@@ -15,6 +15,7 @@
     <Compile Include="CsvExportTests.fs" />
     <Compile Include="ConnectorCallLoggingTests.fs" />
     <Compile Include="WorkspaceConnectionResolverTests.fs" />
+    <Compile Include="EntityBackgroundGeneratorTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

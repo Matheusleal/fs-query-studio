@@ -1,6 +1,7 @@
 namespace FSharpQueryStudio.Connectors
 
 open System
+open System.Globalization
 open System.Diagnostics
 open System.Threading
 open System.Threading.Tasks
@@ -52,6 +53,147 @@ module Connections =
 
     let private mapperCache = ConcurrentDictionary<Type * string, obj array -> obj>()
 
+    let private convertValue (raw: obj) (targetType: Type) : obj =
+        if isNull raw || Convert.IsDBNull(raw) then
+            null
+        elif targetType.IsInstanceOfType(raw) then
+            raw
+        elif raw :? string then
+            let rawStr = (raw :?> string).Trim().Trim('"', '\'')
+            if targetType = typeof<string> then
+                box rawStr
+            elif String.IsNullOrEmpty rawStr then
+                null
+            elif targetType = typeof<decimal> then
+                let clean = rawStr
+                let parsed =
+                    if clean.Contains(",") && not (clean.Contains(".")) then
+                        let normalized = clean.Replace(",", ".")
+                        match Decimal.TryParse(normalized, NumberStyles.AllowDecimalPoint ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                        | true, v -> Some v | false, _ -> None
+                    elif clean.Contains(".") && not (clean.Contains(",")) then
+                        match Decimal.TryParse(clean, NumberStyles.AllowDecimalPoint ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                        | true, v -> Some v | false, _ -> None
+                    elif clean.Contains(",") && clean.Contains(".") then
+                        let lastComma = clean.LastIndexOf(',')
+                        let lastDot = clean.LastIndexOf('.')
+                        let normalized =
+                            if lastDot > lastComma then clean.Replace(",", "")
+                            else clean.Replace(".", "").Replace(",", ".")
+                        match Decimal.TryParse(normalized, NumberStyles.AllowDecimalPoint ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                        | true, v -> Some v | false, _ -> None
+                    else
+                        match Decimal.TryParse(clean, NumberStyles.Integer ||| NumberStyles.AllowLeadingSign ||| NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture) with
+                        | true, v -> Some v
+                        | false, _ ->
+                            match Decimal.TryParse(clean, NumberStyles.Number, CultureInfo.CurrentCulture) with
+                            | true, v -> Some v | false, _ -> None
+
+                match parsed with
+                | Some v -> box v
+                | None -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+
+            elif targetType = typeof<double> || targetType = typeof<float> then
+                let clean = rawStr
+                let parsed =
+                    if clean.Contains(",") && not (clean.Contains(".")) then
+                        let normalized = clean.Replace(",", ".")
+                        match Double.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                        | true, v -> Some v | false, _ -> None
+                    elif clean.Contains(".") && not (clean.Contains(",")) then
+                        match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                        | true, v -> Some v | false, _ -> None
+                    elif clean.Contains(",") && clean.Contains(".") then
+                        let lastComma = clean.LastIndexOf(',')
+                        let lastDot = clean.LastIndexOf('.')
+                        let normalized =
+                            if lastDot > lastComma then clean.Replace(",", "")
+                            else clean.Replace(".", "").Replace(",", ".")
+                        match Double.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                        | true, v -> Some v | false, _ -> None
+                    else
+                        match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                        | true, v -> Some v
+                        | false, _ ->
+                            match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands, CultureInfo.CurrentCulture) with
+                            | true, v -> Some v | false, _ -> None
+
+                match parsed with
+                | Some v -> box v
+                | None -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+
+            elif targetType = typeof<single> then
+                let clean = rawStr
+                let parsed =
+                    if clean.Contains(",") && not (clean.Contains(".")) then
+                        let normalized = clean.Replace(",", ".")
+                        match Single.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                        | true, v -> Some v | false, _ -> None
+                    elif clean.Contains(".") && not (clean.Contains(",")) then
+                        match Single.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                        | true, v -> Some v | false, _ -> None
+                    elif clean.Contains(",") && clean.Contains(".") then
+                        let lastComma = clean.LastIndexOf(',')
+                        let lastDot = clean.LastIndexOf('.')
+                        let normalized =
+                            if lastDot > lastComma then clean.Replace(",", "")
+                            else clean.Replace(".", "").Replace(",", ".")
+                        match Single.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                        | true, v -> Some v | false, _ -> None
+                    else
+                        match Single.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                        | true, v -> Some v
+                        | false, _ ->
+                            match Single.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands, CultureInfo.CurrentCulture) with
+                            | true, v -> Some v | false, _ -> None
+
+                match parsed with
+                | Some v -> box v
+                | None -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+            elif targetType = typeof<int> then
+                match Int32.TryParse(rawStr, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+                | true, v -> box v
+                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+            elif targetType = typeof<int64> then
+                match Int64.TryParse(rawStr, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+                | true, v -> box v
+                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+            elif targetType = typeof<int16> then
+                match Int16.TryParse(rawStr, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+                | true, v -> box v
+                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+            elif targetType = typeof<bool> then
+                match Boolean.TryParse(rawStr) with
+                | true, v -> box v
+                | false, _ ->
+                    let l = rawStr.ToLowerInvariant()
+                    if l = "1" || l = "true" || l = "t" || l = "yes" || l = "y" then box true
+                    elif l = "0" || l = "false" || l = "f" || l = "no" || l = "n" then box false
+                    else Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+            elif targetType = typeof<DateTime> then
+                match DateTime.TryParse(rawStr, CultureInfo.InvariantCulture, DateTimeStyles.None) with
+                | true, v -> box v
+                | false, _ ->
+                    match DateTime.TryParse(rawStr, CultureInfo.CurrentCulture, DateTimeStyles.None) with
+                    | true, v -> box v
+                    | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+            elif targetType = typeof<Guid> then
+                match Guid.TryParse(rawStr) with
+                | true, v -> box v
+                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+            else
+                Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+        else
+            if targetType = typeof<decimal> then
+                match raw with
+                | :? double as d -> box (Convert.ToDecimal(d, CultureInfo.InvariantCulture))
+                | :? single as f -> box (Convert.ToDecimal(f, CultureInfo.InvariantCulture))
+                | :? int as i -> box (decimal i)
+                | :? int64 as i64 -> box (decimal i64)
+                | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+            else
+                Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+
     let getMapper<'T> (columns: string list) : (obj array -> 'T) =
         let targetType = typeof<'T>
         let key = (targetType, String.concat "," columns)
@@ -91,22 +233,21 @@ module Connections =
                                         args.[i] <- FSharpValue.MakeUnion(noneCase, [||])
                                     else
                                         let innerType = propType.GetGenericArguments().[0]
-                                        let converted =
-                                            if innerType.IsInstanceOfType(raw) then raw
-                                            else Convert.ChangeType(raw, innerType)
-                                        args.[i] <- FSharpValue.MakeUnion(someCase, [| converted |])
+                                        let converted = convertValue raw innerType
+                                        if isNull converted then
+                                            args.[i] <- FSharpValue.MakeUnion(noneCase, [||])
+                                        else
+                                            args.[i] <- FSharpValue.MakeUnion(someCase, [| converted |])
                                 else
                                     if isNullVal then
                                         args.[i] <- null
-                                    elif propType.IsInstanceOfType(raw) then
-                                        args.[i] <- raw
                                     else
-                                        args.[i] <- Convert.ChangeType(raw, propType)
+                                        args.[i] <- convertValue raw propType
                             ctor args
                     else
                         fun (row: obj array) ->
                             if row.Length > 0 && not (isNull row.[0]) && not (Convert.IsDBNull(row.[0])) then
-                                Convert.ChangeType(row.[0], targetType)
+                                convertValue row.[0] targetType
                             else
                                 null
                 )
@@ -475,6 +616,7 @@ module Connections =
 
     /// Represents an active REST/JSON connection with typed queries.
     type RestConnection(name: string, connector: RestConnector) =
+        member _.Name = name
         member _.Items<'T>(?options: RestRequestOptions) : 'T seq = queryJsonWithOptions<'T> name options
         member this.Queryable<'T>(?options: RestRequestOptions) : IQueryable<'T> = (this.Items<'T>(?options = options)).AsQueryable()
         member _.SendAsync(options: RestRequestOptions, ?ct: CancellationToken) : Task<JsonElement> =
