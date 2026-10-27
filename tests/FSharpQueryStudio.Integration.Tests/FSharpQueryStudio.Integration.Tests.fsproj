@@ -16,6 +16,7 @@
     <Compile Include="LocalDatabaseIntegrationTests.fs" />
     <Compile Include="ConnectionsRegressionTests.fs" />
     <Compile Include="NotebookExecutionTests.fs" />
+    <Compile Include="BenchmarkRegressionTests.fs" />
   </ItemGroup>
 
   <ItemGroup>
