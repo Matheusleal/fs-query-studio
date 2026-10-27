@@ -1249,3 +1249,44 @@ let ``connection/schema reads {password} from the store configured via configure
             Handlers.configureSecretStore (FSharpQueryStudio.Security.InMemorySecretStore())
             Directory.Delete(tmp, true)
     }
+
+[<Fact>]
+let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or empty params`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-sample-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+
+            // Test 1: with targetDir (what VS Code extension sends)
+            let escapedTmp = tmp.Replace("\\", "\\\\")
+            let req1: WorkerRequestFrame =
+                { Id = "s1"
+                  Method = "workspace/createSampleData"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+            let! res1 = Handlers.dispatch req1
+            Assert.True(res1.Error.IsNone, (match res1.Error with Some e -> e.Message | None -> ""))
+            Assert.True(res1.Result.IsSome)
+
+            // Test 2: with targetDirectory
+            let req2: WorkerRequestFrame =
+                { Id = "s2"
+                  Method = "workspace/createSampleData"
+                  Params = JsonDocument.Parse($"""{{"targetDirectory": "{escapedTmp}"}}""").RootElement }
+            let! res2 = Handlers.dispatch req2
+            Assert.True(res2.Error.IsNone, (match res2.Error with Some e -> e.Message | None -> ""))
+
+            // Test 3: with empty params {}
+            let req3: WorkerRequestFrame =
+                { Id = "s3"
+                  Method = "workspace/createSampleData"
+                  Params = JsonDocument.Parse("{}").RootElement }
+            let! res3 = Handlers.dispatch req3
+            Assert.True(res3.Error.IsNone, (match res3.Error with Some e -> e.Message | None -> ""))
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+            try
+                if Directory.Exists tmp then Directory.Delete(tmp, true)
+            with _ -> ()
+    }

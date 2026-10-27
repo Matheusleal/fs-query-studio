@@ -622,11 +622,27 @@ module Handlers =
 
     let handleCreateSampleData (request: WorkerRequestFrame) : WorkerResponseFrame =
         try
-            let p = JsonSerializer.Deserialize<SampleCreateParams>(request.Params, Serialization.options)
             let dir =
-                p.TargetDirectory
-                |> Option.orElse p.TargetDir
+                let tryGetProp (name: string) =
+                    try
+                        if request.Params.ValueKind = JsonValueKind.Object then
+                            let mutable prop = Unchecked.defaultof<JsonElement>
+                            if request.Params.TryGetProperty(name, &prop) && prop.ValueKind = JsonValueKind.String then
+                                let v = prop.GetString()
+                                if String.IsNullOrWhiteSpace v then None else Some v
+                            else
+                                None
+                        else
+                            None
+                    with _ ->
+                        None
+
+                tryGetProp "targetDir"
+                |> Option.orElse (tryGetProp "targetDirectory")
+                |> Option.orElse (tryGetProp "TargetDir")
+                |> Option.orElse (tryGetProp "TargetDirectory")
                 |> Option.defaultValue (workspaceDir ())
+
             let files = SampleDataGenerator.generateAllSamples dir
 
             let sqliteDef: ConnectionDefinition =
