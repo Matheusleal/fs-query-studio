@@ -2,6 +2,11 @@
 // the extension actually touches is implemented; extend as later tasks need.
 type Disposable = { dispose: () => void };
 
+export enum StatusBarAlignment {
+  Left = 1,
+  Right = 2,
+}
+
 export const window = {
   createOutputChannel(_name: string) {
     const lines: string[] = [];
@@ -9,6 +14,16 @@ export const window = {
       lines,
       appendLine: (line: string) => lines.push(line),
       show: () => {},
+      dispose: () => {},
+    };
+  },
+  createStatusBarItem(_alignment?: number, _priority?: number) {
+    return {
+      command: undefined as string | undefined,
+      text: "",
+      tooltip: "" as string | undefined,
+      show: () => {},
+      hide: () => {},
       dispose: () => {},
     };
   },

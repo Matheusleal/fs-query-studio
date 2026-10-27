@@ -397,6 +397,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     },
   );
 
+  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusBar.command = "fs-query-studio.showOutput";
+  statusBar.text = "$(database) F# Query Studio";
+  statusBar.tooltip = "F# Query Studio: Show Output Logs";
+  statusBar.show();
+
   context.subscriptions.push(
     command,
     notebookSerializer,
@@ -411,6 +417,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     languageFeatures,
     connections.disposable,
     outputChannel,
+    statusBar,
   );
 
   return { connections: connections.api };
