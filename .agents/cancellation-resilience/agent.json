@@ -1,4 +1,0 @@
-{
-  "name": "cancellation-resilience",
-  "description": "Subagente especialista em cancelamento cooperativo no Worker e FSI, propagação de CancellationToken para consultas ADO.NET e prevenção de encerramento forçado do processo."
-}

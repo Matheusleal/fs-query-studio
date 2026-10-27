@@ -63,7 +63,13 @@ module FsiSession =
             )
 
         let appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
-        let generatedFile = Path.Combine(appData, "FSharpQueryStudio", "generated", "GeneratedEntities.fs")
+        let localGenerated = Path.Combine(workingDirectory, "generated", "GeneratedEntities.fs")
+        let globalGenerated = Path.Combine(appData, "FSharpQueryStudio", "generated", "GeneratedEntities.fs")
+        let generatedFile =
+            if File.Exists localGenerated then localGenerated
+            elif File.Exists globalGenerated then globalGenerated
+            else localGenerated
+
         let generatedLoad =
             if File.Exists generatedFile then
                 $"#load @\"{generatedFile}\"\nopen FSharpQueryStudio.Generated\n"

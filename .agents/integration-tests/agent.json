@@ -1,4 +1,0 @@
-{
-  "name": "integration-tests",
-  "description": "Subagente especialista em testes de integração locais cobrindo SQLite (arquivo local), PostgreSQL e SQL Server (via containers Docker Testcontainers)."
-}

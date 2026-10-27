@@ -11,7 +11,7 @@
       <DataCollector friendlyName="blame" enabled="True">
         <Configuration>
           <CollectDump DumpType="Mini" />
-          <CollectDumpOnTestSessionHang TestTimeout="45s" HangDumpType="Mini" />
+          <CollectDumpOnTestSessionHang TestTimeout="120s" HangDumpType="Mini" />
         </Configuration>
       </DataCollector>
     </DataCollectors>

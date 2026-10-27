@@ -289,24 +289,36 @@ module EntityBackgroundGenerator =
                             sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.DatabaseConnection with") |> ignore
                             for (propName, modName) in List.rev dbExtensions do
                                 sb.AppendLine($"        member this.{propName} = {modName}.Database(this)") |> ignore
+                            if dbExtensions.Length = 1 then
+                                let (_, singleModName) = dbExtensions.[0]
+                                sb.AppendLine($"        member this.asEntities = {singleModName}.Database(this)") |> ignore
                             sb.AppendLine() |> ignore
 
                         if not (List.isEmpty csvExtensions) then
                             sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.CsvConnection with") |> ignore
                             for (propName, modName) in List.rev csvExtensions do
                                 sb.AppendLine($"        member this.{propName} = {modName}.Data(this)") |> ignore
+                            if csvExtensions.Length = 1 then
+                                let (_, singleModName) = csvExtensions.[0]
+                                sb.AppendLine($"        member this.asEntities = {singleModName}.Data(this)") |> ignore
                             sb.AppendLine() |> ignore
 
                         if not (List.isEmpty excelExtensions) then
                             sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.ExcelConnection with") |> ignore
                             for (propName, modName) in List.rev excelExtensions do
                                 sb.AppendLine($"        member this.{propName} = {modName}.Data(this)") |> ignore
+                            if excelExtensions.Length = 1 then
+                                let (_, singleModName) = excelExtensions.[0]
+                                sb.AppendLine($"        member this.asEntities = {singleModName}.Data(this)") |> ignore
                             sb.AppendLine() |> ignore
 
                         if not (List.isEmpty restExtensions) then
                             sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.RestConnection with") |> ignore
                             for (propName, modName) in List.rev restExtensions do
                                 sb.AppendLine($"        member this.{propName} = {modName}.Data(this)") |> ignore
+                            if restExtensions.Length = 1 then
+                                let (_, singleModName) = restExtensions.[0]
+                                sb.AppendLine($"        member this.asEntities = {singleModName}.Data(this)") |> ignore
                             sb.AppendLine() |> ignore
 
                         let targetDir = generatedDir workspaceDir
@@ -329,15 +341,27 @@ module EntityBackgroundGenerator =
                 return false
         }
 
+    let mutable private currentGenerationTask: Task = Task.CompletedTask
+    let private taskLock = obj()
+
     /// Triggers generation asynchronously in a background thread without blocking callers.
     let triggerBackgroundGeneration
         (workspaceDir: string)
         (connections: ConnectionDefinition list)
         (secretStore: ISecretStore)
         : unit =
-        Task.Run(fun () ->
-            generateForConnectionsAsync workspaceDir connections secretStore :> Task
-        ) |> ignore
+        lock taskLock (fun () ->
+            let t = Task.Run(fun () ->
+                generateForConnectionsAsync workspaceDir connections secretStore :> Task
+            )
+            currentGenerationTask <- t
+        )
+
+    /// Waits for any in-flight background generation task to complete. Useful for tests and cleanups.
+    let waitForPendingGeneration () : unit =
+        try
+            currentGenerationTask.Wait()
+        with _ -> ()
 
     /// Ensures generated entities exist, generating synchronously on first access or refreshing in background.
     let ensureGenerated

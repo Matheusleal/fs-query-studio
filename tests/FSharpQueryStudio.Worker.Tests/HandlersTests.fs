@@ -763,6 +763,14 @@ let private testConnection (name: string) : ConnectionDefinition =
       SecretReference = None
       IsTrusted = false }
 
+let private cleanTempDir (tempDir: string) =
+    try
+        Handlers.waitForPendingGeneration()
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+        if Directory.Exists tempDir then
+            Directory.Delete(tempDir, true)
+    with _ -> ()
+
 [<Fact>]
 let ``dispatch on connection/register persists the connection to workspace.json under the configured workspace directory`` () =
     task {
@@ -781,9 +789,7 @@ let ``dispatch on connection/register persists the connection to workspace.json 
             Assert.Contains(persisted, fun c -> c.Name = "TestConn")
         finally
             Handlers.setWorkspaceDirForTests None
-
-            if Directory.Exists tempDir then
-                Directory.Delete(tempDir, true)
+            cleanTempDir tempDir
     }
 
 [<Fact>]
@@ -804,9 +810,7 @@ let ``dispatch on connection/register replacing an existing connection keeps onl
             Assert.Equal("Renamed", persisted.[0].Name)
         finally
             Handlers.setWorkspaceDirForTests None
-
-            if Directory.Exists tempDir then
-                Directory.Delete(tempDir, true)
+            cleanTempDir tempDir
     }
 
 let private removeConnectionRequest (id: string) (connectionId: Guid) : WorkerRequestFrame =
@@ -835,9 +839,7 @@ let ``dispatch on connection/remove drops the connection from workspace.json`` (
             Assert.Empty(Workspace.readConnections tempDir)
         finally
             Handlers.setWorkspaceDirForTests None
-
-            if Directory.Exists tempDir then
-                Directory.Delete(tempDir, true)
+            cleanTempDir tempDir
     }
 
 [<Fact>]
@@ -859,9 +861,7 @@ let ``dispatch on connection/remove preserves every other registered connection`
             Assert.Equal("Keep", persisted.[0].Name)
         finally
             Handlers.setWorkspaceDirForTests None
-
-            if Directory.Exists tempDir then
-                Directory.Delete(tempDir, true)
+            cleanTempDir tempDir
     }
 
 let private schemaRequest (id: string) (connectionId: Guid) : WorkerRequestFrame =
@@ -909,10 +909,7 @@ let ``dispatch on connection/schema discovers real tables and columns for a regi
             Assert.Equal<string list>([ "Id"; "Total" ], columns)
         finally
             Handlers.setWorkspaceDirForTests None
-            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
-
-            if Directory.Exists tempDir then
-                Directory.Delete(tempDir, true)
+            cleanTempDir tempDir
     }
 
 [<Fact>]
@@ -928,9 +925,7 @@ let ``dispatch on connection/schema returns a structured error for an unregister
             Assert.True(response.Error.IsSome)
         finally
             Handlers.setWorkspaceDirForTests None
-
-            if Directory.Exists tempDir then
-                Directory.Delete(tempDir, true)
+            cleanTempDir tempDir
     }
 
 [<Fact>]

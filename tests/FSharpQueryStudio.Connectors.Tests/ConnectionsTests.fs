@@ -233,6 +233,7 @@ let ``Connections.get and Connections.connect return DatabaseConnection exposing
     Assert.Contains("Id: int", entitiesCode)
     Assert.Contains("Name: string", entitiesCode)
     Assert.Contains("type Database", entitiesCode)
+    Assert.Contains("member _.Orders", entitiesCode)
 
     let sqlProviderCode = conn.GenerateSqlProvider()
     Assert.Contains("SqlDataProvider<", sqlProviderCode)

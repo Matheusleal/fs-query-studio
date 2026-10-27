@@ -1,4 +1,0 @@
-{
-  "name": "vscode-lang-features",
-  "description": "Subagente especialista na extensão VS Code do F# Query Studio, integração de inteligência F# (DefinitionProvider, RenameProvider) e contratos TypeScript com o Worker."
-}

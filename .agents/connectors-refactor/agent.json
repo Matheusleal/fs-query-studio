@@ -1,4 +1,0 @@
-{
-  "name": "connectors-refactor",
-  "description": "Subagente especialista na refatoração arquitetural de conectores, desacoplamento de interfaces, ciclo de vida de conexões SQL/HTTP e telemetria uniforme."
-}

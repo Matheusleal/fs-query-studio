@@ -409,6 +409,15 @@ module Connections =
             sb.AppendLine($"        new(connName: string) = Database(FSharpQueryStudio.Connectors.Connections.connect(connName))") |> ignore
             sb.AppendLine($"        new() = Database(\"{name}\")") |> ignore
             for (schema, tbls) in schemaGroups do
+                if schema = "public" || schema = "dbo" || schema = "main" then
+                    for t in tbls do
+                        let rawTableName =
+                            let dotIdx = t.Name.IndexOf(".")
+                            if dotIdx > 0 then t.Name.Substring(dotIdx + 1) else t.Name
+                        let propName = escapeIdent rawTableName
+                        let colList = t.Columns |> List.map (fun c -> c.Name) |> String.concat ", "
+                        let sqlQuery = $"SELECT {colList} FROM {t.Name}"
+                        sb.AppendLine($"        member _.{propName} : System.Linq.IQueryable<{escapeIdent schema}.{propName}> = conn.Queryable<{escapeIdent schema}.{propName}>(\"{sqlQuery}\")") |> ignore
                 sb.AppendLine($"        member _.{escapeIdent schema} =") |> ignore
                 sb.AppendLine("            {|") |> ignore
                 for t in tbls do

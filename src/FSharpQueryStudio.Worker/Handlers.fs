@@ -70,6 +70,9 @@ module Handlers =
         workspaceDirOverride <- dir
         FSharpQueryStudio.Fsac.Prologue.setWorkspaceDirForTests dir
 
+    let waitForPendingGeneration () : unit =
+        EntityBackgroundGenerator.waitForPendingGeneration()
+
     /// The secret store the worker's connection resolver reads `{password}`
     /// tokens from. The default `InMemorySecretStore` serves a standalone
     /// `dotnet run` of the worker and any test that never calls
