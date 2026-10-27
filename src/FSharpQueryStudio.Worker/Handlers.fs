@@ -738,16 +738,9 @@ module Handlers =
             let _ = Workspace.registerConnection dir csvDef
             let updatedInDir = Workspace.registerConnection dir csv2Def
 
-            let _ = Workspace.registerConnection (workspaceDir ()) sqliteDef
-            let _ = Workspace.registerConnection (workspaceDir ()) sqlite2Def
-            let _ = Workspace.registerConnection (workspaceDir ()) csvDef
-            let updatedGlobal = Workspace.registerConnection (workspaceDir ()) csv2Def
-
             Connections.configure (WorkspaceConnectionResolver(updatedInDir, secretStore))
             try
                 (EntityBackgroundGenerator.generateForConnectionsAsync dir updatedInDir secretStore).GetAwaiter().GetResult() |> ignore
-                if dir <> (workspaceDir ()) then
-                    (EntityBackgroundGenerator.generateForConnectionsAsync (workspaceDir ()) updatedGlobal secretStore).GetAwaiter().GetResult() |> ignore
             with ex ->
                 Log.Warning("FS Query Studio: Entity generation after sample creation failed: {Error}", ex.Message)
 
