@@ -30,6 +30,14 @@ describe("buildAnalysisInput", () => {
     expect(r.column).toBe(4);
   });
 
+  it("when no cells have executed yet, includes preceding document code cells in prefix", () => {
+    const c1 = cell("c1", "let store = 42");
+    const c2 = cell("c2", "store + 1");
+    const r = buildAnalysisInput([c1, c2], c2);
+    expect(r.source).toBe("let store = 42\nstore + 1");
+    expect(r.cellLineOffset).toBe(1);
+  });
+
   it("prepends executed fsharp code cells, newline-joined, and offsets the position", () => {
     const a = cell("a", "let a = 1\nlet b = 2", { executionOrder: 1 });
     const t = cell("t", "a + b");

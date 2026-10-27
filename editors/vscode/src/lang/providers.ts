@@ -154,7 +154,11 @@ function mapSourceRangeToCell(
   return { uri: start.uri, range: new vscode.Range(start.position, end.position) };
 }
 
-export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Disposable {
+export interface LanguageFeaturesDisposable extends vscode.Disposable {
+  refreshNotebook: (notebook: vscode.NotebookDocument) => void;
+}
+
+export function registerLanguageFeatures(deps: LanguageFeaturesDeps): LanguageFeaturesDisposable {
   const completion = vscode.languages.registerCompletionItemProvider(
     FSHARP_CELL_SELECTOR,
     {
@@ -365,15 +369,29 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
       manager.onCellClosed(doc.uri.toString());
     }
   });
+  const refreshNotebook = (notebook: vscode.NotebookDocument) => {
+    for (const cell of notebook.getCells()) {
+      if (cell.kind === vscode.NotebookCellKind.Code && cell.document.languageId === "fsharp") {
+        manager.onCellChanged(cell.document.uri.toString());
+      }
+    }
+  };
+
   const onNotebookChange = vscode.workspace.onDidChangeNotebookDocument((e) => {
     for (const change of e.contentChanges ?? []) {
       for (const cell of change.removedCells ?? []) {
         manager.onCellClosed(cell.document.uri.toString());
       }
     }
+    const hasExecutionChange = e.cellChanges?.some(
+      (c) => c.executionSummary !== undefined,
+    );
+    if (hasExecutionChange) {
+      refreshNotebook(e.notebook);
+    }
   });
 
-  return vscode.Disposable.from(
+  const disposable = vscode.Disposable.from(
     completion,
     connectionNameCompletion,
     hover,
@@ -388,4 +406,8 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
     onClose,
     onNotebookChange,
   );
+
+  return Object.assign(disposable, {
+    refreshNotebook,
+  });
 }

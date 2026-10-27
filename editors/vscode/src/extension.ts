@@ -160,26 +160,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     new FsqnbSerializer(),
   );
 
-  const controller = createFsQueryController({
-    getWorker,
-    log,
-  });
-
-  const rendererMessaging = vscode.notebooks.createRendererMessaging(FSQUERY_RENDERER_ID);
-  const rendererHost = registerRendererHost({
-    messaging: rendererMessaging,
-    getWorker,
-    pickSaveFile: async (defaultName, documentUri) => {
-      const picked = await vscode.window.showSaveDialog({
-        defaultUri: vscode.Uri.joinPath(vscode.Uri.parse(documentUri), "..", defaultName),
-        filters: { CSV: ["csv"] },
-        saveLabel: "Export",
-      });
-      return picked?.fsPath;
-    },
-    log,
-  });
-
   // Registered before language features so its `api.list` can feed
   // `Connections.sql "…"` name completion.
   const connections = registerConnectionFeatures({
@@ -200,6 +180,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     },
     listConnectionNames: async () =>
       (await connections.api.list()).map((c) => c.name),
+  });
+
+  const controller = createFsQueryController({
+    getWorker,
+    log,
+    onCellExecuted: (cell) => languageFeatures.refreshNotebook(cell.notebook),
+  });
+
+  const rendererMessaging = vscode.notebooks.createRendererMessaging(FSQUERY_RENDERER_ID);
+  const rendererHost = registerRendererHost({
+    messaging: rendererMessaging,
+    getWorker,
+    pickSaveFile: async (defaultName, documentUri) => {
+      const picked = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.joinPath(vscode.Uri.parse(documentUri), "..", defaultName),
+        filters: { CSV: ["csv"] },
+        saveLabel: "Export",
+      });
+      return picked?.fsPath;
+    },
+    log,
   });
 
   const showOutputCommand = vscode.commands.registerCommand(

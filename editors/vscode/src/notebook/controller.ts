@@ -29,6 +29,7 @@ export interface ControllerDeps {
    */
   getWorker: () => Promise<WorkerLike>;
   log: (line: string) => void;
+  onCellExecuted?: (cell: vscode.NotebookCell) => void;
 }
 
 function toOutputItem(spec: OutputItemSpec): vscode.NotebookCellOutputItem {
@@ -158,6 +159,7 @@ export function createFsQueryController(deps: ControllerDeps): vscode.NotebookCo
 
         const isError = !envelope || readUnionTag(envelope.kind) === "Error";
         exec.end(!isError, Date.now());
+        deps.onCellExecuted?.(cell);
         if (isError) {
           break;
         }
