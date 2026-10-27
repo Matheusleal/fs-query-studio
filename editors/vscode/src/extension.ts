@@ -293,7 +293,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
         const res = await worker.send({
           id: randomUUID(),
           method: "workspace/createSampleData",
-          params: { targetDir },
+          params: { targetDir, targetDirectory: targetDir },
         });
 
         if (res.error) {

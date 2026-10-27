@@ -12,5 +12,9 @@ module Serialization =
         let o = JsonSerializerOptions()
         o.PropertyNamingPolicy <- JsonNamingPolicy.CamelCase
         o.PropertyNameCaseInsensitive <- true
-        o.Converters.Add(JsonFSharpConverter())
+        let fsOptions =
+            JsonFSharpOptions.Default()
+                .WithSkippableOptionFields()
+                .WithAllowNullFields()
+        o.Converters.Add(JsonFSharpConverter(fsOptions))
         o
