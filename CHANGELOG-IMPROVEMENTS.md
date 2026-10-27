@@ -19,6 +19,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 | **ITEM-08** | Ativação de Provedores Go-to-Definition e Rename no VS Code | `vscode-lang-features` | 🟢 Concluído |
 | **ITEM-09** | Descoberta Multi-Schema e Consultas LINQ com Type Provider | `schema-discovery`, `linq-type-provider`, `integration-tests` | 🟢 Concluído |
 | **ITEM-10** | Documentação Bilíngue, Gerador de Dados de Exemplo e Links Oficiais | `docs-and-samples` | 🟢 Concluído |
+| **ITEM-11** | Sanitização de Senhas em Connection Strings, Documentação de Connections e Syntax Highlighting LINQ | `syntax-and-connection-fix` | 🟢 Concluído |
 
 ---
 
@@ -177,5 +178,22 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
   - Adicionado endpoint `workspace/createSampleData` em `Handlers.fs` e comando `fs-query-studio.createSampleData` na extensão VS Code.
   - Atualizado `openDocsCommand` para selecionar automaticamente o idioma apropriado (`pt` ou `en`).
   - Escritos `USER_GUIDE.md` (EN) e `USER_GUIDE_PT.md` (PT) com exemplos completos e links oficiais.
+
+---
+
+### [ITEM-11] Sanitização de Senhas em Connection Strings, Documentação de Connections e Syntax Highlighting LINQ
+- **Subagente**: `syntax-and-connection-fix`
+- **Status**: 🟢 Concluído
+- **Objetivos**:
+  - **Correção e Sanitização de Connection String (PostgreSQL & SQL Server)**:
+    - Permitir que o usuário informe connection string sem `{password}` e digite a senha no prompt (adicionando automaticamente `;Password={password};` e injetando a senha via `DbConnectionStringBuilder` e URI resolver).
+    - Permitir que o usuário cole a connection string com `Password=...` ou `postgresql://user:pwd@...` diretamente no prompt de conexão: a extensão agora extrai a senha, a armazena de forma criptografada no `SecretStorage` do VS Code e higieniza a string com `{password}` sem persistir credenciais em texto puro no disco.
+    - Suporte a substituição de `{password}` case-insensitive (`{Password}`, `{PASSWORD}`).
+  - **Documentação de Funções do Módulo Connections**:
+    - Adicionada documentação XML detalhada com `<summary>`, `<param>`, `<returns>` e `<example>` para todas as funções públicas do módulo `Connections` (`connect`, `sql`, `csv`, `excel`, `rest`, `query`, `queryCsv`, `queryExcel`, `queryJson`, etc.).
+    - Criada a seção dedicada **"Connections Module API Reference"** em `USER_GUIDE.md` e `USER_GUIDE_PT.md` detalhando todas as funções, assinaturas e métodos dos objetos de conexão.
+  - **Realce de Sintaxe para Palavras-Chave de Consulta LINQ**:
+    - Adicionada gramática de injeção TextMate (`fsharp.query.injection` em `syntaxes/fsharp-query.tmLanguage.json`) e provedor semântico (`FSharpQuerySemanticTokensProvider`) para destacar palavras reservadas de query expressions (`select`, `where`, `join`, `on`, `equals`, `into`, `groupBy`, `sortBy`, `distinct`, `count`, etc.) com as cores de palavras-chave de controle em qualquer tema.
+
 
 

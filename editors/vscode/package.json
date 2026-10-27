@@ -197,6 +197,13 @@
         "requiresMessaging": "optional",
         "mimeTypes": ["application/x-fsquery-table+json"]
       }
+    ],
+    "grammars": [
+      {
+        "scopeName": "fsharp.query.injection",
+        "path": "./syntaxes/fsharp-query.tmLanguage.json",
+        "injectTo": ["source.fsharp"]
+      }
     ]
   },
   "scripts": {

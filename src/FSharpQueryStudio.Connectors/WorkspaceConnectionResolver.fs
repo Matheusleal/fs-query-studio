@@ -1,6 +1,9 @@
 namespace FSharpQueryStudio.Connectors
 
+open System
 open System.Text.Json
+open System.Text.RegularExpressions
+open System.Data.Common
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Security
 
@@ -28,8 +31,32 @@ module ConnectionStringSecrets =
         | None -> template
         | Some reference ->
             match secretStore.TryRead reference with
-            | Some secret -> template.Replace("{password}", secret)
-            | None -> template
+            | Some secret when not (String.IsNullOrEmpty secret) ->
+                if template.IndexOf("{password}", StringComparison.OrdinalIgnoreCase) >= 0 then
+                    Regex.Replace(template, "\{password\}", secret, RegexOptions.IgnoreCase)
+                elif template.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) || template.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase) then
+                    try
+                        let uri = Uri(template)
+                        let userInfo = uri.UserInfo
+                        if String.IsNullOrEmpty userInfo then
+                            template
+                        elif userInfo.Contains(":") then
+                            let user = userInfo.Substring(0, userInfo.IndexOf(':'))
+                            template.Replace($"{userInfo}@", $"{user}:{Uri.EscapeDataString(secret)}@")
+                        else
+                            template.Replace($"{userInfo}@", $"{userInfo}:{Uri.EscapeDataString(secret)}@")
+                    with _ ->
+                        template
+                else
+                    try
+                        let builder = DbConnectionStringBuilder()
+                        builder.ConnectionString <- template
+                        builder["Password"] <- secret
+                        builder.ConnectionString
+                    with _ ->
+                        let trimmed = template.TrimEnd(';')
+                        $"{trimmed};Password={secret}"
+            | _ -> template
 
 /// Builds a live `IConnector` from a registered `ConnectionDefinition` —
 /// Section 13's workspace connection registry, the real implementation

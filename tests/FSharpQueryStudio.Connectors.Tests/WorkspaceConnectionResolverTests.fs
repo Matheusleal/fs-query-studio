@@ -41,6 +41,36 @@ let ``ConnectionStringSecrets.resolve returns the template unchanged when the re
     Assert.Equal("Server=.;Password={password};", result)
 
 [<Fact>]
+let ``ConnectionStringSecrets.resolve substitutes case-insensitive {Password} token`` () =
+    let store = InMemorySecretStore()
+    (store :> ISecretStore).Save "ref1" "s3cret"
+
+    let result =
+        ConnectionStringSecrets.resolve store (Some "ref1") "Host=localhost;Database=mydb;Password={Password};"
+
+    Assert.Equal("Host=localhost;Database=mydb;Password=s3cret;", result)
+
+[<Fact>]
+let ``ConnectionStringSecrets.resolve injects Password when no placeholder is present`` () =
+    let store = InMemorySecretStore()
+    (store :> ISecretStore).Save "ref1" "s3cret"
+
+    let result =
+        ConnectionStringSecrets.resolve store (Some "ref1") "Host=localhost;Database=mydb;Username=postgres"
+
+    Assert.Contains("Password=s3cret", result)
+
+[<Fact>]
+let ``ConnectionStringSecrets.resolve injects password in postgresql URI format`` () =
+    let store = InMemorySecretStore()
+    (store :> ISecretStore).Save "ref1" "s3cret"
+
+    let result =
+        ConnectionStringSecrets.resolve store (Some "ref1") "postgresql://postgres@localhost:5432/mydb"
+
+    Assert.Equal("postgresql://postgres:s3cret@localhost:5432/mydb", result)
+
+[<Fact>]
 let ``resolves a registered SQLite connection to a real, correctly-kinded SqliteConnector`` () =
     let path = Path.Combine(Path.GetTempPath(), "fqs-resolver-" + Guid.NewGuid().ToString("N") + ".db")
 

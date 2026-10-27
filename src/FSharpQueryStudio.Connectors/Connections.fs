@@ -135,17 +135,31 @@ module Connections =
             )
         }
 
+    /// <summary>
     /// Resolves the raw ADO.NET connection string for a named SQL connection
-    /// (e.g. for use with SQLProvider: SqlDataProvider<...>).
+    /// (e.g. for use with SQLProvider: SqlDataProvider&lt;...&gt;).
+    /// </summary>
+    /// <param name="name">The registered connection name.</param>
+    /// <returns>The raw connection string with any stored credentials resolved.</returns>
     let getConnectionString (name: string) : string =
         match resolve name with
         | :? IQueryableConnector as c -> c.ConnectionString
         | other -> unsupported name "Connections.getConnectionString" other
 
-    /// Runs a parameterized SQL query against a named SQLite/SQL Server/
-    /// PostgreSQL connection. `parameters` are always bound through the
-    /// underlying connector's own ADO.NET parameter API — never
-    /// concatenated into `sqlText`, and never logged (Section 15).
+    /// <summary>
+    /// Runs a parameterized SQL query against a registered database (PostgreSQL, SQL Server, SQLite, MySQL).
+    /// Parameters are bound via native ADO.NET parameter APIs, protecting against SQL injection.
+    /// Returns a tabular result that renders automatically in the interactive grid.
+    /// </summary>
+    /// <param name="name">The registered database connection name.</param>
+    /// <param name="sqlText">The SQL query string with parameter placeholders (e.g. @status or $1).</param>
+    /// <param name="parameters">List of parameter name and value tuples: [ "paramName", box value ].</param>
+    /// <returns>A ConnectorQueryResult displayed in the interactive grid.</returns>
+    /// <example>
+    /// <code>
+    /// Connections.sql "SampleStore" "SELECT * FROM Products WHERE UnitPrice > @min" [ "min", box 50.0M ]
+    /// </code>
+    /// </example>
     let sql (name: string) (sqlText: string) (parameters: (string * obj) list) : ConnectorQueryResult =
         match resolve name with
         | :? IQueryableConnector as c ->
@@ -154,7 +168,11 @@ module Connections =
             { result with Rows = logOnceDrained c.Kind stopwatch result.Rows }
         | other -> unsupported name "Connections.sql" other
 
-    /// Reads a named CSV connection's rows.
+    /// <summary>
+    /// Reads all rows from a registered CSV file connection as a tabular result.
+    /// </summary>
+    /// <param name="name">The registered CSV connection name.</param>
+    /// <returns>A ConnectorQueryResult displayed in the interactive grid.</returns>
     let csv (name: string) : ConnectorQueryResult =
         match resolve name with
         | :? CsvConnector as c ->
@@ -163,7 +181,12 @@ module Connections =
             { result with Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows }
         | other -> unsupported name "Connections.csv" other
 
-    /// Reads a named Excel connection's rows, bounded to `maxRows`.
+    /// <summary>
+    /// Reads rows from a registered Excel (.xlsx) connection, optionally bounded to maxRows.
+    /// </summary>
+    /// <param name="name">The registered Excel connection name.</param>
+    /// <param name="maxRows">Optional upper bound on the number of rows to read.</param>
+    /// <returns>A ConnectorQueryResult displayed in the interactive grid.</returns>
     let excel (name: string) (maxRows: int option) : ConnectorQueryResult =
         match resolve name with
         | :? ExcelConnector as c ->
@@ -172,13 +195,26 @@ module Connections =
             { result with Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows }
         | other -> unsupported name "Connections.excel" other
 
-    /// Sends a configured request through a named REST/JSON connection.
+    /// <summary>
+    /// Sends an HTTP request through a registered REST/JSON connection.
+    /// </summary>
+    /// <param name="name">The registered REST connection name.</param>
+    /// <param name="options">Request options specifying HTTP method, headers, query parameters, and body.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>A Task returning the parsed JsonElement response.</returns>
     let rest (name: string) (options: RestRequestOptions) (ct: CancellationToken) : Task<JsonElement> =
         match resolve name with
         | :? RestConnector as c -> c.SendAsync options ct
         | other -> unsupported name "Connections.rest" other
 
-    /// Runs a query and streams strongly-typed records/primitives with high performance.
+    /// <summary>
+    /// Executes a SQL query and maps the resulting rows directly to a sequence of strongly-typed F# records or primitive types.
+    /// </summary>
+    /// <typeparam name="'T">The target F# record type whose field names match query columns.</typeparam>
+    /// <param name="name">The registered database connection name.</param>
+    /// <param name="sqlText">The parameterized SQL query.</param>
+    /// <param name="parameters">List of parameter tuples: [ "paramName", box value ].</param>
+    /// <returns>A sequence of strongly-typed records of type 'T.</returns>
     let query<'T> (name: string) (sqlText: string) (parameters: (string * obj) list) : 'T seq =
         let r = sql name sqlText parameters
         let mapper = getMapper<'T> r.Columns
@@ -187,7 +223,12 @@ module Connections =
                 yield mapper row
         }
 
-    /// Reads CSV rows into strongly-typed records/primitives with high performance.
+    /// <summary>
+    /// Reads CSV rows and maps each record directly to a sequence of strongly-typed F# records.
+    /// </summary>
+    /// <typeparam name="'T">The target F# record type whose field names match CSV headers.</typeparam>
+    /// <param name="name">The registered CSV connection name.</param>
+    /// <returns>A sequence of strongly-typed records of type 'T.</returns>
     let queryCsv<'T> (name: string) : 'T seq =
         let r = csv name
         let mapper = getMapper<'T> r.Columns
@@ -196,7 +237,13 @@ module Connections =
                 yield mapper row
         }
 
-    /// Reads Excel rows into strongly-typed records/primitives with high performance.
+    /// <summary>
+    /// Reads Excel rows and maps each row directly to a sequence of strongly-typed F# records.
+    /// </summary>
+    /// <typeparam name="'T">The target F# record type whose field names match column headers.</typeparam>
+    /// <param name="name">The registered Excel connection name.</param>
+    /// <param name="maxRows">Optional maximum number of rows to read.</param>
+    /// <returns>A sequence of strongly-typed records of type 'T.</returns>
     let queryExcel<'T> (name: string) (maxRows: int option) : 'T seq =
         let r = excel name maxRows
         let mapper = getMapper<'T> r.Columns
@@ -205,7 +252,14 @@ module Connections =
                 yield mapper row
         }
 
-    /// Reads Excel rows from a specific sheet into strongly-typed records/primitives with high performance.
+    /// <summary>
+    /// Reads rows from a specific Excel sheet and maps them to strongly-typed F# records.
+    /// </summary>
+    /// <typeparam name="'T">The target F# record type.</typeparam>
+    /// <param name="name">The registered Excel connection name.</param>
+    /// <param name="sheetName">Optional sheet name (defaults to the first worksheet).</param>
+    /// <param name="maxRows">Optional maximum number of rows.</param>
+    /// <returns>A sequence of strongly-typed records of type 'T.</returns>
     let queryExcelSheet<'T> (name: string) (sheetName: string option) (maxRows: int option) : 'T seq =
         match resolve name with
         | :? ExcelConnector as c ->
@@ -219,7 +273,9 @@ module Connections =
             }
         | other -> unsupported name "Connections.queryExcelSheet" other
 
-    /// Sends a request or reads from a REST/JSON connection into strongly-typed records.
+    /// <summary>
+    /// Sends a request to a REST/JSON connection and deserializes JSON into strongly-typed records.
+    /// </summary>
     let queryJsonWithOptions<'T> (name: string) (options: RestRequestOptions option) : 'T seq =
         match resolve name with
         | :? RestConnector as c ->
@@ -243,7 +299,9 @@ module Connections =
             items :> 'T seq
         | other -> unsupported name "Connections.queryJson" other
 
+    /// <summary>
     /// Sends a request with default options or reads from a REST/JSON connection into strongly-typed records.
+    /// </summary>
     let queryJson<'T> (name: string) : 'T seq =
         queryJsonWithOptions<'T> name None
 
@@ -408,28 +466,65 @@ module Connections =
             let token = defaultArg ct CancellationToken.None
             connector.SendAsync options token
 
-    /// Retrieves a first-class connection object exposing Query, Queryable, Execute, Schema and Tables.
+    /// <summary>
+    /// Retrieves a first-class database connection object exposing Query, Queryable, Execute, Schema and Tables.
+    /// </summary>
+    /// <param name="name">The registered database connection name.</param>
+    /// <returns>A DatabaseConnection instance.</returns>
     let get (name: string) : DatabaseConnection =
         match resolve name with
         | :? IQueryableConnector as qc -> DatabaseConnection(name, qc)
         | other -> unsupported name "Connections.get" other
 
-    /// Alias for `Connections.get`.
+    /// <summary>
+    /// Connects to a registered database connection (PostgreSQL, SQL Server, MySQL, SQLite).
+    /// Returns a DatabaseConnection supporting `.asEntities`, `.Execute`, `.Query<'T>`, and `.Queryable<'T>`.
+    /// </summary>
+    /// <param name="name">The registered database connection name (with contextual autocomplete).</param>
+    /// <returns>A DatabaseConnection object ready for LINQ or raw SQL.</returns>
+    /// <example>
+    /// <code>
+    /// let conn = Connections.connect "SampleStore"
+    /// let db = conn.asEntities
+    /// query { for p in db.Products do select (p.Name, p.UnitPrice) }
+    /// </code>
+    /// </example>
     let connect (name: string) : DatabaseConnection = get name
 
-    /// Retrieves a first-class CSV connection object.
+    /// <summary>
+    /// Connects to a registered CSV file connection and returns an active CsvConnection.
+    /// Supports `.asEntities`, `.Rows<'T>()`, `.Queryable<'T>()`, and `.Raw()`.
+    /// </summary>
+    /// <param name="name">The registered CSV connection name (with contextual autocomplete).</param>
+    /// <returns>A CsvConnection instance.</returns>
+    /// <example>
+    /// <code>
+    /// let sales = (Connections.connectCsv "SalesFeed").asEntities
+    /// query { for r in sales.Rows do select r }
+    /// </code>
+    /// </example>
     let connectCsv (name: string) : CsvConnection =
         match resolve name with
         | :? CsvConnector as c -> CsvConnection(name, c)
         | other -> unsupported name "Connections.connectCsv" other
 
-    /// Retrieves a first-class Excel connection object.
+    /// <summary>
+    /// Connects to a registered Excel (.xlsx) file connection and returns an active ExcelConnection.
+    /// Supports `.asEntities`, `.Rows<'T>()`, `.Sheet<'T>()`, `.Queryable<'T>()`, and `.Raw()`.
+    /// </summary>
+    /// <param name="name">The registered Excel connection name (with contextual autocomplete).</param>
+    /// <returns>An ExcelConnection instance.</returns>
     let connectExcel (name: string) : ExcelConnection =
         match resolve name with
         | :? ExcelConnector as c -> ExcelConnection(name, c)
         | other -> unsupported name "Connections.connectExcel" other
 
-    /// Retrieves a first-class REST/JSON connection object.
+    /// <summary>
+    /// Connects to a registered REST/JSON API connection and returns an active RestConnection.
+    /// Supports `.asEntities`, `.Items<'T>()`, `.Queryable<'T>()`, and `.SendAsync()`.
+    /// </summary>
+    /// <param name="name">The registered REST connection name (with contextual autocomplete).</param>
+    /// <returns>A RestConnection instance.</returns>
     let connectRest (name: string) : RestConnection =
         match resolve name with
         | :? RestConnector as c -> RestConnection(name, c)

@@ -17,6 +17,10 @@ import {
 } from "./analysis-client";
 import { DiagnosticsManager } from "./diagnostics";
 import { registerConnectionNameCompletion } from "./connection-name-completion";
+import {
+  FSharpQuerySemanticTokensProvider,
+  querySemanticTokensLegend,
+} from "./semantic-tokens";
 
 export const FSHARP_CELL_SELECTOR = {
   language: "fsharp",
@@ -327,6 +331,12 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
     listConnectionNames: deps.listConnectionNames,
   });
 
+  const semanticTokens = vscode.languages.registerDocumentSemanticTokensProvider(
+    FSHARP_CELL_SELECTOR,
+    new FSharpQuerySemanticTokensProvider(),
+    querySemanticTokensLegend,
+  );
+
   const collection = vscode.languages.createDiagnosticCollection(DIAGNOSTIC_SOURCE);
   const manager = new DiagnosticsManager({
     getWorker: deps.getWorker,
@@ -370,6 +380,7 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
     signature,
     definition,
     rename,
+    semanticTokens,
     collection,
     { dispose: () => manager.dispose() },
     onChange,

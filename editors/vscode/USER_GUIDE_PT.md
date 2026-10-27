@@ -246,7 +246,43 @@ Todos os parâmetros utilizam binding nativo de ADO.NET, protegendo contra inje�
 
 ---
 
-## 8. Grid Interativo de Resultados
+## 8. Referência da API do Módulo Connections
+
+O módulo `Connections` fornece a interface programática principal dentro dos seus notebooks:
+
+### Gerenciamento de Conexões
+| Função | Assinatura | Descrição |
+|---|---|---|
+| `Connections.connect` | `string -> DatabaseConnection` | Conecta a um banco relacional SQL (PostgreSQL, SQL Server, MySQL, SQLite). |
+| `Connections.connectCsv` | `string -> CsvConnection` | Conecta a um arquivo CSV registrado. |
+| `Connections.connectExcel` | `string -> ExcelConnection` | Conecta a uma planilha Excel (.xlsx) registrada. |
+| `Connections.connectRest` | `string -> RestConnection` | Conecta a um endpoint de API REST/JSON. |
+| `Connections.getConnectionString` | `string -> string` | Retorna a connection string resolvida com as credenciais seguras injetadas. |
+
+### Execução de Consultas
+| Função | Assinatura | Descrição |
+|---|---|---|
+| `Connections.sql` | `string -> string -> (string * obj) list -> ConnectorQueryResult` | Executa SQL bruto parametrizado e exibe o resultado no grid visual interativo. |
+| `Connections.query<'T>` | `string -> string -> (string * obj) list -> 'T seq` | Executa SQL e mapeia as linhas diretamente para uma sequência de registros tipados `'T seq`. |
+| `Connections.csv` | `string -> ConnectorQueryResult` | Lê linhas de arquivo CSV e renderiza no grid. |
+| `Connections.queryCsv<'T>` | `string -> 'T seq` | Mapeia linhas do CSV diretamente para registros fortemente tipados `'T seq`. |
+| `Connections.excel` | `string -> int option -> ConnectorQueryResult` | Lê linhas de planilha Excel com limite opcional. |
+| `Connections.queryExcel<'T>` | `string -> int option -> 'T seq` | Mapeia linhas do Excel diretamente para registros `'T seq`. |
+| `Connections.queryExcelSheet<'T>` | `string -> string option -> int option -> 'T seq` | Lê uma aba específica do Excel para registros `'T seq`. |
+| `Connections.queryJson<'T>` | `string -> 'T seq` | Desserializa listas ou objetos JSON em registros fortemente tipados `'T seq`. |
+| `Connections.rest` | `string -> RestRequestOptions -> CancellationToken -> Task<JsonElement>` | Dispara uma requisição HTTP customizada para uma API REST registrada. |
+
+### Métodos e Propriedades dos Objetos de Conexão
+- **`conn.asEntities`**: Acessa o contexto tipado com todos os schemas e tabelas para uso com expressões LINQ `query { ... }`.
+- **`conn.Execute(sqlText, [params])`**: Executa uma query e retorna `ConnectorQueryResult` para o grid.
+- **`conn.Query<'T>(sqlText, [params])`**: Executa uma query retornando sequência tipada `'T seq`.
+- **`conn.Queryable<'T>(sqlText, [params])`**: Retorna um `IQueryable<'T>` para composição em LINQ.
+- **`conn.Tables`**: Retorna `string list` com todos os nomes de tabelas e views descobertas.
+- **`conn.Schema`**: Retorna `ConnectorTable list` com nomes e tipos de colunas do banco.
+
+---
+
+## 9. Grid Interativo de Resultados
 
 Qualquer expressão que retornar dados tabulares ou coleções é renderizada em um **grid visual interativo**:
 
@@ -257,18 +293,21 @@ Qualquer expressão que retornar dados tabulares ou coleções é renderizada em
 
 ---
 
-## 9. Recursos de Linguagem e Go to Definition (F12)
+## 10. Recursos de Linguagem, Syntax Highlighting e Go to Definition (F12)
 
-O F# Query Studio executa um backend de linguagem dedicado integrado ao **F# Compiler Service**:
+O F# Query Studio executa inteligência de código e realce de sintaxe completo para expressões de consulta F#:
 
+- **Coloração Especial de Palavras Reservadas (Syntax Highlighting)**:
+  - Palavras-chave de consultas LINQ como `query`, `for`, `in`, `do`, `select`, `where`, `join`, `on`, `equals`, `into`, `groupBy`, `sortBy`, `distinct`, `count`, `sumBy`, `take`, `skip` são destacadas com as cores de palavras-chave de controle do seu tema.
+  - Provido nativamente tanto por injeção de gramática TextMate (`fsharp.query.injection`) quanto pelo provedor semântico (`FSharpQuerySemanticTokensProvider`).
 - **Go to Definition (`F12`)**: Pressione `F12` em qualquer símbolo (`Connections.connect`, `.asEntities`, campos tipados como `p.UnitPrice`, ou funções auxiliares). O editor salta diretamente para a linha de definição.
-- **Hover / Tooltips**: Passe o cursor sobre variáveis e métodos para ver assinaturas e documentação de tipos.
+- **Hover / Tooltips**: Passe o cursor sobre variáveis e métodos para ver assinaturas e documentação XML detalhada de tipos.
 - **Diagnósticos em Tempo Real**: Erros de sintaxe ou tipo são sublinhados antes da execução da célula.
 - **Renomeação (`F2`)**: Renomeie variáveis e símbolos de forma consistente em todo o notebook.
 
 ---
 
-## 10. Ciclo de Vida do Notebook e Sessão FSI
+## 11. Ciclo de Vida do Notebook e Sessão FSI
 
 - **Estado Compartilhado**: Todas as células em um arquivo `.fsqnb` compartilham a mesma sessão interativa FSI.
 - **Cancelamento**: Interrompa consultas longas a qualquer momento pelo botão de parada (⏹).
@@ -276,8 +315,10 @@ O F# Query Studio executa um backend de linguagem dedicado integrado ao **F# Com
 
 ---
 
-## 11. Diagnóstico e Solução de Problemas
+## 12. Diagnóstico e Solução de Problemas
 
+- **Conectando no PostgreSQL?**
+  Você pode informar tanto o formato chave-valor (`Host=localhost;Database=mydb;Username=postgres`) quanto o formato URI (`postgresql://postgres@localhost:5432/mydb`). Caso a senha seja informada na connection string ou na caixa de diálogo de senha, a extensão extrai a senha automaticamente, armazena no cofre criptografado do sistema (`SecretStorage` do VS Code) e a substitui por `{password}`, garantindo total segurança e funcionamento transparente.
 - **O worker não inicializa?**
   Execute `F# Query Studio: Check Worker` no Command Palette (`Ctrl+Shift+P`). Ele verifica se o .NET 10 SDK está presente e emite mensagens claras de correção.
 - **Novas tabelas não aparecem no autocomplete?**

@@ -77,4 +77,44 @@ describe("buildConnectionDefinition", () => {
     expect(definition.secretReference).toMatch(/^fqs-conn-[0-9a-f]{32}$/);
     expect(secret).toBe("new");
   });
+
+  it("automatically appends Password={password} when password is typed without placeholder", () => {
+    const { definition, secret, secretReference } = buildConnectionDefinition({
+      kind: "PostgreSql",
+      name: "pg",
+      connectionString: "Host=localhost;Database=mydb;Username=postgres",
+      password: "mysecretpassword",
+    });
+    expect(definition.configuration).toEqual({
+      connectionString: "Host=localhost;Database=mydb;Username=postgres;Password={password};",
+    });
+    expect(secret).toBe("mysecretpassword");
+    expect(secretReference).toMatch(/^fqs-conn-[0-9a-f]{32}$/);
+  });
+
+  it("extracts plaintext password from connection string and secures it in secret storage", () => {
+    const { definition, secret, secretReference } = buildConnectionDefinition({
+      kind: "PostgreSql",
+      name: "pg",
+      connectionString: "Host=localhost;Database=mydb;Username=postgres;Password=supersecret;",
+    });
+    expect(definition.configuration).toEqual({
+      connectionString: "Host=localhost;Database=mydb;Username=postgres;Password={password};",
+    });
+    expect(secret).toBe("supersecret");
+    expect(secretReference).toMatch(/^fqs-conn-[0-9a-f]{32}$/);
+  });
+
+  it("extracts plaintext password from postgresql URI format and sanitizes it", () => {
+    const { definition, secret, secretReference } = buildConnectionDefinition({
+      kind: "PostgreSql",
+      name: "pg",
+      connectionString: "postgresql://postgres:myuripassword@localhost:5432/mydb",
+    });
+    expect(definition.configuration).toEqual({
+      connectionString: "postgresql://postgres:{password}@localhost:5432/mydb",
+    });
+    expect(secret).toBe("myuripassword");
+    expect(secretReference).toMatch(/^fqs-conn-[0-9a-f]{32}$/);
+  });
 });

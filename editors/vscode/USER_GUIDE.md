@@ -247,7 +247,43 @@ All parameters use native ADO.NET parameter binding, safeguarding against SQL in
 
 ---
 
-## 8. Interactive Results Grid
+## 8. Connections Module API Reference
+
+The `Connections` module provides the core programmatic interface inside your notebooks:
+
+### Connection Management
+| Function | Signature | Description |
+|---|---|---|
+| `Connections.connect` | `string -> DatabaseConnection` | Connects to a registered SQL database (PostgreSQL, SQL Server, MySQL, SQLite). |
+| `Connections.connectCsv` | `string -> CsvConnection` | Connects to a registered CSV file. |
+| `Connections.connectExcel` | `string -> ExcelConnection` | Connects to a registered Excel (.xlsx) file. |
+| `Connections.connectRest` | `string -> RestConnection` | Connects to a registered REST/JSON endpoint. |
+| `Connections.getConnectionString` | `string -> string` | Returns the resolved connection string with stored credentials injected. |
+
+### Query Execution
+| Function | Signature | Description |
+|---|---|---|
+| `Connections.sql` | `string -> string -> (string * obj) list -> ConnectorQueryResult` | Executes parameterized raw SQL and renders results in the interactive grid. |
+| `Connections.query<'T>` | `string -> string -> (string * obj) list -> 'T seq` | Executes raw SQL and maps rows directly to strongly-typed record sequence `'T seq`. |
+| `Connections.csv` | `string -> ConnectorQueryResult` | Reads raw CSV rows rendered in the grid. |
+| `Connections.queryCsv<'T>` | `string -> 'T seq` | Streams CSV rows mapped to strongly-typed records `'T seq`. |
+| `Connections.excel` | `string -> int option -> ConnectorQueryResult` | Reads raw Excel rows with optional row limit. |
+| `Connections.queryExcel<'T>` | `string -> int option -> 'T seq` | Streams Excel rows mapped to strongly-typed records `'T seq`. |
+| `Connections.queryExcelSheet<'T>` | `string -> string option -> int option -> 'T seq` | Streams rows from a specific Excel sheet mapped to records `'T seq`. |
+| `Connections.queryJson<'T>` | `string -> 'T seq` | Deserializes JSON arrays or objects into strongly-typed records `'T seq`. |
+| `Connections.rest` | `string -> RestRequestOptions -> CancellationToken -> Task<JsonElement>` | Sends an asynchronous custom HTTP request to a REST API connection. |
+
+### Connection Objects & Properties
+- **`conn.asEntities`**: Returns the strongly-typed schema and table context for LINQ `query { ... }` expressions.
+- **`conn.Execute(sqlText, [params])`**: Executes a query and returns a `ConnectorQueryResult` for the visual grid.
+- **`conn.Query<'T>(sqlText, [params])`**: Executes a query and maps directly to `'T seq`.
+- **`conn.Queryable<'T>(sqlText, [params])`**: Returns an `IQueryable<'T>` for query composition.
+- **`conn.Tables`**: Returns a `string list` of all discovered tables and views.
+- **`conn.Schema`**: Returns a `ConnectorTable list` with full column names and data types.
+
+---
+
+## 9. Interactive Results Grid
 
 Any expression returning tabular data or collections renders as an **interactive, rich data grid**:
 
@@ -258,18 +294,21 @@ Any expression returning tabular data or collections renders as an **interactive
 
 ---
 
-## 9. Language Features & Go to Definition (F12)
+## 10. Language Features, Syntax Highlighting & Go to Definition (F12)
 
-F# Query Studio runs an in-memory language server backed by the **F# Compiler Service**:
+F# Query Studio includes language intelligence and full syntax highlighting for F# query expressions:
 
+- **Syntax Highlighting for Query Expressions**:
+  - Keywords such as `query`, `for`, `in`, `do`, `select`, `where`, `join`, `on`, `equals`, `into`, `groupBy`, `sortBy`, `distinct`, `count`, `sumBy`, `take`, `skip` are highlighted in dedicated keyword colors (matching your editor theme's control keywords).
+  - Powered by both TextMate grammar injection (`fsharp.query.injection`) and VS Code's `DocumentSemanticTokensProvider`.
 - **Go to Definition (`F12`)**: Press `F12` on any symbol (`Connections.connect`, `.asEntities`, generated record fields like `p.UnitPrice`, or your own helper functions). The editor jumps directly to the source definition.
-- **Hover / Tooltips**: Hover over variables and methods to view type signatures and documentation.
+- **Hover / Tooltips**: Hover over variables, functions, and properties to view comprehensive XML documentation and type signatures.
 - **Diagnostics**: Syntax and semantic errors are highlighted in real time before running the cell.
 - **Renaming (`F2`)**: Rename identifiers across all cells in your active notebook.
 
 ---
 
-## 10. Notebook Lifecycle & FSI Session Management
+## 11. Notebook Lifecycle & FSI Session Management
 
 - **Shared State**: All cells in an `.fsqnb` file share the same live F# Interactive session. Values declared in earlier cells are immediately accessible in subsequent cells.
 - **Cancellation**: Stop long-running queries anytime using the Stop button (⏹) on the cell toolbar.
@@ -277,8 +316,10 @@ F# Query Studio runs an in-memory language server backed by the **F# Compiler Se
 
 ---
 
-## 11. Troubleshooting & Diagnostics
+## 12. Troubleshooting & Diagnostics
 
+- **Connecting to PostgreSQL?**
+  You can input standard ADO.NET connection strings (`Host=localhost;Database=mydb;Username=postgres`) or URI format (`postgresql://postgres@localhost:5432/mydb`). If you specify the password in the connection string or in the password prompt, F# Query Studio automatically extracts and secures it in VS Code `SecretStorage`, replacing it with `{password}`.
 - **Worker Not Starting?**
   Run `F# Query Studio: Check Worker` from the Command Palette (`Ctrl+Shift+P`). It validates your .NET 10 SDK installation and reports actionable feedback.
 - **New Tables Not Showing Up in Autocomplete?**

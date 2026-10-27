@@ -357,6 +357,15 @@ export const languages = {
     this._rename.push({ selector, provider });
     return { dispose: () => {} };
   },
+  _semanticTokens: [] as Array<{ selector: unknown; provider: unknown; legend: unknown }>,
+  registerDocumentSemanticTokensProvider(
+    selector: unknown,
+    provider: unknown,
+    legend: unknown,
+  ): Disposable {
+    this._semanticTokens.push({ selector, provider, legend });
+    return { dispose: () => {} };
+  },
   createDiagnosticCollection(name: string) {
     const map = new Map<string, unknown>();
     const collection = {
@@ -372,6 +381,25 @@ export const languages = {
     return collection;
   },
 };
+
+export class SemanticTokensLegend {
+  constructor(public tokenTypes: string[], public tokenModifiers: string[] = []) {}
+}
+
+export class SemanticTokens {
+  constructor(public data: Uint32Array, public resultId?: string) {}
+}
+
+export class SemanticTokensBuilder {
+  private _data: number[] = [];
+  constructor(public legend?: SemanticTokensLegend) {}
+  push(line: number, char: number, length: number, tokenType: number, tokenModifiers?: number) {
+    this._data.push(line, char, length, tokenType, tokenModifiers ?? 0);
+  }
+  build(resultId?: string): SemanticTokens {
+    return new SemanticTokens(new Uint32Array(this._data), resultId);
+  }
+}
 
 // --- tree view (F5) ---
 export enum TreeItemCollapsibleState {

@@ -63,17 +63,22 @@ async function collectFields(
     if (filePath === undefined) return undefined;
     input.filePath = filePath;
   } else if (kind === "SqlServer" || kind === "PostgreSql") {
+    const isPg = kind === "PostgreSql";
     const connectionString = await ui.input({
-      prompt: "Connection string",
+      prompt: isPg
+        ? "PostgreSQL Connection String (e.g. Host=localhost;Database=mydb;Username=postgres)"
+        : "SQL Server Connection String (e.g. Server=localhost;Database=master;User Id=sa)",
       value: existing ? stringProp(existing.configuration, "connectionString") : undefined,
-      placeHolder: "Server=...;Database=...;User Id=...;Password={password};",
+      placeHolder: isPg
+        ? "Host=localhost;Database=mydb;Username=postgres;Password={password}"
+        : "Server=localhost;Database=master;User Id=sa;Password={password};TrustServerCertificate=True",
     });
     if (connectionString === undefined) return undefined;
     input.connectionString = connectionString;
     const password = await ui.input({
       prompt: existing?.secretReference
         ? "Password (leave blank to keep the current one)"
-        : "Password (optional)",
+        : "Password (leave blank if already specified in connection string or not required)",
       password: true,
     });
     if (password === undefined) return undefined;
