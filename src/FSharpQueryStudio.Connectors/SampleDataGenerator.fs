@@ -400,6 +400,9 @@ Seamlessly join and correlate data from both CSV files (`SalesFeed` + `Customers
 
                 mkCode """
 // 7. In-memory correlation between SalesFeed transactions and CustomersFeed loyalty
+let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
+let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
+
 let salesRows = salesFeed.Rows |> Seq.toList
 let loyaltyRows = loyaltyFeed.Rows |> Seq.toList
 
@@ -450,6 +453,11 @@ Because F# Query Studio executes queries in an integrated F# Interactive session
 
                 mkCode """
 // 9. Comprehensive summary across all 4 registered data sources
+let store = (Connections.connect "SampleStore").asEntities
+let inventory = (Connections.connect "InventoryStore").asEntities
+let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
+let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
+
 let sampleStoreOrders = store.Orders |> Seq.length
 let inventoryWarehouses = inventory.Warehouses |> Seq.length
 let salesCount = salesFeed.Rows |> Seq.length
@@ -659,6 +667,9 @@ Cruze dados de múltiplos arquivos CSV distintos (`SalesFeed` + `CustomersFeed`)
 
                 mkCode """
 // 7. Correlação em memória entre transações de vendas e fidelidade de clientes
+let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
+let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
+
 let salesRows = salesFeed.Rows |> Seq.toList
 let loyaltyRows = loyaltyFeed.Rows |> Seq.toList
 
@@ -709,6 +720,11 @@ Como as consultas no F# Query Studio rodam em uma sessão FSI unificada, você p
 
                 mkCode """
 // 9. Resumo consolidado das 4 fontes de dados registradas
+let store = (Connections.connect "SampleStore").asEntities
+let inventory = (Connections.connect "InventoryStore").asEntities
+let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
+let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
+
 let sampleStoreOrders = store.Orders |> Seq.length
 let inventoryWarehouses = inventory.Warehouses |> Seq.length
 let salesCount = salesFeed.Rows |> Seq.length
