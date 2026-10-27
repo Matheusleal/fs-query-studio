@@ -77,7 +77,7 @@ module FsiSession =
                 ""
 
         let prologue =
-            $"#r @\"{connectorsAssemblyPath}\"\n#r @\"{resultsAssemblyPath}\"\n#r @\"{sqlProviderCommonAssemblyPath}\"\n#r @\"{sqlProviderAssemblyPath}\"\n{generatedLoad}open System.Linq\nopen FSharpQueryStudio.Connectors\nopen FSharp.Data.Sql"
+            $"#r @\"{connectorsAssemblyPath}\"\n#r @\"{resultsAssemblyPath}\"\n{generatedLoad}open System.Linq\nopen FSharpQueryStudio.Connectors\n"
 
         fsi.EvalInteractionNonThrowing(prologue) |> ignore
 
