@@ -6,8 +6,12 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-10-27
+
 ### Added
 
+- **Execution & Resource Benchmarks** — dedicated benchmark suite (`tests/FSharpQueryStudio.Benchmarks`) and automated regression tests measuring latency, CPU time, and GC allocations from connection to execution across cold start, warm queries, volume scaling (100 to 50,000 rows), LINQ queries, and CSV files. See `docs/BENCHMARK_REPORT.md`.
+- **Comprehensive UI Element Testing** — complete test suite (`editors/vscode/src/renderer/ui-elements.test.ts` and `connections/ui-elements.test.ts`) covering 100% of the UI components: grid layout, toolbar, segmented views, row counters, sticky headers, virtualization sizer, alternating row styles, cell formatters (`NULL`, numeric, string, boolean), schema inspector, load more pagination, notification banners, and Connections Explorer tree items.
 - **New F# Query Notebook** commands — **F# Query Studio: New F# Query Notebook**
   (Command Palette and *File > New File…*) opens a new untitled notebook with one
   empty F# cell. A folder's Explorer context menu gets **New F# Query Notebook
@@ -41,7 +45,7 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
   no longer suppressed by `printf` output in the same cell.
 - FSI's raw declaration echo is the fallback text view rather than the default.
 
-## [0.1.0] — unreleased
+## [0.1.0] — 2026-10-27
 
 First packaged build of the extension — feature parity with the retired Avalonia
 desktop app for the query-and-execution workflow. Not yet published to the

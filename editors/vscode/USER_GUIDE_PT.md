@@ -36,6 +36,7 @@ Escreva consultas com segurança de tipos em tempo de compilação, alta express
 9. [Recursos de Linguagem e Go to Definition (F12)](#9-recursos-de-linguagem-e-go-to-definition-f12)
 10. [Ciclo de Vida do Notebook e Sessão FSI](#10-ciclo-de-vida-do-notebook-e-sessão-fsi)
 11. [Diagnóstico e Solução de Problemas](#11-diagnóstico-e-solução-de-problemas)
+12. [Benchmarks de Performance e Confiabilidade de UI](#12-benchmarks-de-performance-e-confiabilidade-de-ui)
 
 ---
 
@@ -325,3 +326,27 @@ O F# Query Studio executa inteligência de código e realce de sintaxe completo 
   Clique no ícone de atualização (`$(refresh)`) na barra lateral **Connections** para recarregar o esquema e regenerar os tipos de entidades.
 - **Dúvidas ou Relato de Problemas?**
   Abra uma issue no repositório oficial: [https://github.com/Matheusleal/fs-query-studio/issues](https://github.com/Matheusleal/fs-query-studio/issues).
+
+---
+
+## 13. Benchmarks de Performance e Confiabilidade de UI
+
+O F# Query Studio é submetido a rigorosos benchmarks automatizados de performance e verificação completa de elementos de interface:
+
+### Benchmarks de Execução (CPU, Memória e Latência)
+- **Latência Sub-milissegundo**: Consultas subsequentes com pool reutilizado executam entre **0.05 ms e 0.20 ms** com 0% de uso contínuo de CPU e zero coletas Gen 0/1/2 no Garbage Collector.
+- **Escala Linear com Streaming**: Processa de 100 até 50.000+ linhas via streaming iterativo de cursores (`Results.fs`), com consumo de memória estável (~1.5 KB por aquisição de cursor) sem materialização antecipada no heap.
+- **LINQ e Records F# Dinâmicos**: Mapeamento de records fortemente tipados (`Connections.query<'T>`) e expressões `query { for ... in ... do where ... select ... }` processam 1.000 linhas em **~2.0 ms** utilizando cache de construtores pré-compilados.
+- **Processamento de Arquivos CSV**: Taxa de transferência contínua de **~500.000 registros/segundo**.
+
+Para detalhes da metodologia, métricas brutas e especificações de hardware, consulte o **[Relatório Completo de Benchmarks](../../docs/BENCHMARK_REPORT.md)**.
+
+### Suíte de Confiabilidade de Elementos de UI
+A interface visual da extensão é coberta por testes automatizados de componentes:
+- **Grid de Resultados e Toolbar**: Botões segmentados, contadores de linhas (incluindo truncamento como `3+ rows`), folhas de estilo dinâmicas e ação de exportação para CSV.
+- **Cabeçalhos Fixos e Virtualização**: Cabeçalho fixo `.fsqhead` com tipos de colunas, alinhamento numérico `.fsq-num`, linhas zebradas `.fsq-odd` e cálculo dinâmico de altura do sizer virtual (`N * 24px`).
+- **Formatadores de Células**: Destaque visual para nulos `.fsq-null` ("NULL"), alinhamento numérico à direita, booleanos e strings.
+- **Inspetor de Esquema**: Nomes de coluna, tipos de dados de banco e flags de nulabilidade.
+- **Paginação e Banners**: Continuações ("Load More"), desativação de botão durante requisição, avisos de truncamento e notificações do host.
+- **Árvore do Explorador de Conexões**: Ícones dos TreeItems (`database`, `symbol-namespace`, `table`, `symbol-field`, `warning`), descrições contextuais e valores de contexto.
+

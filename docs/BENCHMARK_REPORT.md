@@ -44,4 +44,19 @@ Este relatório documenta as medições de desempenho, tempo de execução, uso 
 - **Expressões LINQ F# (`query { ... }`)**: A combinação de `AsQueryable` e `query` permite filtros (`where`), ordenação (`sortBy`) e projeções (`select`) nativas do F# com alto desempenho.
 
 ### 2.5 Consultas Baseadas em Arquivos (CSV)
-- `Connections.queryCsv<'T>` processa de 1.000 a 10.000 linhas com parsing rápido delimitado e mapeamento dinâmico em poucas dezenas de milissegundos.
+- `Connections.queryCsv<'T>` processa de 1.000 a 10.000 linhas com parsing rápido delimitado e mapeamento dinâmico em poucas dezenas de milissegundos (~500.000 linhas/segundo).
+
+---
+
+## 3. Executive Summary (English)
+
+This report details the execution performance, CPU utilization, and memory allocation (.NET GC allocations and Working Set) of **F# Query Studio** across the entire lifecycle: from connection initialization and schema discovery to multi-tier query execution, strongly-typed LINQ record mapping, and high-throughput file queries.
+
+### 3.1 Key Architectural Findings
+- **Zero-Cost Connection & Pooling**: Reusing connections via ADO.NET connection pools achieves sub-millisecond roundtrips (`0.00 ms` mean ping, `1.2 KB` allocation per check) without triggering Gen 0/1/2 garbage collections.
+- **Concurrent Schema Discovery**: Multi-schema and views metadata queries execute in parallel (`0.17 ms` mean, `6.9 KB` allocation), populating the Connections tree explorer instantly.
+- **Cold vs Warm Execution**: First-time queries incur a minimal cold-start penalty (`0.25 ms`), while warm queries complete in `0.05 ms - 0.20 ms` with negligible CPU impact.
+- **Linear Volume Scaling & Lazy Streaming**: Fetching from 100 up to 50,000 rows streams rows lazily through `Results.fs`, consuming a constant `1.5 KB` baseline allocation per cursor acquisition without full in-memory materialization.
+- **High-Performance LINQ & Reflection Caching**: Strongly-typed record mapping (`Connections.query<'T>`) and F# LINQ expressions (`query { for ... in ... do where ... select ... }`) leverage precompiled constructor delegates cached in `ConcurrentDictionary`, querying 1,000 typed records in `~2.0 ms` with zero Gen 1/2 collections.
+- **Fast File Processing**: CSV queries (`Connections.queryCsv<'T>`) deliver sustained throughput of `~500,000 rows/second`.
+

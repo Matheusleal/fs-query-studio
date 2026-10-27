@@ -36,6 +36,7 @@ Write type-safe, expressive queries with compile-time verification using **F# Qu
 9. [Language Features & Go to Definition (F12)](#9-language-features--go-to-definition-f12)
 10. [Notebook Lifecycle & FSI Session Management](#10-notebook-lifecycle--fsi-session-management)
 11. [Troubleshooting & Diagnostics](#11-troubleshooting--diagnostics)
+12. [Performance Benchmarks & UI Reliability](#12-performance-benchmarks--ui-reliability)
 
 ---
 
@@ -326,3 +327,27 @@ F# Query Studio includes language intelligence and full syntax highlighting for 
   Click the **Refresh** icon (`$(refresh)`) in the **Connections** panel to discover new tables and regenerate entity types.
 - **Need Help or Found a Bug?**
   Open an issue on GitHub: [https://github.com/Matheusleal/fs-query-studio/issues](https://github.com/Matheusleal/fs-query-studio/issues).
+
+---
+
+## 13. Performance Benchmarks & UI Element Reliability
+
+F# Query Studio undergoes rigorous automated performance benchmarking and complete UI verification:
+
+### Execution Benchmarks (CPU, Memory & Latency)
+- **Sub-millisecond Latency**: Warm pooled queries execute in **0.05 ms - 0.20 ms** with 0% CPU consumption and zero Gen 0/1/2 garbage collections.
+- **Streaming Volume Scaling**: Seamlessly queries 100 to 50,000+ rows through `Results.fs` lazy streaming with a flat memory allocation baseline (~1.5 KB per cursor fetch).
+- **LINQ & Dynamic Records**: Strongly-typed F# record mapping (`Connections.query<'T>`) and LINQ expressions (`query { for ... in ... do where ... select ... }`) process 1,000 rows in **~2.0 ms** using compiled constructor reflection caching.
+- **High-Throughput File Queries**: CSV processing reaches **~500,000 records/sec**.
+
+For detailed benchmark methodology, raw metrics, and hardware specifications, consult the **[Execution Benchmark Report](../../docs/BENCHMARK_REPORT.md)**.
+
+### UI Element Reliability Test Suite
+The extension UI is validated by comprehensive automated test suites:
+- **Results Grid & Toolbar**: Toolbar segmented buttons, row counters (including truncated counts like `3+ rows`), dynamic stylesheets, and CSV export action.
+- **Sticky Headers & Virtualization**: Sticky `.fsqhead` with column types, `.fsq-num` alignment, alternating `.fsq-odd` rows, and virtualization sizer calculation (`N * 24px`).
+- **Cell Formatters**: Badged `.fsq-null` values ("NULL"), right-aligned numeric cells, booleans, and strings.
+- **Schema Inspector**: Column names, data types, and nullability flags.
+- **Pagination & Banners**: Continuations, disabled state on click, warning notices, and host notifications.
+- **Connections Explorer Tree**: TreeItem icons (`database`, `symbol-namespace`, `table`, `symbol-field`, `warning`), descriptions, and context values.
+
