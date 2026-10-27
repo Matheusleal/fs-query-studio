@@ -620,6 +620,7 @@ module Handlers =
         { SqlitePath: string
           CsvPath: string
           NotebookPath: string
+          NotebookPtPath: string
           RegisteredConnections: string list }
 
     let handleCreateSampleData (request: WorkerRequestFrame) : WorkerResponseFrame =
@@ -672,6 +673,7 @@ module Handlers =
                 { SqlitePath = files.SqlitePath
                   CsvPath = files.CsvPath
                   NotebookPath = files.NotebookPath
+                  NotebookPtPath = files.NotebookPtPath
                   RegisteredConnections = [ "SampleStore"; "SalesFeed" ] }
 
             { Id = request.Id

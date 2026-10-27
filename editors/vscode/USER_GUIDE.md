@@ -89,7 +89,7 @@ Click the **`Create Sample Data`** button (`$(database)`) on the Connections pan
    - `OrderItems` (`Id`, `OrderId`, `ProductId`, `Quantity`, `UnitPrice`)
 2. **`sales_feed.csv`**: A CSV feed with real-world sales transactions:
    - `TransactionId`, `Date`, `StoreCity`, `Category`, `Product`, `Quantity`, `UnitPrice`, `Total`
-3. **`sample_demo.fsqnb`**: An interactive, executable notebook ready with LINQ queries, joins, CSV queries, and raw SQL.
+3. **`sample_demo.fsqnb` & `sample_demo_pt.fsqnb`**: Interactive, richly formatted notebooks ready with LINQ queries, joins, aggregations, CSV queries, and raw parameterized SQL in English and Portuguese.
 4. Both connections (`SampleStore` and `SalesFeed`) are automatically registered in your workspace and entity types are generated in the background!
 
 ---
