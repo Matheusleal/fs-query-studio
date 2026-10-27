@@ -239,4 +239,38 @@ let ``Connections.get and Connections.connect return DatabaseConnection exposing
     Assert.Contains("SqlDataProvider<", sqlProviderCode)
     Assert.Contains("DatabaseVendor = Common.DatabaseProviderTypes.SQLITE", sqlProviderCode)
 
+type FinancialRecord =
+    { Id: int
+      Amount: decimal
+      Tax: decimal option
+      Description: string }
+
+[<Fact>]
+let ``Connections.getMapper correctly parses decimal values with dot and comma under pt-BR culture`` () =
+    let prevCulture = System.Threading.Thread.CurrentThread.CurrentCulture
+    try
+        System.Threading.Thread.CurrentThread.CurrentCulture <- System.Globalization.CultureInfo("pt-BR")
+
+        let mapper = Connections.getMapper<FinancialRecord> [ "Id"; "Amount"; "Tax"; "Description" ]
+
+        // Test with dot decimal: 355272835.53
+        let row1 = mapper [| box "1"; box "355272835.53"; box "123.45"; box "Wire transfer" |]
+        Assert.Equal(1, row1.Id)
+        Assert.Equal(355272835.53M, row1.Amount)
+        Assert.Equal(Some 123.45M, row1.Tax)
+
+        // Test with comma decimal: 355272835,53
+        let row2 = mapper [| box "2"; box "355272835,53"; null; box "Invoice payment" |]
+        Assert.Equal(2, row2.Id)
+        Assert.Equal(355272835.53M, row2.Amount)
+        Assert.Equal(None, row2.Tax)
+
+        // Test with quoted string: "\"355272835.53\""
+        let row3 = mapper [| box "3"; box "\"355272835.53\""; box "0.00"; box "Quoted" |]
+        Assert.Equal(355272835.53M, row3.Amount)
+        Assert.Equal(Some 0.0M, row3.Tax)
+    finally
+        System.Threading.Thread.CurrentThread.CurrentCulture <- prevCulture
+
+
 

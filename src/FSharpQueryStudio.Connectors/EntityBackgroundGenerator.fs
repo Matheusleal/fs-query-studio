@@ -42,11 +42,15 @@ module EntityBackgroundGenerator =
         else
             $"``{s}``"
 
+    let cleanSample (s: string) : string =
+        if isNull s then ""
+        else s.Trim().Trim('"', '\'')
+
     /// Infers an F# type from a collection of sample string values.
     let inferType (samples: string seq) : string =
         let nonEmpties =
             samples
-            |> Seq.map (fun s -> if isNull s then "" else s.Trim())
+            |> Seq.map cleanSample
             |> Seq.filter (fun s -> s <> "")
             |> Seq.truncate 100
             |> Seq.toList
@@ -62,20 +66,37 @@ module EntityBackgroundGenerator =
             | true, _ -> true | false, _ -> false) then
             "int64"
         elif nonEmpties |> List.forall (fun s ->
-            match Double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture) with
+            let style = NumberStyles.Number ||| NumberStyles.AllowLeadingSign
+            match Decimal.TryParse(s, style, CultureInfo.InvariantCulture) with
             | true, _ -> true
             | false, _ ->
-                match Double.TryParse(s.Replace(",", "."), NumberStyles.Float, CultureInfo.InvariantCulture) with
+                match Decimal.TryParse(s.Replace(",", "."), style, CultureInfo.InvariantCulture) with
+                | true, _ -> true
+                | false, _ -> false) then
+            "decimal"
+        elif nonEmpties |> List.forall (fun s ->
+            let style = NumberStyles.Float ||| NumberStyles.AllowThousands
+            match Double.TryParse(s, style, CultureInfo.InvariantCulture) with
+            | true, _ -> true
+            | false, _ ->
+                match Double.TryParse(s.Replace(",", "."), style, CultureInfo.InvariantCulture) with
                 | true, _ -> true
                 | false, _ -> false) then
             "double"
         elif nonEmpties |> List.forall (fun s ->
             match Boolean.TryParse(s) with
-            | true, _ -> true | false, _ -> false) then
+            | true, _ -> true
+            | false, _ ->
+                let l = s.ToLowerInvariant()
+                l = "true" || l = "false" || l = "1" || l = "0") then
             "bool"
         elif nonEmpties |> List.forall (fun s ->
             match DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None) with
-            | true, _ -> true | false, _ -> false) then
+            | true, _ -> true
+            | false, _ ->
+                match DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.None) with
+                | true, _ -> true
+                | false, _ -> false) then
             "System.DateTime"
         elif nonEmpties |> List.forall (fun s ->
             match Guid.TryParse(s) with
@@ -83,6 +104,23 @@ module EntityBackgroundGenerator =
             "System.Guid"
         else
             "string"
+
+    /// Sanitizes and deduplicates column headers so they form valid, unique F# record fields.
+    let sanitizeColumns (cols: string list) : string list =
+        let seen = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        cols
+        |> List.mapi (fun idx col ->
+            let baseCol =
+                if String.IsNullOrWhiteSpace col then $"Column{idx + 1}"
+                else col.Trim()
+            let mutable candidate = baseCol
+            let mutable counter = 2
+            while seen.Contains candidate do
+                candidate <- $"{baseCol}_{counter}"
+                counter <- counter + 1
+            seen.Add candidate |> ignore
+            candidate
+        )
 
     /// Infers F# property names and types from a JSON element (array or object).
     let inferJsonTypes (elem: JsonElement) : (string * string) list =
@@ -129,6 +167,8 @@ module EntityBackgroundGenerator =
                         "int"
                     elif values |> List.forall (fun v -> v.ValueKind = JsonValueKind.Number && (let ok, _ = v.TryGetInt64() in ok)) then
                         "int64"
+                    elif values |> List.forall (fun v -> v.ValueKind = JsonValueKind.Number && (let ok, _ = v.TryGetDecimal() in ok)) then
+                        "decimal"
                     elif values |> List.forall (fun v -> v.ValueKind = JsonValueKind.Number) then
                         "double"
                     elif values |> List.forall (fun v -> v.ValueKind = JsonValueKind.True || v.ValueKind = JsonValueKind.False) then
@@ -178,10 +218,30 @@ module EntityBackgroundGenerator =
                     sb.AppendLine("open FSharpQueryStudio.Connectors") |> ignore
                     sb.AppendLine() |> ignore
 
-                    let mutable dbExtensions = []
-                    let mutable csvExtensions = []
-                    let mutable excelExtensions = []
-                    let mutable restExtensions = []
+                    let usedModuleNames = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    let makeUniqueModuleName (baseName: string) =
+                        let mutable candidate = baseName
+                        let mutable counter = 2
+                        while usedModuleNames.Contains candidate do
+                            candidate <- $"{baseName}_{counter}"
+                            counter <- counter + 1
+                        usedModuleNames.Add candidate |> ignore
+                        candidate
+
+                    let usedPropNames = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    let makeUniquePropName (baseName: string) =
+                        let mutable candidate = baseName
+                        let mutable counter = 2
+                        while usedPropNames.Contains candidate do
+                            candidate <- $"{baseName}_{counter}"
+                            counter <- counter + 1
+                        usedPropNames.Add candidate |> ignore
+                        candidate
+
+                    let mutable dbExtensions: (string * string * string) list = []
+                    let mutable csvExtensions: (string * string * string) list = []
+                    let mutable excelExtensions: (string * string * string) list = []
+                    let mutable restExtensions: (string * string * string) list = []
 
                     for def in connections do
                         try
@@ -190,23 +250,25 @@ module EntityBackgroundGenerator =
 
                             match rawConnector with
                             | :? IQueryableConnector as qc ->
-                                let moduleName = $"{cleanName}Db"
+                                let moduleName = makeUniqueModuleName $"{cleanName}Db"
+                                let propName = makeUniquePropName cleanName
                                 let dbConn = Connections.DatabaseConnection(def.Name, qc)
                                 let code = dbConn.GenerateEntities(moduleName)
                                 sb.AppendLine(code) |> ignore
                                 sb.AppendLine() |> ignore
-                                dbExtensions <- (cleanName, moduleName) :: dbExtensions
+                                dbExtensions <- (propName, moduleName, def.Name) :: dbExtensions
 
                             | :? CsvConnector as cc ->
-                                let moduleName = $"{cleanName}Csv"
+                                let moduleName = makeUniqueModuleName $"{cleanName}Csv"
+                                let propName = makeUniquePropName cleanName
                                 let qr = cc.ReadRows()
                                 let rowsSample = qr.Rows |> Seq.truncate 50 |> Seq.toList
-                                let columns = qr.Columns
+                                let sanitizedCols = sanitizeColumns qr.Columns
 
                                 sb.AppendLine($"module {moduleName} =") |> ignore
                                 sb.AppendLine("    type Row =") |> ignore
                                 sb.AppendLine("        {") |> ignore
-                                for idx, col in List.indexed columns do
+                                for idx, col in List.indexed sanitizedCols do
                                     let samples = rowsSample |> Seq.map (fun r -> if idx < r.Length then string r.[idx] else "")
                                     let colType = inferType samples
                                     sb.AppendLine($"            {escapeIdent col}: {colType}") |> ignore
@@ -221,10 +283,11 @@ module EntityBackgroundGenerator =
                                 sb.AppendLine("    let rows () : System.Linq.IQueryable<Row> = (Data()).Rows") |> ignore
                                 sb.AppendLine("    let data () : Data = Data()") |> ignore
                                 sb.AppendLine() |> ignore
-                                csvExtensions <- (cleanName, moduleName) :: csvExtensions
+                                csvExtensions <- (propName, moduleName, def.Name) :: csvExtensions
 
                             | :? ExcelConnector as ec ->
-                                let moduleName = $"{cleanName}Excel"
+                                let moduleName = makeUniqueModuleName $"{cleanName}Excel"
+                                let propName = makeUniquePropName cleanName
                                 let tables = (ec :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result
 
                                 sb.AppendLine($"module {moduleName} =") |> ignore
@@ -232,12 +295,12 @@ module EntityBackgroundGenerator =
                                     let sheetClean = cleanIdentifier tbl.Name
                                     let qr = ec.ReadRows(sheetName = tbl.Name, maxRows = 50)
                                     let rowsSample = qr.Rows |> Seq.truncate 50 |> Seq.toList
-                                    let columns = qr.Columns
+                                    let sanitizedCols = sanitizeColumns qr.Columns
 
                                     sb.AppendLine($"    module {sheetClean} =") |> ignore
                                     sb.AppendLine("        type Row =") |> ignore
                                     sb.AppendLine("            {") |> ignore
-                                    for idx, col in List.indexed columns do
+                                    for idx, col in List.indexed sanitizedCols do
                                         let samples = rowsSample |> Seq.map (fun r -> if idx < r.Length then string r.[idx] else "")
                                         let colType = inferType samples
                                         sb.AppendLine($"                {escapeIdent col}: {colType}") |> ignore
@@ -255,18 +318,19 @@ module EntityBackgroundGenerator =
                                 sb.AppendLine() |> ignore
                                 sb.AppendLine("    let data () : Data = Data()") |> ignore
                                 sb.AppendLine() |> ignore
-                                excelExtensions <- (cleanName, moduleName) :: excelExtensions
+                                excelExtensions <- (propName, moduleName, def.Name) :: excelExtensions
 
                             | :? RestConnector as rc ->
-                                let moduleName = $"{cleanName}Json"
+                                let moduleName = makeUniqueModuleName $"{cleanName}Json"
+                                let propName = makeUniquePropName cleanName
                                 let elem = (rc.SendAsync rc.BaseOptions CancellationToken.None).Result
                                 let props = inferJsonTypes elem
 
                                 sb.AppendLine($"module {moduleName} =") |> ignore
                                 sb.AppendLine("    type Item =") |> ignore
                                 sb.AppendLine("        {") |> ignore
-                                for propName, propType in props do
-                                    sb.AppendLine($"            {escapeIdent propName}: {propType}") |> ignore
+                                for propNameItem, propType in props do
+                                    sb.AppendLine($"            {escapeIdent propNameItem}: {propType}") |> ignore
                                 sb.AppendLine("        }") |> ignore
                                 sb.AppendLine() |> ignore
                                 sb.AppendLine("    type Data(conn: FSharpQueryStudio.Connectors.Connections.RestConnection) =") |> ignore
@@ -277,7 +341,7 @@ module EntityBackgroundGenerator =
                                 sb.AppendLine("    let items (?options: FSharpQueryStudio.Connectors.RestRequestOptions) : System.Linq.IQueryable<Item> = (Data()).Items(?options = options)") |> ignore
                                 sb.AppendLine("    let data () : Data = Data()") |> ignore
                                 sb.AppendLine() |> ignore
-                                restExtensions <- (cleanName, moduleName) :: restExtensions
+                                restExtensions <- (propName, moduleName, def.Name) :: restExtensions
 
                             | _ -> ()
                         with ex ->
@@ -291,39 +355,73 @@ module EntityBackgroundGenerator =
 
                         if not (List.isEmpty dbExtensions) then
                             sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.DatabaseConnection with") |> ignore
-                            for (propName, modName) in List.rev dbExtensions do
+                            for (propName, modName, _) in List.rev dbExtensions do
                                 sb.AppendLine($"        member this.{propName} = {modName}.Database(this)") |> ignore
                             if dbExtensions.Length = 1 then
-                                let (_, singleModName) = dbExtensions.[0]
+                                let (_, singleModName, _) = dbExtensions.[0]
                                 sb.AppendLine($"        member this.asEntities = {singleModName}.Database(this)") |> ignore
+                            else
+                                sb.AppendLine("        member this.asEntities : obj =") |> ignore
+                                sb.AppendLine("            match this.Name with") |> ignore
+                                for (_, modName, origName) in List.rev dbExtensions do
+                                    let escapedOrig = origName.Replace("\"", "\\\"")
+                                    sb.AppendLine($"            | \"{escapedOrig}\" -> box ({modName}.Database(this))") |> ignore
+                                let (_, firstMod, _) = dbExtensions.[dbExtensions.Length - 1]
+                                sb.AppendLine($"            | _ -> box ({firstMod}.Database(this))") |> ignore
                             sb.AppendLine() |> ignore
 
                         if not (List.isEmpty csvExtensions) then
                             sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.CsvConnection with") |> ignore
-                            for (propName, modName) in List.rev csvExtensions do
+                            for (propName, modName, _) in List.rev csvExtensions do
                                 sb.AppendLine($"        member this.{propName} = {modName}.Data(this)") |> ignore
                             if csvExtensions.Length = 1 then
-                                let (_, singleModName) = csvExtensions.[0]
+                                let (_, singleModName, _) = csvExtensions.[0]
                                 sb.AppendLine($"        member this.asEntities = {singleModName}.Data(this)") |> ignore
+                            else
+                                sb.AppendLine("        member this.asEntities : obj =") |> ignore
+                                sb.AppendLine("            match this.Name with") |> ignore
+                                for (_, modName, origName) in List.rev csvExtensions do
+                                    let escapedOrig = origName.Replace("\"", "\\\"")
+                                    sb.AppendLine($"            | \"{escapedOrig}\" -> box ({modName}.Data(this))") |> ignore
+                                let (_, firstMod, _) = csvExtensions.[csvExtensions.Length - 1]
+                                sb.AppendLine($"            | _ -> box ({firstMod}.Data(this))") |> ignore
                             sb.AppendLine() |> ignore
 
                         if not (List.isEmpty excelExtensions) then
                             sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.ExcelConnection with") |> ignore
-                            for (propName, modName) in List.rev excelExtensions do
+                            for (propName, modName, _) in List.rev excelExtensions do
                                 sb.AppendLine($"        member this.{propName} = {modName}.Data(this)") |> ignore
                             if excelExtensions.Length = 1 then
-                                let (_, singleModName) = excelExtensions.[0]
+                                let (_, singleModName, _) = excelExtensions.[0]
                                 sb.AppendLine($"        member this.asEntities = {singleModName}.Data(this)") |> ignore
+                            else
+                                sb.AppendLine("        member this.asEntities : obj =") |> ignore
+                                sb.AppendLine("            match this.Name with") |> ignore
+                                for (_, modName, origName) in List.rev excelExtensions do
+                                    let escapedOrig = origName.Replace("\"", "\\\"")
+                                    sb.AppendLine($"            | \"{escapedOrig}\" -> box ({modName}.Data(this))") |> ignore
+                                let (_, firstMod, _) = excelExtensions.[excelExtensions.Length - 1]
+                                sb.AppendLine($"            | _ -> box ({firstMod}.Data(this))") |> ignore
                             sb.AppendLine() |> ignore
 
                         if not (List.isEmpty restExtensions) then
                             sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.RestConnection with") |> ignore
-                            for (propName, modName) in List.rev restExtensions do
+                            for (propName, modName, _) in List.rev restExtensions do
                                 sb.AppendLine($"        member this.{propName} = {modName}.Data(this)") |> ignore
                             if restExtensions.Length = 1 then
-                                let (_, singleModName) = restExtensions.[0]
+                                let (_, singleModName, _) = restExtensions.[0]
                                 sb.AppendLine($"        member this.asEntities = {singleModName}.Data(this)") |> ignore
+                            else
+                                sb.AppendLine("        member this.asEntities : obj =") |> ignore
+                                sb.AppendLine("            match this.Name with") |> ignore
+                                for (_, modName, origName) in List.rev restExtensions do
+                                    let escapedOrig = origName.Replace("\"", "\\\"")
+                                    sb.AppendLine($"            | \"{escapedOrig}\" -> box ({modName}.Data(this))") |> ignore
+                                let (_, firstMod, _) = restExtensions.[restExtensions.Length - 1]
+                                sb.AppendLine($"            | _ -> box ({firstMod}.Data(this))") |> ignore
                             sb.AppendLine() |> ignore
+
+
 
                         let targetDir = generatedDir workspaceDir
                         Directory.CreateDirectory(targetDir) |> ignore

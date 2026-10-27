@@ -6,6 +6,15 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.2.2] — 2026-10-27
+
+### Fixed
+
+- **Multi-Datasource Code Generation** — Fixed entity background generation when multiple datasources of the same type (e.g., two CSV files) are registered. Unique module names and typed accessors are now generated, and `.asEntities` correctly pattern-matches across all registered connections without dropping extensions or causing name collisions.
+- **CSV Decimal Type Inference** — Flat-file columns with floating-point / decimal numbers (e.g. `355272835.53` or `355272835,53`) are now accurately inferred as `decimal` instead of falling back to `string`. Quotes and whitespace in sample rows are stripped prior to inference.
+- **Culture-Invariant Decimal & Numeric Parsing** — Added robust culture-invariant conversion in `Connections.convertValue` supporting dot (`.`) and comma (`,`) decimal notation under any host culture (such as `pt-BR`), resolving `FormatException: Input string was not in a correct format`.
+- **Column Name Sanitization** — Empty or duplicate header columns in CSV and flat files are now automatically sanitized (`Column1`, `Column2`, deduplication suffixes) to prevent syntax errors in generated F# record types.
+
 ## [0.2.0] — 2026-10-27
 
 ### Added
