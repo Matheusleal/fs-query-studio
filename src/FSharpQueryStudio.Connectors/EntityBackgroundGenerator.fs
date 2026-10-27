@@ -63,7 +63,11 @@ module EntityBackgroundGenerator =
             "int64"
         elif nonEmpties |> List.forall (fun s ->
             match Double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture) with
-            | true, _ -> true | false, _ -> false) then
+            | true, _ -> true
+            | false, _ ->
+                match Double.TryParse(s.Replace(",", "."), NumberStyles.Float, CultureInfo.InvariantCulture) with
+                | true, _ -> true
+                | false, _ -> false) then
             "double"
         elif nonEmpties |> List.forall (fun s ->
             match Boolean.TryParse(s) with

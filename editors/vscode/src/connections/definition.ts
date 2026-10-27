@@ -5,6 +5,7 @@ export interface ConnectionFormInput {
   kind: ConnectorKindName;
   name: string;
   filePath?: string;
+  delimiter?: string;
   connectionString?: string;
   password?: string;
   url?: string;
@@ -73,11 +74,18 @@ export function sanitizeConnectionStringAndPassword(
 }
 
 function configurationFor(input: ConnectionFormInput): unknown {
+  const cleanPath = (input.filePath ?? "").trim().replace(/^["']|["']$/g, "").trim();
   switch (input.kind) {
     case "Sqlite":
-    case "Csv":
     case "Excel":
-      return { filePath: input.filePath ?? "" };
+      return { filePath: cleanPath };
+    case "Csv": {
+      const config: { filePath: string; delimiter?: string } = { filePath: cleanPath };
+      if (input.delimiter && input.delimiter.trim().length > 0) {
+        config.delimiter = input.delimiter.trim();
+      }
+      return config;
+    }
     case "SqlServer":
     case "PostgreSql":
       return { connectionString: input.connectionString ?? "" };

@@ -143,10 +143,50 @@ let ``typed conversion helpers parse valid text and reject invalid text`` () =
     Assert.Equal(None, CsvConversions.tryParseInt "not-a-number")
 
     Assert.Equal(Some 3.5, CsvConversions.tryParseFloat "3.5")
+    Assert.Equal(Some 3.5, CsvConversions.tryParseFloat "3,5")
     Assert.Equal(None, CsvConversions.tryParseFloat "not-a-float")
+
+    Assert.Equal(Some 123.45m, CsvConversions.tryParseDecimal "123.45")
+    Assert.Equal(Some 123.45m, CsvConversions.tryParseDecimal "123,45")
+    Assert.Equal(None, CsvConversions.tryParseDecimal "not-a-decimal")
 
     Assert.Equal(Some true, CsvConversions.tryParseBool "true")
     Assert.Equal(None, CsvConversions.tryParseBool "not-a-bool")
 
     Assert.Equal(Some(DateTime(2026, 1, 15)), CsvConversions.tryParseDateTime "2026-01-15")
     Assert.Equal(None, CsvConversions.tryParseDateTime "not-a-date")
+
+[<Fact>]
+let ``CsvConnector automatically detects semicolon delimiter when no options are passed`` () =
+    let path = tempCsvFile Encoding.UTF8 "Id;Name;Preco\n1;Monitor;499,90\n2;Teclado;120,00\n"
+    let connector = CsvConnector(path)
+    let result = connector.ReadRows()
+
+    Assert.Equal<string list>([ "Id"; "Name"; "Preco" ], result.Columns)
+    let rows = result.Rows |> Seq.toList
+    Assert.Equal(2, rows.Length)
+    Assert.Equal<obj list>([ box "1"; box "Monitor"; box "499,90" ], rows.[0] |> Array.toList)
+    Assert.Equal<obj list>([ box "2"; box "Teclado"; box "120,00" ], rows.[1] |> Array.toList)
+
+[<Fact>]
+let ``CsvConnector automatically detects tab delimiter when no options are passed`` () =
+    let path = tempCsvFile Encoding.UTF8 "Id\tName\tCity\n1\tAlice\tSP\n"
+    let connector = CsvConnector(path)
+    let result = connector.ReadRows()
+
+    Assert.Equal<string list>([ "Id"; "Name"; "City" ], result.Columns)
+    let rows = result.Rows |> Seq.toList
+    Assert.Equal(1, rows.Length)
+    Assert.Equal<obj list>([ box "1"; box "Alice"; box "SP" ], rows.[0] |> Array.toList)
+
+[<Fact>]
+let ``CsvConnector trims surrounding quotes from Windows copy-as-path`` () =
+    let path = tempCsvFile Encoding.UTF8 "Id,Name\n1,Product\n"
+    let quotedPath = $"\"{path}\""
+    let connector = CsvConnector(quotedPath)
+
+    Assert.Equal(path, connector.FilePath)
+    let result = connector.ReadRows()
+    Assert.Equal<string list>([ "Id"; "Name" ], result.Columns)
+    let rows = result.Rows |> Seq.toList
+    Assert.Equal<obj list>([ box "1"; box "Product" ], rows.[0] |> Array.toList)

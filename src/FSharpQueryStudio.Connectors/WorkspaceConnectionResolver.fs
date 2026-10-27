@@ -8,8 +8,16 @@ open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Security
 
 /// `ConnectionDefinition.Configuration`'s shape for file-path-only
-/// connectors — Sqlite, Csv, Excel all just need a path.
-type FileConnectionConfig = { FilePath: string }
+/// connectors — Sqlite, Csv, Excel all need a path, Csv also supports an optional Delimiter.
+[<CLIMutable>]
+type FileConnectionConfig =
+    { FilePath: string
+      Delimiter: string option }
+
+module private PathHelpers =
+    let clean (p: string) =
+        if String.IsNullOrWhiteSpace p then ""
+        else p.Trim().Trim('"', '\'')
 
 /// `ConnectionDefinition.Configuration`'s shape for SqlServer/PostgreSql —
 /// a plain ADO.NET connection string that may embed a literal `{password}`
@@ -75,17 +83,26 @@ type WorkspaceConnectionResolver(connections: ConnectionDefinition list, secretS
             let config =
                 JsonSerializer.Deserialize<FileConnectionConfig>(definition.Configuration, Serialization.options)
 
-            SqliteConnector(config.FilePath)
+            SqliteConnector(PathHelpers.clean config.FilePath)
         | Csv ->
             let config =
                 JsonSerializer.Deserialize<FileConnectionConfig>(definition.Configuration, Serialization.options)
 
-            CsvConnector(config.FilePath)
+            let cleanPath = PathHelpers.clean config.FilePath
+            let opts =
+                match config.Delimiter with
+                | Some d when not (String.IsNullOrEmpty d) ->
+                    { CsvOptions.Default with Delimiter = d.[0] }
+                | _ ->
+                    let autoDelim = CsvConnector.DetectDelimiter(cleanPath, System.Text.Encoding.UTF8)
+                    { CsvOptions.Default with Delimiter = autoDelim }
+
+            CsvConnector(cleanPath, opts)
         | Excel ->
             let config =
                 JsonSerializer.Deserialize<FileConnectionConfig>(definition.Configuration, Serialization.options)
 
-            ExcelConnector(config.FilePath)
+            ExcelConnector(PathHelpers.clean config.FilePath)
         | SqlServer ->
             let config =
                 JsonSerializer.Deserialize<SqlConnectionStringConfig>(definition.Configuration, Serialization.options)

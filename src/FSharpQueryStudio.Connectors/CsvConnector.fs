@@ -87,7 +87,19 @@ module CsvConversions =
     let tryParseFloat (s: string) : float option =
         match Double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture) with
         | true, v -> Some v
-        | false, _ -> None
+        | false, _ ->
+            match Double.TryParse(s.Replace(",", "."), NumberStyles.Float, CultureInfo.InvariantCulture) with
+            | true, v -> Some v
+            | false, _ -> None
+
+    let tryParseDecimal (s: string) : decimal option =
+        let style = NumberStyles.AllowDecimalPoint ||| NumberStyles.AllowLeadingSign
+        match Decimal.TryParse(s, style, CultureInfo.InvariantCulture) with
+        | true, v -> Some v
+        | false, _ ->
+            match Decimal.TryParse(s.Replace(",", "."), style, CultureInfo.InvariantCulture) with
+            | true, v -> Some v
+            | false, _ -> None
 
     let tryParseBool (s: string) : bool option =
         match Boolean.TryParse(s) with
@@ -99,14 +111,62 @@ module CsvConversions =
         | true, v -> Some v
         | false, _ -> None
 
+module CsvDelimiter =
+    let detect (path: string) (encoding: Encoding option) : char =
+        let enc = defaultArg encoding Encoding.UTF8
+        let clean =
+            if String.IsNullOrWhiteSpace path then ""
+            else path.Trim().Trim('"', '\'')
+        try
+            if not (File.Exists clean) then ','
+            else
+                use reader = new StreamReader(clean, enc)
+                let firstLine = reader.ReadLine()
+                if String.IsNullOrEmpty firstLine then ','
+                else
+                    let mutable commas = 0
+                    let mutable semicolons = 0
+                    let mutable tabs = 0
+                    let mutable pipes = 0
+                    let mutable inQuotes = false
+
+                    for ch in firstLine do
+                        if ch = '"' then inQuotes <- not inQuotes
+                        elif not inQuotes then
+                            match ch with
+                            | ',' -> commas <- commas + 1
+                            | ';' -> semicolons <- semicolons + 1
+                            | '\t' -> tabs <- tabs + 1
+                            | '|' -> pipes <- pipes + 1
+                            | _ -> ()
+
+                    let counts = [ (semicolons, ';'); (commas, ','); (tabs, '\t'); (pipes, '|') ]
+                    let (maxCount, bestDelim) = counts |> List.maxBy fst
+                    if maxCount > 0 then bestDelim else ','
+        with _ ->
+            ','
+
 /// CSV connector — Section 10. `filePath` names a local `.csv` file;
 /// `options` controls delimiter, encoding, and whether the first record
-/// is a header row.
+/// is a header row. Automatically cleans surrounding quotes and auto-detects
+/// delimiter (comma, semicolon, tab, pipe) when not explicitly specified.
 type CsvConnector(filePath: string, ?options: CsvOptions) =
-    let options = defaultArg options CsvOptions.Default
+    let cleanPath =
+        if String.IsNullOrWhiteSpace filePath then ""
+        else filePath.Trim().Trim('"', '\'')
 
-    member _.FilePath = filePath
-    member _.Options = options
+    let resolvedOptions =
+        match options with
+        | Some opt -> opt
+        | None ->
+            let autoDelim = CsvDelimiter.detect cleanPath None
+            { CsvOptions.Default with Delimiter = autoDelim }
+
+    member _.FilePath = cleanPath
+    member _.Options = resolvedOptions
+
+    static member DetectDelimiter(path: string, ?encoding: Encoding) : char =
+        CsvDelimiter.detect path encoding
 
     /// Streams rows as a lazy sequence — Section 10's streaming-read
     /// requirement. `Rows` is genuinely re-enumerable: each enumeration
@@ -124,29 +184,29 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
     /// throwaway reader closed before this method returns.
     member _.ReadRows() : ConnectorQueryResult =
         let columns =
-            use headerReader = new StreamReader(filePath, options.Encoding)
+            use headerReader = new StreamReader(cleanPath, resolvedOptions.Encoding)
 
-            match CsvParsing.readRecord headerReader options.Delimiter with
+            match CsvParsing.readRecord headerReader resolvedOptions.Delimiter with
             | None -> []
             | Some record ->
-                if options.HasHeader then
+                if resolvedOptions.HasHeader then
                     record
                 else
                     [ for i in 1 .. record.Length -> $"Column{i}" ]
 
         let rows =
             seq {
-                use streamReader = new StreamReader(filePath, options.Encoding)
-                let first = CsvParsing.readRecord streamReader options.Delimiter
+                use streamReader = new StreamReader(cleanPath, resolvedOptions.Encoding)
+                let first = CsvParsing.readRecord streamReader resolvedOptions.Delimiter
 
-                match first, options.HasHeader with
+                match first, resolvedOptions.HasHeader with
                 | Some record, false -> yield record |> List.map box |> Array.ofList
                 | _ -> () // Some when HasHeader (the header itself) or None (empty file) - nothing to yield yet.
 
                 let mutable more = true
 
                 while more do
-                    match CsvParsing.readRecord streamReader options.Delimiter with
+                    match CsvParsing.readRecord streamReader resolvedOptions.Delimiter with
                     | Some record -> yield record |> List.map box |> Array.ofList
                     | None -> more <- false
             }
@@ -156,7 +216,7 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
     interface IConnector with
         member _.Kind = ConnectorKind.Csv
 
-        member _.TestConnectionAsync(_ct: CancellationToken) : Task<bool> = Task.FromResult(File.Exists filePath)
+        member _.TestConnectionAsync(_ct: CancellationToken) : Task<bool> = Task.FromResult(File.Exists cleanPath)
 
         /// A CSV file is one table named after the file itself, with
         /// header-derived column names and a `string` `DataType` for
@@ -166,7 +226,7 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
             let columns = this.ReadRows().Columns
 
             let table: ConnectorTable =
-                { Name = Path.GetFileNameWithoutExtension(filePath)
+                { Name = Path.GetFileNameWithoutExtension(cleanPath)
                   Columns = columns |> List.map (fun name -> ({ Name = name; DataType = "string" }: ConnectorColumn)) }
 
             Task.FromResult [ table ]

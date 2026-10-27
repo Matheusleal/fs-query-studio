@@ -27,7 +27,27 @@ let private startWorker () =
 let private roundTrip (proc: Process) (req: WorkerRequestFrame) : Task<WorkerResponseFrame option> =
     task {
         do! NdjsonStream.writeFrame proc.StandardInput req
-        return! NdjsonStream.readFrame<WorkerResponseFrame> proc.StandardOutput |> withTimeout 30.0
+        let mutable targetResponse: WorkerResponseFrame option = None
+        use cts = new System.Threading.CancellationTokenSource(System.TimeSpan.FromSeconds 30.0)
+        while targetResponse.IsNone && not proc.HasExited do
+            let! line = proc.StandardOutput.ReadLineAsync(cts.Token)
+            if isNull line then
+                ()
+            else
+                try
+                    use doc = System.Text.Json.JsonDocument.Parse(line)
+                    let root = doc.RootElement
+                    let mutable methodProp = Unchecked.defaultof<System.Text.Json.JsonElement>
+                    if root.TryGetProperty("method", &methodProp) then
+                        let reqId = root.GetProperty("id").GetString()
+                        let reply = $"{{\"id\":\"{reqId}\",\"result\":{{\"value\":\"\"}},\"error\":null}}"
+                        do! proc.StandardInput.WriteLineAsync(reply)
+                    else
+                        let frame = System.Text.Json.JsonSerializer.Deserialize<WorkerResponseFrame>(line, Serialization.options)
+                        if frame.Id = req.Id then
+                            targetResponse <- Some frame
+                with _ -> ()
+        return targetResponse
     }
 
 [<Fact>]
