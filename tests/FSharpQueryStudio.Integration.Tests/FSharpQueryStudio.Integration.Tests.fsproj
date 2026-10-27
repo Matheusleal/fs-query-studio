@@ -13,8 +13,10 @@
     <Compile Include="Tests.fs" />
     <Compile Include="SqlServerConnectorTests.fs" />
     <Compile Include="PostgreSqlConnectorTests.fs" />
+    <Compile Include="LocalDatabaseIntegrationTests.fs" />
     <Compile Include="ConnectionsRegressionTests.fs" />
     <Compile Include="NotebookExecutionTests.fs" />
+    <Compile Include="BenchmarkRegressionTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

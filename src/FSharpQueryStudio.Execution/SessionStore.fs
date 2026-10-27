@@ -1,6 +1,7 @@
 namespace FSharpQueryStudio.Execution
 
 open System
+open System.IO
 open System.Collections.Concurrent
 
 /// Backing store for opt-in persistent per-tab sessions — see the
@@ -37,7 +38,11 @@ module SessionStore =
             match sessions.TryGetValue(key) with
             | true, existing ->
                 let lastSource = existing.LastFragments |> List.tryLast |> Option.defaultValue ""
-                if invalidates lastSource source then FsiSession.create workingDirectory else existing.Session
+                if invalidates lastSource source then
+                    FsiSession.create workingDirectory
+                else
+                    Directory.SetCurrentDirectory(workingDirectory)
+                    existing.Session
             | false, _ -> FsiSession.create workingDirectory
 
         sessions.[key] <- { Session = session; LastFragments = [ source ] }
@@ -55,7 +60,9 @@ module SessionStore =
     let appendFragment (key: string) (workingDirectory: string) (fragment: string) : FsiSession.Session =
         let entry =
             match sessions.TryGetValue(key) with
-            | true, existing -> existing
+            | true, existing ->
+                Directory.SetCurrentDirectory(workingDirectory)
+                existing
             | false, _ -> { Session = FsiSession.create workingDirectory; LastFragments = [] }
 
         let updated =

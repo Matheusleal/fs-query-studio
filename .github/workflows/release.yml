@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Release tag (e.g. v0.1.0). If empty, version from package.json is used."
+        required: false
+        type: string
+        default: ""
+      draft:
+        description: "Create draft release"
+        required: false
+        type: boolean
+        default: false
+      prerelease:
+        description: "Create pre-release"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Publish Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Publish F# Worker
+        run: >
+          dotnet publish src/FSharpQueryStudio.Worker/FSharpQueryStudio.Worker.fsproj
+          -c Release -o editors/vscode/dist/worker
+
+      - name: Install extension dependencies
+        working-directory: editors/vscode
+        run: npm ci
+
+      - name: Compile extension
+        working-directory: editors/vscode
+        run: npm run compile
+
+      - name: Run extension unit tests
+        working-directory: editors/vscode
+        run: npm test
+
+      - name: Package VSIX
+        working-directory: editors/vscode
+        run: npm run package -- --skip-worker
+
+      - name: Determine Version & Tag
+        id: vars
+        shell: bash
+        run: |
+          PACKAGE_VERSION=$(node -p "require('./editors/vscode/package.json').version")
+          INPUT_TAG="${{ github.event.inputs.tag_name }}"
+          if [ -n "$INPUT_TAG" ]; then
+            TAG="$INPUT_TAG"
+          elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="v${PACKAGE_VERSION}"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
+          
+          cp editors/vscode/fs-query-studio.vsix "editors/vscode/fs-query-studio-${TAG}.vsix"
+          echo "vsix_named=editors/vscode/fs-query-studio-${TAG}.vsix" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag }}
+          name: "F# Query Studio ${{ steps.vars.outputs.tag }}"
+          draft: ${{ github.event.inputs.draft || false }}
+          prerelease: ${{ github.event.inputs.prerelease || false }}
+          generate_release_notes: true
+          files: |
+            editors/vscode/fs-query-studio.vsix
+            ${{ steps.vars.outputs.vsix_named }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -17,6 +17,10 @@ import {
 } from "./analysis-client";
 import { DiagnosticsManager } from "./diagnostics";
 import { registerConnectionNameCompletion } from "./connection-name-completion";
+import {
+  FSharpQuerySemanticTokensProvider,
+  querySemanticTokensLegend,
+} from "./semantic-tokens";
 
 export const FSHARP_CELL_SELECTOR = {
   language: "fsharp",
@@ -28,8 +32,7 @@ const DIAGNOSTIC_SOURCE = "F# Query Studio";
 export interface LanguageFeaturesDeps {
   getWorker: () => Promise<WorkerLike>;
   log: (line: string) => void;
-  /** Registered connection names, for `Connections.sql "…"` completion.
-   *  Absent in tests that don't exercise that provider. */
+  listConnections?: () => Promise<Array<{ name: string; kind?: import("../protocol").ConnectorKindName }>>;
   listConnectionNames?: () => Promise<string[]>;
 }
 
@@ -262,7 +265,11 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
         return undefined;
       }
       const docUriStr = analysisDocumentUri(document.uri.toString());
-      if (loc.filePath === docUriStr || loc.filePath.includes("vscode-notebook-cell")) {
+      if (
+        loc.filePath === docUriStr ||
+        loc.filePath.includes("vscode-notebook-cell") ||
+        loc.filePath.includes("fqs-fsac-untitled-")
+      ) {
         const mapped = mapSourceRangeToCell(
           resolved.cells,
           resolved.target,
@@ -273,7 +280,10 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
         );
         return new vscode.Location(mapped.uri, mapped.range);
       }
-      const fileUri = vscode.Uri.file(loc.filePath);
+      const fileUri =
+        loc.filePath.startsWith("file://") || loc.filePath.startsWith("file:")
+          ? vscode.Uri.parse(loc.filePath)
+          : vscode.Uri.file(loc.filePath);
       const range = new vscode.Range(loc.startLine, loc.startColumn, loc.endLine, loc.endColumn);
       return new vscode.Location(fileUri, range);
     },
@@ -317,8 +327,15 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
   });
 
   const connectionNameCompletion = registerConnectionNameCompletion({
-    listConnectionNames: deps.listConnectionNames ?? (async () => []),
+    listConnections: deps.listConnections,
+    listConnectionNames: deps.listConnectionNames,
   });
+
+  const semanticTokens = vscode.languages.registerDocumentSemanticTokensProvider(
+    FSHARP_CELL_SELECTOR,
+    new FSharpQuerySemanticTokensProvider(),
+    querySemanticTokensLegend,
+  );
 
   const collection = vscode.languages.createDiagnosticCollection(DIAGNOSTIC_SOURCE);
   const manager = new DiagnosticsManager({
@@ -363,6 +380,7 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): vscode.Dis
     signature,
     definition,
     rename,
+    semanticTokens,
     collection,
     { dispose: () => manager.dispose() },
     onChange,

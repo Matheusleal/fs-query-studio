@@ -7,7 +7,11 @@ ship* the project and what exists as a *historical record*.
 
 | File | For |
 |---|---|
-| [`../README.md`](../README.md) | Project overview, requirements, install, repo layout. Start here. |
+| [`../README.md`](../README.md) | Project overview, requirements, install, repo layout (English). Start here. |
+| [`../README_PT.md`](../README_PT.md) | Visão geral do projeto, requisitos, instalação e arquitetura (Português). |
+| [`../editors/vscode/USER_GUIDE.md`](../editors/vscode/USER_GUIDE.md) | Comprehensive User Guide covering LINQ, all connectors, UI and commands (English). |
+| [`../editors/vscode/USER_GUIDE_PT.md`](../editors/vscode/USER_GUIDE_PT.md) | Guia do Usuário Completo em Português cobrindo LINQ, todos os conectores e interface. |
+| [`BENCHMARK_REPORT.md`](BENCHMARK_REPORT.md) | Comprehensive performance benchmarks (CPU, memory, latency) and UI test coverage (Bilingual). |
 | [`../editors/vscode/README.md`](../editors/vscode/README.md) | Full feature and API reference for the extension (also the Marketplace description). |
 | [`TUTORIAL.md`](TUTORIAL.md) | Hands-on walkthrough: first notebook → connection → query → CSV export. |
 | [`vscode-extension-release.md`](vscode-extension-release.md) | The manual runbook for packaging and publishing a release. |

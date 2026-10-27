@@ -79,4 +79,31 @@ describe("ConnectionsTreeProvider", () => {
     p.refresh();
     expect(fn).toHaveBeenCalledOnce();
   });
+
+  it("groups multi-schema tables into schema folder nodes", async () => {
+    const send = vi.fn(async (req: { id: string; method: string; params: unknown }) => {
+      if (req.method === "connection/schema") {
+        return {
+          id: req.id,
+          result: {
+            tables: [
+              { name: "core.users", columns: [{ name: "id", dataType: "uuid" }] },
+              { name: "core.tenants", columns: [{ name: "id", dataType: "uuid" }] },
+              { name: "public.migrations", columns: [{ name: "version", dataType: "int" }] },
+            ],
+          },
+        };
+      }
+      return { id: req.id, result: { connections: [] } };
+    });
+    const { p } = provider(send);
+    const connectionNode = { t: "connection" as const, def: conn("1", "Backbone") };
+    const schemaNodes = await p.getChildren(connectionNode);
+
+    expect(schemaNodes.map((n) => (n.t === "schema" ? n.schemaName : n.t))).toEqual(["core", "public"]);
+
+    const coreSchema = schemaNodes[0];
+    const coreTables = await p.getChildren(coreSchema);
+    expect(coreTables.map((n) => (n.t === "table" ? n.displayName : n.t))).toEqual(["users", "tenants"]);
+  });
 });

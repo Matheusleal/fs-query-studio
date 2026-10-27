@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <!-- Transitively pulls FSharp.Compiler.Service via Worker -> Execution -->
+    <NoWarn>$(NoWarn);NU1608</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="Metrics.fs" />
+    <Compile Include="QueryBenchmarks.fs" />
+    <Compile Include="Program.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Results\FSharpQueryStudio.Results.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors\FSharpQueryStudio.Connectors.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Execution\FSharpQueryStudio.Execution.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Worker\FSharpQueryStudio.Worker.fsproj" />
+  </ItemGroup>
+
+</Project>

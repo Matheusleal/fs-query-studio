@@ -63,6 +63,7 @@ module private RestConnectorDefaults =
 /// own request explicitly.
 type RestConnector(baseOptions: RestRequestOptions, ?httpClient: HttpClient) =
     let httpClient = defaultArg httpClient RestConnectorDefaults.sharedHttpClient
+    member _.BaseOptions = baseOptions
 
     /// Sends one configured request and parses the response body as
     /// JSON — Section 10's configuration plus JSON-parsing requirement.

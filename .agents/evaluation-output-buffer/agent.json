@@ -1,4 +1,0 @@
-{
-  "name": "evaluation-output-buffer",
-  "description": "Subagente especialista na gestão de streams de saída (stdout/stderr) do FSI durante sessões persistentes, corrigindo acúmulo de impressões entre células."
-}

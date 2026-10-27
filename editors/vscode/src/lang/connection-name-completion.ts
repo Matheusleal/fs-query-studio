@@ -1,34 +1,44 @@
 import * as vscode from "vscode";
 import { FSHARP_CELL_SELECTOR } from "./providers";
+import type { ConnectorKindName } from "../protocol";
+
+export type TargetConnectorCategory = "Database" | "Csv" | "Excel" | "RestJson";
+
+export interface ConnectionItem {
+  name: string;
+  kind?: ConnectorKindName;
+}
 
 /**
- * The one editor position where this extension's own registered
- * connections — not FSAC's identifier completion, which has nothing to
- * say inside a string literal — are the useful completion source: the
- * first, still-open string argument of
- * `Connections.sql/csv/excel/rest "…"` (the controlled connection API,
- * see `FSharpQueryStudio.Connectors.Connections`), where a script author
- * would otherwise type a connection's name from memory.
- *
- * Ported from the retired Avalonia `ConnectionNameCompletion.fs`
- * (deleted at F6.2). Single-line only — a string that wraps across lines
- * falls through, matching the original.
- *
- * `"[^"]*$` anchors to the end of the line prefix being tested: "cursor
- * is here, inside the quotes, no closing quote yet". `\(?` covers both
- * `Connections.sql "…` and `Connections.sql("…`.
+ * Returns the target connection category for the function call before the cursor,
+ * or `undefined` if the cursor is not inside a recognized connection-name string argument.
  */
-const PATTERN = /Connections\.(?:sql|csv|excel|rest)\s*\(?\s*"[^"]*$/;
+export function getTargetConnectorCategory(linePrefix: string): TargetConnectorCategory | undefined {
+  if (/Connections\.(?:sql|connect|get|query|getConnectionString)\b\s*\(?\s*"[^"]*$/.test(linePrefix)) {
+    return "Database";
+  }
+  if (/Connections\.(?:csv|connectCsv|queryCsv)\b\s*\(?\s*"[^"]*$/.test(linePrefix)) {
+    return "Csv";
+  }
+  if (/Connections\.(?:excel|connectExcel|queryExcel|queryExcelSheet)\b\s*\(?\s*"[^"]*$/.test(linePrefix)) {
+    return "Excel";
+  }
+  if (/Connections\.(?:rest|connectRest|queryJson)\b\s*\(?\s*"[^"]*$/.test(linePrefix)) {
+    return "RestJson";
+  }
+  return undefined;
+}
 
 /** Pure. `linePrefix` is the text of the cursor's line up to the cursor. */
 export function isInsideConnectionNameArgument(linePrefix: string): boolean {
-  return PATTERN.test(linePrefix);
+  return getTargetConnectorCategory(linePrefix) !== undefined;
 }
 
 export interface ConnectionNameCompletionDeps {
-  /** Registered connection names, freshest available. Queried only when
-   *  the cursor is actually inside a connection-name argument. */
-  listConnectionNames: () => Promise<string[]>;
+  /** Registered connections with their kinds, freshest available. Filtered to match the target API kind. */
+  listConnections?: () => Promise<ConnectionItem[]>;
+  /** Fallback: registered connection names. Queried only when `listConnections` is not supplied. */
+  listConnectionNames?: () => Promise<string[]>;
 }
 
 function linePrefixAt(text: string, position: vscode.Position): string {
@@ -38,9 +48,12 @@ function linePrefixAt(text: string, position: vscode.Position): string {
 
 /**
  * A completion provider that answers only inside
- * `Connections.(sql|csv|excel|rest) "…"` and returns `undefined`
+ * `Connections.(sql|csv|excel|rest|...) "…"` and returns `undefined`
  * everywhere else, so it never competes with the FSAC-forwarding
  * provider in `providers.ts`.
+ *
+ * Automatically filters completions based on the specific connection method being called
+ * (e.g. database-only for `Connections.connect`/`sql`, CSV-only for `Connections.connectCsv`/`csv`, etc.).
  */
 export function registerConnectionNameCompletion(
   deps: ConnectionNameCompletionDeps,
@@ -50,10 +63,41 @@ export function registerConnectionNameCompletion(
     {
       async provideCompletionItems(document, position, token) {
         const prefix = linePrefixAt(document.getText(), position);
-        if (!isInsideConnectionNameArgument(prefix) || token.isCancellationRequested) {
+        const category = getTargetConnectorCategory(prefix);
+        if (!category || token.isCancellationRequested) {
           return undefined;
         }
-        const names = await deps.listConnectionNames();
+
+        if (deps.listConnections) {
+          const all = await deps.listConnections();
+          if (token.isCancellationRequested) {
+            return undefined;
+          }
+          const filtered = all.filter((c) => {
+            if (!c.kind) {
+              return true;
+            }
+            switch (category) {
+              case "Database":
+                return c.kind === "SqlServer" || c.kind === "PostgreSql" || c.kind === "Sqlite";
+              case "Csv":
+                return c.kind === "Csv";
+              case "Excel":
+                return c.kind === "Excel";
+              case "RestJson":
+                return c.kind === "RestJson";
+            }
+          });
+          return filtered.map((c) => {
+            const item = new vscode.CompletionItem(c.name, vscode.CompletionItemKind.Value);
+            if (c.kind) {
+              item.detail = c.kind;
+            }
+            return item;
+          });
+        }
+
+        const names = deps.listConnectionNames ? await deps.listConnectionNames() : [];
         if (token.isCancellationRequested) {
           return undefined;
         }

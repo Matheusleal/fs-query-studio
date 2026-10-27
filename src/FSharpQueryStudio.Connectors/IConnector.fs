@@ -36,4 +36,5 @@ type ConnectorQueryResult = { Columns: string list; Rows: obj array seq }
 /// instead of matching on each concrete connector type.
 type IQueryableConnector =
     inherit IConnector
+    abstract ConnectionString: string
     abstract ExecuteQuery: sql: string -> parameters: (string * obj) list -> ConnectorQueryResult

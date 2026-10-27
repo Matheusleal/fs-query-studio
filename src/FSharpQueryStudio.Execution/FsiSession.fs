@@ -47,15 +47,37 @@ module FsiSession =
         // interaction, before any user source, so it never shifts the
         // user script's own line numbers - Diagnostic mapping elsewhere
         // in this project is 1-based on FCS's own line numbers and must
-        // stay aligned with exactly what the user typed.
         let connectorsAssemblyPath =
             typeof<FSharpQueryStudio.Connectors.IConnector>.Assembly.Location
 
         let resultsAssemblyPath =
             typeof<FSharpQueryStudio.Results.PagingCursor>.Assembly.Location
 
+        let sqlProviderCommonAssemblyPath =
+            typeof<FSharp.Data.Sql.Common.DatabaseProviderTypes>.Assembly.Location
+
+        let sqlProviderAssemblyPath =
+            System.IO.Path.Combine(
+                System.IO.Path.GetDirectoryName(sqlProviderCommonAssemblyPath),
+                "FSharp.Data.SqlProvider.dll"
+            )
+
+        let appData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+        let localGenerated = Path.Combine(workingDirectory, "generated", "GeneratedEntities.fs")
+        let globalGenerated = Path.Combine(appData, "FSharpQueryStudio", "generated", "GeneratedEntities.fs")
+        let generatedFile =
+            if File.Exists localGenerated then localGenerated
+            elif File.Exists globalGenerated then globalGenerated
+            else localGenerated
+
+        let generatedLoad =
+            if File.Exists generatedFile then
+                $"#load @\"{generatedFile}\"\nopen FSharpQueryStudio.Generated\n"
+            else
+                ""
+
         let prologue =
-            $"#r @\"{connectorsAssemblyPath}\"\n#r @\"{resultsAssemblyPath}\"\nopen FSharpQueryStudio.Connectors"
+            $"#r @\"{connectorsAssemblyPath}\"\n#r @\"{resultsAssemblyPath}\"\n{generatedLoad}open System.Linq\nopen FSharpQueryStudio.Connectors\n"
 
         fsi.EvalInteractionNonThrowing(prologue) |> ignore
 

@@ -66,7 +66,12 @@ module Handlers =
             workspaceDirOverride
             (Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FSharpQueryStudio"))
 
-    let setWorkspaceDirForTests (dir: string option) : unit = workspaceDirOverride <- dir
+    let setWorkspaceDirForTests (dir: string option) : unit =
+        workspaceDirOverride <- dir
+        FSharpQueryStudio.Fsac.Prologue.setWorkspaceDirForTests dir
+
+    let waitForPendingGeneration () : unit =
+        EntityBackgroundGenerator.waitForPendingGeneration()
 
     /// The secret store the worker's connection resolver reads `{password}`
     /// tokens from. The default `InMemorySecretStore` serves a standalone
@@ -141,6 +146,10 @@ module Handlers =
 
             let stopwatch = Stopwatch.StartNew()
 
+            let connections = Workspace.readConnections (workspaceDir ())
+            Connections.configure (WorkspaceConnectionResolver(connections, secretStore))
+            EntityBackgroundGenerator.ensureGenerated (workspaceDir ()) connections secretStore
+
             let session =
                 match evalParams.Mode, evalParams.SessionId with
                 | Persistent, Some sessionId when evalParams.IsNotebookCell ->
@@ -159,9 +168,6 @@ module Handlers =
                 | Isolated, _ ->
                     Log.Information("Creating FSI session in {WorkingDirectory}", workDir)
                     FsiSession.create workDir
-
-            let connections = Workspace.readConnections (workspaceDir ())
-            Connections.configure (WorkspaceConnectionResolver(connections, secretStore))
 
             let outcome = Evaluation.evaluate session evalParams.Source
             stopwatch.Stop()
@@ -267,6 +273,13 @@ module Handlers =
           Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
           Error = None }
 
+    let private ensureEntitiesReady () =
+        try
+            let connections = Workspace.readConnections (workspaceDir ())
+            EntityBackgroundGenerator.ensureGenerated (workspaceDir ()) connections secretStore
+        with ex ->
+            Log.Warning("FS Query Studio: Failed to ensure entities ready before analysis: {Error}", ex.Message)
+
     /// Parses/type-checks the request's source snapshot via FSAC, over the
     /// shared `FsacBridge.sharedProcess` LSP connection (Section 8, step
     /// 3-4). Unlike the old FCS-direct handler, this has no per-request
@@ -275,6 +288,7 @@ module Handlers =
     /// `AnalysisContext` tracked it as a `SourceText`.
     let handleAnalysisCheck (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
+            ensureEntitiesReady ()
             let checkParams =
                 JsonSerializer.Deserialize<AnalysisCheckParams>(request.Params, Serialization.options)
 
@@ -322,6 +336,7 @@ module Handlers =
     /// `FsacBridge.definition` itself, so this handler doesn't need it.
     let handleAnalysisDefinition (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
+            ensureEntitiesReady ()
             let definitionParams =
                 JsonSerializer.Deserialize<AnalysisDefinitionParams>(request.Params, Serialization.options)
 
@@ -502,6 +517,7 @@ module Handlers =
             JsonSerializer.Deserialize<ConnectionDefinition>(request.Params, Serialization.options)
 
         let updated = Workspace.registerConnection (workspaceDir ()) connection
+        EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) updated secretStore
 
         { Id = request.Id
           Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
@@ -530,6 +546,7 @@ module Handlers =
             JsonSerializer.Deserialize<ConnectionRemoveParams>(request.Params, Serialization.options)
 
         let updated = Workspace.removeConnection (workspaceDir ()) removeParams.Id
+        EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) updated secretStore
 
         { Id = request.Id
           Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
@@ -570,6 +587,8 @@ module Handlers =
                     let connector = resolver.Resolve(definition.Name)
                     let! tables = connector.DiscoverSchemaAsync(CancellationToken.None)
 
+                    EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) connections secretStore
+
                     let result: ConnectionSchemaResult =
                         { Tables =
                             tables
@@ -589,6 +608,61 @@ module Handlers =
                           Result = None
                           Error = Some { Code = "connection/schemaFailed"; Message = ex.Message } }
         }
+
+    [<CLIMutable>]
+    type SampleCreateParams =
+        { TargetDirectory: string option
+          TargetDir: string option }
+
+    type SampleCreateResult =
+        { SqlitePath: string
+          CsvPath: string
+          NotebookPath: string
+          RegisteredConnections: string list }
+
+    let handleCreateSampleData (request: WorkerRequestFrame) : WorkerResponseFrame =
+        try
+            let p = JsonSerializer.Deserialize<SampleCreateParams>(request.Params, Serialization.options)
+            let dir =
+                p.TargetDirectory
+                |> Option.orElse p.TargetDir
+                |> Option.defaultValue (workspaceDir ())
+            let files = SampleDataGenerator.generateAllSamples dir
+
+            let sqliteDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "SampleStore"
+                  Kind = ConnectorKind.Sqlite
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = files.SqlitePath |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let csvDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "SalesFeed"
+                  Kind = ConnectorKind.Csv
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = files.CsvPath |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let _ = Workspace.registerConnection (workspaceDir ()) sqliteDef
+            let updated2 = Workspace.registerConnection (workspaceDir ()) csvDef
+            Connections.configure (WorkspaceConnectionResolver(updated2, secretStore))
+            EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) updated2 secretStore
+
+            let result: SampleCreateResult =
+                { SqlitePath = files.SqlitePath
+                  CsvPath = files.CsvPath
+                  NotebookPath = files.NotebookPath
+                  RegisteredConnections = [ "SampleStore"; "SalesFeed" ] }
+
+            { Id = request.Id
+              Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+              Error = None }
+        with ex ->
+            { Id = request.Id
+              Result = None
+              Error = Some { Code = "sample/createFailed"; Message = ex.Message } }
 
     let dispatch (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
@@ -610,6 +684,7 @@ module Handlers =
             | "connection/register" -> return handleConnectionRegister request
             | "connection/remove" -> return handleConnectionRemove request
             | "connection/schema" -> return! handleConnectionSchema request
+            | "workspace/createSampleData" -> return handleCreateSampleData request
             | unknown ->
                 return
                     { Id = request.Id

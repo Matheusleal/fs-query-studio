@@ -22,11 +22,34 @@ module Prologue =
     /// Doubling backslashes first makes the literal round-trip intact.
     let private escapeForStringLiteral (path: string) : string = path.Replace("\\", "\\\\")
 
+    let mutable private workspaceDirOverride: string option = None
+    let setWorkspaceDirForTests (dir: string option) : unit = workspaceDirOverride <- dir
+
     let build () : string =
         let connectorsPath = (typeof<FSharpQueryStudio.Connectors.IConnector>).Assembly.Location
         let resultsPath = (typeof<FSharpQueryStudio.Results.PagingCursor>).Assembly.Location
+        let sqlProviderCommonPath = (typeof<FSharp.Data.Sql.Common.DatabaseProviderTypes>).Assembly.Location
+        let sqlProviderPath =
+            System.IO.Path.Combine(
+                System.IO.Path.GetDirectoryName(sqlProviderCommonPath),
+                "FSharp.Data.SqlProvider.dll"
+            )
 
-        $"#r \"{escapeForStringLiteral connectorsPath}\"\n#r \"{escapeForStringLiteral resultsPath}\"\nopen FSharpQueryStudio.Connectors\n"
+        let baseDir =
+            defaultArg
+                workspaceDirOverride
+                (System.IO.Path.Combine(
+                    System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
+                    "FSharpQueryStudio"
+                ))
+        let generatedFile = System.IO.Path.Combine(baseDir, "generated", "GeneratedEntities.fs")
+        let generatedLoad =
+            if System.IO.File.Exists generatedFile then
+                $"#load \"{escapeForStringLiteral generatedFile}\"\nopen FSharpQueryStudio.Generated\n"
+            else
+                ""
+
+        $"#r \"{escapeForStringLiteral connectorsPath}\"\n#r \"{escapeForStringLiteral resultsPath}\"\n#r \"{escapeForStringLiteral sqlProviderCommonPath}\"\n#r \"{escapeForStringLiteral sqlProviderPath}\"\n{generatedLoad}open System.Linq\nopen FSharpQueryStudio.Connectors\nopen FSharp.Data.Sql\n"
 
     /// The number of real (newline-terminated) lines `prologueText`
     /// occupies — computed from the actual text rather than a hardcoded

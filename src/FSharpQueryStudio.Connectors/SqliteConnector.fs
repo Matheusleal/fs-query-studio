@@ -58,7 +58,7 @@ type SqliteConnector(filePath: string) =
             use listTables = connection.CreateCommand()
 
             listTables.CommandText <-
-                "select name from sqlite_master where type = 'table' and name not like 'sqlite\\_%' escape '\\'"
+                "select name from sqlite_master where type in ('table', 'view') and name not like 'sqlite\\_%' escape '\\'"
 
             let tableNames = ResizeArray<string>()
             use! tableReader = listTables.ExecuteReaderAsync(ct)
@@ -113,5 +113,8 @@ type SqliteConnector(filePath: string) =
 
         member this.DiscoverSchemaAsync(ct: CancellationToken) = this.DiscoverSchemaAsync(ct)
 
+    member _.ConnectionString = connectionString
+
     interface IQueryableConnector with
+        member _.ConnectionString = connectionString
         member this.ExecuteQuery (sql: string) (parameters: (string * obj) list) = this.ExecuteQuery sql parameters

@@ -6,12 +6,25 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.2.0] — 2026-10-27
+
 ### Added
 
+- **Execution & Resource Benchmarks** — dedicated benchmark suite (`tests/FSharpQueryStudio.Benchmarks`) and automated regression tests measuring latency, CPU time, and GC allocations from connection to execution across cold start, warm queries, volume scaling (100 to 50,000 rows), LINQ queries, and CSV files. See `docs/BENCHMARK_REPORT.md`.
+- **Comprehensive UI Element Testing** — complete test suite (`editors/vscode/src/renderer/ui-elements.test.ts` and `connections/ui-elements.test.ts`) covering 100% of the UI components: grid layout, toolbar, segmented views, row counters, sticky headers, virtualization sizer, alternating row styles, cell formatters (`NULL`, numeric, string, boolean), schema inspector, load more pagination, notification banners, and Connections Explorer tree items.
 - **New F# Query Notebook** commands — **F# Query Studio: New F# Query Notebook**
   (Command Palette and *File > New File…*) opens a new untitled notebook with one
   empty F# cell. A folder's Explorer context menu gets **New F# Query Notebook
   Here**, which writes and opens a real `.fsqnb` in that folder.
+- **Multi-Schema & Views Discovery** — expanded discovery for PostgreSQL, SQL Server, and SQLite to include user schemas (e.g. `dbo`, custom schemas) and views, grouping them into clean schema namespaces in the Connections tree.
+- **Strongly-Typed LINQ & Entity Background Generator** — automatic background generation of typed record types and LINQ query contexts for databases and flat files (CSV, Excel, JSON) with `SQLProvider` integration.
+- **Contextual Connection Name Autocomplete** — connection name completion inside `Connections.connect(...)`, `Connections.get(...)`, `Connections.query(...)`, and specific connectors (`sql`, `csv`, `excel`, `rest`), filtered by compatible connector kind.
+- **Go to Definition (`F12`)** — definition navigation across notebook cells, external files, and background-generated entity models.
+- **Safe Password Sanitization** — automatic detection and extraction of plaintext passwords from connection strings into secure OS keychain (`SecretStorage`), replaced with `{password}` tokens.
+- **Sample Data Generator** — 1-click generation of sample SQLite database (`sample_store.db`), CSV feed (`sales_feed.csv`), and interactive demo notebook (`sample_demo.fsqnb`).
+- **LINQ Query Expression Syntax Highlighting** — TextMate injection grammar and semantic tokens provider for F# query keywords (`select`, `where`, `join`, `groupBy`, `sortBy`, etc.).
+- **Bilingual Documentation** — complete user guides in English (`USER_GUIDE.md`) and Portuguese (`USER_GUIDE_PT.md`), with automatic language detection and official Microsoft F# docs links.
+- **Extension Icon** — custom icon with glowing F# lambda and holographic database cylinder emblem.
 - Build / package / publish scripts under `editors/vscode/scripts/`
   (`npm run build` / `package` / `publish` / `doctor`). CI packages the VSIX
   through the same `npm run package` path.
@@ -32,7 +45,7 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
   no longer suppressed by `printf` output in the same cell.
 - FSI's raw declaration echo is the fallback text view rather than the default.
 
-## [0.1.0] — unreleased
+## [0.1.0] — 2026-10-27
 
 First packaged build of the extension — feature parity with the retired Avalonia
 desktop app for the query-and-execution workflow. Not yet published to the

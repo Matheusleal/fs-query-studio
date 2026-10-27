@@ -61,11 +61,14 @@ export const commands = {
 
 export const env = { openExternal: async (_uri: unknown) => true };
 export const Uri = {
-  parse: (s: string) => ({ toString: () => s, fsPath: s }),
-  file: (p: string) => ({ toString: () => `file://${p}`, fsPath: p }),
+  parse: (s: string) => {
+    const scheme = s.includes(":") ? s.substring(0, s.indexOf(":")) : "file";
+    return { scheme, toString: () => s, fsPath: s };
+  },
+  file: (p: string) => ({ scheme: "file", toString: () => `file://${p}`, fsPath: p }),
   joinPath: (base: { toString(): string }, ...segments: string[]) => {
     const joined = [base.toString().replace(/\/+$/, ""), ...segments].join("/");
-    return { toString: () => joined, fsPath: joined };
+    return { scheme: "file", toString: () => joined, fsPath: joined };
   },
 };
 
@@ -295,7 +298,7 @@ export class SignatureHelp {
 
 export class Location {
   constructor(
-    public uri: unknown,
+    public uri: { scheme?: string; fsPath?: string; toString(): string },
     public range: Range,
   ) {}
 }
@@ -354,6 +357,15 @@ export const languages = {
     this._rename.push({ selector, provider });
     return { dispose: () => {} };
   },
+  _semanticTokens: [] as Array<{ selector: unknown; provider: unknown; legend: unknown }>,
+  registerDocumentSemanticTokensProvider(
+    selector: unknown,
+    provider: unknown,
+    legend: unknown,
+  ): Disposable {
+    this._semanticTokens.push({ selector, provider, legend });
+    return { dispose: () => {} };
+  },
   createDiagnosticCollection(name: string) {
     const map = new Map<string, unknown>();
     const collection = {
@@ -369,6 +381,25 @@ export const languages = {
     return collection;
   },
 };
+
+export class SemanticTokensLegend {
+  constructor(public tokenTypes: string[], public tokenModifiers: string[] = []) {}
+}
+
+export class SemanticTokens {
+  constructor(public data: Uint32Array, public resultId?: string) {}
+}
+
+export class SemanticTokensBuilder {
+  private _data: number[] = [];
+  constructor(public legend?: SemanticTokensLegend) {}
+  push(line: number, char: number, length: number, tokenType: number, tokenModifiers?: number) {
+    this._data.push(line, char, length, tokenType, tokenModifiers ?? 0);
+  }
+  build(resultId?: string): SemanticTokens {
+    return new SemanticTokens(new Uint32Array(this._data), resultId);
+  }
+}
 
 // --- tree view (F5) ---
 export enum TreeItemCollapsibleState {

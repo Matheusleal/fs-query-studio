@@ -17,7 +17,8 @@ export type WorkerLike = {
 
 export type ConnNode =
   | { t: "connection"; def: ConnectionDefinition }
-  | { t: "table"; connId: string; table: SchemaTable }
+  | { t: "schema"; connId: string; schemaName: string; tables: SchemaTable[] }
+  | { t: "table"; connId: string; table: SchemaTable; displayName?: string }
   | { t: "column"; column: SchemaColumn }
   | { t: "error"; message: string };
 
@@ -46,8 +47,15 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
         item.iconPath = new vscode.ThemeIcon("database");
         return item;
       }
+      case "schema": {
+        const item = new vscode.TreeItem(node.schemaName, vscode.TreeItemCollapsibleState.Collapsed);
+        item.description = `${node.tables.length} table${node.tables.length === 1 ? "" : "s"}`;
+        item.iconPath = new vscode.ThemeIcon("symbol-namespace");
+        return item;
+      }
       case "table": {
-        const item = new vscode.TreeItem(node.table.name, vscode.TreeItemCollapsibleState.Collapsed);
+        const label = node.displayName ?? node.table.name;
+        const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.Collapsed);
         item.iconPath = new vscode.ThemeIcon("table");
         return item;
       }
@@ -71,6 +79,13 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
     }
     if (node.t === "connection") {
       return this.tablesOf(node.def);
+    }
+    if (node.t === "schema") {
+      return node.tables.map((table) => {
+        const prefix = node.schemaName + ".";
+        const displayName = table.name.startsWith(prefix) ? table.name.slice(prefix.length) : table.name;
+        return { t: "table", connId: node.connId, table, displayName };
+      });
     }
     if (node.t === "table") {
       return node.table.columns.map((column) => ({ t: "column", column }));
@@ -99,7 +114,29 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
     if (tables === undefined) {
       return [{ t: "error", message: this.lastSchemaError ?? "Schema discovery failed." }];
     }
-    return tables.map((table) => ({ t: "table", connId: def.id, table }));
+
+    const hasSchemas = tables.some((t) => t.name.includes("."));
+    if (!hasSchemas) {
+      return tables.map((table) => ({ t: "table", connId: def.id, table }));
+    }
+
+    const schemaMap = new Map<string, SchemaTable[]>();
+    for (const table of tables) {
+      const dotIdx = table.name.indexOf(".");
+      const schemaName = dotIdx > 0 ? table.name.slice(0, dotIdx) : "public";
+      const list = schemaMap.get(schemaName) ?? [];
+      list.push(table);
+      schemaMap.set(schemaName, list);
+    }
+
+    return Array.from(schemaMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([schemaName, schemaTables]) => ({
+        t: "schema",
+        connId: def.id,
+        schemaName,
+        tables: schemaTables,
+      }));
   }
 
   private lastSchemaError: string | undefined;

@@ -26,5 +26,6 @@
     <Project Path="tests/FSharpQueryStudio.Security.Tests/FSharpQueryStudio.Security.Tests.fsproj" />
     <Project Path="tests/FSharpQueryStudio.Storage.Tests/FSharpQueryStudio.Storage.Tests.fsproj" />
     <Project Path="tests/FSharpQueryStudio.Worker.Tests/FSharpQueryStudio.Worker.Tests.fsproj" />
+    <Project Path="tests/FSharpQueryStudio.Benchmarks/FSharpQueryStudio.Benchmarks.fsproj" />
   </Folder>
 </Solution>
