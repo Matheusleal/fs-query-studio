@@ -517,6 +517,7 @@ module Handlers =
             JsonSerializer.Deserialize<ConnectionDefinition>(request.Params, Serialization.options)
 
         let updated = Workspace.registerConnection (workspaceDir ()) connection
+        Connections.configure (WorkspaceConnectionResolver(updated, secretStore))
         EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) updated secretStore
 
         { Id = request.Id
@@ -546,6 +547,7 @@ module Handlers =
             JsonSerializer.Deserialize<ConnectionRemoveParams>(request.Params, Serialization.options)
 
         let updated = Workspace.removeConnection (workspaceDir ()) removeParams.Id
+        Connections.configure (WorkspaceConnectionResolver(updated, secretStore))
         EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) updated secretStore
 
         { Id = request.Id

@@ -41,7 +41,11 @@ export async function resolveWorkerSession(deps: ResolveWorkerSessionDeps): Prom
   const resolveWorkerDll = deps.resolveWorkerDll ?? realResolveWorkerDll;
   const makeClient =
     deps.makeClient ??
-    ((command, dll) => new WorkerClient({ spawn: () => spawnWorkerProcess(command, dll) }));
+    ((command, dll) =>
+      new WorkerClient({
+        spawn: () => spawnWorkerProcess(command, dll),
+        log: deps.log,
+      }));
 
   let dotnet: { command: string; version: string };
   try {

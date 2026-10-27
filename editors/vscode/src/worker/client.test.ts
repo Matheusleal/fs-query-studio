@@ -264,3 +264,53 @@ describe("reverse channel (host-bound requests)", () => {
     expect((await p).result).toEqual({ version: "0.1.0" });
   });
 });
+
+describe("WorkerClient logging and stderr tracking", () => {
+  it("pipes stderr chunks into log callback with [Worker stderr] prefix", async () => {
+    const logs: string[] = [];
+    const child = createFakeChild();
+    const client = new WorkerClient({
+      spawn: () => child.process,
+      log: (l) => logs.push(l),
+    });
+
+    client.send({ id: "log-1", method: "worker/health", params: {} });
+    await flush();
+
+    child.process.stderr.emit("data", Buffer.from("First error line\nSecond error line\n"));
+    await flush();
+
+    expect(logs).toContain("[Worker] Started process with PID 4242.");
+    expect(logs).toContain("[Host -> Worker] worker/health (log-1)");
+    expect(logs).toContain("[Worker stderr] First error line");
+    expect(logs).toContain("[Worker stderr] Second error line");
+
+    child.reply({ id: "log-1", result: { ok: true } });
+    await flush();
+    expect(logs).toContain("[Worker -> Host] Result on worker/health (log-1)");
+  });
+
+  it("logs errors returned in response frames", async () => {
+    const logs: string[] = [];
+    const child = createFakeChild();
+    const client = new WorkerClient({
+      spawn: () => child.process,
+      log: (l) => logs.push(l),
+    });
+
+    client.send({ id: "err-1", method: "test/method", params: {} });
+    await flush();
+
+    child.reply({
+      id: "err-1",
+      result: null,
+      error: { code: "test/failed", message: "something blew up" },
+    });
+    await flush();
+
+    expect(logs).toContain(
+      "[Worker -> Host] Error on test/method (err-1): [test/failed] something blew up",
+    );
+  });
+});
+

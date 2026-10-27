@@ -99,16 +99,26 @@ let outputChannel: vscode.OutputChannel | undefined;
 export async function activate(context: vscode.ExtensionContext): Promise<FsQueryStudioApi> {
   outputChannel = vscode.window.createOutputChannel("F# Query Studio");
 
+  const log = (line: string) => {
+    const time = new Date().toISOString().substring(11, 19);
+    outputChannel?.appendLine(`[${time}] ${line}`);
+  };
+
+  log("F# Query Studio extension activating...");
+
   const runCheck = async (): Promise<HealthCheckResult> => {
     outputChannel!.show(true);
     const result = await runHealthCheck({
       extensionRoot: context.extensionPath,
       env: process.env,
-      log: (line) => outputChannel!.appendLine(line),
+      log,
       resolveDotnet,
       resolveWorkerDll,
       makeClient: (dotnetCommand, dll) => {
-        const client = new WorkerClient({ spawn: () => spawnWorkerProcess(dotnetCommand, dll) });
+        const client = new WorkerClient({
+          spawn: () => spawnWorkerProcess(dotnetCommand, dll),
+          log,
+        });
         return { send: (req) => client.send(req), dispose: () => client.dispose() };
       },
     });
@@ -136,7 +146,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     const session = await getWorkerSession({
       extensionRoot: context.extensionPath,
       env: process.env,
-      log: (line) => outputChannel!.appendLine(line),
+      log,
     });
     if (!bridgeRegistered) {
       bridgeRegistered = true;
@@ -152,7 +162,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
 
   const controller = createFsQueryController({
     getWorker,
-    log: (line) => outputChannel!.appendLine(line),
+    log,
   });
 
   const rendererMessaging = vscode.notebooks.createRendererMessaging(FSQUERY_RENDERER_ID);
@@ -167,7 +177,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
       });
       return picked?.fsPath;
     },
-    log: (line) => outputChannel!.appendLine(line),
+    log,
   });
 
   // Registered before language features so its `api.list` can feed
@@ -175,12 +185,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
   const connections = registerConnectionFeatures({
     getWorker,
     secrets: context.secrets,
-    log: (line) => outputChannel!.appendLine(line),
+    log,
   });
 
   const languageFeatures = registerLanguageFeatures({
     getWorker,
-    log: (line) => outputChannel!.appendLine(line),
+    log,
     listConnections: async () => {
       const list = await connections.api.list();
       return list.map((c) => ({
@@ -191,6 +201,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     listConnectionNames: async () =>
       (await connections.api.list()).map((c) => c.name),
   });
+
+  const showOutputCommand = vscode.commands.registerCommand(
+    "fs-query-studio.showOutput",
+    () => {
+      outputChannel?.show(true);
+    },
+  );
 
   const newNotebookCommand = vscode.commands.registerCommand(
     "fs-query-studio.newNotebook",
@@ -288,6 +305,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
         targetDir = picked[0].fsPath;
       }
 
+      log(`[Workspace] Creating sample data in directory: ${targetDir}`);
       try {
         const worker = await getWorker();
         const res = await worker.send({
@@ -297,9 +315,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
         });
 
         if (res.error) {
-          void vscode.window.showErrorMessage(
+          log(`[Workspace] Failed to create sample data: ${res.error.message}`);
+          outputChannel?.show(true);
+          const choice = await vscode.window.showErrorMessage(
             `Failed to create sample data: ${res.error.message}`,
+            "Show Logs",
           );
+          if (choice === "Show Logs") {
+            outputChannel?.show(true);
+          }
           return;
         }
 
@@ -308,6 +332,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
           csvPath: string;
           notebookPath: string;
         };
+
+        log(
+          `[Workspace] Sample data created successfully: SQLite=${data.sqlitePath}, CSV=${data.csvPath}, Notebook=${data.notebookPath}`,
+        );
 
         await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
 
@@ -324,9 +352,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
           "Sample SQLite database ('sample_store.db'), CSV ('sales_feed.csv'), and interactive notebook ('sample_demo.fsqnb') created successfully!",
         );
       } catch (err) {
-        void vscode.window.showErrorMessage(
-          `Error creating sample data: ${(err as Error).message}`,
+        const msg = (err as Error).message;
+        log(`[Workspace] Error creating sample data: ${msg}`);
+        outputChannel?.show(true);
+        const choice = await vscode.window.showErrorMessage(
+          `Error creating sample data: ${msg}`,
+          "Show Logs",
         );
+        if (choice === "Show Logs") {
+          outputChannel?.show(true);
+        }
       }
     },
   );
@@ -367,6 +402,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     notebookSerializer,
     controller,
     rendererHost,
+    showOutputCommand,
     newNotebookCommand,
     newNotebookHereCommand,
     restartCommand,

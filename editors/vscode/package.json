@@ -95,6 +95,12 @@
         "title": "F# Query Studio: Open Documentation",
         "shortTitle": "Documentation",
         "icon": "$(book)"
+      },
+      {
+        "command": "fs-query-studio.showOutput",
+        "title": "F# Query Studio: Show Output Logs",
+        "shortTitle": "Show Logs",
+        "icon": "$(output)"
       }
     ],
     "viewsContainers": {
@@ -117,7 +123,7 @@
     "viewsWelcome": [
       {
         "view": "fsQueryStudioConnections",
-        "contents": "No connections registered yet.\n[Add Connection](command:fs-query-studio.connections.add)\n\n[Create Sample Data (SQLite & CSV)](command:fs-query-studio.createSampleData)\n\n[Open Documentation](command:fs-query-studio.openDocs)"
+        "contents": "No connections registered yet.\n[Add Connection](command:fs-query-studio.connections.add)\n\n[Create Sample Data (SQLite & CSV)](command:fs-query-studio.createSampleData)\n\n[Open Documentation](command:fs-query-studio.openDocs)\n\n[Show Output Logs](command:fs-query-studio.showOutput)"
       }
     ],
     "menus": {
@@ -160,6 +166,11 @@
           "command": "fs-query-studio.connections.refresh",
           "when": "view == fsQueryStudioConnections",
           "group": "navigation@30"
+        },
+        {
+          "command": "fs-query-studio.showOutput",
+          "when": "view == fsQueryStudioConnections",
+          "group": "navigation@35"
         }
       ],
       "editor/title": [
