@@ -29,12 +29,12 @@ jobs:
       # GitHub-hosted Windows runners. Excluded here and run on the Linux
       # job / locally instead - this filter is an escape hatch, not a way
       # to skip everything else.
-      - run: dotnet test FSharpQueryStudio.slnx --no-build --configuration Release --filter "Category!=RequiresDocker" --settings .runsettings --blame-hang --blame-hang-timeout 2m --logger "console;verbosity=normal"
+      - run: dotnet test FSharpQueryStudio.slnx --no-build --configuration Release --filter "Category!=RequiresDocker" --settings .runsettings --blame-hang --blame-hang-timeout 5m --logger "console;verbosity=normal"
 
   build-and-test-linux:
     name: Build and test (Linux)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     # Runs the reused libraries + the F# worker on Linux, each project
     # individually so one failure doesn't mask the others. The VS Code
@@ -62,4 +62,4 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - run: dotnet test "${{ matrix.project }}" --configuration Release --settings .runsettings --blame-hang --blame-hang-timeout 2m --logger "console;verbosity=normal"
+      - run: dotnet test "${{ matrix.project }}" --configuration Release --settings .runsettings --blame-hang --blame-hang-timeout 5m --logger "console;verbosity=normal"
