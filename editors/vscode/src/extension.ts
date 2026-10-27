@@ -263,11 +263,83 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     },
   );
 
+  const createSampleDataCommand = vscode.commands.registerCommand(
+    "fs-query-studio.createSampleData",
+    async () => {
+      let targetDir: string | undefined;
+      const wsFolders = vscode.workspace.workspaceFolders;
+      if (wsFolders && wsFolders.length === 1) {
+        targetDir = wsFolders[0].uri.fsPath;
+      } else if (wsFolders && wsFolders.length > 1) {
+        const pick = await vscode.window.showQuickPick(
+          wsFolders.map((f) => ({ label: f.name, description: f.uri.fsPath, uri: f.uri })),
+          { placeHolder: "Select a workspace folder for sample data" },
+        );
+        if (!pick) return;
+        targetDir = pick.uri.fsPath;
+      } else {
+        const picked = await vscode.window.showOpenDialog({
+          canSelectFiles: false,
+          canSelectFolders: true,
+          canSelectMany: false,
+          openLabel: "Select Folder for Sample Data",
+        });
+        if (!picked || picked.length === 0) return;
+        targetDir = picked[0].fsPath;
+      }
+
+      try {
+        const worker = await getWorker();
+        const res = await worker.send({
+          id: randomUUID(),
+          method: "workspace/createSampleData",
+          params: { targetDir },
+        });
+
+        if (res.error) {
+          void vscode.window.showErrorMessage(
+            `Failed to create sample data: ${res.error.message}`,
+          );
+          return;
+        }
+
+        const data = res.result as {
+          sqlitePath: string;
+          csvPath: string;
+          notebookPath: string;
+        };
+
+        await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
+
+        try {
+          const doc = await vscode.workspace.openNotebookDocument(
+            vscode.Uri.file(data.notebookPath),
+          );
+          await vscode.window.showNotebookDocument(doc);
+        } catch {
+          // ignore error if notebook viewer fails to open immediately
+        }
+
+        void vscode.window.showInformationMessage(
+          "Sample SQLite database ('sample_store.db'), CSV ('sales_feed.csv'), and interactive notebook ('sample_demo.fsqnb') created successfully!",
+        );
+      } catch (err) {
+        void vscode.window.showErrorMessage(
+          `Error creating sample data: ${(err as Error).message}`,
+        );
+      }
+    },
+  );
+
   const openDocsCommand = vscode.commands.registerCommand(
     "fs-query-studio.openDocs",
     async () => {
+      const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+      const primaryDoc = isPt ? "USER_GUIDE_PT.md" : "USER_GUIDE.md";
+      const secondaryDoc = isPt ? "USER_GUIDE.md" : "USER_GUIDE_PT.md";
       const candidates = [
-        vscode.Uri.joinPath(context.extensionUri, "USER_GUIDE.md"),
+        vscode.Uri.joinPath(context.extensionUri, primaryDoc),
+        vscode.Uri.joinPath(context.extensionUri, secondaryDoc),
         vscode.Uri.joinPath(context.extensionUri, "README.md"),
         vscode.Uri.joinPath(context.extensionUri, "readme.md"),
       ];
@@ -298,6 +370,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     newNotebookCommand,
     newNotebookHereCommand,
     restartCommand,
+    createSampleDataCommand,
     openDocsCommand,
     languageFeatures,
     connections.disposable,

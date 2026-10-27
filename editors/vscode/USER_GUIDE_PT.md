@@ -1,0 +1,286 @@
+# F# Query Studio — Guia Completo do Usuário
+
+[🇧🇷 Versão em Português](USER_GUIDE_PT.md) | [🇺🇸 English Version](USER_GUIDE.md)
+
+O **F# Query Studio** é uma extensão profissional para o Visual Studio Code que transforma o seu editor em um estúdio completo e interativo para análise, consulta e engenharia de dados utilizando a linguagem **F#**.
+
+Escreva consultas com segurança de tipos em tempo de compilação, alta expressividade e performance através de **F# Query Notebooks (`.fsqnb`)**, integrando bancos de dados relacionais (**PostgreSQL, SQL Server, MySQL, SQLite**), arquivos locais (**CSV, Excel/XLSX, JSON**) e **APIs REST**.
+
+---
+
+## Documentação Oficial e Links Úteis
+
+- 📘 **Documentação Oficial de F#**: [Microsoft Learn — Visão Geral do F#](https://learn.microsoft.com/dotnet/fsharp/)
+- 🔍 **Expressões de Consulta F# (LINQ)**: [Microsoft Learn — Query Expressions Reference](https://learn.microsoft.com/dotnet/fsharp/language-reference/query-expressions)
+- ⚡ **F# Interativo (FSI)**: [Microsoft Learn — Guia do F# Interactive](https://learn.microsoft.com/dotnet/fsharp/tools/fsharp-interactive/)
+- 🗄️ **Documentação do SQLProvider**: [SQLProvider Documentation](https://fsprojects.github.io/SQLProvider/)
+- 📦 **Repositório e Issues no GitHub**: [fs-query-studio no GitHub](https://github.com/Matheusleal/fs-query-studio)
+
+---
+
+## Sumário
+
+1. [Requisitos e Instalação](#1-requisitos-e-instalação)
+2. [Interface e Acesso Rápido](#2-interface-e-acesso-rápido)
+3. [Início Rápido: Criando Dados de Exemplo (SQLite e CSV)](#3-início-rápido-criando-dados-de-exemplo-sqlite-e-csv)
+4. [Gerenciamento de Conexões (Sidebar Explorer)](#4-gerenciamento-de-conexões-sidebar-explorer)
+5. [Auto-complete Inteligente de Conexões](#5-auto-complete-inteligente-de-conexões)
+6. [Consultas LINQ e Type Provider em Background](#6-consultas-linq-e-type-provider-em-background)
+   - [Filtragem Básica e Projeção](#filtragem-básica-e-projeção)
+   - [Junção de Múltiplas Tabelas (Joins)](#junção-de-múltiplas-tabelas-joins)
+   - [Agrupamentos e Agregações](#agrupamentos-e-agregações)
+   - [Consultas em Arquivos CSV com LINQ](#consultas-em-arquivos-csv-com-linq)
+   - [Combinando Banco de Dados e CSV em Memória](#combinando-banco-de-dados-e-csv-em-memória)
+7. [Consultas SQL Tradicionais Parametrizadas (Raw SQL)](#7-consultas-sql-tradicionais-parametrizadas-raw-sql)
+8. [Grid Interativo de Resultados](#8-grid-interativo-de-resultados)
+9. [Recursos de Linguagem e Go to Definition (F12)](#9-recursos-de-linguagem-e-go-to-definition-f12)
+10. [Ciclo de Vida do Notebook e Sessão FSI](#10-ciclo-de-vida-do-notebook-e-sessão-fsi)
+11. [Diagnóstico e Solução de Problemas](#11-diagnóstico-e-solução-de-problemas)
+
+---
+
+## 1. Requisitos e Instalação
+
+- **.NET 10 SDK** instalado e acessível no `PATH` do sistema (`dotnet --version` ≥ 10.0). O F# Query Studio executa um processo worker nativo empacotado que gerencia a sessão interativa FSI e o servidor de linguagem (FSAC).
+- **VS Code 1.90** ou superior.
+- Suporte nativo multiplataforma: **Windows, Linux e macOS**.
+
+### Instalação Manual do Pacote VSIX
+
+Para instalar localmente a partir do arquivo `.vsix`:
+```bash
+code --install-extension fs-query-studio.vsix --force
+```
+
+---
+
+## 2. Interface e Acesso Rápido
+
+O F# Query Studio se integra perfeitamente ao VS Code em três áreas principais:
+
+1. **Barra de Atividades (Activity Bar)**: Ícone dedicado com o logo do F# Query Studio na barra lateral esquerda. Nele você visualiza todas as conexões registradas, esquemas, tabelas e metadados de colunas.
+2. **Ícones de Ação no Menu**:
+   - `$(book)` **Documentação**: Abre este guia lado a lado com seu código (disponível no cabeçalho do painel Connections e no editor do notebook).
+   - `$(database)` **Criar Base de Dados de Teste**: Gera automaticamente bases SQLite e CSV fictícias com notebook demonstrativo em 1 clique.
+   - `$(add)` **Adicionar Conexão**: Abre o assistente interativo para cadastrar bancos, arquivos ou APIs.
+   - `$(refresh)` **Atualizar**: Recarrega o esquema e regenera os tipos de entidades.
+3. **Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)**:
+   - `F# Query Studio: Create Sample Data (SQLite & CSV)`
+   - `F# Query Studio: Open Documentation`
+   - `F# Query Studio: New F# Query Notebook`
+   - `F# Query Studio: Restart Notebook Session`
+   - `F# Query Studio: Check Worker`
+
+---
+
+## 3. Início Rápido: Criando Dados de Exemplo (SQLite e CSV)
+
+Quer começar a explorar consultas LINQ imediatamente sem precisar configurar um banco externo?
+
+Clique no botão **`Create Sample Data`** (`$(database)`) no cabeçalho do painel **Connections**, ou selecione `F# Query Studio: Create Sample Data (SQLite & CSV)` no Command Palette.
+
+### O Que É Criado Automaticamente:
+1. **`sample_store.db` (SQLite)**: Um banco relacional completo contendo 5 tabelas populadas com dados consistentes:
+   - `Categories` (`Id`, `Name`, `Description`)
+   - `Products` (`Id`, `CategoryId`, `Name`, `UnitPrice`, `StockQuantity`)
+   - `Customers` (`Id`, `FullName`, `Email`, `Country`, `City`, `CreatedAt`)
+   - `Orders` (`Id`, `CustomerId`, `OrderDate`, `Status`, `TotalAmount`)
+   - `OrderItems` (`Id`, `OrderId`, `ProductId`, `Quantity`, `UnitPrice`)
+2. **`sales_feed.csv`**: Arquivo CSV de vendas com 10 transações reais:
+   - `TransactionId`, `Date`, `StoreCity`, `Category`, `Product`, `Quantity`, `UnitPrice`, `Total`
+3. **`sample_demo.fsqnb`**: Notebook interativo executável, pré-configurado com exemplos de LINQ, Joins, consultas em CSV e SQL tradicional.
+4. As conexões `SampleStore` e `SalesFeed` são registradas no seu workspace e os tipos de entidades são mapeados automaticamente em segundo plano!
+
+---
+
+## 4. Gerenciamento de Conexões (Sidebar Explorer)
+
+### Fontes de Dados Suportadas
+
+| Tipo | Descrição | Exemplo de Configuração |
+|---|---|---|
+| **SQLite** | Banco local em arquivo | Caminho: `sample_store.db` ou `C:\dados\app.db` |
+| **PostgreSQL** | Suporte completo a múltiplos esquemas (`public`, schemas customizados, views) | `Host=localhost;Database=mydb;Username=postgres;Password={password}` |
+| **SQL Server** | Suporte corporativo a schemas (`dbo`, schemas customizados, views) | `Server=localhost;Database=master;User Id=sa;Password={password};TrustServerCertificate=True` |
+| **MySQL** | Banco relacional (catálogos, tabelas e views) | `Server=localhost;Database=loja;Uid=root;Pwd={password};` |
+| **CSV** | Arquivos delimitados (vírgula, ponto-e-vírgula, tabulação) | Caminho: `sales_feed.csv` |
+| **Excel (XLSX)** | Planilhas Excel com múltiplas abas | Caminho: `financas.xlsx` |
+| **JSON** | Arquivos JSON locais (objeto ou lista de objetos) | Caminho: `catalogo.json` |
+| **REST API** | Endpoints HTTP/HTTPS retornando JSON | URL base: `https://api.github.com` |
+
+### Segurança e Armazenamento Seguro de Credenciais
+
+As senhas **nunca são armazenadas em texto puro**. Ao cadastrar uma conexão com `{password}`, a credencial é protegida com criptografia nativa no chaveiro seguro do seu sistema operacional através da API `SecretStorage` do VS Code.
+
+---
+
+## 5. Auto-complete Inteligente de Conexões
+
+Ao escrever código nas células do notebook, o F# Query Studio oferece **IntelliSense contextual específico para cada tipo de conexão**:
+
+- `Connections.connect "..."` ➔ Recomenda **fontes que geram tipos de entidades** (SQLite, PostgreSQL, SQL Server, MySQL, CSV, Excel, JSON).
+- `Connections.sql "..."` ➔ Recomenda **apenas bancos relacionais SQL** (SQLite, PostgreSQL, SQL Server, MySQL).
+- `Connections.csv "..."` ➔ Recomenda **apenas conexões do tipo CSV**.
+- `Connections.excel "..."` ➔ Recomenda **apenas conexões do tipo Excel/XLSX**.
+- `Connections.json "..."` ➔ Recomenda **apenas conexões do tipo JSON**.
+- `Connections.rest "..."` ➔ Recomenda **apenas conexões do tipo REST API**.
+
+---
+
+## 6. Consultas LINQ e Type Provider em Background
+
+O F# Query Studio analisa as conexões do seu workspace e **gera automaticamente em segundo plano tipos F# fortemente tipados** para todas as tabelas e colunas.
+
+Você não precisa configurar Type Providers manuais nem compilar projetos auxiliares: basta chamar `.asEntities`!
+
+### Filtragem Básica e Projeção
+
+```fsharp
+// 1. Obtenha a conexão com a base de dados de exemplo
+let conn = Connections.connect "SampleStore"
+let db = conn.asEntities
+
+// 2. Consulta LINQ com filtros e ordenação
+query {
+    for p in db.Products do
+    where (p.UnitPrice > 50.0M)
+    sortByDescending p.UnitPrice
+    select (p.Id, p.Name, p.UnitPrice, p.StockQuantity)
+}
+```
+
+### Junção de Múltiplas Tabelas (Joins)
+
+Realize junções relacionais com segurança de tipo em tempo de compilação usando a cláusula `join`:
+
+```fsharp
+// Junção entre Clientes e Pedidos
+query {
+    for c in db.Customers do
+    join o in db.Orders on (c.Id = o.CustomerId)
+    where (o.Status = "Completed")
+    select (c.FullName, c.Country, o.Id, o.OrderDate, o.TotalAmount)
+}
+```
+
+```fsharp
+// Junção tripla: Itens de Pedido + Produtos + Categorias
+query {
+    for item in db.OrderItems do
+    join prod in db.Products on (item.ProductId = prod.Id)
+    join cat in db.Categories on (prod.CategoryId = cat.Id)
+    select (item.OrderId, prod.Name, cat.Name, item.Quantity, item.UnitPrice)
+}
+```
+
+### Agrupamentos e Agregações
+
+```fsharp
+// Agrupamento de clientes por país com contagem
+query {
+    for c in db.Customers do
+    groupValBy c.Id into g
+    select (g.Key, count g)
+}
+```
+
+### Consultas em Arquivos CSV com LINQ
+
+Arquivos planos como CSV, Excel e JSON recebem esquemas inferidos automaticamente:
+
+```fsharp
+let sales = (Connections.connect "SalesFeed").asEntities
+
+// Consulta LINQ no feed CSV de vendas
+query {
+    for row in sales.Rows do
+    where (row.StoreCity = "New York" && row.Quantity >= 2)
+    sortByDescending row.Total
+    select (row.TransactionId, row.Product, row.Quantity, row.Total)
+}
+```
+
+### Combinando Banco de Dados e CSV em Memória
+
+Como as células compartilham o mesmo estado no F# Interactive, você pode cruzar dados do banco relacional com feeds CSV usando funções funcionais do F#:
+
+```fsharp
+let db = (Connections.connect "SampleStore").asEntities
+let csv = (Connections.connect "SalesFeed").asEntities
+
+let dbProducts = 
+    query { for p in db.Products do select (p.Name, p.UnitPrice) }
+    |> Seq.toList
+
+let csvTransactions =
+    query { for r in csv.Rows do select (r.Product, r.Total) }
+    |> Seq.toList
+
+printfn "Total de produtos no banco: %d | Total de vendas no CSV: %d" dbProducts.Length csvTransactions.Length
+```
+
+---
+
+## 7. Consultas SQL Tradicionais Parametrizadas (Raw SQL)
+
+Quando você precisa executar queries SQL customizadas, CTEs ou funções nativas do banco de dados, use `Connections.sql`:
+
+```fsharp
+Connections.sql
+    "SampleStore"
+    """
+    SELECT 
+        c.FullName,
+        COUNT(o.Id) AS OrderCount,
+        SUM(o.TotalAmount) AS TotalSpent
+    FROM Customers c
+    LEFT JOIN Orders o ON c.Id = o.CustomerId
+    WHERE c.Country = @country
+    GROUP BY c.Id, c.FullName
+    ORDER BY TotalSpent DESC
+    """
+    [ "country", box "USA" ]
+```
+
+Todos os parâmetros utilizam binding nativo de ADO.NET, protegendo contra injeção de SQL.
+
+---
+
+## 8. Grid Interativo de Resultados
+
+Qualquer expressão que retornar dados tabulares ou coleções é renderizada em um **grid visual interativo**:
+
+- **Ordenação**: Clique em qualquer coluna para ordenar de forma crescente ou decrescente.
+- **Tipagem Visual**: Números alinhados à direita, textos à esquerda e nulos destacados visualmente.
+- **Aba de Esquema (Schema View)**: Alterne para a aba **Schema** no topo do grid para inspecionar os tipos .NET e definições de banco de cada coluna.
+- **Exportação para CSV**: Clique no botão **Export CSV** para salvar o resultado em arquivo local.
+
+---
+
+## 9. Recursos de Linguagem e Go to Definition (F12)
+
+O F# Query Studio executa um backend de linguagem dedicado integrado ao **F# Compiler Service**:
+
+- **Go to Definition (`F12`)**: Pressione `F12` em qualquer símbolo (`Connections.connect`, `.asEntities`, campos tipados como `p.UnitPrice`, ou funções auxiliares). O editor salta diretamente para a linha de definição.
+- **Hover / Tooltips**: Passe o cursor sobre variáveis e métodos para ver assinaturas e documentação de tipos.
+- **Diagnósticos em Tempo Real**: Erros de sintaxe ou tipo são sublinhados antes da execução da célula.
+- **Renomeação (`F2`)**: Renomeie variáveis e símbolos de forma consistente em todo o notebook.
+
+---
+
+## 10. Ciclo de Vida do Notebook e Sessão FSI
+
+- **Estado Compartilhado**: Todas as células em um arquivo `.fsqnb` compartilham a mesma sessão interativa FSI.
+- **Cancelamento**: Interrompa consultas longas a qualquer momento pelo botão de parada (⏹).
+- **Reinício da Sessão**: Clique no ícone **Restart Notebook Session** (`$(refresh)`) no cabeçalho do notebook ou utilize `Ctrl+Shift+P > Restart Notebook Session` para reiniciar a sessão FSI de forma limpa.
+
+---
+
+## 11. Diagnóstico e Solução de Problemas
+
+- **O worker não inicializa?**
+  Execute `F# Query Studio: Check Worker` no Command Palette (`Ctrl+Shift+P`). Ele verifica se o .NET 10 SDK está presente e emite mensagens claras de correção.
+- **Novas tabelas não aparecem no autocomplete?**
+  Clique no ícone de atualização (`$(refresh)`) na barra lateral **Connections** para recarregar o esquema e regenerar os tipos de entidades.
+- **Dúvidas ou Relato de Problemas?**
+  Abra uma issue no repositório oficial: [https://github.com/Matheusleal/fs-query-studio/issues](https://github.com/Matheusleal/fs-query-studio/issues).

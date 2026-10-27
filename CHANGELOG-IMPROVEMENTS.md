@@ -18,6 +18,7 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
 | **ITEM-07** | Otimização de Performance e Reflexão na Projeção | `projection-performance` | 🟢 Concluído |
 | **ITEM-08** | Ativação de Provedores Go-to-Definition e Rename no VS Code | `vscode-lang-features` | 🟢 Concluído |
 | **ITEM-09** | Descoberta Multi-Schema e Consultas LINQ com Type Provider | `schema-discovery`, `linq-type-provider`, `integration-tests` | 🟢 Concluído |
+| **ITEM-10** | Documentação Bilíngue, Gerador de Dados de Exemplo e Links Oficiais | `docs-and-samples` | 🟢 Concluído |
 
 ---
 
@@ -160,4 +161,21 @@ Todas as alterações listadas neste documento são rastreadas a partir da propo
   - `STEP-13 Concluído`: Subagente `schema-discovery` expandiu a descoberta de metadados em `PostgreSqlConnector.fs` (removido filtro restritivo de `public`, suportando schemas como `dbo` e views), `SqlServerConnector.fs` (preservação de schemas e views) e `SqliteConnector.fs` (suporte a views).
   - `STEP-14 Concluído`: Subagente `linq-type-provider` adicionou `SQLProvider` via CPM (`Directory.Packages.props`), helpers LINQ de alta performance (`query<'T>`, `queryCsv<'T>`, `queryExcel<'T>`, `result.As<'T>()`, `result.AsQueryable<'T>()`) com mapeamento dinâmico sem reflexão repetida por linha, e injeção automática de `SQLProvider` e `System.Linq` no `Prologue.fs` e `FsiSession.fs`.
   - `STEP-15 Concluído`: Subagente `integration-tests` implementou `LocalDatabaseIntegrationTests.fs`, validando criação e consulta em arquivos locais SQLite e containers Docker para PostgreSQL e SQL Server com schemas e LINQ. 291 testes passaram no container Linux e 245 testes no VS Code.
+
+---
+
+### [ITEM-10] Documentação Bilíngue, Gerador de Dados de Exemplo e Links Oficiais
+- **Subagente**: `docs-and-samples`
+- **Status**: 🟢 Concluído
+- **Objetivos**:
+  - **Documentação Bilíngue**: Disponibilizar guias completos em Inglês (`USER_GUIDE.md`) e Português (`USER_GUIDE_PT.md`), com detecção automática do idioma do usuário e links cruzados.
+  - **Links Oficiais**: Adicionar links diretos para a documentação oficial da Microsoft de F#, F# Query Expressions (LINQ), F# Interactive (FSI) e SQLProvider.
+  - **Gerador de Base de Dados Fictícia**: Criar funcionalidade 1-clique (`$(database)` no cabeçalho de Connections e Command Palette) para gerar banco relacional SQLite (`sample_store.db` com Categories, Products, Customers, Orders e OrderItems), feed CSV (`sales_feed.csv`) e notebook executável interativo (`sample_demo.fsqnb`).
+  - **Exemplos Ricos de LINQ**: Adicionar exemplos de consultas básicas, joins entre tabelas, agregações/groupings, consultas em CSV e combinação em memória na documentação.
+- **Registro de Mudanças**:
+  - Implementado `SampleDataGenerator.fs` em `FSharpQueryStudio.Connectors`.
+  - Adicionado endpoint `workspace/createSampleData` em `Handlers.fs` e comando `fs-query-studio.createSampleData` na extensão VS Code.
+  - Atualizado `openDocsCommand` para selecionar automaticamente o idioma apropriado (`pt` ou `en`).
+  - Escritos `USER_GUIDE.md` (EN) e `USER_GUIDE_PT.md` (PT) com exemplos completos e links oficiais.
+
 

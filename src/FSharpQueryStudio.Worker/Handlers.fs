@@ -606,6 +606,61 @@ module Handlers =
                           Error = Some { Code = "connection/schemaFailed"; Message = ex.Message } }
         }
 
+    [<CLIMutable>]
+    type SampleCreateParams =
+        { TargetDirectory: string option
+          TargetDir: string option }
+
+    type SampleCreateResult =
+        { SqlitePath: string
+          CsvPath: string
+          NotebookPath: string
+          RegisteredConnections: string list }
+
+    let handleCreateSampleData (request: WorkerRequestFrame) : WorkerResponseFrame =
+        try
+            let p = JsonSerializer.Deserialize<SampleCreateParams>(request.Params, Serialization.options)
+            let dir =
+                p.TargetDirectory
+                |> Option.orElse p.TargetDir
+                |> Option.defaultValue (workspaceDir ())
+            let files = SampleDataGenerator.generateAllSamples dir
+
+            let sqliteDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "SampleStore"
+                  Kind = ConnectorKind.Sqlite
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = files.SqlitePath |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let csvDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "SalesFeed"
+                  Kind = ConnectorKind.Csv
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = files.CsvPath |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let _ = Workspace.registerConnection (workspaceDir ()) sqliteDef
+            let updated2 = Workspace.registerConnection (workspaceDir ()) csvDef
+            Connections.configure (WorkspaceConnectionResolver(updated2, secretStore))
+            EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) updated2 secretStore
+
+            let result: SampleCreateResult =
+                { SqlitePath = files.SqlitePath
+                  CsvPath = files.CsvPath
+                  NotebookPath = files.NotebookPath
+                  RegisteredConnections = [ "SampleStore"; "SalesFeed" ] }
+
+            { Id = request.Id
+              Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+              Error = None }
+        with ex ->
+            { Id = request.Id
+              Result = None
+              Error = Some { Code = "sample/createFailed"; Message = ex.Message } }
+
     let dispatch (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
             match request.Method with
@@ -626,6 +681,7 @@ module Handlers =
             | "connection/register" -> return handleConnectionRegister request
             | "connection/remove" -> return handleConnectionRemove request
             | "connection/schema" -> return! handleConnectionSchema request
+            | "workspace/createSampleData" -> return handleCreateSampleData request
             | unknown ->
                 return
                     { Id = request.Id

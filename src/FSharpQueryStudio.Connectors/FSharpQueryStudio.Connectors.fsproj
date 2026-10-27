@@ -15,6 +15,7 @@
     <Compile Include="Connections.fs" />
     <Compile Include="WorkspaceConnectionResolver.fs" />
     <Compile Include="EntityBackgroundGenerator.fs" />
+    <Compile Include="SampleDataGenerator.fs" />
   </ItemGroup>
 
   <ItemGroup>
