@@ -153,6 +153,8 @@ module FsacBridge =
     let private registerWaiter (key: struct (string * int)) (tcs: TaskCompletionSource<Diagnostic list>) : unit =
         diagnosticsPending.AddOrUpdate(key, [ tcs ], (fun _ existing -> tcs :: existing)) |> ignore
 
+    let private originalUriByFsacUri = ConcurrentDictionary<string, string>()
+
     let private latestExpectedVersionByUri = ConcurrentDictionary<string, int>()
 
     /// The most recent `publishDiagnostics` push for each (canonicalized uri, version).
@@ -165,7 +167,7 @@ module FsacBridge =
         | Some 2 -> DiagnosticSeverity.Warning
         | _ -> DiagnosticSeverity.Information
 
-    let private parseDiagnostics (paramsEl: JsonElement) : Diagnostic list =
+    let private parseDiagnostics (originalDocUri: string) (paramsEl: JsonElement) : Diagnostic list =
         paramsEl.GetProperty("diagnostics").EnumerateArray()
         |> Seq.map (fun d ->
             let range = d.GetProperty("range")
@@ -185,9 +187,9 @@ module FsacBridge =
 
             { Message = d.GetProperty("message").GetString()
               Severity = mapSeverity severity
-              StartLine = Prologue.shiftDown (start.GetProperty("line").GetInt32() + 1) - 1
+              StartLine = Prologue.shiftDownForDocument originalDocUri (start.GetProperty("line").GetInt32() + 1) - 1
               StartColumn = start.GetProperty("character").GetInt32()
-              EndLine = Prologue.shiftDown (end_.GetProperty("line").GetInt32() + 1) - 1
+              EndLine = Prologue.shiftDownForDocument originalDocUri (end_.GetProperty("line").GetInt32() + 1) - 1
               EndColumn = end_.GetProperty("character").GetInt32()
               Code = code })
         |> List.ofSeq
@@ -203,7 +205,11 @@ module FsacBridge =
             "textDocument/publishDiagnostics",
             fun paramsEl ->
                 let uri = canonicalizeUri (paramsEl.GetProperty("uri").GetString())
-                let diagnostics = parseDiagnostics paramsEl
+                let originalDocUri =
+                    match originalUriByFsacUri.TryGetValue(uri) with
+                    | true, orig -> orig
+                    | false, _ -> uri
+                let diagnostics = parseDiagnostics originalDocUri paramsEl
 
                 let version =
                     match paramsEl.TryGetProperty("version") with
@@ -356,7 +362,9 @@ module FsacBridge =
             // caller's own `documentUri` - `documentAnalyzed`'s own uri
             // always canonicalizes to the same thing, so the two must
             // agree here or this wait can never resolve except by timeout.
-            let pendingKey = struct (canonicalizeUri (fsacUriFor documentUri), version)
+            let canonical = canonicalizeUri (fsacUriFor documentUri)
+            originalUriByFsacUri.[canonical] <- documentUri
+            let pendingKey = struct (canonical, version)
             registerWaiter pendingKey tcs
 
             do! syncDocument client documentUri version checkedSource
@@ -425,7 +433,7 @@ module FsacBridge =
     let check (documentUri: string) (version: int) (source: string) : Task<Diagnostic list> =
         task {
             let! client = sharedProcess.EnsureClient()
-            let! diagnostics = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+            let! diagnostics = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
             return diagnostics |> Option.defaultValue []
         }
 
@@ -547,14 +555,14 @@ module FsacBridge =
             // (shared with `check`, which needed the same wait for its own
             // diagnostics) is used here purely as a "the document is
             // parsed" gate - the diagnostics it returns are discarded.
-            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
 
             let! result =
                 sendRequestWithTimeout
                     client
                     "textDocument/hover"
                     {| textDocument = {| uri = fsacUriFor documentUri |}
-                       position = {| line = Prologue.shiftUp line - 1; character = column |} |}
+                       position = {| line = Prologue.shiftUpForDocument documentUri line - 1; character = column |} |}
 
             match result with
             | LspFail err ->
@@ -614,14 +622,14 @@ module FsacBridge =
             // is correct. `awaitDocumentAnalyzed` is reused here purely as
             // that readiness gate - the diagnostics it returns are
             // discarded.
-            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
 
             let! result =
                 sendRequestWithTimeout
                     client
                     "textDocument/definition"
                     {| textDocument = {| uri = fsacUriFor documentUri |}
-                       position = {| line = Prologue.shiftUp line - 1; character = column |} |}
+                       position = {| line = Prologue.shiftUpForDocument documentUri line - 1; character = column |} |}
 
             match result with
             | LspFail err ->
@@ -668,7 +676,7 @@ module FsacBridge =
                         else
                             resolvedUri, false
 
-                    let shift l = if lineAdjustment then Prologue.shiftDown (l + 1) - 1 else l
+                    let shift l = if lineAdjustment then Prologue.shiftDownForDocument documentUri (l + 1) - 1 else l
 
                     return
                         Some
@@ -734,14 +742,14 @@ module FsacBridge =
             // the just-synced document finishes. `awaitDocumentAnalyzed`
             // is reused here purely as that readiness gate - the
             // diagnostics it returns are discarded.
-            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
 
             let! result =
                 sendRequestWithTimeout
                     client
                     "textDocument/signatureHelp"
                     {| textDocument = {| uri = fsacUriFor documentUri |}
-                       position = {| line = Prologue.shiftUp line - 1; character = column |} |}
+                       position = {| line = Prologue.shiftUpForDocument documentUri line - 1; character = column |} |}
 
             match result with
             | LspFail err ->
@@ -864,14 +872,14 @@ module FsacBridge =
             // which is silently wrong instead of loudly failing.
             // `awaitDocumentAnalyzed` is reused here purely as that
             // readiness gate - the diagnostics it returns are discarded.
-            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
 
             let! result =
                 sendRequestWithTimeout
                     client
                     "textDocument/completion"
                     {| textDocument = {| uri = fsacUriFor documentUri |}
-                       position = {| line = Prologue.shiftUp line - 1; character = column |} |}
+                       position = {| line = Prologue.shiftUpForDocument documentUri line - 1; character = column |} |}
 
             match result with
             | LspFail err ->
@@ -903,14 +911,14 @@ module FsacBridge =
             // reference edits" (a `None` result) on roughly 1 in 3 runs.
             // `awaitDocumentAnalyzed` is reused here purely as that
             // readiness gate - the diagnostics it returns are discarded.
-            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
 
             let! result =
                 sendRequestWithTimeout
                     client
                     "textDocument/references"
                     {| textDocument = {| uri = fsacUriFor documentUri |}
-                       position = {| line = Prologue.shiftUp line - 1; character = column |}
+                       position = {| line = Prologue.shiftUpForDocument documentUri line - 1; character = column |}
                        context = {| includeDeclaration = true |} |}
 
             match result with
@@ -953,9 +961,9 @@ module FsacBridge =
                         let start = range.GetProperty("start")
                         let end_ = range.GetProperty("end")
 
-                        { StartLine = Prologue.shiftDown (start.GetProperty("line").GetInt32() + 1) - 1
+                        { StartLine = Prologue.shiftDownForDocument documentUri (start.GetProperty("line").GetInt32() + 1) - 1
                           StartColumn = start.GetProperty("character").GetInt32()
-                          EndLine = Prologue.shiftDown (end_.GetProperty("line").GetInt32() + 1) - 1
+                          EndLine = Prologue.shiftDownForDocument documentUri (end_.GetProperty("line").GetInt32() + 1) - 1
                           EndColumn = end_.GetProperty("character").GetInt32() })
                     |> List.ofSeq
 

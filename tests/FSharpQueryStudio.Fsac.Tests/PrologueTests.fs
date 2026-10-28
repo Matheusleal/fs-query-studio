@@ -35,3 +35,38 @@ let ``shiftUp and shiftDown use the real prologue's actual line count`` () =
     let expectedShift = 1 + Prologue.lineCount (Prologue.build ())
     Assert.Equal(expectedShift, Prologue.shiftUp 1)
     Assert.Equal(1, Prologue.shiftDown expectedShift)
+
+[<Fact>]
+let ``resolveWorkspaceForDocument resolves vscode-notebook-cell URIs and finds workspace`` () =
+    let tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fqs_test_ws_" + System.Guid.NewGuid().ToString("N"))
+    let fsqsDir = System.IO.Path.Combine(tempDir, ".fsqs")
+    System.IO.Directory.CreateDirectory(fsqsDir) |> ignore
+    try
+        let notebookPath = System.IO.Path.Combine(tempDir, "test.fsqnb").Replace('\\', '/')
+        let p = if notebookPath.StartsWith("/") then notebookPath else "/" + notebookPath
+        let cellUri = $"vscode-notebook-cell:{p}#cell1.fsx"
+        let resolved = Prologue.resolveWorkspaceForDocument cellUri
+        Assert.True(resolved.IsSome)
+        Assert.Equal(tempDir, resolved.Value)
+    finally
+        if System.IO.Directory.Exists tempDir then
+            System.IO.Directory.Delete(tempDir, true)
+
+[<Fact>]
+let ``buildForDocument loads GeneratedEntities from resolved workspace`` () =
+    let tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fqs_test_ws_" + System.Guid.NewGuid().ToString("N"))
+    let genDir = System.IO.Path.Combine(tempDir, ".fsqs", "generated")
+    System.IO.Directory.CreateDirectory(genDir) |> ignore
+    let genFile = System.IO.Path.Combine(genDir, "GeneratedEntities.fs")
+    System.IO.File.WriteAllText(genFile, "// mock generated")
+    try
+        let notebookPath = System.IO.Path.Combine(tempDir, "test.fsqnb").Replace('\\', '/')
+        let p = if notebookPath.StartsWith("/") then notebookPath else "/" + notebookPath
+        let cellUri = $"vscode-notebook-cell:{p}#cell1.fsx"
+        let prologueText = Prologue.buildForDocument cellUri
+        Assert.Contains("#load \"", prologueText)
+        Assert.Contains("open FSharpQueryStudio.Generated", prologueText)
+    finally
+        if System.IO.Directory.Exists tempDir then
+            System.IO.Directory.Delete(tempDir, true)
+

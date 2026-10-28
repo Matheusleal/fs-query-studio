@@ -41,3 +41,10 @@
   - **Related Requirements**: Todos
   - **Done When**: 100% dos testes passam sem falhas no ambiente local e no Docker Linux.
   - **Status**: Completed
+
+- [x] **TASK-08: Resolução de entidades do workspace para notebooks (FSAC & Worker Handlers)**
+  - **Goal**: Atualizar `Prologue.fs`, `FsacBridge.fs` e `Handlers.fs` para suportar URIs do tipo `vscode-notebook-cell:`, resolvendo o diretório do workspace do notebook e carregando o `GeneratedEntities.fs` gerado pelo workspace no FSAC para eliminar falsos positivos de diagnóstico e habilitar autocompletion e navegação de tipos no editor.
+  - **Related Requirements**: FR-CONN-CATEGORY-API, FR-NOTEBOOK-CELL-ENTITIES
+  - **Done When**: Documentos de células de notebook carregam o `GeneratedEntities.fs` do workspace no FSAC, sem erros de diagnóstico como `SqlCategory does not define ... SampleStore`.
+  - **Status**: Completed
+

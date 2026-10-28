@@ -153,40 +153,8 @@ module Handlers =
     /// (Section 11), never an unhandled crash — EvalInteractionNonThrowing
     /// already keeps it from propagating.
     let resolveWorkspaceForDocument (docUriStr: string) : string =
-        try
-            if not (String.IsNullOrWhiteSpace docUriStr) then
-                let unescaped = Uri.UnescapeDataString docUriStr
-                let uri = Uri(unescaped)
-                if uri.IsFile then
-                    let rawDir = Path.GetDirectoryName(uri.LocalPath)
-                    let dir =
-                        if not (String.IsNullOrEmpty rawDir) && rawDir.Length >= 3 && (rawDir.[0] = '/' || rawDir.[0] = '\\') && Char.IsLetter(rawDir.[1]) && rawDir.[2] = ':' then
-                            rawDir.Substring(1)
-                        else
-                            rawDir
-                    if not (String.IsNullOrWhiteSpace dir) && Directory.Exists dir then
-                        let rec findWorkspace (current: DirectoryInfo) (depth: int) =
-                            if depth <= 0 || isNull current then None
-                            elif Directory.Exists(Path.Combine(current.FullName, ".fsqs"))
-                                 || File.Exists(Path.Combine(current.FullName, ".fsqs", "workspace.json"))
-                                 || File.Exists(Path.Combine(current.FullName, ".fsqs", "generated", "GeneratedEntities.fs"))
-                                 || File.Exists(Path.Combine(current.FullName, "workspace.json"))
-                                 || File.Exists(Path.Combine(current.FullName, "generated", "GeneratedEntities.fs"))
-                                 || File.Exists(Path.Combine(current.FullName, ".fsquery", "connections.json")) then
-                                Some current.FullName
-                            else
-                                findWorkspace current.Parent (depth - 1)
-                        match findWorkspace (DirectoryInfo(dir)) 4 with
-                        | Some found -> found
-                        | None -> dir
-                    else
-                        workspaceDir ()
-                else
-                    workspaceDir ()
-            else
-                workspaceDir ()
-        with _ ->
-            workspaceDir ()
+        Prologue.resolveWorkspaceForDocument docUriStr
+        |> Option.defaultValue (workspaceDir ())
 
     let runEvaluate (request: WorkerRequestFrame) (workDir: string) : WorkerResponseFrame =
         try
@@ -341,12 +309,16 @@ module Handlers =
           Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
           Error = None }
 
-    let private ensureEntitiesReady () =
+    let private ensureEntitiesReadyForDocument (docUriStr: string) =
         try
-            let connections = Workspace.readConnections (workspaceDir ())
-            EntityBackgroundGenerator.ensureGenerated (workspaceDir ()) connections secretStore
+            let ws = resolveWorkspaceForDocument docUriStr
+            let connections = Workspace.readConnections ws
+            EntityBackgroundGenerator.ensureGenerated ws connections secretStore
         with ex ->
-            Log.Warning("FS Query Studio: Failed to ensure entities ready before analysis: {Error}", ex.Message)
+            Log.Warning("FS Query Studio: Failed to ensure entities ready before analysis for {Uri}: {Error}", docUriStr, ex.Message)
+
+    let private ensureEntitiesReady () =
+        ensureEntitiesReadyForDocument ""
 
     /// Parses/type-checks the request's source snapshot via FSAC, over the
     /// shared `FsacBridge.sharedProcess` LSP connection (Section 8, step
@@ -356,9 +328,9 @@ module Handlers =
     /// `AnalysisContext` tracked it as a `SourceText`.
     let handleAnalysisCheck (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
-            ensureEntitiesReady ()
             let checkParams =
                 JsonSerializer.Deserialize<AnalysisCheckParams>(request.Params, Serialization.options)
+            ensureEntitiesReadyForDocument checkParams.DocumentUri
 
             let! diagnostics = FsacBridge.check checkParams.DocumentUri checkParams.Version checkParams.Source
             let result: AnalysisCheckResult = { Diagnostics = diagnostics }
@@ -377,6 +349,7 @@ module Handlers =
         task {
             let hoverParams =
                 JsonSerializer.Deserialize<AnalysisHoverParams>(request.Params, Serialization.options)
+            ensureEntitiesReadyForDocument hoverParams.DocumentUri
 
             let! hover =
                 FsacBridge.hover
@@ -404,9 +377,9 @@ module Handlers =
     /// `FsacBridge.definition` itself, so this handler doesn't need it.
     let handleAnalysisDefinition (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
-            ensureEntitiesReady ()
             let definitionParams =
                 JsonSerializer.Deserialize<AnalysisDefinitionParams>(request.Params, Serialization.options)
+            ensureEntitiesReadyForDocument definitionParams.DocumentUri
 
             let! location =
                 FsacBridge.definition
@@ -459,6 +432,7 @@ module Handlers =
         task {
             let completionParams =
                 JsonSerializer.Deserialize<AnalysisCompletionParams>(request.Params, Serialization.options)
+            ensureEntitiesReadyForDocument completionParams.DocumentUri
 
             let! items =
                 FsacBridge.complete
