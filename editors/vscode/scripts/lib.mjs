@@ -121,10 +121,58 @@ export const requiredVsixFiles = [
   "media/renderer/index.js",
 ];
 
+/** Security rules declaring files and directories that must NEVER appear in the VSIX package. */
+export const forbiddenVsixRules = [
+  {
+    category: "debug symbols & source maps",
+    test: (f) => /\.(pdb|map)$/i.test(f),
+  },
+  {
+    category: "uncompiled source code files",
+    test: (f) =>
+      /\.(fs|fsi|cs|ts|tsx)$/i.test(f) ||
+      (/\.js$/i.test(f) && !["dist/extension.js", "media/renderer/index.js"].includes(f)),
+  },
+  {
+    category: "secrets, environment configs & private keys",
+    test: (f) =>
+      /(^|\/)\.env/i.test(f) ||
+      /\.(key|pem|cert|crt|pfx|p12|publishsettings)$/i.test(f) ||
+      /(^|\/)(secret|credential|token|password)/i.test(f),
+  },
+  {
+    category: "local databases, notebooks & data dumps",
+    test: (f) => /\.(fsqnb|db|sqlite|sqlite3|dump|bak|log|tmp|csv)$/i.test(f),
+  },
+  {
+    category: "source, test & build directories",
+    test: (f) => /(^|\/)(src|test|out|node_modules)(\/|$)/i.test(f),
+  },
+  {
+    category: "vcs, ide & agent metadata",
+    test: (f) =>
+      /(^|\/)(\.git|\.github|\.githooks|\.agents|\.claude|\.superpowers|\.vscode|\.vs|\.idea)(\/|$)/i.test(
+        f,
+      ),
+  },
+  {
+    category: "project, solution & test config files",
+    test: (f) =>
+      /\.(fsproj|csproj|sln|slnx|props|targets)$/i.test(f) ||
+      /(^|\/)tsconfig.*\.json$/i.test(f) ||
+      /(^|\/)(esbuild\.mjs|vitest\.config\.[jt]s)$/i.test(f) ||
+      /\.(test|spec)\.[a-z0-9]+$/i.test(f),
+  },
+  {
+    category: "nested package archives",
+    test: (f) => /\.vsix$/i.test(f),
+  },
+];
+
 /**
- * Assert a `vsce ls` listing contains every required file and no source /
- * test / build junk. Port of the bash checks that used to live in
- * `.github/workflows/vscode-extension.yml`. Throws on the first failure set.
+ * Assert a `vsce ls` listing contains every required file and no source,
+ * test, debug, secret, database, or build junk. Port and expansion of the
+ * CI assertions to guarantee complete packaging security.
  * @param {string} listing newline-separated output of `vsce ls`
  */
 export function assertVsixContents(listing) {
@@ -138,17 +186,20 @@ export function assertVsixContents(listing) {
   for (const required of requiredVsixFiles) {
     if (!has(required)) problems.push(`missing required file: ${required}`);
   }
-  if (lines.some((l) => /(^|\/)(src|test|out|node_modules)\//.test(l))) {
-    problems.push("contains source / test / build files (src|test|out|node_modules)");
-  }
-  if (lines.some((l) => /\.test\.ts$|tsconfig.*\.json$/.test(l))) {
-    problems.push("contains test or tsconfig files");
+
+  for (const rule of forbiddenVsixRules) {
+    const offenders = lines.filter(rule.test);
+    if (offenders.length > 0) {
+      const sample = offenders.slice(0, 3).join(", ");
+      const more = offenders.length > 3 ? ` (+${offenders.length - 3} more)` : "";
+      problems.push(`contains ${rule.category}: ${sample}${more}`);
+    }
   }
 
   if (problems.length) {
-    throw new Error(`VSIX contents check failed:\n  - ${problems.join("\n  - ")}`);
+    throw new Error(`VSIX contents security check failed:\n  - ${problems.join("\n  - ")}`);
   }
-  console.log(`\x1b[32m✓\x1b[0m VSIX contents OK (${lines.length} files)`);
+  console.log(`\x1b[32m✓\x1b[0m VSIX contents OK (${lines.length} files, zero security leaks)`);
 }
 
 /** Read + parse `editors/vscode/package.json`. */

@@ -42,7 +42,7 @@ export function packageVsix(opts = {}) {
   return out;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { flags, values } = parseArgs();
   try {
     packageVsix({

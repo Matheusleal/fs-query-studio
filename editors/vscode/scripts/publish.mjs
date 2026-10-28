@@ -83,7 +83,7 @@ export function preflight(opts = {}) {
   return { version, blockers };
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { flags } = parseArgs();
   const dryRun = flags.has("dry-run");
   try {
