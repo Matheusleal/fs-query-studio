@@ -6,6 +6,12 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.3.2] — 2026-10-28
+
+### Removed
+
+- **Unused Dependencies & External References Cleanup** — Removed unused `SSH.NET` package dependency from integration test suite and central package management (`Directory.Packages.props`). Cleaned up obsolete references to Ionide across documentation to reflect F# Query Studio's fully autonomous, built-in language service worker.
+
 ## [0.3.1] — 2026-10-28
 
 ### Fixed
