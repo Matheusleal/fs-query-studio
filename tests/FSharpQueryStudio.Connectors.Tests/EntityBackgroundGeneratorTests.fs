@@ -207,3 +207,28 @@ let ``generateForConnectionsAsync handles multiple SQLite and multiple CSV data 
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
         try Directory.Delete(tempDir, true) with _ -> ()
 
+[<Fact>]
+let ``generateForConnectionsAsync with empty connections overwrites existing GeneratedEntities with empty scaffold`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fqs-empty-gen-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(tempDir) |> ignore
+    let genDir = Path.Combine(tempDir, "generated")
+    Directory.CreateDirectory(genDir) |> ignore
+    let targetPath = Path.Combine(genDir, "GeneratedEntities.fs")
+    File.WriteAllText(targetPath, "// OLD STALE CODE\nmodule Old = let x = 1")
+
+    let secretStore =
+        { new ISecretStore with
+            member _.TryRead _ = None
+            member _.Save _ _ = ()
+            member _.Delete _ = () }
+
+    try
+        let result = (EntityBackgroundGenerator.generateForConnectionsAsync tempDir [] secretStore).GetAwaiter().GetResult()
+        Assert.True(result)
+        let newContent = File.ReadAllText targetPath
+        Assert.DoesNotContain("OLD STALE CODE", newContent)
+        Assert.Contains("namespace FSharpQueryStudio.Generated", newContent)
+        Assert.Contains("// No connections registered.", newContent)
+    finally
+        try Directory.Delete(tempDir, true) with _ -> ()
+

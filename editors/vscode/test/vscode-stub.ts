@@ -61,6 +61,14 @@ export const workspace = {
   onDidChangeNotebookDocument(_fn: (e: unknown) => unknown): Disposable {
     return { dispose: () => {} };
   },
+  createFileSystemWatcher(_pattern: string) {
+    return {
+      onDidCreate: () => ({ dispose: () => {} }),
+      onDidChange: () => ({ dispose: () => {} }),
+      onDidDelete: () => ({ dispose: () => {} }),
+      dispose: () => {},
+    };
+  },
 };
 
 export const commands = {

@@ -1261,7 +1261,46 @@ let ``dispatch on connection/list returns an empty list for a fresh workspace`` 
             Assert.Empty payload.connections
         finally
             Handlers.setWorkspaceDirForTests None
-            Directory.Delete(tmp, true)
+    }
+
+[<Fact>]
+let ``dispatch on connection/list cleans leaked sample connections from global workspace store`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-leaked-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory tmp |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let leakedSample: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "SampleStore"
+                  Kind = ConnectorKind.Sqlite
+                  Configuration = JsonDocument.Parse("""{"filePath":"C:/nonexistent/sample_store.db"}""").RootElement
+                  SecretReference = None
+                  IsTrusted = true }
+            let normalGlobal: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "SharedProdDb"
+                  Kind = ConnectorKind.SqlServer
+                  Configuration = JsonDocument.Parse("""{"connectionString":"Server=prod;Database=app;"}""").RootElement
+                  SecretReference = None
+                  IsTrusted = true }
+            Workspace.writeConnections tmp [ leakedSample; normalGlobal ]
+
+            let! response = Handlers.dispatch (emptyParamsRequest "clean1" "connection/list")
+            Assert.True response.Error.IsNone
+            let payload =
+                JsonSerializer.Deserialize<{| connections: ConnectionDefinition list |}>(
+                    response.Result.Value, Serialization.options)
+            Assert.Equal(1, payload.connections.Length)
+            Assert.Equal("SharedProdDb", payload.connections.Head.Name)
+
+            // Verify it was pruned from disk
+            let onDisk = Workspace.readConnections tmp
+            Assert.Equal(1, onDisk.Length)
+            Assert.Equal("SharedProdDb", onDisk.Head.Name)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            if Directory.Exists tmp then Directory.Delete(tmp, true)
     }
 
 [<Fact>]

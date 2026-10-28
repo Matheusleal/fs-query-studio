@@ -616,6 +616,32 @@ module Handlers =
           Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
           Error = None }
 
+    let private cleanLeakedGlobalSampleConnections (globalWs: string) : ConnectionDefinition list =
+        let conns = Workspace.readConnections globalWs
+        let sampleNames = set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed" ]
+        let isLeakedSample (c: ConnectionDefinition) =
+            sampleNames.Contains c.Name && (
+                match c.Kind with
+                | ConnectorKind.Sqlite | ConnectorKind.Csv | ConnectorKind.Excel ->
+                    try
+                        let doc = JsonDocument.Parse(c.Configuration.GetRawText())
+                        let mutable fpProp = Unchecked.defaultof<JsonElement>
+                        if doc.RootElement.TryGetProperty("filePath", &fpProp) && fpProp.ValueKind = JsonValueKind.String then
+                            let fp = fpProp.GetString()
+                            not (File.Exists fp) || not (fp.StartsWith(globalWs, StringComparison.OrdinalIgnoreCase))
+                        else
+                            true
+                    with _ -> true
+                | _ -> false
+            )
+        let leaked = conns |> List.filter isLeakedSample
+        if not (List.isEmpty leaked) then
+            let cleaned = conns |> List.filter (fun c -> not (isLeakedSample c))
+            Workspace.writeConnections globalWs cleaned
+            cleaned
+        else
+            conns
+
     /// `connection/list` — the read-only companion to `connection/register` /
     /// `connection/remove` (F5). Neither of those returns the registry without
     /// mutating it, and the extension's connections TreeView needs the list on
@@ -625,13 +651,13 @@ module Handlers =
         let connections =
             let wsConns = Workspace.readConnections targetWs
             if targetWs <> (workspaceDir ()) then
-                let globalConns = Workspace.readConnections (workspaceDir ())
+                let globalConns = cleanLeakedGlobalSampleConnections (workspaceDir ())
                 let localNames = wsConns |> List.map (fun c -> c.Name) |> Set.ofList
                 let localIds = wsConns |> List.map (fun c -> c.Id) |> Set.ofList
                 let filteredGlobal = globalConns |> List.filter (fun c -> not (Set.contains c.Name localNames) && not (Set.contains c.Id localIds))
                 wsConns @ filteredGlobal
             else
-                wsConns
+                cleanLeakedGlobalSampleConnections targetWs
 
         { Id = request.Id
           Result = Some(JsonSerializer.SerializeToElement({| connections = connections |}, Serialization.options))
