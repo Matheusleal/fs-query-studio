@@ -141,6 +141,41 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
 
   const command = vscode.commands.registerCommand("fs-query-studio.checkWorker", runCheck);
 
+  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  statusBar.command = "fs-query-studio.showOutput";
+  statusBar.text = "$(database) F# Query Studio";
+  statusBar.tooltip = "F# Query Studio: Show Output Logs";
+  statusBar.show();
+
+  let resetStatusBarTimer: NodeJS.Timeout | undefined;
+  const updateEntityMappingStatus = (status: "started" | "completed" | "failed") => {
+    if (resetStatusBarTimer) {
+      clearTimeout(resetStatusBarTimer);
+      resetStatusBarTimer = undefined;
+    }
+    if (status === "started") {
+      statusBar.text = "$(sync~spin) Mapping entities...";
+      statusBar.tooltip = "F# Query Studio: Mapping connection entities in background...";
+      statusBar.show();
+    } else if (status === "completed") {
+      statusBar.text = "$(check) Entities mapped";
+      statusBar.tooltip = "F# Query Studio: Strongly-typed entities mapped successfully";
+      statusBar.show();
+      resetStatusBarTimer = setTimeout(() => {
+        statusBar.text = "$(database) F# Query Studio";
+        statusBar.tooltip = "F# Query Studio: Show Output Logs";
+      }, 3000);
+    } else if (status === "failed") {
+      statusBar.text = "$(error) Entity mapping failed";
+      statusBar.tooltip = "F# Query Studio: Background entity generation failed";
+      statusBar.show();
+      resetStatusBarTimer = setTimeout(() => {
+        statusBar.text = "$(database) F# Query Studio";
+        statusBar.tooltip = "F# Query Studio: Show Output Logs";
+      }, 5000);
+    }
+  };
+
   let bridgeRegistered = false;
   const getWorker = async () => {
     const session = await getWorkerSession({
@@ -150,7 +185,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     });
     if (!bridgeRegistered) {
       bridgeRegistered = true;
-      registerSecretBridge({ client: session.client, secrets: context.secrets });
+      registerSecretBridge({
+        client: session.client,
+        secrets: context.secrets,
+        onEntityMappingStatus: updateEntityMappingStatus,
+      });
     }
     return session.client;
   };
@@ -510,11 +549,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     },
   );
 
-  const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
-  statusBar.command = "fs-query-studio.showOutput";
-  statusBar.text = "$(database) F# Query Studio";
-  statusBar.tooltip = "F# Query Studio: Show Output Logs";
-  statusBar.show();
 
   context.subscriptions.push(
     command,

@@ -86,6 +86,19 @@ module Handlers =
 
     let configureSecretStore (store: ISecretStore) : unit = secretStore <- store
 
+    let mutable private hostChannel: HostChannel option = None
+
+    let configureHostChannel (ch: HostChannel) : unit =
+        hostChannel <- Some ch
+        EntityBackgroundGenerator.onStatusChanged <- Some (fun status ->
+            let statusStr =
+                match status with
+                | EntityBackgroundGenerator.EntityMappingStatus.Started -> "started"
+                | EntityBackgroundGenerator.EntityMappingStatus.Completed _ -> "completed"
+                | EntityBackgroundGenerator.EntityMappingStatus.Failed _ -> "failed"
+            ch.Request("entityMapping/status", {| status = statusStr |}) |> ignore
+        )
+
     let private busyResponse (id: string) : WorkerResponseFrame =
         { Id = id
           Result = None

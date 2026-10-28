@@ -117,14 +117,12 @@ As senhas **nunca são armazenadas em texto puro**. Ao cadastrar uma conexão co
 
 ## 5. Auto-complete Inteligente de Conexões
 
-Ao escrever código nas células do notebook, o F# Query Studio oferece **IntelliSense contextual específico para cada tipo de conexão**:
+Quando você edita células do notebook, o F# Query Studio oferece **IntelliSense contextual organizado de forma clara por categoria de conexão**:
 
-- `Connections.connect "..."` ➔ Recomenda **fontes que geram tipos de entidades** (SQLite, PostgreSQL, SQL Server, MySQL, CSV, Excel, JSON).
-- `Connections.sql "..."` ➔ Recomenda **apenas bancos relacionais SQL** (SQLite, PostgreSQL, SQL Server, MySQL).
-- `Connections.csv "..."` ➔ Recomenda **apenas conexões do tipo CSV**.
-- `Connections.excel "..."` ➔ Recomenda **apenas conexões do tipo Excel/XLSX**.
-- `Connections.json "..."` ➔ Recomenda **apenas conexões do tipo JSON**.
-- `Connections.rest "..."` ➔ Recomenda **apenas conexões do tipo REST API**.
+- `Connections.sql.<NomeConexao>` ➔ Acesso direto às tabelas relacionais (SQLite, PostgreSQL, SQL Server, MySQL) e `.rawQuery` isolado.
+- `Connections.csv.<NomeConexao>` ➔ Acesso direto a linhas tipadas de CSV e `.Raw()`.
+- `Connections.excel.<NomeConexao>` ➔ Acesso direto a planilhas tipadas de Excel e `.Raw()`.
+- `Connections.rest.<NomeConexao>` ➔ Acesso direto a endpoints de API REST e `.SendAsync()`.
 
 ---
 
@@ -132,18 +130,14 @@ Ao escrever código nas células do notebook, o F# Query Studio oferece **Intell
 
 O F# Query Studio analisa as conexões do seu workspace e **gera automaticamente em segundo plano tipos F# fortemente tipados** para todas as tabelas e colunas.
 
-Você não precisa configurar Type Providers manuais nem compilar projetos auxiliares: basta chamar `.asEntities`!
+Você não precisa configurar Type Providers manuais nem compilar projetos auxiliares: os tipos de entidade estão disponíveis imediatamente sob cada categoria!
 
 ### Filtragem Básica e Projeção
 
 ```fsharp
-// 1. Obtenha a conexão com a base de dados de exemplo
-let conn = Connections.connect "SampleStore"
-let db = conn.asEntities
-
-// 2. Consulta LINQ com filtros e ordenação
+// 1. Consulta LINQ direta no banco via Connections.sql
 query {
-    for p in db.Products do
+    for p in Connections.sql.SampleStore.Products do
     where (p.UnitPrice > 50.0M)
     sortByDescending p.UnitPrice
     select (p.Id, p.Name, p.UnitPrice, p.StockQuantity)
@@ -190,11 +184,9 @@ query {
 Arquivos planos como CSV, Excel e JSON recebem esquemas inferidos automaticamente:
 
 ```fsharp
-let sales = (Connections.connect "SalesFeed").asEntities
-
-// Consulta LINQ no feed CSV de vendas
+// Consulta LINQ direta no feed CSV de vendas via Connections.csv
 query {
-    for row in sales.Rows do
+    for row in Connections.csv.SalesFeed do
     where (row.StoreCity = "New York" && row.Quantity >= 2)
     sortByDescending row.Total
     select (row.TransactionId, row.Product, row.Quantity, row.Total)
@@ -206,15 +198,12 @@ query {
 Como as células compartilham o mesmo estado no F# Interactive, você pode cruzar dados do banco relacional com feeds CSV usando funções funcionais do F#:
 
 ```fsharp
-let db = (Connections.connect "SampleStore").asEntities
-let csv = (Connections.connect "SalesFeed").asEntities
-
 let dbProducts = 
-    query { for p in db.Products do select (p.Name, p.UnitPrice) }
+    query { for p in Connections.sql.SampleStore.Products do select (p.Name, p.UnitPrice) }
     |> Seq.toList
 
 let csvTransactions =
-    query { for r in csv.Rows do select (r.Product, r.Total) }
+    query { for r in Connections.csv.SalesFeed do select (r.Product, r.Total) }
     |> Seq.toList
 
 printfn "Total de produtos no banco: %d | Total de vendas no CSV: %d" dbProducts.Length csvTransactions.Length
@@ -251,35 +240,31 @@ Todos os parâmetros utilizam binding nativo de ADO.NET, protegendo contra inje�
 
 O módulo `Connections` fornece a interface programática principal dentro dos seus notebooks:
 
-### Gerenciamento de Conexões
-| Função | Assinatura | Descrição |
+### Categorias de Conexão e Acesso Tipado
+| Categoria / Função | Tipo / Assinatura | Descrição |
 |---|---|---|
-| `Connections.connect` | `string -> DatabaseConnection` | Conecta a um banco relacional SQL (PostgreSQL, SQL Server, MySQL, SQLite). |
-| `Connections.connectCsv` | `string -> CsvConnection` | Conecta a um arquivo CSV registrado. |
-| `Connections.connectExcel` | `string -> ExcelConnection` | Conecta a uma planilha Excel (.xlsx) registrada. |
-| `Connections.connectRest` | `string -> RestConnection` | Conecta a um endpoint de API REST/JSON. |
+| `Connections.sql.<Conn>` | `DatabaseConnection` | Acesso às tabelas relacionais e execução isolada de `.rawQuery "..." [ ... ]`. |
+| `Connections.csv.<Conn>` | `CsvConnector.Data` | Acesso às linhas fortemente tipadas do CSV (implementa `IQueryable<'Row>`) e `.Raw()`. |
+| `Connections.excel.<Conn>` | `ExcelConnector.Data` | Acesso às planilhas fortemente tipadas do Excel e `.Raw()`. |
+| `Connections.rest.<Conn>` | `RestConnector.Data` | Acesso aos itens tipados da REST API e `.SendAsync()`. |
 | `Connections.getConnectionString` | `string -> string` | Retorna a connection string resolvida com as credenciais seguras injetadas. |
 
-### Execução de Consultas
+### Funções Auxiliares de Execução
 | Função | Assinatura | Descrição |
 |---|---|---|
-| `Connections.sql` | `string -> string -> (string * obj) list -> ConnectorQueryResult` | Executa SQL bruto parametrizado e exibe o resultado no grid visual interativo. |
 | `Connections.query<'T>` | `string -> string -> (string * obj) list -> 'T seq` | Executa SQL e mapeia as linhas diretamente para uma sequência de registros tipados `'T seq`. |
-| `Connections.csv` | `string -> ConnectorQueryResult` | Lê linhas de arquivo CSV e renderiza no grid. |
 | `Connections.queryCsv<'T>` | `string -> 'T seq` | Mapeia linhas do CSV diretamente para registros fortemente tipados `'T seq`. |
-| `Connections.excel` | `string -> int option -> ConnectorQueryResult` | Lê linhas de planilha Excel com limite opcional. |
 | `Connections.queryExcel<'T>` | `string -> int option -> 'T seq` | Mapeia linhas do Excel diretamente para registros `'T seq`. |
 | `Connections.queryExcelSheet<'T>` | `string -> string option -> int option -> 'T seq` | Lê uma aba específica do Excel para registros `'T seq`. |
 | `Connections.queryJson<'T>` | `string -> 'T seq` | Desserializa listas ou objetos JSON em registros fortemente tipados `'T seq`. |
-| `Connections.rest` | `string -> RestRequestOptions -> CancellationToken -> Task<JsonElement>` | Dispara uma requisição HTTP customizada para uma API REST registrada. |
 
-### Métodos e Propriedades dos Objetos de Conexão
-- **`conn.asEntities`**: Acessa o contexto tipado com todos os schemas e tabelas para uso com expressões LINQ `query { ... }`.
-- **`conn.Execute(sqlText, [params])`**: Executa uma query e retorna `ConnectorQueryResult` para o grid.
-- **`conn.Query<'T>(sqlText, [params])`**: Executa uma query retornando sequência tipada `'T seq`.
-- **`conn.Queryable<'T>(sqlText, [params])`**: Retorna um `IQueryable<'T>` para composição em LINQ.
-- **`conn.Tables`**: Retorna `string list` com todos os nomes de tabelas e views descobertas.
-- **`conn.Schema`**: Retorna `ConnectorTable list` com nomes e tipos de colunas do banco.
+### Métodos e Propriedades de DatabaseConnection
+- **`db.rawQuery(sqlText, [params])`**: Executa SQL parametrizado estritamente isolado nesta conexão e retorna `ConnectorQueryResult` para o grid visual.
+- **`db.Execute(sqlText, [params])`**: Executa uma query e retorna `ConnectorQueryResult` para o grid.
+- **`db.Query<'T>(sqlText, [params])`**: Executa uma query retornando sequência tipada `'T seq`.
+- **`db.Queryable<'T>(sqlText, [params])`**: Retorna um `IQueryable<'T>` para composição em LINQ.
+- **`db.Tables`**: Retorna `string list` com todos os nomes de tabelas e views descobertas.
+- **`db.Schema`**: Retorna `ConnectorTable list` com nomes e tipos de colunas do banco.
 
 ---
 
@@ -301,7 +286,7 @@ O F# Query Studio executa inteligência de código e realce de sintaxe completo 
 - **Coloração Especial de Palavras Reservadas (Syntax Highlighting)**:
   - Palavras-chave de consultas LINQ como `query`, `for`, `in`, `do`, `select`, `where`, `join`, `on`, `equals`, `into`, `groupBy`, `sortBy`, `distinct`, `count`, `sumBy`, `take`, `skip` são destacadas com as cores de palavras-chave de controle do seu tema.
   - Provido nativamente tanto por injeção de gramática TextMate (`fsharp.query.injection`) quanto pelo provedor semântico (`FSharpQuerySemanticTokensProvider`).
-- **Go to Definition (`F12`)**: Pressione `F12` em qualquer símbolo (`Connections.connect`, `.asEntities`, campos tipados como `p.UnitPrice`, ou funções auxiliares). O editor salta diretamente para a linha de definição.
+- **Go to Definition (`F12`)**: Pressione `F12` em qualquer símbolo (`Connections.sql`, `Connections.csv`, campos tipados como `p.UnitPrice`, ou funções auxiliares). O editor salta diretamente para a linha de definição.
 - **Hover / Tooltips**: Passe o cursor sobre variáveis e métodos para ver assinaturas e documentação XML detalhada de tipos.
 - **Diagnósticos em Tempo Real**: Erros de sintaxe ou tipo são sublinhados antes da execução da célula.
 - **Renomeação (`F2`)**: Renomeie variáveis e símbolos de forma consistente em todo o notebook.

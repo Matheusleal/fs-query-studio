@@ -111,7 +111,7 @@ type PostgreSqlLocalIntegrationTests(fixture: PostgreSqlContainerFixture) =
             let connStr = Connections.getConnectionString "Backbone_dev"
             Assert.Contains("Host=", connStr)
 
-            let dbConn = Connections.connect "Backbone_dev"
+            let dbConn = Connections.getDatabaseConnection "Backbone_dev"
             Assert.Contains("dbo.connections", dbConn.Tables)
             let typedItems = dbConn.Query<LocalPgConnection>("select id, name, active from dbo.connections where id = 1")
             let namesFromConn =

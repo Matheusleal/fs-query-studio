@@ -304,21 +304,7 @@ module Connections =
         | :? IQueryableConnector as c -> c.ConnectionString
         | other -> unsupported name "Connections.getConnectionString" other
 
-    /// <summary>
-    /// Runs a parameterized SQL query against a registered database (PostgreSQL, SQL Server, SQLite, MySQL).
-    /// Parameters are bound via native ADO.NET parameter APIs, protecting against SQL injection.
-    /// Returns a tabular result that renders automatically in the interactive grid.
-    /// </summary>
-    /// <param name="name">The registered database connection name.</param>
-    /// <param name="sqlText">The SQL query string with parameter placeholders (e.g. @status or $1).</param>
-    /// <param name="parameters">List of parameter name and value tuples: [ "paramName", box value ].</param>
-    /// <returns>A ConnectorQueryResult displayed in the interactive grid.</returns>
-    /// <example>
-    /// <code>
-    /// Connections.sql "SampleStore" "SELECT * FROM Products WHERE UnitPrice > @min" [ "min", box 50.0M ]
-    /// </code>
-    /// </example>
-    let sql (name: string) (sqlText: string) (parameters: (string * obj) list) : ConnectorQueryResult =
+    let executeSqlRaw (name: string) (sqlText: string) (parameters: (string * obj) list) : ConnectorQueryResult =
         match resolve name with
         | :? IQueryableConnector as c ->
             let stopwatch = Stopwatch.StartNew()
@@ -326,12 +312,7 @@ module Connections =
             { result with Rows = logOnceDrained c.Kind stopwatch result.Rows }
         | other -> unsupported name "Connections.sql" other
 
-    /// <summary>
-    /// Reads all rows from a registered CSV file connection as a tabular result.
-    /// </summary>
-    /// <param name="name">The registered CSV connection name.</param>
-    /// <returns>A ConnectorQueryResult displayed in the interactive grid.</returns>
-    let csv (name: string) : ConnectorQueryResult =
+    let readCsvRaw (name: string) : ConnectorQueryResult =
         match resolve name with
         | :? CsvConnector as c ->
             let stopwatch = Stopwatch.StartNew()
@@ -339,13 +320,7 @@ module Connections =
             { result with Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows }
         | other -> unsupported name "Connections.csv" other
 
-    /// <summary>
-    /// Reads rows from a registered Excel (.xlsx) connection, optionally bounded to maxRows.
-    /// </summary>
-    /// <param name="name">The registered Excel connection name.</param>
-    /// <param name="maxRows">Optional upper bound on the number of rows to read.</param>
-    /// <returns>A ConnectorQueryResult displayed in the interactive grid.</returns>
-    let excel (name: string) (maxRows: int option) : ConnectorQueryResult =
+    let readExcelRaw (name: string) (maxRows: int option) : ConnectorQueryResult =
         match resolve name with
         | :? ExcelConnector as c ->
             let stopwatch = Stopwatch.StartNew()
@@ -353,14 +328,7 @@ module Connections =
             { result with Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows }
         | other -> unsupported name "Connections.excel" other
 
-    /// <summary>
-    /// Sends an HTTP request through a registered REST/JSON connection.
-    /// </summary>
-    /// <param name="name">The registered REST connection name.</param>
-    /// <param name="options">Request options specifying HTTP method, headers, query parameters, and body.</param>
-    /// <param name="ct">Cancellation token.</param>
-    /// <returns>A Task returning the parsed JsonElement response.</returns>
-    let rest (name: string) (options: RestRequestOptions) (ct: CancellationToken) : Task<JsonElement> =
+    let sendRestAsync (name: string) (options: RestRequestOptions) (ct: CancellationToken) : Task<JsonElement> =
         match resolve name with
         | :? RestConnector as c -> c.SendAsync options ct
         | other -> unsupported name "Connections.rest" other
@@ -374,7 +342,7 @@ module Connections =
     /// <param name="parameters">List of parameter tuples: [ "paramName", box value ].</param>
     /// <returns>A sequence of strongly-typed records of type 'T.</returns>
     let query<'T> (name: string) (sqlText: string) (parameters: (string * obj) list) : 'T seq =
-        let r = sql name sqlText parameters
+        let r = executeSqlRaw name sqlText parameters
         let mapper = getMapper<'T> r.Columns
         seq {
             for row in r.Rows do
@@ -388,7 +356,7 @@ module Connections =
     /// <param name="name">The registered CSV connection name.</param>
     /// <returns>A sequence of strongly-typed records of type 'T.</returns>
     let queryCsv<'T> (name: string) : 'T seq =
-        let r = csv name
+        let r = readCsvRaw name
         let mapper = getMapper<'T> r.Columns
         seq {
             for row in r.Rows do
@@ -403,7 +371,7 @@ module Connections =
     /// <param name="maxRows">Optional maximum number of rows to read.</param>
     /// <returns>A sequence of strongly-typed records of type 'T.</returns>
     let queryExcel<'T> (name: string) (maxRows: int option) : 'T seq =
-        let r = excel name maxRows
+        let r = readExcelRaw name maxRows
         let mapper = getMapper<'T> r.Columns
         seq {
             for row in r.Rows do
@@ -470,8 +438,18 @@ module Connections =
         member _.Execute(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
             let p = defaultArg parameters []
             match resolver with
-            | Some _ -> sql name sqlText p
+            | Some _ -> executeSqlRaw name sqlText p
             | None -> connector.ExecuteQuery sqlText p
+        member this.rawQuery(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            let p = defaultArg parameters []
+            match resolver with
+            | Some _ -> this.Execute(sqlText, p)
+            | None ->
+                let stopwatch = Stopwatch.StartNew()
+                let r = this.Execute(sqlText, p)
+                { r with Rows = logOnceDrained (connector :> IConnector).Kind stopwatch r.Rows }
+        member this.rawQuery(sqlText: string) : ConnectorQueryResult =
+            this.rawQuery(sqlText, [])
         member _.Query<'T>(sqlText: string, ?parameters: (string * obj) list) : 'T seq =
             let p = defaultArg parameters []
             match resolver with
@@ -570,8 +548,12 @@ module Connections =
                     sb.AppendLine() |> ignore
 
             sb.AppendLine("    type Database(conn: FSharpQueryStudio.Connectors.Connections.DatabaseConnection) =") |> ignore
-            sb.AppendLine($"        new(connName: string) = Database(FSharpQueryStudio.Connectors.Connections.connect(connName))") |> ignore
+            sb.AppendLine($"        new(connName: string) = Database(FSharpQueryStudio.Connectors.Connections.getDatabaseConnection(connName))") |> ignore
             sb.AppendLine($"        new() = Database(\"{name}\")") |> ignore
+            sb.AppendLine("        member _.rawQuery(sqlText: string, ?parameters: (string * obj) list) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.rawQuery(sqlText, ?parameters = parameters)") |> ignore
+            sb.AppendLine("        member _.rawQuery(sqlText: string) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.rawQuery(sqlText)") |> ignore
+            sb.AppendLine("        member _.Execute(sqlText: string, ?parameters: (string * obj) list) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.Execute(sqlText, ?parameters = parameters)") |> ignore
+            sb.AppendLine("        member _.Connection = conn") |> ignore
             for (schema, tbls) in schemaGroups do
                 if schema = "public" || schema = "dbo" || schema = "main" then
                     for t in tbls do
@@ -618,7 +600,7 @@ module Connections =
         member _.FilePath = connector.FilePath
         member _.Rows<'T>() : 'T seq = queryCsv<'T> name
         member this.Queryable<'T>() : IQueryable<'T> = (this.Rows<'T>()).AsQueryable()
-        member _.Raw() : ConnectorQueryResult = csv name
+        member _.Raw() : ConnectorQueryResult = readCsvRaw name
 
     /// Represents an active Excel workbook connection with multi-sheet typed queries.
     type ExcelConnection(name: string, connector: ExcelConnector) =
@@ -629,7 +611,7 @@ module Connections =
         member _.Sheet<'T>(sheetName: string, ?maxRows: int) : 'T seq = queryExcelSheet<'T> name (Some sheetName) maxRows
         member this.Queryable<'T>(?maxRows: int) : IQueryable<'T> = (this.Rows<'T>(?maxRows = maxRows)).AsQueryable()
         member this.SheetQueryable<'T>(sheetName: string, ?maxRows: int) : IQueryable<'T> = (this.Sheet<'T>(sheetName, ?maxRows = maxRows)).AsQueryable()
-        member _.Raw(?maxRows: int) : ConnectorQueryResult = excel name maxRows
+        member _.Raw(?maxRows: int) : ConnectorQueryResult = readExcelRaw name maxRows
 
     /// Represents an active REST/JSON connection with typed queries.
     type RestConnection(name: string, connector: RestConnector) =
@@ -640,69 +622,49 @@ module Connections =
             let token = defaultArg ct CancellationToken.None
             connector.SendAsync options token
 
-    /// <summary>
-    /// Retrieves a first-class database connection object exposing Query, Queryable, Execute, Schema and Tables.
-    /// </summary>
-    /// <param name="name">The registered database connection name.</param>
-    /// <returns>A DatabaseConnection instance.</returns>
-    let get (name: string) : DatabaseConnection =
+    /// Category container for registered relational SQL database connections (e.g. Connections.sql.SampleStore).
+    type SqlCategory() = class end
+
+    /// Category container for registered delimited CSV file connections (e.g. Connections.csv.CustomersFeed).
+    type CsvCategory() = class end
+
+    /// Category container for registered Excel workbook connections (e.g. Connections.excel.Reports).
+    type ExcelCategory() = class end
+
+    /// Category container for registered REST/JSON API connections (e.g. Connections.rest.WeatherApi).
+    type RestCategory() = class end
+
+    /// Access registered SQL database connections with strongly-typed schemas and rawQuery.
+    let sql = SqlCategory()
+
+    /// Access registered CSV file connections with strongly-typed records and LINQ query support.
+    let csv = CsvCategory()
+
+    /// Access registered Excel spreadsheet connections with strongly-typed sheet records.
+    let excel = ExcelCategory()
+
+    /// Access registered REST/JSON endpoint connections with strongly-typed response items.
+    let rest = RestCategory()
+
+    let getDatabaseConnection (name: string) : DatabaseConnection =
         match resolve name with
         | :? IQueryableConnector as qc -> DatabaseConnection(name, qc)
-        | other -> unsupported name "Connections.get" other
+        | other -> unsupported name "Connections.sql" other
 
-    /// <summary>
-    /// Connects to a registered database connection (PostgreSQL, SQL Server, MySQL, SQLite).
-    /// Returns a DatabaseConnection supporting `.asEntities`, `.Execute`, `.Query<'T>`, and `.Queryable<'T>`.
-    /// </summary>
-    /// <param name="name">The registered database connection name (with contextual autocomplete).</param>
-    /// <returns>A DatabaseConnection object ready for LINQ or raw SQL.</returns>
-    /// <example>
-    /// <code>
-    /// let conn = Connections.connect "SampleStore"
-    /// let db = conn.asEntities
-    /// query { for p in db.Products do select (p.Name, p.UnitPrice) }
-    /// </code>
-    /// </example>
-    let connect (name: string) : DatabaseConnection = get name
-
-    /// <summary>
-    /// Connects to a registered CSV file connection and returns an active CsvConnection.
-    /// Supports `.asEntities`, `.Rows<'T>()`, `.Queryable<'T>()`, and `.Raw()`.
-    /// </summary>
-    /// <param name="name">The registered CSV connection name (with contextual autocomplete).</param>
-    /// <returns>A CsvConnection instance.</returns>
-    /// <example>
-    /// <code>
-    /// let sales = (Connections.connectCsv "SalesFeed").asEntities
-    /// query { for r in sales.Rows do select r }
-    /// </code>
-    /// </example>
-    let connectCsv (name: string) : CsvConnection =
+    let getCsvConnection (name: string) : CsvConnection =
         match resolve name with
         | :? CsvConnector as c -> CsvConnection(name, c)
-        | other -> unsupported name "Connections.connectCsv" other
+        | other -> unsupported name "Connections.csv" other
 
-    /// <summary>
-    /// Connects to a registered Excel (.xlsx) file connection and returns an active ExcelConnection.
-    /// Supports `.asEntities`, `.Rows<'T>()`, `.Sheet<'T>()`, `.Queryable<'T>()`, and `.Raw()`.
-    /// </summary>
-    /// <param name="name">The registered Excel connection name (with contextual autocomplete).</param>
-    /// <returns>An ExcelConnection instance.</returns>
-    let connectExcel (name: string) : ExcelConnection =
+    let getExcelConnection (name: string) : ExcelConnection =
         match resolve name with
         | :? ExcelConnector as c -> ExcelConnection(name, c)
-        | other -> unsupported name "Connections.connectExcel" other
+        | other -> unsupported name "Connections.excel" other
 
-    /// <summary>
-    /// Connects to a registered REST/JSON API connection and returns an active RestConnection.
-    /// Supports `.asEntities`, `.Items<'T>()`, `.Queryable<'T>()`, and `.SendAsync()`.
-    /// </summary>
-    /// <param name="name">The registered REST connection name (with contextual autocomplete).</param>
-    /// <returns>A RestConnection instance.</returns>
-    let connectRest (name: string) : RestConnection =
+    let getRestConnection (name: string) : RestConnection =
         match resolve name with
         | :? RestConnector as c -> RestConnection(name, c)
-        | other -> unsupported name "Connections.connectRest" other
+        | other -> unsupported name "Connections.rest" other
 
 
 [<AutoOpen>]

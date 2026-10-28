@@ -55,4 +55,25 @@ describe("registerSecretBridge", () => {
       error: { code: "host/secretReadFailed", message: "locked" },
     });
   });
+
+  it("handles entityMapping/status notifications and calls callback", async () => {
+    let handler!: (m: string, p: unknown) => Promise<{ result?: unknown; error?: { code: string; message: string } }>;
+    const statusCalls: string[] = [];
+    registerSecretBridge({
+      client: { setHostRequestHandler: (fn) => (handler = fn) },
+      secrets: { get: async () => undefined },
+      onEntityMappingStatus: (st) => statusCalls.push(st),
+    });
+
+    const resStarted = await handler("entityMapping/status", { status: "started" });
+    expect(resStarted).toEqual({ result: { acknowledged: true } });
+    expect(statusCalls).toEqual(["started"]);
+
+    const resCompleted = await handler("entityMapping/status", { status: "completed" });
+    expect(resCompleted).toEqual({ result: { acknowledged: true } });
+    expect(statusCalls).toEqual(["started", "completed"]);
+
+    const resBad = await handler("entityMapping/status", { status: "invalid" });
+    expect(resBad.error?.code).toBe("host/badParams");
+  });
 });

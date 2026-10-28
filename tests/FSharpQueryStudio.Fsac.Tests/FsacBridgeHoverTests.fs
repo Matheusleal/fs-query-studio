@@ -36,7 +36,7 @@ let ``hover on Connections.sql resolves with no #r or open of its own`` () =
             // (instead of the array's own element boundaries) swallows
             // "**Description**" into `Type`, corrupting it - this is
             // exactly that regression check.
-            Assert.Contains("ConnectorQueryResult", info.Type)
+            Assert.Contains("SqlCategory", info.Type)
             Assert.DoesNotContain("**Description**", info.Type)
     }
 

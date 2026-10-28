@@ -44,34 +44,29 @@ Every code cell runs in a session where this is already open — no `#r` or
 open FSharpQueryStudio.Connectors   // the Connections.* API
 ```
 
-### `Connections` — reach a registered connection by name
+### `Connections` — strongly-typed connections by category
 
-| Call | Kinds | Returns |
+| Category | Kinds | Usage |
 |---|---|---|
-| `Connections.connect name` | All connections (DB, CSV, Excel, JSON) | `IConnector` with `.asEntities` for LINQ queries |
-| `Connections.sql name sqlText parameters` | SQLite, SQL Server, PostgreSQL, MySQL | `ConnectorQueryResult` |
-| `Connections.csv name` | CSV | `ConnectorQueryResult` |
-| `Connections.excel name maxRows` | Excel (XLSX) | `ConnectorQueryResult` |
-| `Connections.json name` | JSON | `ConnectorQueryResult` |
-| `Connections.rest name options ct` | REST JSON | `Task<JsonElement>` |
+| `Connections.sql.<Conn>` | SQLite, SQL Server, PostgreSQL, MySQL | Typed tables (`.Users`) and scoped `.rawQuery "..." [ ... ]` |
+| `Connections.csv.<Conn>` | CSV | Typed rows via LINQ `query { for r in Connections.csv.<Conn> do ... }` or `.Rows` |
+| `Connections.excel.<Conn>` | Excel (XLSX) | Typed sheets (`.<SheetName>`) and `.Raw()` |
+| `Connections.rest.<Conn>` | REST JSON | Typed items (`.Items`) and `.SendAsync()` |
 
 ### LINQ Queries with Automatic Strongly-Typed Entities
 
-F# Query Studio generates typed entities in background for all registered connections. You can query databases, CSV, Excel, and JSON files using idiomatic F# LINQ query expressions:
+F# Query Studio generates typed entities in background for all registered connections. You can query databases, CSV, Excel, and JSON files using idiomatic F# LINQ query expressions directly under each category without any intermediate setup:
 
 ```fsharp
-let conn = Connections.connect "Sales"
-let db = conn.asEntities
-
 query {
-    for u in db.Users do
+    for u in Connections.sql.Sales.Users do
     where (u.Email.Contains("@") && u.IsActive)
     sortBy u.CreatedAt
     select (u.Name, u.Email)
 }
 ```
 
-Multi-schema PostgreSQL and SQL Server databases are mapped naturally under schema namespaces (e.g. `db.Sales.Orders`).
+Multi-schema PostgreSQL and SQL Server databases are mapped naturally under schema namespaces (e.g. `Connections.sql.Sales.Sales.Orders`).
 
 ### Raw SQL Queries
 
@@ -117,9 +112,7 @@ To force plain structured text, end the cell with `sprintf "%A" value`.
   echo and any `printf` output move to the output's "raw data" presentation.
 - **In-cell F# intelligence** — completion, hover, signature help, diagnostics, and
   **Go to Definition (`F12`)** across cells and generated entity types.
-- **Type-specific connection auto-complete** — string literals inside `Connections.sql`
-  and `Connections.connect` only suggest database connections, `Connections.csv` only
-  suggests CSV connections, `Connections.excel` only suggests Excel, etc.
+- **Categorized Connections & Autocomplete** — Access `Connections.sql.<Conn>`, `Connections.csv.<Conn>`, etc. with full IntelliSense, compile-time type safety, and scoped queries without cross-connection leakage.
 - **Connection management** — an Activity Bar tree of connections → schemas → tables →
   columns, lazily loaded; add / edit / remove via guided pickers.
 - **Built-in Documentation** — click the `$(book)` icon in the Connections view toolbar

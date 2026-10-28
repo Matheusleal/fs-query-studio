@@ -1026,7 +1026,7 @@ let ``execution/evaluate resolves Connections.sql against a connection registere
 
             let! _ = Handlers.dispatch registerRequest
 
-            let evaluateRequest = evaluateRequest "eval1" """Connections.sql "Sales" "select Total from Orders" [] |> fun r -> r.Rows |> Seq.head |> Array.head"""
+            let evaluateRequest = evaluateRequest "eval1" """Connections.sql.Sales.rawQuery("select Total from Orders") |> fun r -> r.Rows |> Seq.head |> Array.head"""
             let! evalResponse = Handlers.dispatch evaluateRequest
 
             Assert.True(evalResponse.Error.IsNone)
@@ -1086,7 +1086,7 @@ let ``execution/evaluate committing a connector-query tail expression, then resu
 
             let! _ = Handlers.dispatch registerRequest
 
-            let script = "Connections.csv \"test1\""
+            let script = "Connections.csv.test1.Raw()"
 
             let! evalResponse = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Export1.fsx" script)
             Assert.True(evalResponse.Error.IsNone)

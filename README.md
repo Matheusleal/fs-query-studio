@@ -55,11 +55,10 @@ of building locally.
    keychain, never to disk in the workspace.
 4. **Query it with LINQ or SQL** — either typed with LINQ:
    ```fsharp
-   let db = (Connections.connect "my-conn").asEntities
-   query { for u in db.Users do where (u.IsActive) select u }
+   query { for u in Connections.sql.MyConn.Users do where (u.IsActive) select u }
    ```
    Or with raw SQL:
-   `Connections.sql "my-conn" "select * from Orders" []`.
+   `Connections.sql.MyConn.rawQuery "select * from Orders" []`.
    Run the cell, and the result renders as a grid with a schema tab and **Export CSV**.
 
 Full walkthrough: **[`docs/TUTORIAL.md`](docs/TUTORIAL.md)**.
@@ -72,8 +71,8 @@ Comprehensive User Guide: **[`editors/vscode/USER_GUIDE.md`](editors/vscode/USER
   from the toolbar.
 - **Strongly-typed LINQ queries** — automatic background entity generation for
   databases (PostgreSQL, SQL Server, MySQL, SQLite) and flat files (CSV, Excel, JSON).
-- **Query API** — `Connections.connect` / `sql` / `csv` / `excel` / `json` / `rest` reach connections
-  by name through a parameterized, injection-safe surface. A cell renders the
+- **Query API** — `Connections.sql` / `csv` / `excel` / `rest` reach connections
+  directly with strongly-typed entity access and scoped `rawQuery` execution. A cell renders the
   value of its last expression — collections become a grid, connector queries add
   **Export CSV**, scalars print as text; no special call needed.
 - **Results grid** — virtualized table, schema view, CSV export, paged loading
