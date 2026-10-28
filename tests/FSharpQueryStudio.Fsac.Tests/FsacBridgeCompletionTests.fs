@@ -25,3 +25,15 @@ let ``complete on an empty document returns a non-empty top-level scope`` () =
         let! items = FsacBridge.complete uri 1 "" 1 0
         Assert.NotEmpty(items)
     }
+
+[<Fact>]
+let ``complete after record dot returns fields with their types`` () =
+    task {
+        let uri = $"file:///complete-test-{Guid.NewGuid()}.fsx"
+        let source = "type Person = { Name: string; Age: int }\nlet p = { Name = \"Alice\"; Age = 30 }\np."
+        let! items = FsacBridge.complete uri 1 source 3 2
+        let nameItem = items |> List.find (fun i -> i.Label = "Name")
+        let ageItem = items |> List.find (fun i -> i.Label = "Age")
+        Assert.Equal(Some "string", nameItem.Detail)
+        Assert.Equal(Some "int", ageItem.Detail)
+    }

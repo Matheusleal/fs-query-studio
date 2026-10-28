@@ -845,61 +845,113 @@ module FsacBridge =
     /// LSP's `textDocument/completion` result is `CompletionItem[] |
     /// CompletionList | null` - parses defensively and extracts both `label`
     /// and `detail` (type/signature).
-    let private parseCompletionItems (resultEl: JsonElement) : AnalysisCompletionItem list =
-        let parseItem (el: JsonElement) : AnalysisCompletionItem option =
-            let labelOpt =
-                match el.TryGetProperty("label") with
-                | true, l when l.ValueKind = JsonValueKind.String -> Some(l.GetString())
-                | true, l when l.ValueKind = JsonValueKind.Object ->
-                    match l.TryGetProperty("label") with
-                    | true, inner when inner.ValueKind = JsonValueKind.String -> Some(inner.GetString())
-                    | _ -> None
+    let private simplifyTypeName (t: string) : string =
+        let trimmed = t.Trim()
+        match trimmed with
+        | "System.String" | "String" -> "string"
+        | "System.Int32" | "Int32" -> "int"
+        | "System.Int64" | "Int64" -> "int64"
+        | "System.Int16" | "Int16" -> "int16"
+        | "System.Boolean" | "Boolean" -> "bool"
+        | "System.Decimal" | "Decimal" -> "decimal"
+        | "System.Double" | "Double" -> "float"
+        | "System.Single" | "Single" -> "float32"
+        | "System.Byte" | "Byte" -> "byte"
+        | "System.DateTime" -> "DateTime"
+        | "System.Guid" -> "Guid"
+        | "System.Object" | "Object" -> "obj"
+        | other -> other
+
+    let private extractTypeFromDetail (detail: string) : string =
+        let clean =
+            let idx = detail.LastIndexOf(':')
+            if idx >= 0 && idx + 1 < detail.Length then
+                let afterColon = detail.Substring(idx + 1).Trim()
+                let withIdx = afterColon.IndexOf("with", StringComparison.OrdinalIgnoreCase)
+                let withoutWith =
+                    if withIdx > 0 then afterColon.Substring(0, withIdx).Trim()
+                    else afterColon
+                withoutWith
+            else
+                detail.Trim()
+        let finalType = if String.IsNullOrWhiteSpace clean then detail else clean
+        simplifyTypeName finalType
+
+    let private parseItem (el: JsonElement) : AnalysisCompletionItem option =
+        let labelOpt =
+            match el.TryGetProperty("label") with
+            | true, l when l.ValueKind = JsonValueKind.String -> Some(l.GetString())
+            | true, l when l.ValueKind = JsonValueKind.Object ->
+                match l.TryGetProperty("label") with
+                | true, inner when inner.ValueKind = JsonValueKind.String -> Some(inner.GetString())
+                | _ -> None
+            | _ -> None
+
+        match labelOpt with
+        | None -> None
+        | Some label ->
+            let kindOpt =
+                match el.TryGetProperty("kind") with
+                | true, k when k.ValueKind = JsonValueKind.Number -> Some(k.GetInt32())
                 | _ -> None
 
-            match labelOpt with
-            | None -> None
-            | Some label ->
-                let detail =
-                    match el.TryGetProperty("detail") with
-                    | true, d when d.ValueKind = JsonValueKind.String ->
-                        let s = d.GetString()
-                        if String.IsNullOrWhiteSpace s then None else Some(s.Trim())
-                    | _ ->
-                        match el.TryGetProperty("label") with
-                        | true, l when l.ValueKind = JsonValueKind.Object ->
-                            match l.TryGetProperty("description") with
-                            | true, desc when desc.ValueKind = JsonValueKind.String ->
-                                let s = desc.GetString()
-                                if String.IsNullOrWhiteSpace s then None else Some(s.Trim())
-                            | _ -> None
-                        | _ ->
-                            match el.TryGetProperty("kind") with
-                            | true, k when k.ValueKind = JsonValueKind.Number ->
-                                match k.GetInt32() with
-                                | 1 -> Some "text"
-                                | 2 -> Some "method"
-                                | 3 -> Some "function"
-                                | 4 -> Some "constructor"
-                                | 5 -> Some "field"
-                                | 6 -> Some "variable"
-                                | 7 -> Some "class"
-                                | 8 -> Some "interface"
-                                | 9 -> Some "module"
-                                | 10 -> Some "property"
-                                | 11 -> Some "unit"
-                                | 12 -> Some "value"
-                                | 13 -> Some "enum"
-                                | 14 -> Some "keyword"
-                                | 15 -> Some "snippet"
-                                | 21 -> Some "constant"
-                                | 22 -> Some "struct"
-                                | 23 -> Some "event"
-                                | 24 -> Some "operator"
-                                | 25 -> Some "type"
-                                | _ -> None
-                            | _ -> None
-                Some { Label = label; Detail = detail }
+            let rawDetailOpt =
+                match el.TryGetProperty("detail") with
+                | true, d when d.ValueKind = JsonValueKind.String ->
+                    let s = d.GetString()
+                    if String.IsNullOrWhiteSpace s then None else Some(s.Trim())
+                | _ ->
+                    match el.TryGetProperty("label") with
+                    | true, l when l.ValueKind = JsonValueKind.Object ->
+                        match l.TryGetProperty("description") with
+                        | true, desc when desc.ValueKind = JsonValueKind.String ->
+                            let s = desc.GetString()
+                            if String.IsNullOrWhiteSpace s then None else Some(s.Trim())
+                        | _ -> None
+                    | _ -> None
 
+            let detail =
+                match rawDetailOpt with
+                | Some rawDetail ->
+                    match kindOpt with
+                    | Some 5 | Some 10 | Some 6 | Some 12 ->
+                        Some(extractTypeFromDetail rawDetail)
+                    | Some 2 ->
+                        Some "method"
+                    | _ ->
+                        if rawDetail.Contains(":") then
+                            Some(extractTypeFromDetail rawDetail)
+                        else
+                            Some rawDetail
+                | None ->
+                    match kindOpt with
+                    | Some 1 -> Some "text"
+                    | Some 2 -> Some "method"
+                    | Some 3 -> Some "function"
+                    | Some 4 -> Some "constructor"
+                    | Some 5 -> Some "field"
+                    | Some 6 -> Some "variable"
+                    | Some 7 -> Some "class"
+                    | Some 8 -> Some "interface"
+                    | Some 9 -> Some "module"
+                    | Some 10 -> Some "property"
+                    | Some 11 -> Some "unit"
+                    | Some 12 -> Some "value"
+                    | Some 13 -> Some "enum"
+                    | Some 14 -> Some "keyword"
+                    | Some 15 -> Some "snippet"
+                    | Some 21 -> Some "constant"
+                    | Some 22 -> Some "struct"
+                    | Some 23 -> Some "event"
+                    | Some 24 -> Some "operator"
+                    | Some 25 -> Some "type"
+                    | _ -> None
+            Some { Label = label; Detail = detail }
+
+    /// LSP's `textDocument/completion` result is `CompletionItem[] |
+    /// CompletionList | null` - parses defensively and extracts both `label`
+    /// and `detail` (type/signature).
+    let private parseCompletionItems (resultEl: JsonElement) : AnalysisCompletionItem list =
         let raw =
             match resultEl.ValueKind with
             | JsonValueKind.Null -> []
@@ -954,7 +1006,54 @@ module FsacBridge =
                 )
 
                 return []
-            | LspOk resultEl -> return parseCompletionItems resultEl
+            | LspOk resultEl ->
+                let itemsList =
+                    match resultEl.ValueKind with
+                    | JsonValueKind.Array -> resultEl.EnumerateArray() |> List.ofSeq
+                    | JsonValueKind.Object ->
+                        match resultEl.TryGetProperty("items") with
+                        | true, itemsEl when itemsEl.ValueKind = JsonValueKind.Array ->
+                            itemsEl.EnumerateArray() |> List.ofSeq
+                        | _ -> []
+                    | _ -> []
+
+                if List.isEmpty itemsList then
+                    return []
+                else
+                    // Concurrently resolve up to 80 items so fields, properties, variables, and values
+                    // have their real types extracted from completionItem/resolve.
+                    let toResolve = itemsList |> Seq.truncate 80 |> Seq.toList
+                    let remainder = itemsList |> Seq.skip toResolve.Length |> Seq.toList
+
+                    let resolveTasks =
+                        toResolve
+                        |> List.map (fun el ->
+                            task {
+                                let kindOpt =
+                                    match el.TryGetProperty("kind") with
+                                    | true, k when k.ValueKind = JsonValueKind.Number -> Some(k.GetInt32())
+                                    | _ -> None
+
+                                let shouldResolve =
+                                    match kindOpt with
+                                    | Some 5 | Some 10 | Some 6 | Some 12 -> true
+                                    | _ -> itemsList.Length <= 40
+
+                                if shouldResolve then
+                                    let! res = sendRequestWithTimeout client "completionItem/resolve" el
+                                    match res with
+                                    | LspOk resolvedEl -> return parseItem resolvedEl
+                                    | _ -> return parseItem el
+                                else
+                                    return parseItem el
+                            })
+
+                    let! resolvedParsed = Task.WhenAll resolveTasks
+                    let remainderParsed = remainder |> List.choose parseItem
+
+                    return
+                        (resolvedParsed |> Seq.choose id |> Seq.toList) @ remainderParsed
+                        |> List.distinctBy (fun i -> i.Label)
         }
 
     let rename (documentUri: string) (version: int) (source: string) (line: int) (column: int) : Task<RenameEdit list option> =
