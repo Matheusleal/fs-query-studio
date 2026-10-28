@@ -197,3 +197,14 @@ type ExportCsvParams = { DocumentUri: string; FilePath: string }
 /// result, if any (see `ResultRetention.discard`). Always succeeds, even
 /// for a `DocumentUri` nothing is retained under.
 type ResultsDiscardParams = { DocumentUri: string }
+
+/// `workspace/upgrade` request payload.
+type WorkspaceUpgradeParams = { WorkspaceDir: string option }
+
+/// `workspace/upgrade` result payload.
+type WorkspaceUpgradeResult =
+    { Upgraded: bool
+      PreviousVersion: int
+      CurrentVersion: int
+      Actions: string list }
+

@@ -280,6 +280,20 @@ export interface ConnectionSchemaParams {
   id: string;
 }
 
+export interface WorkspaceConfiguration {
+  schemaVersion: number;
+  extensionVersion: string;
+  updatedAt?: string;
+  connections: ConnectionDefinition[];
+}
+
+export interface WorkspaceUpgradeResult {
+  upgraded: boolean;
+  previousVersion: number;
+  currentVersion: number;
+  actions: string[];
+}
+
 /** An inbound frame the worker *sent* — a host-bound request (F5 reverse
  *  channel). Distinguished from a response frame by a non-empty `method`. */
 export interface HostRequestFrame {

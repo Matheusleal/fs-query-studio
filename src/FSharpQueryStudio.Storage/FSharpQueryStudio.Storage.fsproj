@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="ProjectUpgrader.fs" />
     <Compile Include="Workspace.fs" />
   </ItemGroup>
 

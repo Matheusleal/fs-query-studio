@@ -49,6 +49,7 @@
     "onCommand:fs-query-studio.newNotebook",
     "onCommand:fs-query-studio.newNotebookHere",
     "onCommand:fs-query-studio.initEmptyProject",
+    "onCommand:fs-query-studio.upgradeProject",
     "onCommand:fs-query-studio.restartKernel",
     "onNotebook:fsquery-notebook",
     "onView:fsQueryStudioConnections"
@@ -104,6 +105,12 @@
         "title": "F# Query Studio: Initialize Empty Project",
         "shortTitle": "Initialize Project",
         "icon": "$(new-folder)"
+      },
+      {
+        "command": "fs-query-studio.upgradeProject",
+        "title": "F# Query Studio: Upgrade Project Schema",
+        "shortTitle": "Upgrade Project",
+        "icon": "$(arrow-up)"
       },
       {
         "command": "fs-query-studio.openDocs",

@@ -549,6 +549,99 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     },
   );
 
+  const upgradeProjectCommand = vscode.commands.registerCommand(
+    "fs-query-studio.upgradeProject",
+    async (resource?: vscode.Uri) => {
+      let targetDir: string | undefined;
+      if (resource && resource.fsPath) {
+        targetDir = resource.fsPath;
+      } else {
+        const wsFolders = vscode.workspace.workspaceFolders;
+        if (wsFolders && wsFolders.length === 1) {
+          targetDir = wsFolders[0].uri.fsPath;
+        } else if (wsFolders && wsFolders.length > 1) {
+          const pick = await vscode.window.showQuickPick(
+            wsFolders.map((f) => ({ label: f.name, description: f.uri.fsPath, uri: f.uri })),
+            { placeHolder: "Select a workspace folder to upgrade" },
+          );
+          if (!pick) return;
+          targetDir = pick.uri.fsPath;
+        } else {
+          const picked = await vscode.window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+            openLabel: "Select Project Folder to Upgrade",
+          });
+          if (!picked || picked.length === 0) return;
+          targetDir = picked[0].fsPath;
+        }
+      }
+
+      log(`[Workspace] Upgrading project in directory: ${targetDir}`);
+      try {
+        const worker = await getWorker();
+        const res = await worker.send({
+          id: randomUUID(),
+          method: "workspace/upgrade",
+          params: { workspaceDir: targetDir },
+        });
+
+        if (res.error) {
+          log(`[Workspace] Failed to upgrade project: ${res.error.message}`);
+          void vscode.window.showErrorMessage(`Failed to upgrade project: ${res.error.message}`);
+          return;
+        }
+
+        const report = res.result as { upgraded: boolean; currentVersion: number; actions: string[] };
+        if (report.upgraded) {
+          log(`[Workspace] Project upgraded to Schema v${report.currentVersion}: ${report.actions.join("; ")}`);
+          void vscode.window.showInformationMessage(
+            `F# Query Studio: Project upgraded to Schema v${report.currentVersion}.`,
+          );
+          await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
+        } else {
+          log(`[Workspace] Project is already up-to-date (Schema v${report.currentVersion}).`);
+          void vscode.window.showInformationMessage(
+            `F# Query Studio: Project is already up-to-date (Schema v${report.currentVersion}).`,
+          );
+        }
+      } catch (err) {
+        const msg = (err as Error).message;
+        log(`[Workspace] Error upgrading project: ${msg}`);
+        void vscode.window.showErrorMessage(`Error upgrading project: ${msg}`);
+      }
+    },
+  );
+
+  // Automatic upgrade check for open workspace folders on startup
+  const wsFolders = vscode.workspace.workspaceFolders;
+  if (wsFolders && wsFolders.length > 0) {
+    (async () => {
+      try {
+        const worker = await getWorker();
+        for (const folder of wsFolders) {
+          const res = await worker.send({
+            id: randomUUID(),
+            method: "workspace/upgrade",
+            params: { workspaceDir: folder.uri.fsPath },
+          });
+          if (!res.error && res.result) {
+            const report = res.result as { upgraded: boolean; currentVersion: number; actions: string[] };
+            if (report.upgraded) {
+              log(`[Workspace] Auto-upgraded ${folder.name} to Schema v${report.currentVersion}: ${report.actions.join("; ")}`);
+              void vscode.window.showInformationMessage(
+                `F# Query Studio: Auto-upgraded ${folder.name} to Schema v${report.currentVersion}.`,
+              );
+              await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
+            }
+          }
+        }
+      } catch {
+        // non-blocking on startup
+      }
+    })();
+  }
 
   context.subscriptions.push(
     command,
@@ -561,6 +654,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     restartCommand,
     createSampleDataCommand,
     initEmptyProjectCommand,
+    upgradeProjectCommand,
     openDocsCommand,
     languageFeatures,
     connections.disposable,
