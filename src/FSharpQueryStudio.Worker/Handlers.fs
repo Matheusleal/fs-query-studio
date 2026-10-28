@@ -442,7 +442,9 @@ module Handlers =
                     completionParams.Line
                     completionParams.Column
 
-            let result: AnalysisCompletionResult = { Items = items }
+            let result: AnalysisCompletionResult =
+                { Items = items |> List.map (fun i -> i.Label)
+                  DetailedItems = Some items }
 
             return
                 { Id = request.Id

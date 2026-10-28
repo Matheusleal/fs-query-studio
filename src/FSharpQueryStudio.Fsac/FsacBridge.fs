@@ -843,21 +843,82 @@ module FsacBridge =
         }
 
     /// LSP's `textDocument/completion` result is `CompletionItem[] |
-    /// CompletionList | null` - parses defensively, then keeps only each
-    /// item's `label` (see the spec's Non-goals: richer `kind`/`detail`
-    /// isn't consumed by `Protocol.AnalysisCompletionResult` yet).
-    let private parseCompletionLabels (resultEl: JsonElement) : string list =
-        match resultEl.ValueKind with
-        | JsonValueKind.Null -> []
-        | JsonValueKind.Array ->
-            resultEl.EnumerateArray() |> Seq.map (fun i -> i.GetProperty("label").GetString()) |> List.ofSeq
-        | JsonValueKind.Object ->
-            resultEl.GetProperty("items").EnumerateArray()
-            |> Seq.map (fun i -> i.GetProperty("label").GetString())
-            |> List.ofSeq
-        | _ -> []
+    /// CompletionList | null` - parses defensively and extracts both `label`
+    /// and `detail` (type/signature).
+    let private parseCompletionItems (resultEl: JsonElement) : AnalysisCompletionItem list =
+        let parseItem (el: JsonElement) : AnalysisCompletionItem option =
+            let labelOpt =
+                match el.TryGetProperty("label") with
+                | true, l when l.ValueKind = JsonValueKind.String -> Some(l.GetString())
+                | true, l when l.ValueKind = JsonValueKind.Object ->
+                    match l.TryGetProperty("label") with
+                    | true, inner when inner.ValueKind = JsonValueKind.String -> Some(inner.GetString())
+                    | _ -> None
+                | _ -> None
 
-    let complete (documentUri: string) (version: int) (source: string) (line: int) (column: int) : Task<string list> =
+            match labelOpt with
+            | None -> None
+            | Some label ->
+                let detail =
+                    match el.TryGetProperty("detail") with
+                    | true, d when d.ValueKind = JsonValueKind.String ->
+                        let s = d.GetString()
+                        if String.IsNullOrWhiteSpace s then None else Some(s.Trim())
+                    | _ ->
+                        match el.TryGetProperty("label") with
+                        | true, l when l.ValueKind = JsonValueKind.Object ->
+                            match l.TryGetProperty("description") with
+                            | true, desc when desc.ValueKind = JsonValueKind.String ->
+                                let s = desc.GetString()
+                                if String.IsNullOrWhiteSpace s then None else Some(s.Trim())
+                            | _ -> None
+                        | _ ->
+                            match el.TryGetProperty("kind") with
+                            | true, k when k.ValueKind = JsonValueKind.Number ->
+                                match k.GetInt32() with
+                                | 1 -> Some "text"
+                                | 2 -> Some "method"
+                                | 3 -> Some "function"
+                                | 4 -> Some "constructor"
+                                | 5 -> Some "field"
+                                | 6 -> Some "variable"
+                                | 7 -> Some "class"
+                                | 8 -> Some "interface"
+                                | 9 -> Some "module"
+                                | 10 -> Some "property"
+                                | 11 -> Some "unit"
+                                | 12 -> Some "value"
+                                | 13 -> Some "enum"
+                                | 14 -> Some "keyword"
+                                | 15 -> Some "snippet"
+                                | 21 -> Some "constant"
+                                | 22 -> Some "struct"
+                                | 23 -> Some "event"
+                                | 24 -> Some "operator"
+                                | 25 -> Some "type"
+                                | _ -> None
+                            | _ -> None
+                Some { Label = label; Detail = detail }
+
+        let raw =
+            match resultEl.ValueKind with
+            | JsonValueKind.Null -> []
+            | JsonValueKind.Array ->
+                resultEl.EnumerateArray()
+                |> Seq.choose parseItem
+                |> List.ofSeq
+            | JsonValueKind.Object ->
+                match resultEl.TryGetProperty("items") with
+                | true, itemsEl when itemsEl.ValueKind = JsonValueKind.Array ->
+                    itemsEl.EnumerateArray()
+                    |> Seq.choose parseItem
+                    |> List.ofSeq
+                | _ -> []
+            | _ -> []
+
+        raw |> List.distinctBy (fun i -> i.Label)
+
+    let complete (documentUri: string) (version: int) (source: string) (line: int) (column: int) : Task<AnalysisCompletionItem list> =
         task {
             let! client = sharedProcess.EnsureClient()
 
@@ -893,7 +954,7 @@ module FsacBridge =
                 )
 
                 return []
-            | LspOk resultEl -> return parseCompletionLabels resultEl |> List.distinct
+            | LspOk resultEl -> return parseCompletionItems resultEl
         }
 
     let rename (documentUri: string) (version: int) (source: string) (line: int) (column: int) : Task<RenameEdit list option> =

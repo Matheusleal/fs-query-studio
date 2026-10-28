@@ -291,9 +291,16 @@ export enum CompletionItemKind {
   Value = 11,
 }
 
+export interface CompletionItemLabel {
+  label: string;
+  detail?: string;
+  description?: string;
+}
+
 export class CompletionItem {
+  detail?: string;
   constructor(
-    public label: string,
+    public label: string | CompletionItemLabel,
     public kind?: CompletionItemKind,
   ) {}
 }

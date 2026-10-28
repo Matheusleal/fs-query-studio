@@ -12,7 +12,10 @@ let ``complete after 's.Sub' on a string returns String's members, not a top-lev
         // Caret right after "Sub" on line 2 - column 5 (0-based, exclusive end).
         let! items = FsacBridge.complete uri 1 source 2 5
 
-        Assert.Contains("Substring", items)
+        let labels = items |> List.map (fun i -> i.Label)
+        Assert.Contains("Substring", labels)
+        let substringItem = items |> List.find (fun i -> i.Label = "Substring")
+        Assert.Equal(Some "method", substringItem.Detail)
     }
 
 [<Fact>]

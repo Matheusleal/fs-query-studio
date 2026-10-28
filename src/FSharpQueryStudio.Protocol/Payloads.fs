@@ -129,14 +129,17 @@ type AnalysisCompletionParams =
       Line: int
       Column: int }
 
+type AnalysisCompletionItem =
+    { Label: string
+      Detail: string option }
+
 /// Tier 1 (keywords/snippets/connector helper names) and tier 2
 /// (semantic, FCS-derived at the cursor position) merged and
-/// de-duplicated — see `Completions.complete`/`completeAtPosition`. A
-/// flat name list, not yet Monaco's richer `CompletionItem` shape
-/// (kind/detail/documentation) — `editor-host.html` maps each name to a
-/// plain-text completion item; a later task can enrich this if
-/// per-item kind/detail turns out to matter in practice.
-type AnalysisCompletionResult = { Items: string list }
+/// de-duplicated. Preserves `Items` as string list for compatibility
+/// while providing `DetailedItems` with label and type detail.
+type AnalysisCompletionResult =
+    { Items: string list
+      DetailedItems: AnalysisCompletionItem list option }
 
 /// One reference's span to rewrite as part of a rename — Milestone
 /// E.8. 0-based lines, matching `Diagnostic`/`DefinitionLocation`.

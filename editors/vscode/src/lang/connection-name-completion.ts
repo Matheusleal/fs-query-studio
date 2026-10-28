@@ -89,7 +89,10 @@ export function registerConnectionNameCompletion(
             }
           });
           return filtered.map((c) => {
-            const item = new vscode.CompletionItem(c.name, vscode.CompletionItemKind.Value);
+            const item = new vscode.CompletionItem(
+              c.kind ? { label: c.name, description: c.kind } : c.name,
+              vscode.CompletionItemKind.Value,
+            );
             if (c.kind) {
               item.detail = c.kind;
             }

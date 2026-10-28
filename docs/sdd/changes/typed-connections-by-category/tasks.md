@@ -48,3 +48,10 @@
   - **Done When**: Documentos de células de notebook carregam o `GeneratedEntities.fs` do workspace no FSAC, sem erros de diagnóstico como `SqlCategory does not define ... SampleStore`.
   - **Status**: Completed
 
+- [x] **TASK-09: Exibição do tipo alinhado à direita no autocompletion (`CompletionItemLabel.description`)**
+  - **Goal**: Enriquecer `AnalysisCompletionResult` no protocolo com itens detalhados contendo `Detail` (tipo/assinatura), atualizar `FsacBridge.complete` para extrair o `detail` retornado pelo LSP do FSAC, e configurar `CompletionItemLabel.description` no VS Code para exibir o tipo alinhado à direita na lista suspensa de autocompletion.
+  - **Related Requirements**: FR-AUTOCOMPLETE-TYPE-DETAIL
+  - **Done When**: Sugestões do autocompletion nas células do notebook exibem o tipo alinhado à direita no menu suspenso.
+  - **Status**: Completed
+
+
