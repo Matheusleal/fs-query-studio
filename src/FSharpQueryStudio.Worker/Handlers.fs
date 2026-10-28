@@ -814,7 +814,7 @@ module Handlers =
             Directory.CreateDirectory(fsqsDir) |> ignore
             let wsFile = Path.Combine(fsqsDir, "workspace.json")
             if not (File.Exists wsFile) then
-                File.WriteAllText(wsFile, "[]\n")
+                Workspace.writeConnections rootDir []
 
             let generatedDir = Path.Combine(fsqsDir, "generated")
             Directory.CreateDirectory(generatedDir) |> ignore
@@ -826,6 +826,24 @@ module Handlers =
             { Id = request.Id
               Result = None
               Error = Some { Code = "workspace/initFailed"; Message = ex.Message } }
+
+    let handleWorkspaceUpgrade (request: WorkerRequestFrame) : WorkerResponseFrame =
+        try
+            let rootDir = tryGetWorkspaceDir request.Params
+            let report = ProjectUpgrader.upgradeWorkspace rootDir
+            let result : WorkspaceUpgradeResult =
+                { Upgraded = report.Upgraded
+                  PreviousVersion = report.PreviousVersion
+                  CurrentVersion = report.CurrentVersion
+                  Actions = report.Actions }
+
+            { Id = request.Id
+              Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+              Error = None }
+        with ex ->
+            { Id = request.Id
+              Result = None
+              Error = Some { Code = "workspace/upgradeFailed"; Message = ex.Message } }
 
     let dispatch (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
@@ -849,6 +867,7 @@ module Handlers =
             | "connection/schema" -> return! handleConnectionSchema request
             | "workspace/createSampleData" -> return handleCreateSampleData request
             | "workspace/initProject" | "workspace/initEmptyProject" -> return handleInitEmptyProject request
+            | "workspace/upgrade" -> return handleWorkspaceUpgrade request
             | unknown ->
                 return
                     { Id = request.Id

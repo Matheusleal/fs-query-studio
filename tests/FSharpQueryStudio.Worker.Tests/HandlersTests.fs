@@ -868,11 +868,46 @@ let ``dispatch on workspace/initEmptyProject creates empty workspace.json and ge
 
             let wsFile = Path.Combine(localDir, ".fsqs", "workspace.json")
             Assert.True(File.Exists wsFile)
-            let content = File.ReadAllText wsFile
-            Assert.Equal("[]\n", content)
+            let config = Workspace.readConfiguration localDir
+            Assert.Equal(2, config.SchemaVersion)
+            Assert.Empty(config.Connections)
 
             let generatedDir = Path.Combine(localDir, ".fsqs", "generated")
             Assert.True(Directory.Exists generatedDir)
+        finally
+            cleanTempDir localDir
+    }
+
+[<Fact>]
+let ``dispatch on workspace/upgrade upgrades legacy root files to .fsqs and Schema v2`` () =
+    task {
+        let localDir = Path.Combine(Path.GetTempPath(), "fqs-upgrade-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory localDir |> ignore
+        try
+            let connId = Guid.NewGuid()
+            let rootWs = Path.Combine(localDir, "workspace.json")
+            let sampleJson = sprintf """[{"id":"%s","name":"LegacyDb","kind":{"Case":"Sqlite"},"configuration":{"filePath":"data.db"},"secretReference":null,"isTrusted":true}]""" (connId.ToString())
+            File.WriteAllText(rootWs, sampleJson)
+
+            let rootGen = Path.Combine(localDir, "generated")
+            Directory.CreateDirectory rootGen |> ignore
+            File.WriteAllText(Path.Combine(rootGen, "GeneratedEntities.fs"), "// entities")
+
+            let req: WorkerRequestFrame =
+                { Id = "upgrade-1"
+                  Method = "workspace/upgrade"
+                  Params = JsonSerializer.SerializeToElement({| workspaceDir = localDir |}, Serialization.options) }
+
+            let! response = Handlers.dispatch req
+            Assert.True(response.Error.IsNone)
+            let res = JsonSerializer.Deserialize<WorkspaceUpgradeResult>(response.Result.Value.GetRawText(), Serialization.options)
+            Assert.True(res.Upgraded)
+            Assert.Equal(1, res.PreviousVersion)
+            Assert.Equal(2, res.CurrentVersion)
+            Assert.False(File.Exists rootWs)
+            Assert.False(Directory.Exists rootGen)
+            Assert.True(File.Exists(Path.Combine(localDir, ".fsqs", "workspace.json")))
+            Assert.True(File.Exists(Path.Combine(localDir, ".fsqs", "generated", "GeneratedEntities.fs")))
         finally
             cleanTempDir localDir
     }

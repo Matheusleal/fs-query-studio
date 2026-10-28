@@ -50,7 +50,8 @@ describe.skipIf(!workerDll)("local workspace project integration via worker", ()
       expect(fs.existsSync(path.join(tempDir, "generated"))).toBe(false);
 
       const initialWsContent = JSON.parse(fs.readFileSync(wsJsonPath, "utf-8"));
-      expect(initialWsContent).toEqual([]);
+      expect(initialWsContent.schemaVersion).toBe(2);
+      expect(initialWsContent.connections).toEqual([]);
 
       // 2. Register connection targeted to local workspace
       const connId = "11111111-2222-3333-4444-555555555555";
@@ -72,8 +73,9 @@ describe.skipIf(!workerDll)("local workspace project integration via worker", ()
 
       // Check local workspace.json was written
       const updatedWs = JSON.parse(fs.readFileSync(wsJsonPath, "utf-8"));
-      expect(updatedWs).toHaveLength(1);
-      expect(updatedWs[0].name).toBe("LocalCsvConn");
+      expect(updatedWs.schemaVersion).toBe(2);
+      expect(updatedWs.connections).toHaveLength(1);
+      expect(updatedWs.connections[0].name).toBe("LocalCsvConn");
 
       // 3. List connections with workspaceDir
       const listRes = await client.send({
@@ -98,7 +100,8 @@ describe.skipIf(!workerDll)("local workspace project integration via worker", ()
       expect(removeRes.error ?? undefined).toBeUndefined();
 
       const afterRemoveWs = JSON.parse(fs.readFileSync(wsJsonPath, "utf-8"));
-      expect(afterRemoveWs).toHaveLength(0);
+      expect(afterRemoveWs.schemaVersion).toBe(2);
+      expect(afterRemoveWs.connections).toHaveLength(0);
     } finally {
       client.dispose();
       try {
@@ -107,5 +110,90 @@ describe.skipIf(!workerDll)("local workspace project integration via worker", ()
         // ignore cleanup error
       }
     }
-  });
+  }, 30_000);
+
+  it("automatically upgrades legacy project with root workspace.json to .fsqs and Schema v2 via workspace/upgrade", async () => {
+    const dotnet = await resolveDotnet();
+    const client = new WorkerClient({
+      spawn: () => spawnWorkerProcess(dotnet.command, workerDll!),
+    });
+
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "fqs-upgrade-it-"));
+
+    try {
+      // 1. Create legacy root workspace.json with an array of connections
+      const legacyWsPath = path.join(tempDir, "workspace.json");
+      const connId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+      const legacyJson = JSON.stringify([
+        {
+          id: connId,
+          name: "LegacyCsv",
+          kind: { Case: "Csv" },
+          configuration: { filePath: path.join(tempDir, "legacy.csv") },
+          secretReference: null,
+          isTrusted: true,
+        },
+      ]);
+      fs.writeFileSync(legacyWsPath, legacyJson, "utf-8");
+
+      // 2. Create legacy root generated/ directory
+      const legacyGenDir = path.join(tempDir, "generated");
+      fs.mkdirSync(legacyGenDir, { recursive: true });
+      fs.writeFileSync(path.join(legacyGenDir, "GeneratedEntities.fs"), "// entities", "utf-8");
+
+      // 3. Send workspace/upgrade request
+      const upgradeRes = await client.send({
+        id: newRequestId(),
+        method: "workspace/upgrade",
+        params: { workspaceDir: tempDir },
+      });
+
+      expect(upgradeRes.error ?? undefined).toBeUndefined();
+      const report = upgradeRes.result as {
+        upgraded: boolean;
+        previousVersion: number;
+        currentVersion: number;
+        actions: string[];
+      };
+
+      expect(report.upgraded).toBe(true);
+      expect(report.previousVersion).toBe(1);
+      expect(report.currentVersion).toBe(2);
+      expect(report.actions.length).toBeGreaterThanOrEqual(2);
+
+      // Verify legacy files on root are gone
+      expect(fs.existsSync(legacyWsPath)).toBe(false);
+      expect(fs.existsSync(legacyGenDir)).toBe(false);
+
+      // Verify files inside .fsqs exist
+      const fsqsDir = path.join(tempDir, ".fsqs");
+      const newWsPath = path.join(fsqsDir, "workspace.json");
+      const newGenPath = path.join(fsqsDir, "generated", "GeneratedEntities.fs");
+
+      expect(fs.existsSync(newWsPath)).toBe(true);
+      expect(fs.existsSync(newGenPath)).toBe(true);
+
+      const upgradedContent = JSON.parse(fs.readFileSync(newWsPath, "utf-8"));
+      expect(upgradedContent.schemaVersion).toBe(2);
+      expect(upgradedContent.connections).toHaveLength(1);
+      expect(upgradedContent.connections[0].name).toBe("LegacyCsv");
+
+      // Verify connection/list returns the upgraded connection
+      const listRes = await client.send({
+        id: newRequestId(),
+        method: "connection/list",
+        params: { workspaceDir: tempDir },
+      });
+      const list = (listRes.result as ConnectionListResult).connections;
+      expect(list.some((c) => c.name === "LegacyCsv")).toBe(true);
+    } finally {
+      client.dispose();
+      try {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup error
+      }
+    }
+  }, 30_000);
 });
+
