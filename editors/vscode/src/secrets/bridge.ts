@@ -17,8 +17,20 @@ export interface HostRequestClient {
   ): void;
 }
 
-export function registerSecretBridge(deps: { client: HostRequestClient; secrets: SecretReader }): void {
+export function registerSecretBridge(deps: {
+  client: HostRequestClient;
+  secrets: SecretReader;
+  onEntityMappingStatus?: (status: "started" | "completed" | "failed") => void;
+}): void {
   deps.client.setHostRequestHandler(async (method, params) => {
+    if (method === "entityMapping/status") {
+      const status = (params as { status?: unknown } | null)?.status;
+      if (status === "started" || status === "completed" || status === "failed") {
+        deps.onEntityMappingStatus?.(status);
+        return { result: { acknowledged: true } };
+      }
+      return { error: { code: "host/badParams", message: "status must be 'started', 'completed', or 'failed'" } };
+    }
     if (method !== "secret/get") {
       return { error: { code: "host/unknownMethod", message: `Unsupported host method: ${method}` } };
     }

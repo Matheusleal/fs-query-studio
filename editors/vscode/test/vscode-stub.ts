@@ -61,6 +61,14 @@ export const workspace = {
   onDidChangeNotebookDocument(_fn: (e: unknown) => unknown): Disposable {
     return { dispose: () => {} };
   },
+  createFileSystemWatcher(_pattern: string) {
+    return {
+      onDidCreate: () => ({ dispose: () => {} }),
+      onDidChange: () => ({ dispose: () => {} }),
+      onDidDelete: () => ({ dispose: () => {} }),
+      dispose: () => {},
+    };
+  },
 };
 
 export const commands = {
@@ -283,9 +291,16 @@ export enum CompletionItemKind {
   Value = 11,
 }
 
+export interface CompletionItemLabel {
+  label: string;
+  detail?: string;
+  description?: string;
+}
+
 export class CompletionItem {
+  detail?: string;
   constructor(
-    public label: string,
+    public label: string | CompletionItemLabel,
     public kind?: CompletionItemKind,
   ) {}
 }

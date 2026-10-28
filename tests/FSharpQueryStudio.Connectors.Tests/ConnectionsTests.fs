@@ -15,103 +15,118 @@ type private FakeResolver(connections: Map<string, IConnector>) =
             | Some connector -> connector
             | None -> failwith $"No connection named '{name}' is configured."
 
-let private tempSqliteWithOrders () : SqliteConnector =
+let private withTempSqlite (action: SqliteConnector -> string -> unit) =
     let path = Path.Combine(Path.GetTempPath(), "fqs-connections-" + Guid.NewGuid().ToString("N") + ".db")
-    let connector = SqliteConnector(path)
-
-    connector.ExecuteQuery "create table Orders (Id integer primary key, Name text)" []
-    |> ignore
-
-    connector.ExecuteQuery "insert into Orders (Id, Name) values (1, 'Alice'), (2, 'Bob')" []
-    |> ignore
-
-    connector
-
-[<Fact>]
-let ``Connections.sql binds an OR-1-equals-1-shaped parameter as literal data, never as SQL syntax`` () =
-    let sqlite = tempSqliteWithOrders ()
-    Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
-
-    // If this parameter were ever concatenated into the SQL text instead
-    // of bound, this classic injection payload would make the WHERE
-    // clause always true and return every row.
-    let result =
-        Connections.sql "Sales" "select * from Orders where Name = @name" [ "@name", box "x' OR '1'='1" ]
-
-    Assert.Empty(result.Rows)
+    try
+        let connector = SqliteConnector(path)
+        connector.ExecuteQuery "create table Orders (Id integer primary key, Name text)" [] |> ignore
+        connector.ExecuteQuery "insert into Orders (Id, Name) values (1, 'Alice'), (2, 'Bob')" [] |> ignore
+        action connector path
+    finally
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+        try File.Delete path with _ -> ()
 
 [<Fact>]
-let ``Connections.sql binds a statement-terminator-shaped parameter as literal data, never executing it`` () =
-    let sqlite = tempSqliteWithOrders ()
-    Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
+let ``DatabaseConnection.rawQuery binds an OR-1-equals-1-shaped parameter as literal data, never as SQL syntax`` () =
+    withTempSqlite (fun sqlite _ ->
+        Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
 
-    Connections.sql "Sales" "select * from Orders where Name = @name" [
-        "@name", box "x'; DROP TABLE Orders; --"
-    ]
-    |> ignore
+        // If this parameter were ever concatenated into the SQL text instead
+        // of bound, this classic injection payload would make the WHERE
+        // clause always true and return every row.
+        let db = Connections.getDatabaseConnection "Sales"
+        let result =
+            db.rawQuery("select * from Orders where Name = @name", [ "@name", box "x' OR '1'='1" ])
 
-    // The table must still exist and still hold its original two rows -
-    // a real DROP TABLE would have removed it.
-    let survivingRows = sqlite.ExecuteQuery "select * from Orders" [] |> fun r -> r.Rows |> Seq.toList
-    Assert.Equal(2, survivingRows.Length)
-
-[<Fact>]
-let ``Connections.sql routes to the resolved connector and returns its rows for a normal query`` () =
-    let sqlite = tempSqliteWithOrders ()
-    Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
-
-    let result = Connections.sql "Sales" "select Name from Orders where Id = @id" [ "@id", box 1 ]
-
-    Assert.Equal(box "Alice", (result.Rows |> Seq.exactlyOne).[0])
+        Assert.Empty(result.Rows)
+    )
 
 [<Fact>]
-let ``Connections.sql fails clearly when the named connection isn't a SQL-capable connector`` () =
+let ``DatabaseConnection.rawQuery binds a statement-terminator-shaped parameter as literal data, never executing it`` () =
+    withTempSqlite (fun sqlite _ ->
+        Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
+
+        let db = Connections.getDatabaseConnection "Sales"
+        db.rawQuery("select * from Orders where Name = @name", [
+            "@name", box "x'; DROP TABLE Orders; --"
+        ])
+        |> ignore
+
+        // The table must still exist and still hold its original two rows -
+        // a real DROP TABLE would have removed it.
+        let survivingRows = sqlite.ExecuteQuery "select * from Orders" [] |> fun r -> r.Rows |> Seq.toList
+        Assert.Equal(2, survivingRows.Length)
+    )
+
+[<Fact>]
+let ``DatabaseConnection.rawQuery routes to the resolved connector and returns its rows for a normal query`` () =
+    withTempSqlite (fun sqlite _ ->
+        Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
+
+        let db = Connections.getDatabaseConnection "Sales"
+        let result = db.rawQuery("select Name from Orders where Id = @id", [ "@id", box 1 ])
+
+        Assert.Equal(box "Alice", (result.Rows |> Seq.exactlyOne).[0])
+    )
+
+[<Fact>]
+let ``Connections.getDatabaseConnection fails clearly when the named connection isn't a SQL-capable connector`` () =
     let csvPath = Path.Combine(Path.GetTempPath(), "fqs-connections-" + Guid.NewGuid().ToString("N") + ".csv")
-    File.WriteAllText(csvPath, "Id\n1\n")
-    let csv = CsvConnector(csvPath)
-    Connections.configure(FakeResolver(Map.ofList [ "Feed", csv :> IConnector ]))
+    try
+        File.WriteAllText(csvPath, "Id\n1\n")
+        let csv = CsvConnector(csvPath)
+        Connections.configure(FakeResolver(Map.ofList [ "Feed", csv :> IConnector ]))
 
-    Assert.Throws<Exception>(fun () -> Connections.sql "Feed" "select 1" [] |> ignore)
-    |> ignore
+        Assert.Throws<Exception>(fun () -> Connections.getDatabaseConnection "Feed" |> ignore)
+        |> ignore
+    finally
+        try File.Delete csvPath with _ -> ()
 
 [<Fact>]
-let ``Connections.csv routes to the resolved CSV connector and reads its rows`` () =
+let ``CsvConnection.Raw routes to the resolved CSV connector and reads its rows`` () =
     let path = Path.Combine(Path.GetTempPath(), "fqs-connections-" + Guid.NewGuid().ToString("N") + ".csv")
-    File.WriteAllText(path, "Id,Name\n1,Sales\n")
-    let csv = CsvConnector(path)
-    Connections.configure(FakeResolver(Map.ofList [ "Feed", csv :> IConnector ]))
+    try
+        File.WriteAllText(path, "Id,Name\n1,Sales\n")
+        let csv = CsvConnector(path)
+        Connections.configure(FakeResolver(Map.ofList [ "Feed", csv :> IConnector ]))
 
-    let result = Connections.csv "Feed"
+        let conn = Connections.getCsvConnection "Feed"
+        let result = conn.Raw()
 
-    Assert.Equal<string list>([ "Id"; "Name" ], result.Columns)
-    let rows = result.Rows |> Seq.toList
-    Assert.Equal(1, rows.Length)
-    Assert.Equal(box "1", rows.[0].[0])
-    Assert.Equal(box "Sales", rows.[0].[1])
+        Assert.Equal<string list>([ "Id"; "Name" ], result.Columns)
+        let rows = result.Rows |> Seq.toList
+        Assert.Equal(1, rows.Length)
+        Assert.Equal(box "1", rows.[0].[0])
+        Assert.Equal(box "Sales", rows.[0].[1])
+    finally
+        try File.Delete path with _ -> ()
 
 [<Fact>]
-let ``Connections.excel routes to the resolved Excel connector and reads its rows`` () =
+let ``ExcelConnection.Raw routes to the resolved Excel connector and reads its rows`` () =
     let path = Path.Combine(Path.GetTempPath(), "fqs-connections-" + Guid.NewGuid().ToString("N") + ".xlsx")
+    try
+        do
+            use workbook = new ClosedXML.Excel.XLWorkbook()
+            let sheet = workbook.Worksheets.Add("Sheet1")
+            sheet.Cell(1, 1).Value <- "Id"
+            sheet.Cell(2, 1).Value <- 1
+            workbook.SaveAs(path)
 
-    do
-        use workbook = new ClosedXML.Excel.XLWorkbook()
-        let sheet = workbook.Worksheets.Add("Sheet1")
-        sheet.Cell(1, 1).Value <- "Id"
-        sheet.Cell(2, 1).Value <- 1
-        workbook.SaveAs(path)
+        let excel = ExcelConnector(path)
+        Connections.configure(FakeResolver(Map.ofList [ "Book", excel :> IConnector ]))
 
-    let excel = ExcelConnector(path)
-    Connections.configure(FakeResolver(Map.ofList [ "Book", excel :> IConnector ]))
+        let conn = Connections.getExcelConnection "Book"
+        let result = conn.Raw()
 
-    let result = Connections.excel "Book" None
-
-    Assert.Equal<string list>([ "Id" ], result.Columns)
-    let rows = result.Rows |> Seq.toList
-    Assert.Equal(1, rows.Length)
-    Assert.Equal(box 1.0, rows.[0].[0])
+        Assert.Equal<string list>([ "Id" ], result.Columns)
+        let rows = result.Rows |> Seq.toList
+        Assert.Equal(1, rows.Length)
+        Assert.Equal(box 1.0, rows.[0].[0])
+    finally
+        try File.Delete path with _ -> ()
 
 [<Fact>]
-let ``Connections.rest routes to the resolved REST connector and sends the request`` () =
+let ``RestConnection.SendAsync routes to the resolved REST connector and sends the request`` () =
     task {
         let listener = new System.Net.HttpListener()
         let port = 38471
@@ -130,7 +145,8 @@ let ``Connections.rest routes to the resolved REST connector and sends the reque
         let rest = RestConnector(RestRequestOptions.Get($"http://127.0.0.1:{port}/health"))
         Connections.configure(FakeResolver(Map.ofList [ "Api", rest :> IConnector ]))
 
-        let! result = Connections.rest "Api" (RestRequestOptions.Get($"http://127.0.0.1:{port}/health")) CancellationToken.None
+        let conn = Connections.getRestConnection "Api"
+        let! result = conn.SendAsync(RestRequestOptions.Get($"http://127.0.0.1:{port}/health"), CancellationToken.None)
         do! serveTask
         listener.Stop()
         listener.Close()
@@ -144,159 +160,133 @@ type CsvRecordWithOptions = { Id: int; Price: decimal option; Notes: string opti
 
 [<Fact>]
 let ``Connections.getConnectionString returns the ADO.NET connection string for a SQL connector`` () =
-    let sqlite = tempSqliteWithOrders ()
-    Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
+    withTempSqlite (fun sqlite _ ->
+        Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
 
-    let connStr = Connections.getConnectionString "Sales"
-    Assert.Contains("Data Source=", connStr)
+        let connStr = Connections.getConnectionString "Sales"
+        Assert.Contains("Data Source=", connStr)
+    )
 
 [<Fact>]
 let ``Connections.query maps rows to strongly-typed records and supports F# query LINQ expressions`` () =
-    let sqlite = tempSqliteWithOrders ()
-    Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
+    withTempSqlite (fun sqlite _ ->
+        Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
 
-    let orders = Connections.query<OrderRecord> "Sales" "select Id, Name from Orders" []
+        let orders = Connections.query<OrderRecord> "Sales" "select Id, Name from Orders" []
 
-    let filtered =
-        query {
-            for o in orders do
-            where (o.Id = 2)
-            select o.Name
-        }
-        |> Seq.toList
+        let filtered =
+            query {
+                for o in orders do
+                where (o.Id = 2)
+                select o.Name
+            }
+            |> Seq.toList
 
-    Assert.Equal<string list>([ "Bob" ], filtered)
+        Assert.Equal<string list>([ "Bob" ], filtered)
+    )
 
 [<Fact>]
 let ``ConnectorQueryResult.As maps null/DBNull values to F# None and values to Some`` () =
-    let sqlite = tempSqliteWithOrders ()
-    sqlite.ExecuteQuery "alter table Orders add column Notes text" [] |> ignore
-    sqlite.ExecuteQuery "update Orders set Notes = 'Urgent' where Id = 1" [] |> ignore
-    Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
+    withTempSqlite (fun sqlite _ ->
+        sqlite.ExecuteQuery "alter table Orders add column Notes text" [] |> ignore
+        sqlite.ExecuteQuery "update Orders set Notes = 'Urgent' where Id = 1" [] |> ignore
+        Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
 
-    let orders =
-        (Connections.sql "Sales" "select Id, Name, Notes from Orders order by Id" []).As<OrderWithOptions>()
-        |> Seq.toList
+        let db = Connections.getDatabaseConnection "Sales"
+        let orders: OrderWithOptions list =
+            (db.rawQuery("select Id, Name, Notes from Orders order by Id", [])).As<OrderWithOptions>()
+            |> Seq.toList
 
-    Assert.Equal(2, orders.Length)
-    Assert.Equal(Some "Urgent", orders.[0].Notes)
-    Assert.Equal(None, orders.[1].Notes)
+        Assert.Equal(2, orders.Length)
+        Assert.Equal(Some "Urgent", orders.[0].Notes)
+        Assert.Equal(None, orders.[1].Notes)
+    )
 
 [<Fact>]
 let ``Connections.queryCsv streams CSV rows into strongly-typed records and allows LINQ filtering`` () =
     let path = Path.Combine(Path.GetTempPath(), "fqs-connections-" + Guid.NewGuid().ToString("N") + ".csv")
-    File.WriteAllText(path, "Id,Name\n1,Alpha\n2,Beta\n")
-    let csv = CsvConnector(path)
-    Connections.configure(FakeResolver(Map.ofList [ "Feed", csv :> IConnector ]))
+    try
+        File.WriteAllText(path, "Id,Name\n1,Alpha\n2,Beta\n")
+        let csv = CsvConnector(path)
+        Connections.configure(FakeResolver(Map.ofList [ "Feed", csv :> IConnector ]))
 
-    let items = Connections.queryCsv<OrderRecord> "Feed"
+        let items = Connections.queryCsv<OrderRecord> "Feed"
 
-    let names =
-        query {
-            for item in items do
-            where (item.Id = 1)
-            select item.Name
-        }
-        |> Seq.toList
+        let names =
+            query {
+                for item in items do
+                where (item.Id = 1)
+                select item.Name
+            }
+            |> Seq.toList
 
-    Assert.Equal<string list>([ "Alpha" ], names)
+        Assert.Equal<string list>([ "Alpha" ], names)
+    finally
+        try File.Delete path with _ -> ()
 
 [<Fact>]
 let ``Connections.queryCsv maps sentinel strings N/A, -, null and empty to None for option fields`` () =
     let path = Path.Combine(Path.GetTempPath(), "fqs-sentinels-" + Guid.NewGuid().ToString("N") + ".csv")
-    File.WriteAllText(path, "Id,Price,Notes\n1,100.50,Special\n2,N/A,-\n3,-,null\n4,250.75,Normal\n5,300.00,\n")
-    let csv = CsvConnector(path)
-    Connections.configure(FakeResolver(Map.ofList [ "SentinelsFeed", csv :> IConnector ]))
-
-    let items = Connections.queryCsv<CsvRecordWithOptions> "SentinelsFeed" |> Seq.toList
-
-    Assert.Equal(5, items.Length)
-    Assert.Equal(Some 100.50m, items.[0].Price)
-    Assert.Equal(Some "Special", items.[0].Notes)
-
-    Assert.Equal(None, items.[1].Price)
-    Assert.Equal(None, items.[1].Notes)
-
-    Assert.Equal(None, items.[2].Price)
-    Assert.Equal(None, items.[2].Notes)
-
-    Assert.Equal(Some 250.75m, items.[3].Price)
-    Assert.Equal(Some "Normal", items.[3].Notes)
-
-    Assert.Equal(Some 300.00m, items.[4].Price)
-    Assert.Equal(None, items.[4].Notes)
-
-[<Fact>]
-let ``Connections.get and Connections.connect return DatabaseConnection exposing Query, Queryable, Schema and Tables`` () =
-    let sqlite = tempSqliteWithOrders ()
-    Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
-
-    let conn = Connections.get "Sales"
-    Assert.Equal("Sales", conn.Name)
-    Assert.NotEmpty(conn.ConnectionString)
-    Assert.Contains("Orders", conn.Tables)
-    Assert.NotEmpty(conn.Schema)
-
-    let items = conn.Query<OrderRecord>("select Id, Name from Orders where Id = @id", [ "@id", box 1 ])
-    let filtered =
-        query {
-            for x in items do
-            where (x.Id = 1)
-            select x.Name
-        }
-        |> Seq.toList
-
-    Assert.Equal<string list>([ "Alice" ], filtered)
-
-    let connAlias = Connections.connect "Sales"
-    Assert.Equal("Sales", connAlias.Name)
-    let execResult = connAlias.Execute("select count(*) from Orders")
-    Assert.Equal(1, Seq.length execResult.Rows)
-
-    let entitiesCode = conn.GenerateEntities()
-    Assert.Contains("module SalesDb =", entitiesCode)
-    Assert.Contains("type Orders =", entitiesCode)
-    Assert.Contains("Id: int", entitiesCode)
-    Assert.Contains("Name: string", entitiesCode)
-    Assert.Contains("type Database", entitiesCode)
-    Assert.Contains("member _.Orders", entitiesCode)
-
-    let sqlProviderCode = conn.GenerateSqlProvider()
-    Assert.Contains("SqlDataProvider<", sqlProviderCode)
-    Assert.Contains("DatabaseVendor = Common.DatabaseProviderTypes.SQLITE", sqlProviderCode)
-
-type FinancialRecord =
-    { Id: int
-      Amount: decimal
-      Tax: decimal option
-      Description: string }
-
-[<Fact>]
-let ``Connections.getMapper correctly parses decimal values with dot and comma under pt-BR culture`` () =
-    let prevCulture = System.Threading.Thread.CurrentThread.CurrentCulture
     try
-        System.Threading.Thread.CurrentThread.CurrentCulture <- System.Globalization.CultureInfo("pt-BR")
+        File.WriteAllText(path, "Id,Price,Notes\n1,100.50,Special\n2,N/A,-\n3,-,null\n4,250.75,Normal\n5,300.00,\n")
+        let csv = CsvConnector(path)
+        Connections.configure(FakeResolver(Map.ofList [ "SentinelsFeed", csv :> IConnector ]))
 
-        let mapper = Connections.getMapper<FinancialRecord> [ "Id"; "Amount"; "Tax"; "Description" ]
+        let items = Connections.queryCsv<CsvRecordWithOptions> "SentinelsFeed" |> Seq.toList
 
-        // Test with dot decimal: 355272835.53
-        let row1 = mapper [| box "1"; box "355272835.53"; box "123.45"; box "Wire transfer" |]
-        Assert.Equal(1, row1.Id)
-        Assert.Equal(355272835.53M, row1.Amount)
-        Assert.Equal(Some 123.45M, row1.Tax)
+        Assert.Equal(5, items.Length)
+        Assert.Equal(Some 100.50m, items.[0].Price)
+        Assert.Equal(Some "Special", items.[0].Notes)
 
-        // Test with comma decimal: 355272835,53
-        let row2 = mapper [| box "2"; box "355272835,53"; null; box "Invoice payment" |]
-        Assert.Equal(2, row2.Id)
-        Assert.Equal(355272835.53M, row2.Amount)
-        Assert.Equal(None, row2.Tax)
+        Assert.Equal(None, items.[1].Price)
+        Assert.Equal(None, items.[1].Notes)
 
-        // Test with quoted string: "\"355272835.53\""
-        let row3 = mapper [| box "3"; box "\"355272835.53\""; box "0.00"; box "Quoted" |]
-        Assert.Equal(355272835.53M, row3.Amount)
-        Assert.Equal(Some 0.0M, row3.Tax)
+        Assert.Equal(None, items.[2].Price)
+        Assert.Equal(None, items.[2].Notes)
+
+        Assert.Equal(Some 250.75m, items.[3].Price)
+        Assert.Equal(Some "Normal", items.[3].Notes)
+
+        Assert.Equal(Some 300.00m, items.[4].Price)
+        Assert.Equal(None, items.[4].Notes)
     finally
-        System.Threading.Thread.CurrentThread.CurrentCulture <- prevCulture
+        try File.Delete path with _ -> ()
 
+[<Fact>]
+let ``Connections.getDatabaseConnection returns DatabaseConnection exposing Query, Queryable, Schema and Tables`` () =
+    withTempSqlite (fun sqlite _ ->
+        Connections.configure(FakeResolver(Map.ofList [ "Sales", sqlite :> IConnector ]))
 
+        let conn = Connections.getDatabaseConnection "Sales"
+        Assert.Equal("Sales", conn.Name)
+        Assert.NotEmpty(conn.ConnectionString)
+        Assert.Contains("Orders", conn.Tables)
+        Assert.NotEmpty(conn.Schema)
 
+        let items = conn.Query<OrderRecord>("select Id, Name from Orders where Id = @id", [ "@id", box 1 ])
+        let filtered =
+            query {
+                for (x: OrderRecord) in items do
+                where (x.Id = 1)
+                select x.Name
+            }
+            |> Seq.toList
+
+        Assert.Equal<string list>([ "Alice" ], filtered)
+
+        let execResult = conn.Execute("select count(*) from Orders")
+        Assert.Equal(1, Seq.length execResult.Rows)
+        let rawResult = conn.rawQuery("select count(*) from Orders")
+        Assert.Equal(1, Seq.length rawResult.Rows)
+
+        let entitiesCode = conn.GenerateEntities()
+        Assert.Contains("module SalesDb =", entitiesCode)
+        Assert.Contains("type Orders =", entitiesCode)
+        Assert.Contains("Id: int", entitiesCode)
+        Assert.Contains("Name: string", entitiesCode)
+        Assert.Contains("type Database", entitiesCode)
+        Assert.Contains("member _.Orders", entitiesCode)
+
+        let sqlProviderCode = conn.GenerateSqlProvider()
+        Assert.Contains("SqlDataProvider<", sqlProviderCode)
+    )

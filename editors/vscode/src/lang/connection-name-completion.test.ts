@@ -173,8 +173,8 @@ describe("registerConnectionNameCompletion", () => {
       cellDoc(dbLine),
       new vscode.Position(0, dbLine.length),
       token,
-    )) as Array<{ label: string; detail?: string }>;
-    expect(dbItems.map((i) => i.label)).toEqual(["pg-db", "sqlserver-db", "sqlite-db"]);
+    )) as Array<{ label: string | { label: string; description?: string }; detail?: string }>;
+    expect(dbItems.map((i) => typeof i.label === "string" ? i.label : i.label.label)).toEqual(["pg-db", "sqlserver-db", "sqlite-db"]);
     expect(dbItems.map((i) => i.detail)).toEqual(["PostgreSql", "SqlServer", "Sqlite"]);
 
     // 2. Connections.connectCsv and Connections.csv should ONLY return CSV connections
@@ -183,8 +183,8 @@ describe("registerConnectionNameCompletion", () => {
       cellDoc(csvLine),
       new vscode.Position(0, csvLine.length),
       token,
-    )) as Array<{ label: string; detail?: string }>;
-    expect(csvItems.map((i) => i.label)).toEqual(["customers-csv"]);
+    )) as Array<{ label: string | { label: string; description?: string }; detail?: string }>;
+    expect(csvItems.map((i) => typeof i.label === "string" ? i.label : i.label.label)).toEqual(["customers-csv"]);
     expect(csvItems[0].detail).toBe("Csv");
 
     // 3. Connections.connectExcel and Connections.excel should ONLY return Excel connections
@@ -193,8 +193,8 @@ describe("registerConnectionNameCompletion", () => {
       cellDoc(excelLine),
       new vscode.Position(0, excelLine.length),
       token,
-    )) as Array<{ label: string; detail?: string }>;
-    expect(excelItems.map((i) => i.label)).toEqual(["sales-excel"]);
+    )) as Array<{ label: string | { label: string; description?: string }; detail?: string }>;
+    expect(excelItems.map((i) => typeof i.label === "string" ? i.label : i.label.label)).toEqual(["sales-excel"]);
     expect(excelItems[0].detail).toBe("Excel");
 
     // 4. Connections.connectRest and Connections.queryJson should ONLY return RestJson connections
@@ -203,8 +203,8 @@ describe("registerConnectionNameCompletion", () => {
       cellDoc(restLine),
       new vscode.Position(0, restLine.length),
       token,
-    )) as Array<{ label: string; detail?: string }>;
-    expect(restItems.map((i) => i.label)).toEqual(["users-api"]);
+    )) as Array<{ label: string | { label: string; description?: string }; detail?: string }>;
+    expect(restItems.map((i) => typeof i.label === "string" ? i.label : i.label.label)).toEqual(["users-api"]);
     expect(restItems[0].detail).toBe("RestJson");
 
     sub.dispose();

@@ -115,16 +115,23 @@ Passwords are **never stored in plaintext** on disk. When you register a connect
 
 ---
 
-## 5. Smart Connection Autocomplete
+## 5. Smart Connection Autocomplete & Type Badges
 
-When editing notebook cells, F# Query Studio provides **context-aware IntelliSense** tailored to each connector category:
+When editing notebook cells, F# Query Studio provides **context-aware IntelliSense** organized cleanly by connection category:
 
-- `Connections.connect "..."` ➔ Recommends **data sources that generate entity types** (SQLite, PostgreSQL, SQL Server, MySQL, CSV, Excel, JSON).
-- `Connections.sql "..."` ➔ Recommends **only relational SQL databases** (SQLite, PostgreSQL, SQL Server, MySQL).
-- `Connections.csv "..."` ➔ Recommends **only CSV connections**.
-- `Connections.excel "..."` ➔ Recommends **only Excel connections**.
-- `Connections.json "..."` ➔ Recommends **only JSON connections**.
-- `Connections.rest "..."` ➔ Recommends **only REST API connections**.
+- `Connections.sql.<ConnName>` ➔ Direct access to relational database tables (SQLite, PostgreSQL, SQL Server, MySQL) and scoped `.rawQuery`.
+- `Connections.csv.<ConnName>` ➔ Direct access to strongly-typed CSV rows and `.Raw()`.
+- `Connections.excel.<ConnName>` ➔ Direct access to strongly-typed Excel sheets and `.Raw()`.
+- `Connections.rest.<ConnName>` ➔ Direct access to REST API endpoints and `.SendAsync()`.
+
+### Right-Aligned Type Badges in Autocomplete
+The suggestion dropdown displays the item's underlying type or kind right-aligned for instant recognition:
+- **Record Fields & Properties**: Shows the concrete type (`string`, `int`, `decimal`, `bool`, `DateTime`, etc.).
+- **Methods & Functions**: Displays `method`.
+- **Connections**: Displays the connector kind (`sql`, `csv`, `excel`, `rest`).
+
+### Live Entity Mapping Status
+When connections are added or modified, a spinner appears in the VS Code status bar (`$(sync~spin) Mapping entities...`), confirming in real time that schemas are being inspected and F# types generated.
 
 ---
 
@@ -132,18 +139,14 @@ When editing notebook cells, F# Query Studio provides **context-aware IntelliSen
 
 F# Query Studio automatically inspects registered connections and **generates strongly typed F# records and database contexts in the background**.
 
-You don't need to configure manual Type Providers, install NuGet packages, or compile helper projects: simply call `.asEntities`!
+You don't need to configure manual Type Providers, install NuGet packages, or compile helper projects: typed entities are available immediately under each category!
 
 ### Basic Filtering & Projection
 
 ```fsharp
-// 1. Connect to the sample SQLite store
-let conn = Connections.connect "SampleStore"
-let db = conn.asEntities
-
-// 2. Query products with price > $50 sorted by unit price
+// 1. Query products with price > $50 sorted by unit price directly via Connections.sql
 query {
-    for p in db.Products do
+    for p in Connections.sql.SampleStore.Products do
     where (p.UnitPrice > 50.0M)
     sortByDescending p.UnitPrice
     select (p.Id, p.Name, p.UnitPrice, p.StockQuantity)
@@ -190,11 +193,9 @@ query {
 Flat files like CSV, Excel, and JSON get inferred typed schemas automatically:
 
 ```fsharp
-let sales = (Connections.connect "SalesFeed").asEntities
-
-// Query the CSV transactions feed
+// Query the CSV transactions feed directly via Connections.csv
 query {
-    for row in sales.Rows do
+    for row in Connections.csv.SalesFeed do
     where (row.StoreCity = "New York" && row.Quantity >= 2)
     sortByDescending row.Total
     select (row.TransactionId, row.Product, row.Quantity, row.Total)
@@ -206,15 +207,12 @@ query {
 Because F# notebooks run in a unified Interactive session, you can cross-correlate relational databases with external CSV feeds using standard F# functions:
 
 ```fsharp
-let db = (Connections.connect "SampleStore").asEntities
-let csv = (Connections.connect "SalesFeed").asEntities
-
 let dbProducts = 
-    query { for p in db.Products do select (p.Name, p.UnitPrice) }
+    query { for p in Connections.sql.SampleStore.Products do select (p.Name, p.UnitPrice) }
     |> Seq.toList
 
 let csvTransactions =
-    query { for r in csv.Rows do select (r.Product, r.Total) }
+    query { for r in Connections.csv.SalesFeed do select (r.Product, r.Total) }
     |> Seq.toList
 
 // Cross-reference data in pure F#
@@ -252,35 +250,31 @@ All parameters use native ADO.NET parameter binding, safeguarding against SQL in
 
 The `Connections` module provides the core programmatic interface inside your notebooks:
 
-### Connection Management
-| Function | Signature | Description |
+### Connection Categories & Strongly-Typed Access
+| Category / Function | Type / Signature | Description |
 |---|---|---|
-| `Connections.connect` | `string -> DatabaseConnection` | Connects to a registered SQL database (PostgreSQL, SQL Server, MySQL, SQLite). |
-| `Connections.connectCsv` | `string -> CsvConnection` | Connects to a registered CSV file. |
-| `Connections.connectExcel` | `string -> ExcelConnection` | Connects to a registered Excel (.xlsx) file. |
-| `Connections.connectRest` | `string -> RestConnection` | Connects to a registered REST/JSON endpoint. |
+| `Connections.sql.<Conn>` | `DatabaseConnection` | Accesses relational database tables and scoped `.rawQuery "..." [ ... ]`. |
+| `Connections.csv.<Conn>` | `CsvConnector.Data` | Accesses strongly-typed CSV rows (implements `IQueryable<'Row>`) and `.Raw()`. |
+| `Connections.excel.<Conn>` | `ExcelConnector.Data` | Accesses strongly-typed Excel sheets and `.Raw()`. |
+| `Connections.rest.<Conn>` | `RestConnector.Data` | Accesses strongly-typed REST items and `.SendAsync()`. |
 | `Connections.getConnectionString` | `string -> string` | Returns the resolved connection string with stored credentials injected. |
 
-### Query Execution
+### Query Execution Helpers
 | Function | Signature | Description |
 |---|---|---|
-| `Connections.sql` | `string -> string -> (string * obj) list -> ConnectorQueryResult` | Executes parameterized raw SQL and renders results in the interactive grid. |
 | `Connections.query<'T>` | `string -> string -> (string * obj) list -> 'T seq` | Executes raw SQL and maps rows directly to strongly-typed record sequence `'T seq`. |
-| `Connections.csv` | `string -> ConnectorQueryResult` | Reads raw CSV rows rendered in the grid. |
 | `Connections.queryCsv<'T>` | `string -> 'T seq` | Streams CSV rows mapped to strongly-typed records `'T seq`. |
-| `Connections.excel` | `string -> int option -> ConnectorQueryResult` | Reads raw Excel rows with optional row limit. |
 | `Connections.queryExcel<'T>` | `string -> int option -> 'T seq` | Streams Excel rows mapped to strongly-typed records `'T seq`. |
 | `Connections.queryExcelSheet<'T>` | `string -> string option -> int option -> 'T seq` | Streams rows from a specific Excel sheet mapped to records `'T seq`. |
 | `Connections.queryJson<'T>` | `string -> 'T seq` | Deserializes JSON arrays or objects into strongly-typed records `'T seq`. |
-| `Connections.rest` | `string -> RestRequestOptions -> CancellationToken -> Task<JsonElement>` | Sends an asynchronous custom HTTP request to a REST API connection. |
 
-### Connection Objects & Properties
-- **`conn.asEntities`**: Returns the strongly-typed schema and table context for LINQ `query { ... }` expressions.
-- **`conn.Execute(sqlText, [params])`**: Executes a query and returns a `ConnectorQueryResult` for the visual grid.
-- **`conn.Query<'T>(sqlText, [params])`**: Executes a query and maps directly to `'T seq`.
-- **`conn.Queryable<'T>(sqlText, [params])`**: Returns an `IQueryable<'T>` for query composition.
-- **`conn.Tables`**: Returns a `string list` of all discovered tables and views.
-- **`conn.Schema`**: Returns a `ConnectorTable list` with full column names and data types.
+### Database Connection Properties & Methods
+- **`db.rawQuery(sqlText, [params])`**: Executes parameterized SQL strictly scoped to this connection and returns a `ConnectorQueryResult` for the visual grid.
+- **`db.Execute(sqlText, [params])`**: Executes a query and returns a `ConnectorQueryResult` for the visual grid.
+- **`db.Query<'T>(sqlText, [params])`**: Executes a query and maps directly to `'T seq`.
+- **`db.Queryable<'T>(sqlText, [params])`**: Returns an `IQueryable<'T>` for query composition.
+- **`db.Tables`**: Returns a `string list` of all discovered tables and views.
+- **`db.Schema`**: Returns a `ConnectorTable list` with full column names and data types.
 
 ---
 
@@ -302,7 +296,7 @@ F# Query Studio includes language intelligence and full syntax highlighting for 
 - **Syntax Highlighting for Query Expressions**:
   - Keywords such as `query`, `for`, `in`, `do`, `select`, `where`, `join`, `on`, `equals`, `into`, `groupBy`, `sortBy`, `distinct`, `count`, `sumBy`, `take`, `skip` are highlighted in dedicated keyword colors (matching your editor theme's control keywords).
   - Powered by both TextMate grammar injection (`fsharp.query.injection`) and VS Code's `DocumentSemanticTokensProvider`.
-- **Go to Definition (`F12`)**: Press `F12` on any symbol (`Connections.connect`, `.asEntities`, generated record fields like `p.UnitPrice`, or your own helper functions). The editor jumps directly to the source definition.
+- **Go to Definition (`F12`)**: Press `F12` on any symbol (`Connections.sql`, `Connections.csv`, generated record fields like `p.UnitPrice`, or your own helper functions). The editor jumps directly to the source definition.
 - **Hover / Tooltips**: Hover over variables, functions, and properties to view comprehensive XML documentation and type signatures.
 - **Diagnostics**: Syntax and semantic errors are highlighted in real time before running the cell.
 - **Renaming (`F2`)**: Rename identifiers across all cells in your active notebook.

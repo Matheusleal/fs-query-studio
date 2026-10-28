@@ -72,6 +72,22 @@ describe("registerLanguageFeatures", () => {
     expect(items.map((i) => (i as vscode.CompletionItem).label)).toEqual(["answer"]);
   });
 
+  it("completion maps detailedItems with description and detail", async () => {
+    const cell = fsharpCellDoc("c2", "answ");
+    stageNotebook([fsharpCellDoc("c1", "let answer = 42"), cell]);
+    registerLanguageFeatures({
+      ...worker({ items: ["answer"], detailedItems: [{ label: "answer", detail: "int" }] }),
+      log: () => {},
+    });
+    const provider = vscode.languages._completion.at(-2)!.provider as {
+      provideCompletionItems: (d: unknown, p: unknown, t: unknown) => Promise<unknown[]>;
+    };
+    const items = await provider.provideCompletionItems(cell, new vscode.Position(0, 4), token);
+    const first = items[0] as vscode.CompletionItem;
+    expect(first.label).toEqual({ label: "answer", description: "int" });
+    expect(first.detail).toBe("int");
+  });
+
   it("completion sends a .fsx-suffixed documentUri to the worker", async () => {
     const cell = fsharpCellDoc("c2", "answ");
     stageNotebook([fsharpCellDoc("c1", "let answer = 42"), cell]);

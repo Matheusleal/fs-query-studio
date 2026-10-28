@@ -153,6 +153,8 @@ module FsacBridge =
     let private registerWaiter (key: struct (string * int)) (tcs: TaskCompletionSource<Diagnostic list>) : unit =
         diagnosticsPending.AddOrUpdate(key, [ tcs ], (fun _ existing -> tcs :: existing)) |> ignore
 
+    let private originalUriByFsacUri = ConcurrentDictionary<string, string>()
+
     let private latestExpectedVersionByUri = ConcurrentDictionary<string, int>()
 
     /// The most recent `publishDiagnostics` push for each (canonicalized uri, version).
@@ -165,7 +167,7 @@ module FsacBridge =
         | Some 2 -> DiagnosticSeverity.Warning
         | _ -> DiagnosticSeverity.Information
 
-    let private parseDiagnostics (paramsEl: JsonElement) : Diagnostic list =
+    let private parseDiagnostics (originalDocUri: string) (paramsEl: JsonElement) : Diagnostic list =
         paramsEl.GetProperty("diagnostics").EnumerateArray()
         |> Seq.map (fun d ->
             let range = d.GetProperty("range")
@@ -185,9 +187,9 @@ module FsacBridge =
 
             { Message = d.GetProperty("message").GetString()
               Severity = mapSeverity severity
-              StartLine = Prologue.shiftDown (start.GetProperty("line").GetInt32() + 1) - 1
+              StartLine = Prologue.shiftDownForDocument originalDocUri (start.GetProperty("line").GetInt32() + 1) - 1
               StartColumn = start.GetProperty("character").GetInt32()
-              EndLine = Prologue.shiftDown (end_.GetProperty("line").GetInt32() + 1) - 1
+              EndLine = Prologue.shiftDownForDocument originalDocUri (end_.GetProperty("line").GetInt32() + 1) - 1
               EndColumn = end_.GetProperty("character").GetInt32()
               Code = code })
         |> List.ofSeq
@@ -203,7 +205,11 @@ module FsacBridge =
             "textDocument/publishDiagnostics",
             fun paramsEl ->
                 let uri = canonicalizeUri (paramsEl.GetProperty("uri").GetString())
-                let diagnostics = parseDiagnostics paramsEl
+                let originalDocUri =
+                    match originalUriByFsacUri.TryGetValue(uri) with
+                    | true, orig -> orig
+                    | false, _ -> uri
+                let diagnostics = parseDiagnostics originalDocUri paramsEl
 
                 let version =
                     match paramsEl.TryGetProperty("version") with
@@ -356,7 +362,9 @@ module FsacBridge =
             // caller's own `documentUri` - `documentAnalyzed`'s own uri
             // always canonicalizes to the same thing, so the two must
             // agree here or this wait can never resolve except by timeout.
-            let pendingKey = struct (canonicalizeUri (fsacUriFor documentUri), version)
+            let canonical = canonicalizeUri (fsacUriFor documentUri)
+            originalUriByFsacUri.[canonical] <- documentUri
+            let pendingKey = struct (canonical, version)
             registerWaiter pendingKey tcs
 
             do! syncDocument client documentUri version checkedSource
@@ -425,7 +433,7 @@ module FsacBridge =
     let check (documentUri: string) (version: int) (source: string) : Task<Diagnostic list> =
         task {
             let! client = sharedProcess.EnsureClient()
-            let! diagnostics = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+            let! diagnostics = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
             return diagnostics |> Option.defaultValue []
         }
 
@@ -547,14 +555,14 @@ module FsacBridge =
             // (shared with `check`, which needed the same wait for its own
             // diagnostics) is used here purely as a "the document is
             // parsed" gate - the diagnostics it returns are discarded.
-            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
 
             let! result =
                 sendRequestWithTimeout
                     client
                     "textDocument/hover"
                     {| textDocument = {| uri = fsacUriFor documentUri |}
-                       position = {| line = Prologue.shiftUp line - 1; character = column |} |}
+                       position = {| line = Prologue.shiftUpForDocument documentUri line - 1; character = column |} |}
 
             match result with
             | LspFail err ->
@@ -614,14 +622,14 @@ module FsacBridge =
             // is correct. `awaitDocumentAnalyzed` is reused here purely as
             // that readiness gate - the diagnostics it returns are
             // discarded.
-            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
 
             let! result =
                 sendRequestWithTimeout
                     client
                     "textDocument/definition"
                     {| textDocument = {| uri = fsacUriFor documentUri |}
-                       position = {| line = Prologue.shiftUp line - 1; character = column |} |}
+                       position = {| line = Prologue.shiftUpForDocument documentUri line - 1; character = column |} |}
 
             match result with
             | LspFail err ->
@@ -668,7 +676,7 @@ module FsacBridge =
                         else
                             resolvedUri, false
 
-                    let shift l = if lineAdjustment then Prologue.shiftDown (l + 1) - 1 else l
+                    let shift l = if lineAdjustment then Prologue.shiftDownForDocument documentUri (l + 1) - 1 else l
 
                     return
                         Some
@@ -734,14 +742,14 @@ module FsacBridge =
             // the just-synced document finishes. `awaitDocumentAnalyzed`
             // is reused here purely as that readiness gate - the
             // diagnostics it returns are discarded.
-            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
 
             let! result =
                 sendRequestWithTimeout
                     client
                     "textDocument/signatureHelp"
                     {| textDocument = {| uri = fsacUriFor documentUri |}
-                       position = {| line = Prologue.shiftUp line - 1; character = column |} |}
+                       position = {| line = Prologue.shiftUpForDocument documentUri line - 1; character = column |} |}
 
             match result with
             | LspFail err ->
@@ -835,21 +843,134 @@ module FsacBridge =
         }
 
     /// LSP's `textDocument/completion` result is `CompletionItem[] |
-    /// CompletionList | null` - parses defensively, then keeps only each
-    /// item's `label` (see the spec's Non-goals: richer `kind`/`detail`
-    /// isn't consumed by `Protocol.AnalysisCompletionResult` yet).
-    let private parseCompletionLabels (resultEl: JsonElement) : string list =
-        match resultEl.ValueKind with
-        | JsonValueKind.Null -> []
-        | JsonValueKind.Array ->
-            resultEl.EnumerateArray() |> Seq.map (fun i -> i.GetProperty("label").GetString()) |> List.ofSeq
-        | JsonValueKind.Object ->
-            resultEl.GetProperty("items").EnumerateArray()
-            |> Seq.map (fun i -> i.GetProperty("label").GetString())
-            |> List.ofSeq
-        | _ -> []
+    /// CompletionList | null` - parses defensively and extracts both `label`
+    /// and `detail` (type/signature).
+    let private simplifyTypeName (t: string) : string =
+        let trimmed = t.Trim()
+        match trimmed with
+        | "System.String" | "String" -> "string"
+        | "System.Int32" | "Int32" -> "int"
+        | "System.Int64" | "Int64" -> "int64"
+        | "System.Int16" | "Int16" -> "int16"
+        | "System.Boolean" | "Boolean" -> "bool"
+        | "System.Decimal" | "Decimal" -> "decimal"
+        | "System.Double" | "Double" -> "float"
+        | "System.Single" | "Single" -> "float32"
+        | "System.Byte" | "Byte" -> "byte"
+        | "System.DateTime" -> "DateTime"
+        | "System.Guid" -> "Guid"
+        | "System.Object" | "Object" -> "obj"
+        | other -> other
 
-    let complete (documentUri: string) (version: int) (source: string) (line: int) (column: int) : Task<string list> =
+    let private extractTypeFromDetail (detail: string) : string =
+        let clean =
+            let idx = detail.LastIndexOf(':')
+            if idx >= 0 && idx + 1 < detail.Length then
+                let afterColon = detail.Substring(idx + 1).Trim()
+                let withIdx = afterColon.IndexOf("with", StringComparison.OrdinalIgnoreCase)
+                let withoutWith =
+                    if withIdx > 0 then afterColon.Substring(0, withIdx).Trim()
+                    else afterColon
+                withoutWith
+            else
+                detail.Trim()
+        let finalType = if String.IsNullOrWhiteSpace clean then detail else clean
+        simplifyTypeName finalType
+
+    let private parseItem (el: JsonElement) : AnalysisCompletionItem option =
+        let labelOpt =
+            match el.TryGetProperty("label") with
+            | true, l when l.ValueKind = JsonValueKind.String -> Some(l.GetString())
+            | true, l when l.ValueKind = JsonValueKind.Object ->
+                match l.TryGetProperty("label") with
+                | true, inner when inner.ValueKind = JsonValueKind.String -> Some(inner.GetString())
+                | _ -> None
+            | _ -> None
+
+        match labelOpt with
+        | None -> None
+        | Some label ->
+            let kindOpt =
+                match el.TryGetProperty("kind") with
+                | true, k when k.ValueKind = JsonValueKind.Number -> Some(k.GetInt32())
+                | _ -> None
+
+            let rawDetailOpt =
+                match el.TryGetProperty("detail") with
+                | true, d when d.ValueKind = JsonValueKind.String ->
+                    let s = d.GetString()
+                    if String.IsNullOrWhiteSpace s then None else Some(s.Trim())
+                | _ ->
+                    match el.TryGetProperty("label") with
+                    | true, l when l.ValueKind = JsonValueKind.Object ->
+                        match l.TryGetProperty("description") with
+                        | true, desc when desc.ValueKind = JsonValueKind.String ->
+                            let s = desc.GetString()
+                            if String.IsNullOrWhiteSpace s then None else Some(s.Trim())
+                        | _ -> None
+                    | _ -> None
+
+            let detail =
+                match rawDetailOpt with
+                | Some rawDetail ->
+                    match kindOpt with
+                    | Some 5 | Some 10 | Some 6 | Some 12 ->
+                        Some(extractTypeFromDetail rawDetail)
+                    | Some 2 ->
+                        Some "method"
+                    | _ ->
+                        if rawDetail.Contains(":") then
+                            Some(extractTypeFromDetail rawDetail)
+                        else
+                            Some rawDetail
+                | None ->
+                    match kindOpt with
+                    | Some 1 -> Some "text"
+                    | Some 2 -> Some "method"
+                    | Some 3 -> Some "function"
+                    | Some 4 -> Some "constructor"
+                    | Some 5 -> Some "field"
+                    | Some 6 -> Some "variable"
+                    | Some 7 -> Some "class"
+                    | Some 8 -> Some "interface"
+                    | Some 9 -> Some "module"
+                    | Some 10 -> Some "property"
+                    | Some 11 -> Some "unit"
+                    | Some 12 -> Some "value"
+                    | Some 13 -> Some "enum"
+                    | Some 14 -> Some "keyword"
+                    | Some 15 -> Some "snippet"
+                    | Some 21 -> Some "constant"
+                    | Some 22 -> Some "struct"
+                    | Some 23 -> Some "event"
+                    | Some 24 -> Some "operator"
+                    | Some 25 -> Some "type"
+                    | _ -> None
+            Some { Label = label; Detail = detail }
+
+    /// LSP's `textDocument/completion` result is `CompletionItem[] |
+    /// CompletionList | null` - parses defensively and extracts both `label`
+    /// and `detail` (type/signature).
+    let private parseCompletionItems (resultEl: JsonElement) : AnalysisCompletionItem list =
+        let raw =
+            match resultEl.ValueKind with
+            | JsonValueKind.Null -> []
+            | JsonValueKind.Array ->
+                resultEl.EnumerateArray()
+                |> Seq.choose parseItem
+                |> List.ofSeq
+            | JsonValueKind.Object ->
+                match resultEl.TryGetProperty("items") with
+                | true, itemsEl when itemsEl.ValueKind = JsonValueKind.Array ->
+                    itemsEl.EnumerateArray()
+                    |> Seq.choose parseItem
+                    |> List.ofSeq
+                | _ -> []
+            | _ -> []
+
+        raw |> List.distinctBy (fun i -> i.Label)
+
+    let complete (documentUri: string) (version: int) (source: string) (line: int) (column: int) : Task<AnalysisCompletionItem list> =
         task {
             let! client = sharedProcess.EnsureClient()
 
@@ -864,14 +985,14 @@ module FsacBridge =
             // which is silently wrong instead of loudly failing.
             // `awaitDocumentAnalyzed` is reused here purely as that
             // readiness gate - the diagnostics it returns are discarded.
-            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
 
             let! result =
                 sendRequestWithTimeout
                     client
                     "textDocument/completion"
                     {| textDocument = {| uri = fsacUriFor documentUri |}
-                       position = {| line = Prologue.shiftUp line - 1; character = column |} |}
+                       position = {| line = Prologue.shiftUpForDocument documentUri line - 1; character = column |} |}
 
             match result with
             | LspFail err ->
@@ -885,7 +1006,54 @@ module FsacBridge =
                 )
 
                 return []
-            | LspOk resultEl -> return parseCompletionLabels resultEl |> List.distinct
+            | LspOk resultEl ->
+                let itemsList =
+                    match resultEl.ValueKind with
+                    | JsonValueKind.Array -> resultEl.EnumerateArray() |> List.ofSeq
+                    | JsonValueKind.Object ->
+                        match resultEl.TryGetProperty("items") with
+                        | true, itemsEl when itemsEl.ValueKind = JsonValueKind.Array ->
+                            itemsEl.EnumerateArray() |> List.ofSeq
+                        | _ -> []
+                    | _ -> []
+
+                if List.isEmpty itemsList then
+                    return []
+                else
+                    // Concurrently resolve up to 80 items so fields, properties, variables, and values
+                    // have their real types extracted from completionItem/resolve.
+                    let toResolve = itemsList |> Seq.truncate 80 |> Seq.toList
+                    let remainder = itemsList |> Seq.skip toResolve.Length |> Seq.toList
+
+                    let resolveTasks =
+                        toResolve
+                        |> List.map (fun el ->
+                            task {
+                                let kindOpt =
+                                    match el.TryGetProperty("kind") with
+                                    | true, k when k.ValueKind = JsonValueKind.Number -> Some(k.GetInt32())
+                                    | _ -> None
+
+                                let shouldResolve =
+                                    match kindOpt with
+                                    | Some 5 | Some 10 | Some 6 | Some 12 -> true
+                                    | _ -> itemsList.Length <= 40
+
+                                if shouldResolve then
+                                    let! res = sendRequestWithTimeout client "completionItem/resolve" el
+                                    match res with
+                                    | LspOk resolvedEl -> return parseItem resolvedEl
+                                    | _ -> return parseItem el
+                                else
+                                    return parseItem el
+                            })
+
+                    let! resolvedParsed = Task.WhenAll resolveTasks
+                    let remainderParsed = remainder |> List.choose parseItem
+
+                    return
+                        (resolvedParsed |> Seq.choose id |> Seq.toList) @ remainderParsed
+                        |> List.distinctBy (fun i -> i.Label)
         }
 
     let rename (documentUri: string) (version: int) (source: string) (line: int) (column: int) : Task<RenameEdit list option> =
@@ -903,14 +1071,14 @@ module FsacBridge =
             // reference edits" (a `None` result) on roughly 1 in 3 runs.
             // `awaitDocumentAnalyzed` is reused here purely as that
             // readiness gate - the diagnostics it returns are discarded.
-            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheck source)
+            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
 
             let! result =
                 sendRequestWithTimeout
                     client
                     "textDocument/references"
                     {| textDocument = {| uri = fsacUriFor documentUri |}
-                       position = {| line = Prologue.shiftUp line - 1; character = column |}
+                       position = {| line = Prologue.shiftUpForDocument documentUri line - 1; character = column |}
                        context = {| includeDeclaration = true |} |}
 
             match result with
@@ -953,9 +1121,9 @@ module FsacBridge =
                         let start = range.GetProperty("start")
                         let end_ = range.GetProperty("end")
 
-                        { StartLine = Prologue.shiftDown (start.GetProperty("line").GetInt32() + 1) - 1
+                        { StartLine = Prologue.shiftDownForDocument documentUri (start.GetProperty("line").GetInt32() + 1) - 1
                           StartColumn = start.GetProperty("character").GetInt32()
-                          EndLine = Prologue.shiftDown (end_.GetProperty("line").GetInt32() + 1) - 1
+                          EndLine = Prologue.shiftDownForDocument documentUri (end_.GetProperty("line").GetInt32() + 1) - 1
                           EndColumn = end_.GetProperty("character").GetInt32() })
                     |> List.ofSeq
 

@@ -249,17 +249,15 @@ INSERT OR IGNORE INTO Suppliers (Id, CompanyName, ContactEmail, Country, Rating)
                 mkMarkdown """
 ## 1. ⚡ Strongly-Typed LINQ: Filtering Customers (`SampleStore`)
 
-Access strongly-typed entities using `(Connections.connect "SampleStore").asEntities`. Notice how `c.Country`, `c.FirstName`, and `c.Email` have complete IntelliSense autocomplete, hover documentation, and type safety!
+Access strongly-typed entities directly using `Connections.sql.SampleStore.Customers`. Notice how `c.Country`, `c.FirstName`, and `c.Email` have complete IntelliSense autocomplete, hover documentation, and type safety!
 
 > 💡 **Formatting Tip**: Projecting into anonymous records (`{| ... |}`) generates clean, labeled column headers in the interactive table grid.
 """
 
                 mkCode """
-// 1. Connect to SQLite (SampleStore) and query customers from Brazil
-let store = (Connections.connect "SampleStore").asEntities
-
+// 1. Query SQLite (SampleStore) customers from Brazil directly via Connections.sql
 query {
-    for c in store.Customers do
+    for c in Connections.sql.SampleStore.Customers do
     where (c.Country = "Brazil")
     sortBy c.FirstName
     select {|
@@ -275,14 +273,14 @@ query {
                 mkMarkdown """
 ## 2. 🔗 Relational Joins: Orders with Customer Profiles (`SampleStore`)
 
-Join tables cleanly and naturally using standard F# LINQ `join ... on (...)` syntax.
+Join tables cleanly and naturally using standard F# LINQ `join ... on (...)` syntax within the same connection.
 """
 
                 mkCode """
-// 2. Join Orders and Customers to view transaction details with customer info
+// 2. Join Orders and Customers within SampleStore to view transaction details with customer info
 query {
-    for o in store.Orders do
-    join c in store.Customers on (o.CustomerId = c.Id)
+    for o in Connections.sql.SampleStore.Orders do
+    join c in Connections.sql.SampleStore.Customers on (o.CustomerId = c.Id)
     sortByDescending o.TotalAmount
     select {|
         OrderId = o.Id
@@ -299,16 +297,14 @@ query {
 ## 3. 🏬 Second SQLite Source: Querying Warehouses & Stocks (`InventoryStore`)
 
 Notice that multiple SQLite data sources coexist seamlessly without naming or module collisions!
-Here we query the second database `InventoryStore`.
+Here we query the second database directly via `Connections.sql.InventoryStore`.
 """
 
                 mkCode """
-// 3. Connect to the second SQLite database (InventoryStore)
-let inventory = (Connections.connect "InventoryStore").asEntities
-
+// 3. Query the second SQLite database (InventoryStore) directly via Connections.sql
 query {
-    for w in inventory.Warehouses do
-    join s in inventory.StockLevels on (w.Id = s.WarehouseId)
+    for w in Connections.sql.InventoryStore.Warehouses do
+    join s in Connections.sql.InventoryStore.StockLevels on (w.Id = s.WarehouseId)
     sortByDescending s.QuantityOnHand
     select {|
         Warehouse = w.Code
@@ -329,7 +325,7 @@ Compute business metrics, order counts, and revenue statistics grouped by order 
 
                 mkCode """
 // 4. Financial breakdown: Total revenue and average ticket by order status
-let orders = store.Orders |> Seq.toList
+let orders = Connections.sql.SampleStore.Orders |> Seq.toList
 
 orders
 |> List.groupBy (fun o -> o.Status)
@@ -345,14 +341,13 @@ orders
 ## 5. 📁 First Flat-File CSV: Sales Transactions (`SalesFeed`)
 
 CSV files are automatically discovered, inferred, and mapped to strongly-typed record rows. Decimal values, integers, and text fields are parsed culture-invariantly.
+Access the feed directly via `Connections.csv.SalesFeed`.
 """
 
                 mkCode """
-// 5. Connect to the first CSV feed (SalesFeed) and filter electronics purchases
-let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
-
+// 5. Query the first CSV feed (SalesFeed) directly and filter electronics purchases
 query {
-    for row in salesFeed.Rows do
+    for row in Connections.csv.SalesFeed do
     where (row.Category = "Electronics")
     sortByDescending row.TotalAmount
     select {|
@@ -370,15 +365,13 @@ query {
                 mkMarkdown """
 ## 6. 📋 Second Flat-File CSV: Customer Loyalty Feed (`CustomersFeed`)
 
-A second CSV source is registered alongside `SalesFeed`. Both CSV sources generate independent, unique strongly-typed models without collision.
+A second CSV source is registered alongside `SalesFeed`. Both CSV sources generate independent, unique strongly-typed models without collision or context leakage.
 """
 
                 mkCode """
-// 6. Connect to the second CSV feed (CustomersFeed)
-let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
-
+// 6. Query the second CSV feed (CustomersFeed) directly
 query {
-    for row in loyaltyFeed.Rows do
+    for row in Connections.csv.CustomersFeed do
     where (row.TotalSpent >= 300.0M)
     sortByDescending row.Score
     select {|
@@ -400,11 +393,8 @@ Seamlessly join and correlate data from both CSV files (`SalesFeed` + `Customers
 
                 mkCode """
 // 7. In-memory correlation between SalesFeed transactions and CustomersFeed loyalty
-let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
-let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
-
-let salesRows = salesFeed.Rows |> Seq.toList
-let loyaltyRows = loyaltyFeed.Rows |> Seq.toList
+let salesRows = Connections.csv.SalesFeed |> Seq.toList
+let loyaltyRows = Connections.csv.CustomersFeed |> Seq.toList
 
 query {
     for s in salesRows do
@@ -425,11 +415,11 @@ query {
                 mkMarkdown """
 ## 8. 🛡️ Safe Parameterized SQL (`SampleStore`)
 
-For complex database-specific queries, use `Connections.sql` with parameterized inputs to guard against SQL injection while maintaining raw database performance.
+For complex database-specific queries, use `Connections.sql.<Conn>.rawQuery` with parameterized inputs to guard against SQL injection while maintaining raw database performance.
 """
 
                 mkCode """
-// 8. Parameterized SQL query joining Products and Categories
+// 8. Parameterized raw SQL query joining Products and Categories
 let catalogSql = @"
 SELECT 
     p.Name          AS Product,
@@ -442,7 +432,7 @@ WHERE p.Price >= @minPrice
 ORDER BY p.Price DESC
 "
 
-Connections.sql "SampleStore" catalogSql [ "minPrice", box 100.0 ]
+Connections.sql.SampleStore.rawQuery(catalogSql, [ "minPrice", box 100.0 ])
 """
 
                 mkMarkdown """
@@ -453,15 +443,10 @@ Because F# Query Studio executes queries in an integrated F# Interactive session
 
                 mkCode """
 // 9. Comprehensive summary across all 4 registered data sources
-let store = (Connections.connect "SampleStore").asEntities
-let inventory = (Connections.connect "InventoryStore").asEntities
-let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
-let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
-
-let sampleStoreOrders = store.Orders |> Seq.length
-let inventoryWarehouses = inventory.Warehouses |> Seq.length
-let salesCount = salesFeed.Rows |> Seq.length
-let loyaltyCount = loyaltyFeed.Rows |> Seq.length
+let sampleStoreOrders = Connections.sql.SampleStore.Orders |> Seq.length
+let inventoryWarehouses = Connections.sql.InventoryStore.Warehouses |> Seq.length
+let salesCount = Connections.csv.SalesFeed |> Seq.length
+let loyaltyCount = Connections.csv.CustomersFeed |> Seq.length
 
 [
     {| Source = "SampleStore";    Kind = "SQLite (Relational)"; RecordCount = sampleStoreOrders; PrimaryEntity = "Orders" |}
@@ -516,17 +501,15 @@ let loyaltyCount = loyaltyFeed.Rows |> Seq.length
                 mkMarkdown """
 ## 1. ⚡ Consultas LINQ Fortemente Tipadas: Filtrando Clientes (`SampleStore`)
 
-Ao chamar `(Connections.connect "SampleStore").asEntities`, o **F# Query Studio** fornece suporte a autocompletar completo com IntelliSense e tipos fortemente tipados gerados em segundo plano.
+Ao usar `Connections.sql.SampleStore.Customers`, o **F# Query Studio** fornece suporte a autocompletar completo com IntelliSense e tipos fortemente tipados gerados em segundo plano.
 
 > 💡 **Dica de Formatação**: Retornar registros anônimos (`{| ... |}`) produz cabeçalhos limpos com nomes descritivos e tipos explícitos na tabela interativa.
 """
 
                 mkCode """
-// 1. Conecta ao banco SQLite (SampleStore) e consulta clientes do Brasil
-let store = (Connections.connect "SampleStore").asEntities
-
+// 1. Conecta e consulta clientes do Brasil diretamente via Connections.sql
 query {
-    for c in store.Customers do
+    for c in Connections.sql.SampleStore.Customers do
     where (c.Country = "Brazil")
     sortBy c.FirstName
     select {|
@@ -542,14 +525,14 @@ query {
                 mkMarkdown """
 ## 2. 🔗 Relacionamentos e Joins Relacionais (`SampleStore`)
 
-Combine tabelas relacionais de forma natural utilizando a sintaxe `join ... on (...)` do F# LINQ.
+Combine tabelas relacionais de forma natural utilizando a sintaxe `join ... on (...)` do F# LINQ dentro da mesma conexão.
 """
 
                 mkCode """
-// 2. Junção relacional entre Pedidos (Orders) e Clientes (Customers)
+// 2. Junção relacional entre Pedidos (Orders) e Clientes (Customers) dentro de SampleStore
 query {
-    for o in store.Orders do
-    join c in store.Customers on (o.CustomerId = c.Id)
+    for o in Connections.sql.SampleStore.Orders do
+    join c in Connections.sql.SampleStore.Customers on (o.CustomerId = c.Id)
     sortByDescending o.TotalAmount
     select {|
         PedidoId = o.Id
@@ -566,16 +549,14 @@ query {
 ## 3. 🏬 Segunda Fonte SQLite: Armazéns e Estoque (`InventoryStore`)
 
 Múltiplas fontes SQLite coexistem sem colisão de módulos ou tipos gerados.
-Aqui conectamos e consultamos a segunda base SQLite: `InventoryStore`.
+Aqui consultamos a segunda base SQLite diretamente via `Connections.sql.InventoryStore`.
 """
 
                 mkCode """
-// 3. Conecta à segunda base SQLite (InventoryStore)
-let inventory = (Connections.connect "InventoryStore").asEntities
-
+// 3. Consulta a segunda base SQLite (InventoryStore) diretamente via Connections.sql
 query {
-    for w in inventory.Warehouses do
-    join s in inventory.StockLevels on (w.Id = s.WarehouseId)
+    for w in Connections.sql.InventoryStore.Warehouses do
+    join s in Connections.sql.InventoryStore.StockLevels on (w.Id = s.WarehouseId)
     sortByDescending s.QuantityOnHand
     select {|
         Armazem = w.Code
@@ -596,7 +577,7 @@ Realize agregações analíticas (`sumBy`, `count`, `averageBy`) agrupando os da
 
                 mkCode """
 // 4. Resumo financeiro: Faturamento total e ticket médio por Status do Pedido
-let orders = store.Orders |> Seq.toList
+let orders = Connections.sql.SampleStore.Orders |> Seq.toList
 
 orders
 |> List.groupBy (fun o -> o.Status)
@@ -612,14 +593,13 @@ orders
 ## 5. 📁 Primeiro Arquivo CSV: Transações de Vendas (`SalesFeed`)
 
 Arquivos CSV são mapeados como registros fortemente tipados com inferência automática de colunas numéricas, decimais e texto.
+Acesse o feed diretamente via `Connections.csv.SalesFeed`.
 """
 
                 mkCode """
-// 5. Conecta ao primeiro arquivo CSV (SalesFeed) e filtra compras de Eletrônicos
-let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
-
+// 5. Consulta o primeiro arquivo CSV (SalesFeed) diretamente
 query {
-    for row in salesFeed.Rows do
+    for row in Connections.csv.SalesFeed do
     where (row.Category = "Electronics")
     sortByDescending row.TotalAmount
     select {|
@@ -637,15 +617,13 @@ query {
                 mkMarkdown """
 ## 6. 📋 Segundo Arquivo CSV: Feed de Fidelidade (`CustomersFeed`)
 
-Uma segunda fonte CSV registrada ao lado de `SalesFeed`. Ambas possuem inferência de tipos e módulos independentes sem sobrescrita.
+Uma segunda fonte CSV registrada ao lado de `SalesFeed`. Ambas possuem inferência de tipos e módulos independentes sem vazamento de contexto.
 """
 
                 mkCode """
-// 6. Conecta ao segundo arquivo CSV (CustomersFeed)
-let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
-
+// 6. Consulta o segundo arquivo CSV (CustomersFeed) diretamente
 query {
-    for row in loyaltyFeed.Rows do
+    for row in Connections.csv.CustomersFeed do
     where (row.TotalSpent >= 300.0M)
     sortByDescending row.Score
     select {|
@@ -667,11 +645,8 @@ Cruze dados de múltiplos arquivos CSV distintos (`SalesFeed` + `CustomersFeed`)
 
                 mkCode """
 // 7. Correlação em memória entre transações de vendas e fidelidade de clientes
-let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
-let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
-
-let salesRows = salesFeed.Rows |> Seq.toList
-let loyaltyRows = loyaltyFeed.Rows |> Seq.toList
+let salesRows = Connections.csv.SalesFeed |> Seq.toList
+let loyaltyRows = Connections.csv.CustomersFeed |> Seq.toList
 
 query {
     for s in salesRows do
@@ -692,11 +667,11 @@ query {
                 mkMarkdown """
 ## 8. 🛡️ Consultas SQL Parametrizadas Seguras (`SampleStore`)
 
-Para queries complexas ou instruções SQL nativas, use `Connections.sql` com passagem segura de parâmetros nomeados para evitar injeção de SQL.
+Para queries complexas ou instruções SQL nativas, use `Connections.sql.<Conn>.rawQuery` com passagem segura de parâmetros nomeados para evitar injeção de SQL.
 """
 
                 mkCode """
-// 8. Query SQL nativa com parâmetros nomeados seguros
+// 8. Query SQL nativa com parâmetros nomeados seguros executada via SampleStore
 let sqlCatalogo = @"
 SELECT 
     p.Name          AS Produto,
@@ -709,7 +684,7 @@ WHERE p.Price >= @precoMinimo
 ORDER BY p.Price DESC
 "
 
-Connections.sql "SampleStore" sqlCatalogo [ "precoMinimo", box 100.0 ]
+Connections.sql.SampleStore.rawQuery(sqlCatalogo, [ "precoMinimo", box 100.0 ])
 """
 
                 mkMarkdown """
@@ -720,15 +695,10 @@ Como as consultas no F# Query Studio rodam em uma sessão FSI unificada, você p
 
                 mkCode """
 // 9. Resumo consolidado das 4 fontes de dados registradas
-let store = (Connections.connect "SampleStore").asEntities
-let inventory = (Connections.connect "InventoryStore").asEntities
-let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
-let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
-
-let sampleStoreOrders = store.Orders |> Seq.length
-let inventoryWarehouses = inventory.Warehouses |> Seq.length
-let salesCount = salesFeed.Rows |> Seq.length
-let loyaltyCount = loyaltyFeed.Rows |> Seq.length
+let sampleStoreOrders = Connections.sql.SampleStore.Orders |> Seq.length
+let inventoryWarehouses = Connections.sql.InventoryStore.Warehouses |> Seq.length
+let salesCount = Connections.csv.SalesFeed |> Seq.length
+let loyaltyCount = Connections.csv.CustomersFeed |> Seq.length
 
 [
     {| Fonte = "SampleStore";    Tipo = "SQLite (Relacional)"; TotalRegistros = sampleStoreOrders; EntidadePrincipal = "Orders" |}

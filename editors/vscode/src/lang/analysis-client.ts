@@ -1,6 +1,7 @@
 import {
   newRequestId,
   type AnalysisCheckParams,
+  type AnalysisCompletionItem,
   type AnalysisPositionParams,
   type DefinitionLocation,
   type HoverInfo,
@@ -60,8 +61,21 @@ export function checkAnalysis(
 export function completeAnalysis(
   worker: WorkerLike,
   params: AnalysisPositionParams,
-): Promise<string[]> {
-  return call(worker, "analysis/complete", params, (r) => (r.items as string[] | undefined) ?? [], []);
+): Promise<AnalysisCompletionItem[]> {
+  return call(
+    worker,
+    "analysis/complete",
+    params,
+    (r) => {
+      const detailed = r.detailedItems as AnalysisCompletionItem[] | undefined;
+      if (detailed && detailed.length > 0) {
+        return detailed;
+      }
+      const plain = (r.items as string[] | undefined) ?? [];
+      return plain.map((label) => ({ label }));
+    },
+    [],
+  );
 }
 
 export function hoverAnalysis(

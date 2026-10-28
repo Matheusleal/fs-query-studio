@@ -61,6 +61,17 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
     tree.refresh();
   };
 
+  let watcherDisposable: vscode.Disposable | undefined;
+  if (typeof vscode.workspace?.createFileSystemWatcher === "function") {
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      "**/{.fsqs/workspace.json,workspace.json}",
+    );
+    watcher.onDidCreate(() => refresh());
+    watcher.onDidChange(() => refresh());
+    watcher.onDidDelete(() => refresh());
+    watcherDisposable = watcher;
+  }
+
   const getWorkspaceFolders = (): import("./add").WorkspaceFolderInfo[] => {
     return (vscode.workspace.workspaceFolders ?? []).map((f) => ({
       name: f.name,
@@ -228,8 +239,10 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
     },
   };
 
+  const disposables: vscode.Disposable[] = [view, add, edit, remove, refreshCmd];
+  if (watcherDisposable) disposables.push(watcherDisposable);
   return {
-    disposable: vscode.Disposable.from(view, add, edit, remove, refreshCmd),
+    disposable: vscode.Disposable.from(...disposables),
     api,
   };
 }

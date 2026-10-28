@@ -177,8 +177,14 @@ export interface AnalysisCheckResult {
   diagnostics: WireDiagnostic[];
 }
 
+export interface AnalysisCompletionItem {
+  label: string;
+  detail?: string | null;
+}
+
 export interface AnalysisCompletionResult {
   items: string[];
+  detailedItems?: AnalysisCompletionItem[] | null;
 }
 
 export interface HoverInfo {

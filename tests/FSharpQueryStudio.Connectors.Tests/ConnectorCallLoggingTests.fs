@@ -43,8 +43,9 @@ let ``Connections.sql logs one event with Kind, ElapsedMs, and RowCount, and nev
         let connector = FakeQueryableConnector([ [| box "Alice" |]; [| box "Bob" |]; [| box "Carol" |] ])
         Connections.configure(FakeResolver(connector))
 
+        let db = Connections.getDatabaseConnection "Sales"
         let result =
-            Connections.sql "Sales" "select Name from Orders where Ssn = @ssn" [ "@ssn", box "123-45-6789" ]
+            db.rawQuery("select Name from Orders where Ssn = @ssn", [ "@ssn", box "123-45-6789" ])
 
         // Force full enumeration - the log fires once the caller has
         // actually consumed the (lazily streamed) rows, not eagerly on

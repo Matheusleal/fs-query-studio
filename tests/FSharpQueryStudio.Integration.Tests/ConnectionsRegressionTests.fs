@@ -29,8 +29,9 @@ type ConnectionsSqlServerRegressionTests(fixture: SqlServerConnectorTests.MsSqlC
 
         Connections.configure(SingleConnectionResolver("Sales", connector))
 
+        let db = Connections.getDatabaseConnection "Sales"
         let result =
-            Connections.sql "Sales" "select * from People where Name = @name" [ "@name", box "x' OR '1'='1" ]
+            db.rawQuery("select * from People where Name = @name", [ "@name", box "x' OR '1'='1" ])
 
         Assert.Empty(result.Rows)
 
@@ -50,7 +51,8 @@ type ConnectionsPostgreSqlRegressionTests(fixture: PostgreSqlConnectorTests.Post
 
         Connections.configure(SingleConnectionResolver("Sales", connector))
 
+        let db = Connections.getDatabaseConnection "Sales"
         let result =
-            Connections.sql "Sales" "select * from people where name = @name" [ "@name", box "x' OR '1'='1" ]
+            db.rawQuery("select * from people where name = @name", [ "@name", box "x' OR '1'='1" ])
 
         Assert.Empty(result.Rows)

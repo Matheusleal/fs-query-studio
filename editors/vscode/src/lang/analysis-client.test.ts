@@ -59,8 +59,16 @@ describe("checkAnalysis", () => {
 describe("completeAnalysis", () => {
   it("sends analysis/complete and returns items", async () => {
     const { worker, calls } = fakeWorker({ id: "1", result: { items: ["foo", "bar"] } });
-    expect(await completeAnalysis(worker, posParams)).toEqual(["foo", "bar"]);
+    expect(await completeAnalysis(worker, posParams)).toEqual([{ label: "foo" }, { label: "bar" }]);
     expect(calls[0].method).toBe("analysis/complete");
+  });
+
+  it("prefers detailedItems when present", async () => {
+    const { worker } = fakeWorker({
+      id: "1",
+      result: { items: ["foo"], detailedItems: [{ label: "foo", detail: "int" }] },
+    });
+    expect(await completeAnalysis(worker, posParams)).toEqual([{ label: "foo", detail: "int" }]);
   });
 
   it("returns [] on error / null / throw", async () => {

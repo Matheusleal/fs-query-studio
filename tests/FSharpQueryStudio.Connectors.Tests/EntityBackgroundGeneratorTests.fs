@@ -104,14 +104,12 @@ let ``generateForConnectionsAsync handles multiple CSV data sources without omit
         Assert.Contains("TotalAmount: decimal", code)
         Assert.Contains("Balance: decimal", code)
 
-        // asEntities generated and handles multiple CSVs
-        Assert.Contains("type FSharpQueryStudio.Connectors.Connections.CsvConnection with", code)
-        Assert.Contains("member this.SalesFeed = SalesFeedCsv.Data(\"SalesFeed\")", code)
-        Assert.Contains("member this.CustomersFeed = CustomersFeedCsv.Data(\"CustomersFeed\")", code)
-        Assert.Contains("member this.asEntities = AllCsvEntities(this)", code)
-        Assert.Contains("type AllCsvEntities(conn: FSharpQueryStudio.Connectors.Connections.CsvConnection) =", code)
-        Assert.Contains("member _.SalesFeed = SalesFeedCsv.Data(\"SalesFeed\")", code)
-        Assert.Contains("member _.CustomersFeed = CustomersFeedCsv.Data(\"CustomersFeed\")", code)
+        // CsvCategory extensions generated for both CSVs without asEntities
+        Assert.Contains("type FSharpQueryStudio.Connectors.Connections.CsvCategory with", code)
+        Assert.Contains("member _.SalesFeed : SalesFeedCsv.Data = SalesFeedCsv.Data(\"SalesFeed\")", code)
+        Assert.Contains("member _.CustomersFeed : CustomersFeedCsv.Data = CustomersFeedCsv.Data(\"CustomersFeed\")", code)
+        Assert.DoesNotContain("asEntities", code)
+        Assert.DoesNotContain("AllCsvEntities", code)
     finally
         try Directory.Delete(tempDir, true) with _ -> ()
 
@@ -187,26 +185,50 @@ let ``generateForConnectionsAsync handles multiple SQLite and multiple CSV data 
 
         let code = File.ReadAllText(generatedFile)
 
-        // SQLite modules and DatabaseConnection extension
+        // SQLite modules and SqlCategory extension
         Assert.Contains("module SampleStoreDb =", code)
         Assert.Contains("module InventoryStoreDb =", code)
-        Assert.Contains("type FSharpQueryStudio.Connectors.Connections.DatabaseConnection with", code)
-        Assert.Contains("member this.SampleStore = SampleStoreDb.Database(\"SampleStore\")", code)
-        Assert.Contains("member this.InventoryStore = InventoryStoreDb.Database(\"InventoryStore\")", code)
-        Assert.Contains("member this.asEntities = AllDatabaseEntities(this)", code)
-        Assert.Contains("type AllDatabaseEntities(conn: FSharpQueryStudio.Connectors.Connections.DatabaseConnection) =", code)
-        Assert.Contains("member _.Customers = (SampleStoreDb.Database(\"SampleStore\")).Customers", code)
-        Assert.Contains("member _.Warehouses = (InventoryStoreDb.Database(\"InventoryStore\")).Warehouses", code)
+        Assert.Contains("type FSharpQueryStudio.Connectors.Connections.SqlCategory with", code)
+        Assert.Contains("member _.SampleStore : SampleStoreDb.Database = SampleStoreDb.Database(\"SampleStore\")", code)
+        Assert.Contains("member _.InventoryStore : InventoryStoreDb.Database = InventoryStoreDb.Database(\"InventoryStore\")", code)
 
-        // CSV modules and CsvConnection extension
+        // CSV modules and CsvCategory extension
         Assert.Contains("module SalesFeedCsv =", code)
         Assert.Contains("module CustomersFeedCsv =", code)
-        Assert.Contains("type FSharpQueryStudio.Connectors.Connections.CsvConnection with", code)
-        Assert.Contains("member this.SalesFeed = SalesFeedCsv.Data(\"SalesFeed\")", code)
-        Assert.Contains("member this.CustomersFeed = CustomersFeedCsv.Data(\"CustomersFeed\")", code)
-        Assert.Contains("member this.asEntities = AllCsvEntities(this)", code)
-        Assert.Contains("type AllCsvEntities(conn: FSharpQueryStudio.Connectors.Connections.CsvConnection) =", code)
+        Assert.Contains("type FSharpQueryStudio.Connectors.Connections.CsvCategory with", code)
+        Assert.Contains("member _.SalesFeed : SalesFeedCsv.Data = SalesFeedCsv.Data(\"SalesFeed\")", code)
+        Assert.Contains("member _.CustomersFeed : CustomersFeedCsv.Data = CustomersFeedCsv.Data(\"CustomersFeed\")", code)
+
+        // No asEntities or cross-connection aggregate types
+        Assert.DoesNotContain("asEntities", code)
+        Assert.DoesNotContain("AllDatabaseEntities", code)
+        Assert.DoesNotContain("AllCsvEntities", code)
     finally
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+        try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+let ``generateForConnectionsAsync with empty connections overwrites existing GeneratedEntities with empty scaffold`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fqs-empty-gen-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(tempDir) |> ignore
+    let genDir = Path.Combine(tempDir, "generated")
+    Directory.CreateDirectory(genDir) |> ignore
+    let targetPath = Path.Combine(genDir, "GeneratedEntities.fs")
+    File.WriteAllText(targetPath, "// OLD STALE CODE\nmodule Old = let x = 1")
+
+    let secretStore =
+        { new ISecretStore with
+            member _.TryRead _ = None
+            member _.Save _ _ = ()
+            member _.Delete _ = () }
+
+    try
+        let result = (EntityBackgroundGenerator.generateForConnectionsAsync tempDir [] secretStore).GetAwaiter().GetResult()
+        Assert.True(result)
+        let newContent = File.ReadAllText targetPath
+        Assert.DoesNotContain("OLD STALE CODE", newContent)
+        Assert.Contains("namespace FSharpQueryStudio.Generated", newContent)
+        Assert.Contains("// No connections registered.", newContent)
+    finally
         try Directory.Delete(tempDir, true) with _ -> ()
 

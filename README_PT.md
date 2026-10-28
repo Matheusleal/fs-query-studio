@@ -39,12 +39,11 @@ O pipeline de CI também publica o pacote VSIX automaticamente a cada push na br
 4. **Consulte com LINQ ou SQL**:
    - Consultas tipadas com LINQ:
      ```fsharp
-     let db = (Connections.connect "minha-conexao").asEntities
-     query { for u in db.Users do where (u.IsActive) select u }
+     query { for u in Connections.sql.MinhaConexao.Users do where (u.IsActive) select u }
      ```
-   - Ou com SQL tradicional parametrizado:
+   - Ou com SQL tradicional parametrizado isolado na conexão:
      ```fsharp
-     Connections.sql "minha-conexao" "select * from Orders where Total > @min" [ "@min", box 100.0 ]
+     Connections.sql.MinhaConexao.rawQuery "select * from Orders where Total > @min" [ "@min", box 100.0 ]
      ```
    Ao executar a célula, o resultado é renderizado automaticamente em um grid interativo com aba de esquema e botão **Export CSV**.
 
@@ -55,7 +54,7 @@ Guia Completo do Usuário: **[`editors/vscode/USER_GUIDE_PT.md`](editors/vscode/
 
 - **Execução em Notebooks** — cada célula `.fsqnb` executa em uma sessão FSI isolada por notebook; saída ao vivo de stdout / stderr; cancelamento de células demoradas pela barra de ferramentas.
 - **Consultas LINQ Fortemente Tipadas** — geração automática de tipos record e contextos LINQ em background para bancos de dados (PostgreSQL, SQL Server, MySQL, SQLite) e arquivos (CSV, Excel, JSON).
-- **API `Connections` Unificada** — `Connections.connect` / `sql` / `csv` / `excel` / `json` / `rest` acessam conexões pelo nome de forma protegida contra injeção SQL. O valor da última expressão é renderizado automaticamente — coleções geram o grid, conectores adicionam **Export CSV**, valores escalares são exibidos como texto formatado.
+- **API `Connections` Unificada** — `Connections.sql` / `csv` / `excel` / `rest` acessam conexões diretamente com tipos gerados em background e execução `rawQuery` isolada por conexão. O valor da última expressão é renderizado automaticamente — coleções geram o grid, conectores adicionam **Export CSV**, valores escalares são exibidos como texto formatado.
 - **Grid de Resultados Interativo** — tabela virtualizada de alta performance, alternância para visualização de metadados/esquema, exportação para CSV e paginação contínua ("Load More") para grandes volumes.
 - **Inteligência de Linguagem no Editor** — autocompletação, hover/tooltips, signature help, diagnósticos em tempo real e navegação **Go to Definition (`F12`)** entre células, tipos gerados e modelos de dados, além de autocomplete contextual de conexões filtrado por tipo.
 - **Explorador de Conexões** — visualização em árvore na Activity Bar organizada por conexões → schemas → tabelas/views → colunas, com carregamento sob demanda e wizards de criação/edição.
