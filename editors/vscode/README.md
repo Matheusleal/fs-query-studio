@@ -1,6 +1,6 @@
 # F# Query Studio
 
-[🇺🇸 English Guide](USER_GUIDE.md) | [🇧🇷 Guia em Português](USER_GUIDE_PT.md) | [📊 Benchmark Report](../../docs/BENCHMARK_REPORT.md)
+[🇺🇸 English Guide](USER_GUIDE.md) | [🇧🇷 Guia em Português](USER_GUIDE_PT.md) | [📊 Benchmark Report](BENCHMARK_REPORT.md)
 
 Write, analyze, and run F# query scripts against SQL databases, local files, and
 REST APIs — as VS Code notebooks.

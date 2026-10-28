@@ -333,7 +333,7 @@ O F# Query Studio é submetido a rigorosos benchmarks automatizados de performan
 - **LINQ e Records F# Dinâmicos**: Mapeamento de records fortemente tipados (`Connections.query<'T>`) e expressões `query { for ... in ... do where ... select ... }` processam 1.000 linhas em **~2.0 ms** utilizando cache de construtores pré-compilados.
 - **Processamento de Arquivos CSV**: Taxa de transferência contínua de **~500.000 registros/segundo**.
 
-Para detalhes da metodologia, métricas brutas e especificações de hardware, consulte o **[Relatório Completo de Benchmarks](../../docs/BENCHMARK_REPORT.md)**.
+Para detalhes da metodologia, métricas brutas e especificações de hardware, consulte o **[Relatório Completo de Benchmarks](BENCHMARK_REPORT.md)** ([ver no GitHub](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/BENCHMARK_REPORT.md)).
 
 ### Suíte de Confiabilidade de Elementos de UI
 A interface visual da extensão é coberta por testes automatizados de componentes:

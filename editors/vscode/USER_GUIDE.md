@@ -334,7 +334,7 @@ F# Query Studio undergoes rigorous automated performance benchmarking and comple
 - **LINQ & Dynamic Records**: Strongly-typed F# record mapping (`Connections.query<'T>`) and LINQ expressions (`query { for ... in ... do where ... select ... }`) process 1,000 rows in **~2.0 ms** using compiled constructor reflection caching.
 - **High-Throughput File Queries**: CSV processing reaches **~500,000 records/sec**.
 
-For detailed benchmark methodology, raw metrics, and hardware specifications, consult the **[Execution Benchmark Report](../../docs/BENCHMARK_REPORT.md)**.
+For detailed benchmark methodology, raw metrics, and hardware specifications, consult the **[Execution Benchmark Report](BENCHMARK_REPORT.md)** ([view on GitHub](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/BENCHMARK_REPORT.md)).
 
 ### UI Element Reliability Test Suite
 The extension UI is validated by comprehensive automated test suites:
