@@ -155,12 +155,6 @@ For detailed examples and tutorials, see [`USER_GUIDE.md`](USER_GUIDE.md).
   the same window.
 - Requires `dotnet` on `PATH`; there is no self-contained build yet.
 
-## Relationship to Ionide
-
-[Ionide](https://ionide.io) handles F# in ordinary `.fs` / `.fsx` files. It
-never sees notebook cells, and this extension never touches `.fs` / `.fsx`.
-Install both; they do not conflict.
-
 ## Contributing / development
 
 ```bash

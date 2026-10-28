@@ -101,10 +101,6 @@ dotnet build FSharpQueryStudio.slnx
 dotnet test  FSharpQueryStudio.slnx
 ```
 
-## Relação com a Extensão Ionide
-
-O [Ionide](https://ionide.io) é a extensão para edição de arquivos normais `.fs` e `.fsx`. Ele não interage com células de notebooks `.fsqnb`, e o F# Query Studio não interfere em arquivos `.fs` / `.fsx`. Você pode instalar ambas extensões simultaneamente sem qualquer conflito.
-
 ## Licença
 
 [MIT](LICENSE) © 2026 Matheus Leal.
