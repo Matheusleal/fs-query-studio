@@ -115,7 +115,7 @@ As senhas **nunca são armazenadas em texto puro**. Ao cadastrar uma conexão co
 
 ---
 
-## 5. Auto-complete Inteligente de Conexões
+## 5. Auto-complete Inteligente de Conexões e Badges de Tipo
 
 Quando você edita células do notebook, o F# Query Studio oferece **IntelliSense contextual organizado de forma clara por categoria de conexão**:
 
@@ -123,6 +123,15 @@ Quando você edita células do notebook, o F# Query Studio oferece **IntelliSens
 - `Connections.csv.<NomeConexao>` ➔ Acesso direto a linhas tipadas de CSV e `.Raw()`.
 - `Connections.excel.<NomeConexao>` ➔ Acesso direto a planilhas tipadas de Excel e `.Raw()`.
 - `Connections.rest.<NomeConexao>` ➔ Acesso direto a endpoints de API REST e `.SendAsync()`.
+
+### Badges de Tipo Alinhados à Direita no Autocomplete
+A lista suspensa de sugestões exibe o tipo concreto ou categoria alinhado à direita para identificação imediata:
+- **Campos e Propriedades de Records**: Exibe o tipo exato (`string`, `int`, `decimal`, `bool`, `DateTime`, etc.).
+- **Métodos e Funções**: Exibe `method`.
+- **Conexões**: Exibe a categoria do conector (`sql`, `csv`, `excel`, `rest`).
+
+### Indicador de Mapeamento de Entidades em Tempo Real
+Ao adicionar ou modificar conexões, um spinner animado é exibido na barra de status do VS Code (`$(sync~spin) Mapping entities...`), confirmando em tempo real a inspeção de esquema e geração dos tipos F#.
 
 ---
 

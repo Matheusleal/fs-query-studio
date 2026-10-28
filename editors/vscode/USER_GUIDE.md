@@ -115,7 +115,7 @@ Passwords are **never stored in plaintext** on disk. When you register a connect
 
 ---
 
-## 5. Smart Connection Autocomplete
+## 5. Smart Connection Autocomplete & Type Badges
 
 When editing notebook cells, F# Query Studio provides **context-aware IntelliSense** organized cleanly by connection category:
 
@@ -123,6 +123,15 @@ When editing notebook cells, F# Query Studio provides **context-aware IntelliSen
 - `Connections.csv.<ConnName>` ➔ Direct access to strongly-typed CSV rows and `.Raw()`.
 - `Connections.excel.<ConnName>` ➔ Direct access to strongly-typed Excel sheets and `.Raw()`.
 - `Connections.rest.<ConnName>` ➔ Direct access to REST API endpoints and `.SendAsync()`.
+
+### Right-Aligned Type Badges in Autocomplete
+The suggestion dropdown displays the item's underlying type or kind right-aligned for instant recognition:
+- **Record Fields & Properties**: Shows the concrete type (`string`, `int`, `decimal`, `bool`, `DateTime`, etc.).
+- **Methods & Functions**: Displays `method`.
+- **Connections**: Displays the connector kind (`sql`, `csv`, `excel`, `rest`).
+
+### Live Entity Mapping Status
+When connections are added or modified, a spinner appears in the VS Code status bar (`$(sync~spin) Mapping entities...`), confirming in real time that schemas are being inspected and F# types generated.
 
 ---
 

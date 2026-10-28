@@ -6,6 +6,24 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-10-28
+
+### Added
+
+- **Typed Connections by Category API** — Replaced global connection leaking with strictly isolated categories under `Connections`:
+  - `Connections.sql.<ConnName>.<Table>` for relational databases (SQLite, PostgreSQL, SQL Server, MySQL).
+  - `Connections.sql.<ConnName>.rawQuery` scoped strictly to that specific connection.
+  - `Connections.csv.<ConnName>` for strongly-typed CSV row streams and direct LINQ querying.
+  - `Connections.excel.<ConnName>` for Excel worksheets.
+  - `Connections.rest.<ConnName>` for REST API endpoints.
+  - Legacy methods (`connect`, `connectCsv`, `connectExcel`, `connectRest`) and leaky `.asEntities` were retired.
+- **Right-Aligned Type Badges in Autocomplete** — Suggestions in the autocomplete dropdown now render their exact type (`int`, `string`, `bool`, `decimal`, `DateTime`, etc.) or kind aligned to the right:
+  - Fields and properties resolve and display their actual underlying type.
+  - Methods display `method`.
+  - Connection completions display their connector kind (`sql`, `csv`, `excel`, `rest`).
+- **Entity Mapping Progress in Status Bar** — Added a real-time status bar spinner (`$(sync~spin) Mapping entities...`) during background schema inspection and F# type generation, providing clear visual feedback when updating connections.
+- **FSAC Notebook Cell Workspace Resolution** — Background F# analysis engine now automatically maps notebook cell virtual URIs (`vscode-notebook-cell:`) to their workspace folder and loads `GeneratedEntities.fs` into FSAC, eliminating false-positive red squiggles and providing full IntelliSense and Go-to-Definition (`F12`) across cells.
+
 ## [0.2.3] — 2026-10-27
 
 ### Improved

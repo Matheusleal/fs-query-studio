@@ -51,6 +51,13 @@ and the VS Code extension shall display a visual indicator on the status bar
 with text '$(sync~spin) Mapping entities...' and hide or update it upon completion.
 ```
 
+#### FR-AUTOCOMPLETE-TYPE-DETAIL: Exibição do Tipo Alinhado à Direita no Autocomplete
+```text
+When the language client requests completion items for notebook cells,
+the worker shall extract the concrete field/property type, method signature, or connector kind,
+and the VS Code completion provider shall render it aligned to the right via 'CompletionItemLabel.description'.
+```
+
 #### FR-TEST-CLEANUP-INTEGRITY: Limpeza Obrigatória de Recursos e Arquivos de Testes
 ```text
 When any automated test creates files or directories on disk,
