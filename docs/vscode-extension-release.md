@@ -73,6 +73,29 @@ warning gate and contents assertion CI enforces. CI also uploads it as the
 touches the extension or the worker (it never publishes) — download that instead
 of building locally.
 
+## Security & Anti-Leak Safeguards
+
+The packaging and publishing pipeline enforces multi-layer defenses to ensure zero sensitive artifacts leak into the VSIX:
+
+1. **Exhaustive Package Ignores (`.vscodeignore`)**:
+   - Explicitly rejects debug symbols (`**/*.pdb`), source maps (`**/*.map`), and raw source code (`**/*.ts`, `**/*.fs`, `**/*.cs`).
+   - Rejects all environment configs (`**/.env*`), certificates (`**/*.pem`, `**/*.key`, `**/*.pfx`, `**/*.p12`), and credentials (`*secret*`, `*token*`).
+   - Rejects local notebooks (`**/*.fsqnb`), local databases (`**/*.db`, `**/*.sqlite*`), backups, and nested `*.vsix` packages.
+   - Rejects internal VCS, IDE, and agent metadata (`.git/**`, `.github/**`, `.agents/**`, `.claude/**`, etc.).
+
+2. **Worker Build Cleansing (`scripts/build.mjs`)**:
+   - `dotnet publish` runs with `-p:DebugType=None -p:DebugSymbols=false` in Release mode.
+   - `build.mjs` automatically purges any `.pdb` and documentation `.xml` files from `editors/vscode/dist/worker/`.
+
+3. **Strict VSIX Assertion Gate (`scripts/lib.mjs: assertVsixContents`)**:
+   - Every `npm run package` inspects `vsce ls` against `forbiddenVsixRules`. Any debug symbol, uncompiled source file, secret, database, or nested archive halts packaging with a fatal error.
+
+4. **Preflight Security Audit (`scripts/doctor.mjs`)**:
+   - `npm run doctor` scans the extension tree for untracked/unignored secrets or local databases and validates that `.vscodeignore` contains all critical rules. `npm run publish` refuses to proceed if any security check fails.
+
+5. **Pre-Commit Secret Scanner (`.githooks/pre-commit`)**:
+   - Rejects git commits containing staged `.env*`, `.pem`, `.key`, `secrets.json`, `.pdb`, or private key blocks.
+
 ## Notes
 
 - The VSIX bundles the framework-dependent worker (`dist/worker/**`); the user
@@ -83,3 +106,4 @@ of building locally.
   package` enforces exactly what CI does.
 - Marketplace publish is deliberately **not** wired into CI — it is manual and
   tag-driven for v1.
+

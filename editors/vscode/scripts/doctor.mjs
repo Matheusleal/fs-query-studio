@@ -5,7 +5,7 @@
 //
 //   node scripts/doctor.mjs
 
-import { readdirSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -15,6 +15,39 @@ import {
   readFileSync,
   extDir,
 } from "./lib.mjs";
+
+export { extDir };
+
+/** Recursively scan for sensitive files or secrets that must not be in the extension directory */
+export function scanSensitiveFiles(dir, baseDir = dir) {
+  const ignoreDirs = new Set(["node_modules", ".vscode-test", ".git", "dist", "out"]);
+  const sensitivePatterns = [
+    /(^|\/)\.env/i,
+    /\.env(\..+)?$/i,
+    /\.(key|pem|cert|crt|pfx|p12|publishsettings)$/i,
+    /(^|\/)(secrets?|credentials?|tokens?)\.json$/i,
+  ];
+  let found = [];
+  if (!existsSync(dir)) return found;
+  for (const entry of readdirSync(dir)) {
+    if (ignoreDirs.has(entry)) continue;
+    const full = join(dir, entry);
+    const rel = full.slice(baseDir.length + 1).replace(/\\/g, "/");
+    const stat = statSync(full);
+    if (stat.isDirectory()) {
+      found = found.concat(scanSensitiveFiles(full, baseDir));
+    } else {
+      if (sensitivePatterns.some((re) => re.test(rel) || re.test(entry))) {
+        found.push(rel);
+      }
+      // Databases, notebook or dumps outside test/
+      if (!rel.startsWith("test/") && /\.(fsqnb|sqlite|sqlite3|db|dump|bak)$/i.test(entry)) {
+        found.push(rel);
+      }
+    }
+  }
+  return found;
+}
 
 /** @typedef {{ name: string, ok: boolean, hard: boolean, detail: string }} CheckResult */
 
@@ -93,6 +126,35 @@ export function runDoctor() {
     patSet ? "set" : "unset — export it before `npm run publish`",
   );
 
+  // --- security & anti-leak safeguards -------------------------------------
+  const vscodeIgnorePath = join(extDir, ".vscodeignore");
+  let ignoreRulesOk = false;
+  let ignoreDetail = "";
+  if (!existsSync(vscodeIgnorePath)) {
+    ignoreDetail = ".vscodeignore missing";
+  } else {
+    const content = readFileSync(vscodeIgnorePath, "utf8");
+    const requiredPatterns = ["**/*.pdb", "**/.env*", "**/*.key", "*.vsix", "src/**", "test/**"];
+    const missing = requiredPatterns.filter((p) => !content.includes(p));
+    if (missing.length > 0) {
+      ignoreDetail = `missing critical rules: ${missing.join(", ")}`;
+    } else {
+      ignoreRulesOk = true;
+      ignoreDetail = "all critical security ignore rules present";
+    }
+  }
+  add("Security: .vscodeignore protection rules", true, ignoreRulesOk, ignoreDetail);
+
+  const sensitive = scanSensitiveFiles(extDir);
+  add(
+    "Security: no secrets or sensitive files in extension directory",
+    true,
+    sensitive.length === 0,
+    sensitive.length === 0
+      ? "clean (no .env, keys, credentials, or databases detected)"
+      : `found sensitive file(s): ${sensitive.slice(0, 3).join(", ")}${sensitive.length > 3 ? ` (+${sensitive.length - 3} more)` : ""}`,
+  );
+
   return results;
 }
 
@@ -107,7 +169,7 @@ export function printReport(results) {
   console.log("");
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const results = runDoctor();
   printReport(results);
   const hardFails = results.filter((r) => !r.ok && r.hard);

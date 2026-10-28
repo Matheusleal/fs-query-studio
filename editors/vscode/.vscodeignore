@@ -1,16 +1,97 @@
-.vscode/**
+# -----------------------------------------------------------------------------
+# F# Query Studio VS Code Extension - Package Exclusions (.vscodeignore)
+# -----------------------------------------------------------------------------
+# Only runtime distribution bundles, essential manifest files, icon,
+# grammars, and legal/documentation files should be packaged in the VSIX.
+# Everything else MUST be excluded to prevent leaking secrets, source code,
+# debug symbols, or developer environment details.
+# -----------------------------------------------------------------------------
+
+# 1. Source Code & Language Files (Never ship raw source code in VSIX)
+src/**
+**/*.ts
+**/*.tsx
+**/*.fs
+**/*.fsi
+**/*.cs
+**/*.map
+**/*.js.map
+**/*.ts.map
+
+# 2. Debug Symbols & Compilations Artifacts
+**/*.pdb
+out/**
+
+# 3. Tests & Test Configurations
+test/**
+**/*.test.*
+**/*.spec.*
 .vscode-test/**
 .vscode-test.mjs
-src/**
-test/**
-out/**
+vitest.config.ts
+vitest.config.mjs
+vitest.config.js
+
+# 4. Project, Build & Tooling Scripts
 scripts/**
-node_modules/**
+esbuild.mjs
 tsconfig.json
 tsconfig.integration.json
-esbuild.mjs
-vitest.config.ts
-**/*.map
-**/*.test.ts
-**/tsconfig.*
+**/tsconfig*.json
+Directory.Build.props
+Directory.Build.targets
+Directory.Packages.props
+**/*.fsproj
+**/*.csproj
+**/*.sln
+**/*.slnx
+
+# 5. Secrets, Credentials & Environment Configs
+**/.env*
+**/*.env*
+**/*.key
+**/*.pem
+**/*.cert
+**/*.crt
+**/*.pfx
+**/*.p12
+**/*secret*
+**/*token*
+**/*credential*
+**/*.publishsettings
+
+# 6. Local Databases, Notebooks, Backups & Logs
+**/*.fsqnb
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+**/*.dump
+**/*.bak
+**/*.log
+**/*.tmp
+**/*.csv
+
+# 7. Package Archives & Node Modules
+node_modules/**
+*.vsix
+**/*.vsix
+
+# 8. Extra Internal Documentation & Reports (VSIX only needs README, CHANGELOG, LICENSE)
+BENCHMARK_REPORT.md
+USER_GUIDE.md
+USER_GUIDE_PT.md
+
+# 9. Version Control, IDE, Agent & System Metadata
+.git/**
 .gitignore
+.gitattributes
+.github/**
+.githooks/**
+.agents/**
+.claude/**
+.superpowers/**
+.vscode/**
+.vs/**
+.idea/**
+.DS_Store
+Thumbs.db

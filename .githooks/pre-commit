@@ -1,30 +1,88 @@
 #!/bin/sh
-# Guardrail to prevent direct commits to protected branches (main / master)
+# -----------------------------------------------------------------------------
+# F# Query Studio Pre-Commit Hook
+# 1. Branch protection (never commit directly to main/master)
+# 2. Secret and sensitive artifact leak protection
+# -----------------------------------------------------------------------------
 
+# --- 1. Branch Protection Guardrail -----------------------------------------
 current_branch="$(git rev-parse --abbrev-ref HEAD)"
 
 if [ "$current_branch" = "main" ] || [ "$current_branch" = "master" ]; then
     if [ "$ALLOW_PROTECTED_COMMIT" = "1" ]; then
-        exit 0
+        :
+    else
+        echo ""
+        echo "========================================================================"
+        echo " [GIT PROTECTION] Direct commits to '$current_branch' are not allowed!"
+        echo "========================================================================"
+        echo " AI agents and developers must always work on a dedicated branch."
+        echo " Please create a feature branch and open a Pull Request:"
+        echo ""
+        echo "   git checkout -b feature/your-feature-name"
+        echo "   git commit ..."
+        echo "   git push -u origin feature/your-feature-name"
+        echo "   gh pr create"
+        echo ""
+        echo " (If you strictly need to commit directly to '$current_branch', use:"
+        echo "  ALLOW_PROTECTED_COMMIT=1 git commit ... or git commit --no-verify)"
+        echo "========================================================================"
+        echo ""
+        exit 1
+    fi
+fi
+
+# --- 2. Secret and Sensitive File Staging Guardrail --------------------------
+staged_files="$(git diff --cached --name-only --diff-filter=ACM)"
+
+if [ -n "$staged_files" ]; then
+    forbidden_files=""
+    for file in $staged_files; do
+        case "$file" in
+            *.env|*.env.*|.env|.env.*)
+                forbidden_files="$forbidden_files\n  - $file (environment/secrets file)"
+                ;;
+            *.key|*.pem|*.cert|*.crt|*.pfx|*.p12|*.publishsettings)
+                forbidden_files="$forbidden_files\n  - $file (private key or certificate file)"
+                ;;
+            *secrets.json|*credentials.json)
+                forbidden_files="$forbidden_files\n  - $file (credentials file)"
+                ;;
+            *.pdb)
+                forbidden_files="$forbidden_files\n  - $file (debug symbol file)"
+                ;;
+            *.vsix)
+                forbidden_files="$forbidden_files\n  - $file (compiled VSIX archive)"
+                ;;
+        esac
+    done
+
+    if [ -n "$forbidden_files" ]; then
+        echo ""
+        echo "========================================================================"
+        echo " [SECURITY VIOLATION] Sensitive files detected in staged commit!"
+        echo "========================================================================"
+        printf "$forbidden_files\n"
+        echo ""
+        echo " These files must NEVER be committed to the repository."
+        echo " Please unstage them ('git reset HEAD <file>') and ensure they are ignored."
+        echo "========================================================================"
+        echo ""
+        exit 1
     fi
 
-    echo ""
-    echo "========================================================================"
-    echo " [GIT PROTECTION] Direct commits to '$current_branch' are not allowed!"
-    echo "========================================================================"
-    echo " AI agents and developers must always work on a dedicated branch."
-    echo " Please create a feature branch and open a Pull Request:"
-    echo ""
-    echo "   git checkout -b feature/your-feature-name"
-    echo "   git commit ..."
-    echo "   git push -u origin feature/your-feature-name"
-    echo "   gh pr create"
-    echo ""
-    echo " (If you strictly need to commit directly to '$current_branch', use:"
-    echo "  ALLOW_PROTECTED_COMMIT=1 git commit ... or git commit --no-verify)"
-    echo "========================================================================"
-    echo ""
-    exit 1
+    # Scan staged text content for private keys
+    if git diff --cached -U0 | grep -E "^\+.*-----BEGIN [A-Z ]*PRIVATE KEY-----" > /dev/null 2>&1; then
+        echo ""
+        echo "========================================================================"
+        echo " [SECURITY VIOLATION] Private key pattern detected in staged changes!"
+        echo "========================================================================"
+        echo " Staged changes contain a private key block (BEGIN ... PRIVATE KEY)."
+        echo " Aborting commit to prevent credential leak."
+        echo "========================================================================"
+        echo ""
+        exit 1
+    fi
 fi
 
 exit 0

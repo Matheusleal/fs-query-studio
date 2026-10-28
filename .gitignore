@@ -10,16 +10,24 @@
 *.userosscache
 *.sln.docstates
 *.env
+.env
+.env.*
+*.env.*
 
 # F# Query Studio: never track local secrets, credentials, or app-data logs
 secrets.json
-
-# F# Query Studio: local git worktrees for isolated feature work
-.worktrees/
 *.secrets.json
 *.pem
 *.key
+*.cert
+*.crt
+*.pfx
+*.p12
+*.publishsettings
 /logs/
+
+# F# Query Studio: local git worktrees for isolated feature work
+.worktrees/
 
 # Restored dotnet tool, not source - see Directory.Build.targets
 **/FsacTool/

@@ -4,10 +4,32 @@
 //
 //   node scripts/build.mjs [--skip-worker] [--worker-only] [--configuration Release|Debug]
 
-import { existsSync, copyFileSync } from "node:fs";
+import { existsSync, copyFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs, run, extDir, repoRoot, workerOutDir, workerProject } from "./lib.mjs";
+
+/**
+ * Recursively remove .pdb and unnecessary .xml doc files from worker publish directory
+ * to prevent leaking symbols, local machine paths, or dev documentation in the VSIX.
+ * @param {string} dir
+ * @returns {number} number of files deleted
+ */
+export function sanitizeWorkerDirectory(dir) {
+  if (!existsSync(dir)) return 0;
+  let removed = 0;
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    const stat = statSync(full);
+    if (stat.isDirectory()) {
+      removed += sanitizeWorkerDirectory(full);
+    } else if (entry.endsWith(".pdb") || (entry.endsWith(".xml") && !entry.startsWith("Microsoft.Data.SqlClient"))) {
+      unlinkSync(full);
+      removed++;
+    }
+  }
+  return removed;
+}
 
 /**
  * @param {{ skipWorker?: boolean, workerOnly?: boolean, configuration?: string }} [opts]
@@ -21,13 +43,28 @@ export function build(opts = {}) {
         `--skip-worker given but ${workerOutDir} does not exist; run without it once.`,
       );
     }
+    const cleaned = sanitizeWorkerDirectory(workerOutDir);
+    if (cleaned > 0) {
+      console.log(`\x1b[2m· sanitized ${cleaned} debug symbol / doc file(s) in reused worker directory\x1b[0m`);
+    }
     console.log(`\x1b[2m· skipping worker publish (reusing ${workerOutDir})\x1b[0m`);
   } else {
-    run(
-      "dotnet",
-      ["publish", workerProject, "-c", configuration, "-o", workerOutDir],
-      { cwd: repoRoot },
-    );
+    const dotnetArgs = [
+      "publish",
+      workerProject,
+      "-c",
+      configuration,
+      "-o",
+      workerOutDir,
+    ];
+    if (configuration === "Release") {
+      dotnetArgs.push("-p:DebugType=None", "-p:DebugSymbols=false");
+    }
+    run("dotnet", dotnetArgs, { cwd: repoRoot });
+    const cleaned = sanitizeWorkerDirectory(workerOutDir);
+    if (cleaned > 0) {
+      console.log(`\x1b[2m· stripped ${cleaned} debug symbol / doc file(s) from worker output\x1b[0m`);
+    }
   }
 
   if (opts.workerOnly) {
@@ -45,7 +82,7 @@ export function build(opts = {}) {
   console.log("\x1b[32m✓\x1b[0m build complete");
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const { flags, values } = parseArgs();
   try {
     build({
