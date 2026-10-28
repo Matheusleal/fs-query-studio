@@ -866,12 +866,12 @@ let ``dispatch on workspace/initEmptyProject creates empty workspace.json and ge
             let! response = Handlers.dispatch req
             Assert.True(response.Error.IsNone)
 
-            let wsFile = Path.Combine(localDir, "workspace.json")
+            let wsFile = Path.Combine(localDir, ".fsqs", "workspace.json")
             Assert.True(File.Exists wsFile)
             let content = File.ReadAllText wsFile
             Assert.Equal("[]\n", content)
 
-            let generatedDir = Path.Combine(localDir, "generated")
+            let generatedDir = Path.Combine(localDir, ".fsqs", "generated")
             Assert.True(Directory.Exists generatedDir)
         finally
             cleanTempDir localDir

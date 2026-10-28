@@ -154,7 +154,11 @@ module Handlers =
                     if not (String.IsNullOrWhiteSpace dir) && Directory.Exists dir then
                         let rec findWorkspace (current: DirectoryInfo) (depth: int) =
                             if depth <= 0 || isNull current then None
-                            elif File.Exists(Path.Combine(current.FullName, "generated", "GeneratedEntities.fs"))
+                            elif Directory.Exists(Path.Combine(current.FullName, ".fsqs"))
+                                 || File.Exists(Path.Combine(current.FullName, ".fsqs", "workspace.json"))
+                                 || File.Exists(Path.Combine(current.FullName, ".fsqs", "generated", "GeneratedEntities.fs"))
+                                 || File.Exists(Path.Combine(current.FullName, "workspace.json"))
+                                 || File.Exists(Path.Combine(current.FullName, "generated", "GeneratedEntities.fs"))
                                  || File.Exists(Path.Combine(current.FullName, ".fsquery", "connections.json")) then
                                 Some current.FullName
                             else
@@ -586,6 +590,11 @@ module Handlers =
         let connection =
             JsonSerializer.Deserialize<ConnectionDefinition>(request.Params, Serialization.options)
 
+        if targetWs <> (workspaceDir ()) then
+            let fsqsDir = Path.Combine(targetWs, ".fsqs")
+            if not (Directory.Exists fsqsDir) && not (targetWs.EndsWith(".fsqs", StringComparison.OrdinalIgnoreCase)) then
+                Directory.CreateDirectory fsqsDir |> ignore
+
         let updated = Workspace.registerConnection targetWs connection
         Connections.configure (WorkspaceConnectionResolver(updated, secretStore))
         EntityBackgroundGenerator.triggerBackgroundGeneration targetWs updated secretStore
@@ -785,17 +794,18 @@ module Handlers =
 
     let handleInitEmptyProject (request: WorkerRequestFrame) : WorkerResponseFrame =
         try
-            let dir = tryGetWorkspaceDir request.Params
-            Directory.CreateDirectory(dir) |> ignore
-            let wsFile = Path.Combine(dir, "workspace.json")
+            let rootDir = tryGetWorkspaceDir request.Params
+            let fsqsDir = Path.Combine(rootDir, ".fsqs")
+            Directory.CreateDirectory(fsqsDir) |> ignore
+            let wsFile = Path.Combine(fsqsDir, "workspace.json")
             if not (File.Exists wsFile) then
                 File.WriteAllText(wsFile, "[]\n")
 
-            let generatedDir = Path.Combine(dir, "generated")
+            let generatedDir = Path.Combine(fsqsDir, "generated")
             Directory.CreateDirectory(generatedDir) |> ignore
 
             { Id = request.Id
-              Result = Some(JsonSerializer.SerializeToElement({| workspacePath = wsFile; targetDir = dir |}, Serialization.options))
+              Result = Some(JsonSerializer.SerializeToElement({| workspacePath = wsFile; targetDir = rootDir; fsqsDir = fsqsDir |}, Serialization.options))
               Error = None }
         with ex ->
             { Id = request.Id

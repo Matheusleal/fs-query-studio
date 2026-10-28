@@ -27,6 +27,15 @@ export function sanitizeConnectionStringAndPassword(
   let connStr = rawConnStr.trim();
   let pwd = rawPassword?.trim() ? rawPassword.trim() : undefined;
 
+  // 0. If SQL Server has Integrated Security or Trusted_Connection and no raw password,
+  // do not extract or add any password:
+  const isIntegrated =
+    kind === "SqlServer" &&
+    /(integrated\s+security\s*=\s*(true|sspi)|trusted_connection\s*=\s*(true|yes))/i.test(connStr);
+  if (isIntegrated && !pwd) {
+    return { connectionString: connStr, password: undefined };
+  }
+
   // 1. Check for plaintext password in standard key=value connection string:
   // e.g. "Password=secret", "Pwd=secret", "User Id=sa;Password=secret;"
   const kvPwdRegex = /(^|;)\s*(password|pwd)\s*=\s*([^;]+)/i;
@@ -117,9 +126,17 @@ export function buildConnectionDefinition(
 
   const hasNewSecret = !!formInput.password && formInput.password.trim().length > 0;
 
-  const secretReference =
-    existing?.secretReference ??
-    (hasNewSecret ? `fqs-conn-${randomUUID().replace(/-/g, "")}` : null);
+  const isWindowsAuthSql =
+    formInput.kind === "SqlServer" &&
+    /(integrated\s+security\s*=\s*(true|sspi)|trusted_connection\s*=\s*(true|yes))/i.test(
+      formInput.connectionString ?? "",
+    ) &&
+    !hasNewSecret;
+
+  const secretReference = isWindowsAuthSql
+    ? null
+    : (existing?.secretReference ??
+      (hasNewSecret ? `fqs-conn-${randomUUID().replace(/-/g, "")}` : null));
 
   const definition: ConnectionDefinition = {
     id: existing?.id ?? randomUUID(),

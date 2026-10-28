@@ -59,7 +59,9 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
         expect(fs.existsSync(data.notebookPath)).toBe(true);
         expect(fs.existsSync(data.notebookPtPath!)).toBe(true);
 
-        const generatedEntities = path.join(tempDir, "generated", "GeneratedEntities.fs");
+        const generatedEntities = fs.existsSync(path.join(tempDir, ".fsqs", "generated", "GeneratedEntities.fs"))
+          ? path.join(tempDir, ".fsqs", "generated", "GeneratedEntities.fs")
+          : path.join(tempDir, "generated", "GeneratedEntities.fs");
         expect(fs.existsSync(generatedEntities)).toBe(true);
 
         // 2. Test sample_demo.fsqnb using VS Code Windows URI format (with %3A)

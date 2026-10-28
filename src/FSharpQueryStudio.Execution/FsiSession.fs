@@ -65,15 +65,25 @@ module FsiSession =
                 else
                     unescaped
 
+        let wsGeneratedFsqs =
+            if not (String.IsNullOrEmpty cleanWsDir) then
+                Path.Combine(cleanWsDir, ".fsqs", "generated", "GeneratedEntities.fs")
+            else
+                ""
         let wsGenerated =
             if not (String.IsNullOrEmpty cleanWsDir) then
                 Path.Combine(cleanWsDir, "generated", "GeneratedEntities.fs")
             else
                 ""
+        let localGeneratedFsqs = Path.Combine(workingDirectory, ".fsqs", "generated", "GeneratedEntities.fs")
         let localGenerated = Path.Combine(workingDirectory, "generated", "GeneratedEntities.fs")
         let generatedFile =
-            if not (String.IsNullOrEmpty cleanWsDir) then
-                if File.Exists wsGenerated then wsGenerated else ""
+            if not (String.IsNullOrEmpty wsGeneratedFsqs) && File.Exists wsGeneratedFsqs then
+                wsGeneratedFsqs
+            elif not (String.IsNullOrEmpty wsGenerated) && File.Exists wsGenerated then
+                wsGenerated
+            elif File.Exists localGeneratedFsqs then
+                localGeneratedFsqs
             elif File.Exists localGenerated then
                 localGenerated
             else

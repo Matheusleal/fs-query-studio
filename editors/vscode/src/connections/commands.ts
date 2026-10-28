@@ -75,6 +75,29 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
       });
       return picked?.connectorKind;
     },
+    async pickSqlServerAuth() {
+      interface AuthPickItem extends vscode.QuickPickItem {
+        authType: import("./add").SqlServerAuthType;
+      }
+      const items: AuthPickItem[] = [
+        {
+          label: "$(person) Windows Authentication (Integrated Security)",
+          description: "Use current Windows user account",
+          detail: "Connects using Integrated Security=True (no password required)",
+          authType: "windows",
+        },
+        {
+          label: "$(key) SQL Server Authentication",
+          description: "Standard SQL Server login",
+          detail: "Requires username (User Id) and password",
+          authType: "sql",
+        },
+      ];
+      const picked = await vscode.window.showQuickPick(items, {
+        placeHolder: "Select SQL Server authentication method",
+      });
+      return picked?.authType;
+    },
     async pickScope(folders) {
       if (folders.length === 0) {
         return { scope: "global" };
@@ -88,7 +111,7 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
         items.push({
           label: "$(folder) Local (Current Project)",
           description: folders[0].path,
-          detail: "Saves connection in workspace.json within this project directory",
+          detail: "Saves connection in .fsqs/workspace.json within this project directory",
           scope: "local",
           targetDir: folders[0].path,
         });
@@ -97,7 +120,7 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
           items.push({
             label: `$(folder) Local Project: ${f.name}`,
             description: f.path,
-            detail: "Saves connection in workspace.json within this project directory",
+            detail: "Saves connection in .fsqs/workspace.json within this project directory",
             scope: "local",
             targetDir: f.path,
           });

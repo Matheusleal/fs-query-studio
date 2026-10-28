@@ -39,10 +39,15 @@ describe.skipIf(!workerDll)("local workspace project integration via worker", ()
       });
 
       expect(initRes.error ?? undefined).toBeUndefined();
-      const wsJsonPath = path.join(tempDir, "workspace.json");
-      const generatedDir = path.join(tempDir, "generated");
+      const fsqsDir = path.join(tempDir, ".fsqs");
+      const wsJsonPath = path.join(fsqsDir, "workspace.json");
+      const generatedDir = path.join(fsqsDir, "generated");
+      expect(fs.existsSync(fsqsDir)).toBe(true);
       expect(fs.existsSync(wsJsonPath)).toBe(true);
       expect(fs.existsSync(generatedDir)).toBe(true);
+      // Ensure root does NOT contain workspace.json or generated/
+      expect(fs.existsSync(path.join(tempDir, "workspace.json"))).toBe(false);
+      expect(fs.existsSync(path.join(tempDir, "generated"))).toBe(false);
 
       const initialWsContent = JSON.parse(fs.readFileSync(wsJsonPath, "utf-8"));
       expect(initialWsContent).toEqual([]);

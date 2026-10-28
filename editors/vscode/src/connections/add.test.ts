@@ -96,6 +96,43 @@ describe("runAddConnection", () => {
     expect(d.sent).toHaveLength(0);
     expect(d.refresh).not.toHaveBeenCalled();
   });
+
+  it("registers SQL Server with Windows Authentication without storing secrets", async () => {
+    const d = deps({
+      ui: {
+        ...deps().deps.ui,
+        pickKind: async () => "SqlServer" as const,
+        pickSqlServerAuth: async () => "windows" as const,
+        input: async (o: { prompt: string }) =>
+          o.prompt.includes("name")
+            ? "my-sql"
+            : "Server=localhost;Database=mydb;",
+      },
+    });
+    await runAddConnection(d.deps);
+    expect(d.stored).toHaveLength(0);
+    const reg = d.sent.find((s) => s.method === "connection/register")!;
+    const def = reg.params as ConnectionDefinition;
+    expect(def.name).toBe("my-sql");
+    expect(def.secretReference).toBeNull();
+    const config = def.configuration as { connectionString: string };
+    expect(config.connectionString).toContain("Integrated Security=True");
+    expect(config.connectionString).toContain("TrustServerCertificate=True");
+    expect(d.refresh).toHaveBeenCalledOnce();
+  });
+
+  it("aborts silently when SQL Server auth pick is cancelled", async () => {
+    const d = deps({
+      ui: {
+        ...deps().deps.ui,
+        pickKind: async () => "SqlServer" as const,
+        pickSqlServerAuth: async () => undefined,
+      },
+    });
+    await runAddConnection(d.deps);
+    expect(d.sent).toHaveLength(0);
+    expect(d.refresh).not.toHaveBeenCalled();
+  });
 });
 
 describe("runEditConnection", () => {

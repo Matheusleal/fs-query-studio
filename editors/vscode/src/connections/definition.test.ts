@@ -117,4 +117,40 @@ describe("buildConnectionDefinition", () => {
     expect(secret).toBe("myuripassword");
     expect(secretReference).toMatch(/^fqs-conn-[0-9a-f]{32}$/);
   });
+
+  it("builds SQL Server connection with Windows Authentication without storing secrets", () => {
+    const { definition, secret, secretReference } = buildConnectionDefinition({
+      kind: "SqlServer",
+      name: "LocalSqlWinAuth",
+      connectionString: "Server=localhost;Database=mydb;Integrated Security=True;TrustServerCertificate=True;",
+    });
+    expect(definition.configuration).toEqual({
+      connectionString: "Server=localhost;Database=mydb;Integrated Security=True;TrustServerCertificate=True;",
+    });
+    expect(definition.secretReference).toBeNull();
+    expect(secret).toBeUndefined();
+    expect(secretReference).toBeUndefined();
+  });
+
+  it("edit switches SQL Server to Windows Authentication and clears existing secretReference", () => {
+    const existing: ConnectionDefinition = {
+      id: "sql-1",
+      name: "old-sql",
+      kind: { Case: "SqlServer" },
+      configuration: { connectionString: "Server=.;Password={password}" },
+      secretReference: "fqs-conn-oldpwd",
+      isTrusted: false,
+    };
+    const { definition, secret, secretReference } = buildConnectionDefinition(
+      {
+        kind: "SqlServer",
+        name: "new-sql",
+        connectionString: "Server=.;Database=mydb;Trusted_Connection=True;TrustServerCertificate=True;",
+      },
+      existing,
+    );
+    expect(definition.secretReference).toBeNull();
+    expect(secret).toBeUndefined();
+    expect(secretReference).toBeUndefined();
+  });
 });

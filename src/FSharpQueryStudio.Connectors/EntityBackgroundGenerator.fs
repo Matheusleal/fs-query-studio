@@ -14,7 +14,23 @@ open FSharpQueryStudio.Security
 module EntityBackgroundGenerator =
 
     let generatedDir (workspaceDir: string) : string =
-        Path.Combine(workspaceDir, "generated")
+        let baseDir =
+            if String.IsNullOrWhiteSpace workspaceDir then workspaceDir
+            else
+                let trimmed = workspaceDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                let leaf = Path.GetFileName trimmed
+                if leaf.Equals(".fsqs", StringComparison.OrdinalIgnoreCase) then
+                    workspaceDir
+                elif leaf.Equals("FSharpQueryStudio", StringComparison.OrdinalIgnoreCase) then
+                    workspaceDir
+                elif Directory.Exists(Path.Combine(workspaceDir, ".fsqs")) || File.Exists(Path.Combine(workspaceDir, ".fsqs", "workspace.json")) then
+                    Path.Combine(workspaceDir, ".fsqs")
+                elif Directory.Exists(Path.Combine(workspaceDir, "generated")) then
+                    workspaceDir
+                else
+                    Path.Combine(workspaceDir, ".fsqs")
+
+        Path.Combine(baseDir, "generated")
 
     let generatedFilePath (workspaceDir: string) : string =
         Path.Combine(generatedDir workspaceDir, "GeneratedEntities.fs")

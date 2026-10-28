@@ -11,6 +11,7 @@ import {
 import type { WorkerLike } from "./tree";
 
 export type ConnectionScope = "local" | "global";
+export type SqlServerAuthType = "windows" | "sql";
 
 export interface WorkspaceFolderInfo {
   name: string;
@@ -25,6 +26,7 @@ export interface ConnectionScopePick {
 export interface ConnectionUi {
   pickKind(): Promise<ConnectorKindName | undefined>;
   pickScope?(folders: WorkspaceFolderInfo[]): Promise<ConnectionScopePick | undefined>;
+  pickSqlServerAuth?(): Promise<SqlServerAuthType | undefined>;
   input(opts: {
     prompt: string;
     value?: string;
@@ -87,16 +89,58 @@ async function collectFields(
         input.delimiter = delim.trim();
       }
     }
-  } else if (kind === "SqlServer" || kind === "PostgreSql") {
-    const isPg = kind === "PostgreSql";
+  } else if (kind === "SqlServer") {
+    let authType: SqlServerAuthType = "sql";
+    if (ui.pickSqlServerAuth) {
+      const existingConnStr = existing ? stringProp(existing.configuration, "connectionString") : "";
+      const isExistingWindows = /(integrated\s+security\s*=\s*(true|sspi)|trusted_connection\s*=\s*(true|yes))/i.test(existingConnStr);
+      const pickedAuth = await ui.pickSqlServerAuth();
+      if (!pickedAuth) return undefined;
+      authType = pickedAuth;
+    }
+
+    if (authType === "windows") {
+      const defaultConnStr = existing
+        ? stringProp(existing.configuration, "connectionString")
+        : "Server=localhost;Database=master;Integrated Security=True;TrustServerCertificate=True;";
+      const connectionString = await ui.input({
+        prompt: "SQL Server Connection String (Windows Authentication / Integrated Security)",
+        value: defaultConnStr,
+        placeHolder: "Server=localhost;Database=master;Integrated Security=True;TrustServerCertificate=True;",
+      });
+      if (connectionString === undefined) return undefined;
+
+      let normalized = connectionString.trim();
+      if (!/integrated\s+security\s*=/i.test(normalized) && !/trusted_connection\s*=/i.test(normalized)) {
+        normalized = normalized.replace(/;?$/, ";Integrated Security=True;");
+      }
+      if (!/trustservercertificate\s*=/i.test(normalized)) {
+        normalized = normalized.replace(/;?$/, ";TrustServerCertificate=True;");
+      }
+      input.connectionString = normalized;
+      // Windows Authentication uses current Windows identity — no password needed!
+    } else {
+      const connectionString = await ui.input({
+        prompt: "SQL Server Connection String (e.g. Server=localhost;Database=master;User Id=sa)",
+        value: existing ? stringProp(existing.configuration, "connectionString") : undefined,
+        placeHolder: "Server=localhost;Database=master;User Id=sa;Password={password};TrustServerCertificate=True",
+      });
+      if (connectionString === undefined) return undefined;
+      input.connectionString = connectionString;
+      const password = await ui.input({
+        prompt: existing?.secretReference
+          ? "Password (leave blank to keep the current one)"
+          : "Password (leave blank if already specified in connection string or not required)",
+        password: true,
+      });
+      if (password === undefined) return undefined;
+      input.password = password;
+    }
+  } else if (kind === "PostgreSql") {
     const connectionString = await ui.input({
-      prompt: isPg
-        ? "PostgreSQL Connection String (e.g. Host=localhost;Database=mydb;Username=postgres)"
-        : "SQL Server Connection String (e.g. Server=localhost;Database=master;User Id=sa)",
+      prompt: "PostgreSQL Connection String (e.g. Host=localhost;Database=mydb;Username=postgres)",
       value: existing ? stringProp(existing.configuration, "connectionString") : undefined,
-      placeHolder: isPg
-        ? "Host=localhost;Database=mydb;Username=postgres;Password={password}"
-        : "Server=localhost;Database=master;User Id=sa;Password={password};TrustServerCertificate=True",
+      placeHolder: "Host=localhost;Database=mydb;Username=postgres;Password={password}",
     });
     if (connectionString === undefined) return undefined;
     input.connectionString = connectionString;
