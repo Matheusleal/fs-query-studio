@@ -197,6 +197,16 @@ module Connections =
                 | :? int as i -> box (decimal i)
                 | :? int64 as i64 -> box (decimal i64)
                 | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+            elif targetType = typeof<DateTime> then
+                match raw with
+                | :? DateOnly as d -> box (d.ToDateTime(TimeOnly.MinValue))
+                | :? DateTimeOffset as dto -> box dto.DateTime
+                | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+            elif targetType = typeof<DateOnly> then
+                match raw with
+                | :? DateTime as dt -> box (DateOnly.FromDateTime(dt))
+                | :? DateTimeOffset as dto -> box (DateOnly.FromDateTime(dto.DateTime))
+                | _ -> DateOnly.Parse(string raw, CultureInfo.InvariantCulture) |> box
             else
                 Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
 
