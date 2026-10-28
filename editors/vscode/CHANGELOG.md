@@ -6,6 +6,12 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.3.1] — 2026-10-28
+
+### Fixed
+
+- **Documentation Benchmark Report Link** — Bundled `BENCHMARK_REPORT.md` directly into the extension package and updated links in `USER_GUIDE.md` and `USER_GUIDE_PT.md` so that clicking the benchmark report from within the VS Code documentation preview opens the document directly without navigation errors.
+
 ## [0.3.0] — 2026-10-28
 
 ### Added

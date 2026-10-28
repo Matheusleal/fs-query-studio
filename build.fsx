@@ -118,6 +118,11 @@ let publishWorker () =
 
 let compileVscode () =
     printHeader "3. COMPILING VS CODE EXTENSION"
+    let benchmarkSrc = Path.Combine(rootDir, "docs", "BENCHMARK_REPORT.md")
+    let benchmarkDest = Path.Combine(vscodeDir, "BENCHMARK_REPORT.md")
+    if File.Exists(benchmarkSrc) then
+        File.Copy(benchmarkSrc, benchmarkDest, true)
+        printInfo "Copied docs/BENCHMARK_REPORT.md to editors/vscode/BENCHMARK_REPORT.md"
     runProcess vscodeDir "npm" "run compile"
     printSuccess "VS Code extension compiled successfully."
 

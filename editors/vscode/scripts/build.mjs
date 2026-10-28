@@ -4,7 +4,8 @@
 //
 //   node scripts/build.mjs [--skip-worker] [--worker-only] [--configuration Release|Debug]
 
-import { existsSync } from "node:fs";
+import { existsSync, copyFileSync } from "node:fs";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs, run, extDir, repoRoot, workerOutDir, workerProject } from "./lib.mjs";
 
@@ -32,6 +33,12 @@ export function build(opts = {}) {
   if (opts.workerOnly) {
     console.log("\x1b[32m✓\x1b[0m worker published");
     return;
+  }
+
+  const benchmarkSrc = join(repoRoot, "docs", "BENCHMARK_REPORT.md");
+  const benchmarkDest = join(extDir, "BENCHMARK_REPORT.md");
+  if (existsSync(benchmarkSrc)) {
+    copyFileSync(benchmarkSrc, benchmarkDest);
   }
 
   run("npm", ["run", "compile"], { cwd: extDir });
