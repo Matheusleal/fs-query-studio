@@ -10,8 +10,21 @@ import {
 } from "./definition";
 import type { WorkerLike } from "./tree";
 
+export type ConnectionScope = "local" | "global";
+
+export interface WorkspaceFolderInfo {
+  name: string;
+  path: string;
+}
+
+export interface ConnectionScopePick {
+  scope: ConnectionScope;
+  targetDir?: string;
+}
+
 export interface ConnectionUi {
   pickKind(): Promise<ConnectorKindName | undefined>;
+  pickScope?(folders: WorkspaceFolderInfo[]): Promise<ConnectionScopePick | undefined>;
   input(opts: {
     prompt: string;
     value?: string;
@@ -32,6 +45,7 @@ export interface ConnectionFlowDeps {
   secrets: SecretWriter;
   refresh: () => void;
   log: (line: string) => void;
+  getWorkspaceFolders?: () => WorkspaceFolderInfo[];
 }
 
 function stringProp(configuration: unknown, key: string): string {
@@ -110,18 +124,24 @@ async function collectFields(
 async function register(
   deps: ConnectionFlowDeps,
   built: ReturnType<typeof buildConnectionDefinition>,
+  workspaceDir?: string,
 ): Promise<boolean> {
   if (built.secret && built.secretReference) {
     await deps.secrets.store(built.secretReference, built.secret);
   }
   const worker = await deps.getWorker();
+  const scopeDesc = workspaceDir ? ` in local workspace: ${workspaceDir}` : " (global)";
   deps.log(
-    `Registering connection '${built.definition.name}' (${readUnionTag(built.definition.kind)})...`,
+    `Registering connection '${built.definition.name}' (${readUnionTag(built.definition.kind)})${scopeDesc}...`,
   );
+  const params: Record<string, unknown> = { ...built.definition };
+  if (workspaceDir) {
+    params.workspaceDir = workspaceDir;
+  }
   const frame = await worker.send({
     id: newRequestId(),
     method: "connection/register",
-    params: built.definition,
+    params,
   });
   if (frame.error) {
     deps.log(
@@ -134,11 +154,22 @@ async function register(
 }
 
 export async function runAddConnection(deps: ConnectionFlowDeps): Promise<void> {
+  let targetDir: string | undefined;
+  const folders = deps.getWorkspaceFolders ? deps.getWorkspaceFolders() : [];
+
+  if (folders.length > 0 && deps.ui.pickScope) {
+    const scopeChoice = await deps.ui.pickScope(folders);
+    if (!scopeChoice) return;
+    if (scopeChoice.scope === "local") {
+      targetDir = scopeChoice.targetDir;
+    }
+  }
+
   const kind = await deps.ui.pickKind();
   if (!kind) return;
   const input = await collectFields(deps.ui, kind);
   if (!input) return;
-  if (await register(deps, buildConnectionDefinition(input))) {
+  if (await register(deps, buildConnectionDefinition(input), targetDir)) {
     deps.refresh();
   }
 }
@@ -154,7 +185,9 @@ export async function runEditConnection(
   }
   const input = await collectFields(deps.ui, kind, existing);
   if (!input) return;
-  if (await register(deps, buildConnectionDefinition(input, existing))) {
+  const folders = deps.getWorkspaceFolders ? deps.getWorkspaceFolders() : [];
+  const targetDir = folders.length > 0 ? folders[0].path : undefined;
+  if (await register(deps, buildConnectionDefinition(input, existing), targetDir)) {
     deps.refresh();
   }
 }
@@ -165,10 +198,15 @@ export async function runRemoveConnection(
 ): Promise<void> {
   if (!(await deps.ui.confirmRemove(existing.name))) return;
   const worker = await deps.getWorker();
+  const folders = deps.getWorkspaceFolders ? deps.getWorkspaceFolders() : [];
+  const params: Record<string, unknown> = { id: existing.id };
+  if (folders.length > 0) {
+    params.workspaceDir = folders[0].path;
+  }
   const frame = await worker.send({
     id: newRequestId(),
     method: "connection/remove",
-    params: { id: existing.id },
+    params,
   });
   if (frame.error) {
     deps.log(`connection/remove failed: ${frame.error.message}`);

@@ -55,6 +55,47 @@ describe("runAddConnection", () => {
     expect(sent).toHaveLength(0);
     expect(refresh).not.toHaveBeenCalled();
   });
+
+  it("passes workspaceDir when local scope is selected", async () => {
+    const d = deps({
+      getWorkspaceFolders: () => [{ name: "MyProj", path: "/workspace/my-proj" }],
+      ui: {
+        ...deps().deps.ui,
+        pickScope: async () => ({ scope: "local", targetDir: "/workspace/my-proj" }),
+      },
+    });
+    await runAddConnection(d.deps);
+    const reg = d.sent.find((s) => s.method === "connection/register")!;
+    expect((reg.params as Record<string, unknown>).workspaceDir).toBe("/workspace/my-proj");
+    expect(d.refresh).toHaveBeenCalledOnce();
+  });
+
+  it("does not pass workspaceDir when global scope is selected", async () => {
+    const d = deps({
+      getWorkspaceFolders: () => [{ name: "MyProj", path: "/workspace/my-proj" }],
+      ui: {
+        ...deps().deps.ui,
+        pickScope: async () => ({ scope: "global" }),
+      },
+    });
+    await runAddConnection(d.deps);
+    const reg = d.sent.find((s) => s.method === "connection/register")!;
+    expect((reg.params as Record<string, unknown>).workspaceDir).toBeUndefined();
+    expect(d.refresh).toHaveBeenCalledOnce();
+  });
+
+  it("aborts silently when scope selection is cancelled", async () => {
+    const d = deps({
+      getWorkspaceFolders: () => [{ name: "MyProj", path: "/workspace/my-proj" }],
+      ui: {
+        ...deps().deps.ui,
+        pickScope: async () => undefined,
+      },
+    });
+    await runAddConnection(d.deps);
+    expect(d.sent).toHaveLength(0);
+    expect(d.refresh).not.toHaveBeenCalled();
+  });
 });
 
 describe("runEditConnection", () => {

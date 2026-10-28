@@ -48,14 +48,24 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
   api: ConnectionsApi;
 } {
   const schemaCache = new SchemaCache();
+  const getPrimaryWorkspaceDir = () => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+
   const tree = new ConnectionsTreeProvider({
     getWorker: deps.getWorker,
     schemaCache,
     log: deps.log,
+    getWorkspaceDir: getPrimaryWorkspaceDir,
   });
   const refresh = () => {
     schemaCache.clear();
     tree.refresh();
+  };
+
+  const getWorkspaceFolders = (): import("./add").WorkspaceFolderInfo[] => {
+    return (vscode.workspace.workspaceFolders ?? []).map((f) => ({
+      name: f.name,
+      path: f.uri.fsPath,
+    }));
   };
 
   const ui: ConnectionUi = {
@@ -64,6 +74,46 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
         placeHolder: "Connector type",
       });
       return picked?.connectorKind;
+    },
+    async pickScope(folders) {
+      if (folders.length === 0) {
+        return { scope: "global" };
+      }
+      interface ScopePickItem extends vscode.QuickPickItem {
+        scope: "local" | "global";
+        targetDir?: string;
+      }
+      const items: ScopePickItem[] = [];
+      if (folders.length === 1) {
+        items.push({
+          label: "$(folder) Local (Current Project)",
+          description: folders[0].path,
+          detail: "Saves connection in workspace.json within this project directory",
+          scope: "local",
+          targetDir: folders[0].path,
+        });
+      } else {
+        for (const f of folders) {
+          items.push({
+            label: `$(folder) Local Project: ${f.name}`,
+            description: f.path,
+            detail: "Saves connection in workspace.json within this project directory",
+            scope: "local",
+            targetDir: f.path,
+          });
+        }
+      }
+      items.push({
+        label: "$(globe) Global (User Profile)",
+        detail: "Saves connection in user profile across all projects and windows",
+        scope: "global",
+      });
+
+      const picked = await vscode.window.showQuickPick(items, {
+        placeHolder: "Select connection storage scope (Local project or Global)",
+      });
+      if (!picked) return undefined;
+      return { scope: picked.scope, targetDir: picked.targetDir };
     },
     async input(opts) {
       return vscode.window.showInputBox({
@@ -84,7 +134,14 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
     },
   };
 
-  const flowDeps = { getWorker: deps.getWorker, ui, secrets: deps.secrets, refresh, log: deps.log };
+  const flowDeps = {
+    getWorker: deps.getWorker,
+    ui,
+    secrets: deps.secrets,
+    refresh,
+    log: deps.log,
+    getWorkspaceFolders,
+  };
 
   const view = vscode.window.registerTreeDataProvider("fsQueryStudioConnections", tree);
   const add = vscode.commands.registerCommand("fs-query-studio.connections.add", () =>
@@ -109,12 +166,16 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
 
   const api: ConnectionsApi = {
     async list() {
-      const frame = await send("connection/list", {});
+      const wsDir = getPrimaryWorkspaceDir();
+      const params = wsDir ? { workspaceDir: wsDir } : {};
+      const frame = await send("connection/list", params);
       if (frame.error) throw new Error(frame.error.message);
       return (frame.result as ConnectionListResult).connections ?? [];
     },
     async schema(id) {
-      const frame = await send("connection/schema", { id });
+      const wsDir = getPrimaryWorkspaceDir();
+      const params = wsDir ? { id, workspaceDir: wsDir } : { id };
+      const frame = await send("connection/schema", params);
       if (frame.error) throw new Error(frame.error.message);
       return (frame.result as ConnectionSchemaResult).tables ?? [];
     },
@@ -123,12 +184,22 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
       if (built.secret && built.secretReference) {
         await deps.secrets.store(built.secretReference, built.secret);
       }
-      const frame = await send("connection/register", built.definition);
+      const wsDir = getPrimaryWorkspaceDir();
+      const params: Record<string, unknown> = { ...built.definition };
+      if (wsDir) {
+        params.workspaceDir = wsDir;
+      }
+      const frame = await send("connection/register", params);
       if (frame.error) throw new Error(frame.error.message);
       refresh();
     },
     async remove(id) {
-      const frame = await send("connection/remove", { id });
+      const wsDir = getPrimaryWorkspaceDir();
+      const params: Record<string, unknown> = { id };
+      if (wsDir) {
+        params.workspaceDir = wsDir;
+      }
+      const frame = await send("connection/remove", params);
       if (frame.error) throw new Error(frame.error.message);
       refresh();
     },

@@ -560,16 +560,35 @@ module Handlers =
           Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
           Error = None }
 
+    let private tryGetWorkspaceDir (paramsElem: JsonElement) : string =
+        try
+            if paramsElem.ValueKind = JsonValueKind.Object then
+                let mutable prop = Unchecked.defaultof<JsonElement>
+                if (paramsElem.TryGetProperty("workspaceDir", &prop)
+                    || paramsElem.TryGetProperty("targetDir", &prop)
+                    || paramsElem.TryGetProperty("WorkspaceDir", &prop)
+                    || paramsElem.TryGetProperty("TargetDir", &prop))
+                   && prop.ValueKind = JsonValueKind.String then
+                    let v = prop.GetString()
+                    if String.IsNullOrWhiteSpace v then workspaceDir () else v
+                else
+                    workspaceDir ()
+            else
+                workspaceDir ()
+        with _ ->
+            workspaceDir ()
+
     /// `connection/register` — Section 7. Persists `connection` to
     /// `workspace.json` via `Workspace.registerConnection`, replacing any
     /// existing binding sharing its `Id`, and returns the updated full list.
     let handleConnectionRegister (request: WorkerRequestFrame) : WorkerResponseFrame =
+        let targetWs = tryGetWorkspaceDir request.Params
         let connection =
             JsonSerializer.Deserialize<ConnectionDefinition>(request.Params, Serialization.options)
 
-        let updated = Workspace.registerConnection (workspaceDir ()) connection
+        let updated = Workspace.registerConnection targetWs connection
         Connections.configure (WorkspaceConnectionResolver(updated, secretStore))
-        EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) updated secretStore
+        EntityBackgroundGenerator.triggerBackgroundGeneration targetWs updated secretStore
 
         { Id = request.Id
           Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
@@ -580,7 +599,17 @@ module Handlers =
     /// mutating it, and the extension's connections TreeView needs the list on
     /// notebook/view open. A thin projection of `Workspace.readConnections`.
     let handleConnectionList (request: WorkerRequestFrame) : WorkerResponseFrame =
-        let connections = Workspace.readConnections (workspaceDir ())
+        let targetWs = tryGetWorkspaceDir request.Params
+        let connections =
+            let wsConns = Workspace.readConnections targetWs
+            if targetWs <> (workspaceDir ()) then
+                let globalConns = Workspace.readConnections (workspaceDir ())
+                let localNames = wsConns |> List.map (fun c -> c.Name) |> Set.ofList
+                let localIds = wsConns |> List.map (fun c -> c.Id) |> Set.ofList
+                let filteredGlobal = globalConns |> List.filter (fun c -> not (Set.contains c.Name localNames) && not (Set.contains c.Id localIds))
+                wsConns @ filteredGlobal
+            else
+                wsConns
 
         { Id = request.Id
           Result = Some(JsonSerializer.SerializeToElement({| connections = connections |}, Serialization.options))
@@ -588,40 +617,33 @@ module Handlers =
 
     /// `connection/remove` — drops the connection with the given `Id`
     /// from `workspace.json` via `Workspace.removeConnection` and returns
-    /// the updated full list. Deleting the credential itself (if the
-    /// removed connection had a `SecretReference`) is the App layer's
-    /// job, same rationale as `connection/register` saving a plaintext
-    /// secret before ever reaching the worker — the worker only ever
-    /// touches `workspace.json`, never the OS credential store.
+    /// the updated full list.
     let handleConnectionRemove (request: WorkerRequestFrame) : WorkerResponseFrame =
+        let targetWs = tryGetWorkspaceDir request.Params
         let removeParams =
             JsonSerializer.Deserialize<ConnectionRemoveParams>(request.Params, Serialization.options)
 
-        let updated = Workspace.removeConnection (workspaceDir ()) removeParams.Id
+        let updated = Workspace.removeConnection targetWs removeParams.Id
+        if targetWs <> (workspaceDir ()) then
+            Workspace.removeConnection (workspaceDir ()) removeParams.Id |> ignore
         Connections.configure (WorkspaceConnectionResolver(updated, secretStore))
-        EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) updated secretStore
+        EntityBackgroundGenerator.triggerBackgroundGeneration targetWs updated secretStore
 
         { Id = request.Id
           Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
           Error = None }
 
-    /// `connection/schema` — Section 10's schema discovery, wired to the
-    /// UI for the first time: resolves the registered connection named by
-    /// `Id` (the same `WorkspaceConnectionResolver` `runEvaluate` already
-    /// uses for `Connections.*`), then calls its own `DiscoverSchemaAsync`
-    /// and maps the result to the wire-facing `SchemaTable`/`SchemaColumn`
-    /// shape. A `connection/unknown` error for an `Id` nothing is
-    /// registered under; a `connection/schemaFailed` error — not an
-    /// unhandled exception taking the read loop down — for a real
-    /// discovery failure (bad credentials, unreachable server, missing
-    /// file), since unlike `Connections.sql` this runs before any script
-    /// exists to catch its own exception.
+    /// `connection/schema` — Section 10's schema discovery.
     let handleConnectionSchema (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
             let schemaParams =
                 JsonSerializer.Deserialize<ConnectionSchemaParams>(request.Params, Serialization.options)
 
-            let connections = Workspace.readConnections (workspaceDir ())
+            let targetWs = tryGetWorkspaceDir request.Params
+            let connections =
+                let local = Workspace.readConnections targetWs
+                if local |> List.exists (fun c -> c.Id = schemaParams.Id) then local
+                else Workspace.readConnections (workspaceDir ())
 
             match connections |> List.tryFind (fun c -> c.Id = schemaParams.Id) with
             | None ->
@@ -761,6 +783,25 @@ module Handlers =
               Result = None
               Error = Some { Code = "sample/createFailed"; Message = ex.Message } }
 
+    let handleInitEmptyProject (request: WorkerRequestFrame) : WorkerResponseFrame =
+        try
+            let dir = tryGetWorkspaceDir request.Params
+            Directory.CreateDirectory(dir) |> ignore
+            let wsFile = Path.Combine(dir, "workspace.json")
+            if not (File.Exists wsFile) then
+                File.WriteAllText(wsFile, "[]\n")
+
+            let generatedDir = Path.Combine(dir, "generated")
+            Directory.CreateDirectory(generatedDir) |> ignore
+
+            { Id = request.Id
+              Result = Some(JsonSerializer.SerializeToElement({| workspacePath = wsFile; targetDir = dir |}, Serialization.options))
+              Error = None }
+        with ex ->
+            { Id = request.Id
+              Result = None
+              Error = Some { Code = "workspace/initFailed"; Message = ex.Message } }
+
     let dispatch (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
             match request.Method with
@@ -782,6 +823,7 @@ module Handlers =
             | "connection/remove" -> return handleConnectionRemove request
             | "connection/schema" -> return! handleConnectionSchema request
             | "workspace/createSampleData" -> return handleCreateSampleData request
+            | "workspace/initProject" | "workspace/initEmptyProject" -> return handleInitEmptyProject request
             | unknown ->
                 return
                     { Id = request.Id

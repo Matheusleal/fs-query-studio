@@ -813,6 +813,70 @@ let ``dispatch on connection/register replacing an existing connection keeps onl
             cleanTempDir tempDir
     }
 
+[<Fact>]
+let ``dispatch on connection/register with workspaceDir persists to the specified local workspace directory instead of global`` () =
+    task {
+        let globalDir = Path.Combine(Path.GetTempPath(), "fqs-global-" + Guid.NewGuid().ToString("N"))
+        let localDir = Path.Combine(Path.GetTempPath(), "fqs-local-" + Guid.NewGuid().ToString("N"))
+        Handlers.setWorkspaceDirForTests (Some globalDir)
+
+        try
+            let conn = testConnection "LocalConn"
+            let payload =
+                JsonSerializer.SerializeToElement(
+                    {| id = conn.Id
+                       name = conn.Name
+                       kind = conn.Kind
+                       configuration = conn.Configuration
+                       secretReference = conn.SecretReference
+                       isTrusted = conn.IsTrusted
+                       workspaceDir = localDir |},
+                    Serialization.options
+                )
+            let req: WorkerRequestFrame =
+                { Id = "local-reg"
+                  Method = "connection/register"
+                  Params = payload }
+
+            let! response = Handlers.dispatch req
+            Assert.True(response.Error.IsNone)
+
+            let localPersisted = Workspace.readConnections localDir
+            Assert.Contains(localPersisted, fun c -> c.Name = "LocalConn")
+
+            let globalPersisted = Workspace.readConnections globalDir
+            Assert.DoesNotContain(globalPersisted, fun c -> c.Name = "LocalConn")
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir globalDir
+            cleanTempDir localDir
+    }
+
+[<Fact>]
+let ``dispatch on workspace/initEmptyProject creates empty workspace.json and generated directory`` () =
+    task {
+        let localDir = Path.Combine(Path.GetTempPath(), "fqs-init-" + Guid.NewGuid().ToString("N"))
+
+        try
+            let req: WorkerRequestFrame =
+                { Id = "init-proj"
+                  Method = "workspace/initEmptyProject"
+                  Params = JsonSerializer.SerializeToElement({| targetDir = localDir |}, Serialization.options) }
+
+            let! response = Handlers.dispatch req
+            Assert.True(response.Error.IsNone)
+
+            let wsFile = Path.Combine(localDir, "workspace.json")
+            Assert.True(File.Exists wsFile)
+            let content = File.ReadAllText wsFile
+            Assert.Equal("[]\n", content)
+
+            let generatedDir = Path.Combine(localDir, "generated")
+            Assert.True(Directory.Exists generatedDir)
+        finally
+            cleanTempDir localDir
+    }
+
 let private removeConnectionRequest (id: string) (connectionId: Guid) : WorkerRequestFrame =
     { Id = id
       Method = "connection/remove"

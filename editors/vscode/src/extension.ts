@@ -407,6 +407,109 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     },
   );
 
+  const initEmptyProjectCommand = vscode.commands.registerCommand(
+    "fs-query-studio.initEmptyProject",
+    async (resource?: vscode.Uri) => {
+      let targetDir: string | undefined;
+      if (resource && resource.fsPath) {
+        targetDir = resource.fsPath;
+      } else {
+        const wsFolders = vscode.workspace.workspaceFolders;
+        if (wsFolders && wsFolders.length === 1) {
+          targetDir = wsFolders[0].uri.fsPath;
+        } else if (wsFolders && wsFolders.length > 1) {
+          const pick = await vscode.window.showQuickPick(
+            wsFolders.map((f) => ({ label: f.name, description: f.uri.fsPath, uri: f.uri })),
+            { placeHolder: "Select a workspace folder to initialize empty project" },
+          );
+          if (!pick) return;
+          targetDir = pick.uri.fsPath;
+        } else {
+          const picked = await vscode.window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+            openLabel: "Select Folder to Initialize Empty Project",
+          });
+          if (!picked || picked.length === 0) return;
+          targetDir = picked[0].fsPath;
+        }
+      }
+
+      log(`[Workspace] Initializing empty project in directory: ${targetDir}`);
+      try {
+        const worker = await getWorker();
+        const res = await worker.send({
+          id: randomUUID(),
+          method: "workspace/initEmptyProject",
+          params: { targetDir },
+        });
+
+        if (res.error) {
+          log(`[Workspace] Failed to initialize project: ${res.error.message}`);
+          outputChannel?.show(true);
+          void vscode.window.showErrorMessage(`Failed to initialize project: ${res.error.message}`);
+          return;
+        }
+
+        log(`[Workspace] Empty project initialized in ${targetDir}`);
+        await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
+
+        // Create a starter notebook if none exists
+        const starterNbUri = vscode.Uri.joinPath(vscode.Uri.file(targetDir), "notebook.fsqnb");
+        let exists = false;
+        try {
+          await vscode.workspace.fs.stat(starterNbUri);
+          exists = true;
+        } catch {
+          exists = false;
+        }
+
+        if (!exists) {
+          const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+          const starterContent = {
+            version: 1,
+            cells: [
+              {
+                kind: 1, // Markdown
+                language: "markdown",
+                value: isPt
+                  ? "# Projeto F# Query Studio\nUse **Adicionar Conexão** ou crie consultas F# abaixo."
+                  : "# F# Query Studio Project\nUse **Add Connection** or write F# queries below.",
+              },
+              {
+                kind: 2, // Code
+                language: "fsharp",
+                value: isPt
+                  ? "// Digite seu código F# ou consulte conexões aqui\nprintfn \"Pronto!\""
+                  : "// Write your F# queries or reference connections here\nprintfn \"Ready!\"",
+              },
+            ],
+          };
+          await vscode.workspace.fs.writeFile(
+            starterNbUri,
+            Buffer.from(JSON.stringify(starterContent, null, 2), "utf8"),
+          );
+        }
+
+        try {
+          const doc = await vscode.workspace.openNotebookDocument(starterNbUri);
+          await vscode.window.showNotebookDocument(doc);
+        } catch {
+          // ignore if notebook view fails
+        }
+
+        void vscode.window.showInformationMessage(
+          `F# Query Studio: Empty project initialized in ${targetDir}`,
+        );
+      } catch (err) {
+        const msg = (err as Error).message;
+        log(`[Workspace] Error initializing empty project: ${msg}`);
+        void vscode.window.showErrorMessage(`Error initializing empty project: ${msg}`);
+      }
+    },
+  );
+
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBar.command = "fs-query-studio.showOutput";
   statusBar.text = "$(database) F# Query Studio";
@@ -423,6 +526,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     newNotebookHereCommand,
     restartCommand,
     createSampleDataCommand,
+    initEmptyProjectCommand,
     openDocsCommand,
     languageFeatures,
     connections.disposable,

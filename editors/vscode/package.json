@@ -48,6 +48,7 @@
     "onCommand:fs-query-studio.openDocs",
     "onCommand:fs-query-studio.newNotebook",
     "onCommand:fs-query-studio.newNotebookHere",
+    "onCommand:fs-query-studio.initEmptyProject",
     "onCommand:fs-query-studio.restartKernel",
     "onNotebook:fsquery-notebook",
     "onView:fsQueryStudioConnections"
@@ -99,6 +100,12 @@
         "icon": "$(database)"
       },
       {
+        "command": "fs-query-studio.initEmptyProject",
+        "title": "F# Query Studio: Initialize Empty Project",
+        "shortTitle": "Initialize Project",
+        "icon": "$(new-folder)"
+      },
+      {
         "command": "fs-query-studio.openDocs",
         "title": "F# Query Studio: Open Documentation",
         "shortTitle": "Documentation",
@@ -131,7 +138,7 @@
     "viewsWelcome": [
       {
         "view": "fsQueryStudioConnections",
-        "contents": "No connections registered yet.\n[Add Connection](command:fs-query-studio.connections.add)\n\n[Create Sample Data (SQLite & CSV)](command:fs-query-studio.createSampleData)\n\n[Open Documentation](command:fs-query-studio.openDocs)\n\n[Show Output Logs](command:fs-query-studio.showOutput)"
+        "contents": "No connections registered yet.\n[Add Connection](command:fs-query-studio.connections.add)\n\n[Initialize Empty Project](command:fs-query-studio.initEmptyProject)\n\n[Create Sample Data (SQLite & CSV)](command:fs-query-studio.createSampleData)\n\n[Open Documentation](command:fs-query-studio.openDocs)\n\n[Show Output Logs](command:fs-query-studio.showOutput)"
       }
     ],
     "menus": {
@@ -146,6 +153,11 @@
           "command": "fs-query-studio.newNotebookHere",
           "when": "explorerViewletVisible && explorerResourceIsFolder",
           "group": "navigation@30"
+        },
+        {
+          "command": "fs-query-studio.initEmptyProject",
+          "when": "explorerViewletVisible && explorerResourceIsFolder",
+          "group": "navigation@31"
         }
       ],
       "commandPalette": [
@@ -159,6 +171,11 @@
           "command": "fs-query-studio.openDocs",
           "when": "view == fsQueryStudioConnections",
           "group": "navigation@10"
+        },
+        {
+          "command": "fs-query-studio.initEmptyProject",
+          "when": "view == fsQueryStudioConnections",
+          "group": "navigation@14"
         },
         {
           "command": "fs-query-studio.createSampleData",
