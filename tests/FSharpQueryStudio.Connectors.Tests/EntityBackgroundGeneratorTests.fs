@@ -188,6 +188,7 @@ let ``generateForConnectionsAsync handles multiple SQLite and multiple CSV data 
         // SQLite modules and SqlCategory extension
         Assert.Contains("module SampleStoreDb =", code)
         Assert.Contains("module InventoryStoreDb =", code)
+        Assert.Contains("SqlPushdownQueryable<", code)
         Assert.Contains("type FSharpQueryStudio.Connectors.Connections.SqlCategory with", code)
         Assert.Contains("member _.SampleStore : SampleStoreDb.Database = SampleStoreDb.Database(\"SampleStore\")", code)
         Assert.Contains("member _.InventoryStore : InventoryStoreDb.Database = InventoryStoreDb.Database(\"InventoryStore\")", code)

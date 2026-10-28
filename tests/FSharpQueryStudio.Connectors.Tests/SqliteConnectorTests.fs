@@ -101,3 +101,29 @@ let ``SqliteConnector reports its Kind as Sqlite`` () =
     let connector = SqliteConnector(file.Path) :> IConnector
 
     Assert.Equal(ConnectorKind.Sqlite, connector.Kind)
+
+[<Fact>]
+let ``ExecuteQuery rows sequence can be enumerated multiple times without throwing ObjectDisposedException`` () =
+    use file = new TempSqliteFile()
+    let connector = SqliteConnector(file.Path)
+
+    let result = connector.ExecuteQuery "select Id, CustomerId, Total from Orders" []
+    
+    // Primeira enumeração: contar elementos
+    let count = result.Rows |> Seq.length
+    Assert.Equal(2, count)
+
+    // Segunda enumeração: iterar e mapear
+    let ids = result.Rows |> Seq.map (fun row -> Convert.ToInt32(row.[0])) |> Seq.toList
+    Assert.Equal<int list>([ 1; 2 ], ids)
+
+    // Terceira enumeração com ExecuteReaderStream
+    let streaming = connector :> IStreamingQueryableConnector
+    let streamResult =
+        streaming.ExecuteReaderStream
+            "select Id, CustomerId, Total from Orders order by Id"
+            []
+            (fun record -> record.GetInt32(0))
+        |> Seq.toList
+    Assert.Equal<int list>([ 1; 2 ], streamResult)
+

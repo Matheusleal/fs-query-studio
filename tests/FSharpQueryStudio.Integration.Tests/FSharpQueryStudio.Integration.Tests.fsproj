@@ -13,6 +13,7 @@
     <Compile Include="Tests.fs" />
     <Compile Include="SqlServerConnectorTests.fs" />
     <Compile Include="PostgreSqlConnectorTests.fs" />
+    <Compile Include="DatabasePerformanceIntegrationTests.fs" />
     <Compile Include="LocalDatabaseIntegrationTests.fs" />
     <Compile Include="ConnectionsRegressionTests.fs" />
     <Compile Include="NotebookExecutionTests.fs" />

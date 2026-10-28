@@ -10,7 +10,9 @@ open Serilog
 open FSharpQueryStudio.Protocol
 
 open System.Collections.Concurrent
+open System.Data
 open System.Linq
+open System.Linq.Expressions
 open Microsoft.FSharp.Reflection
 
 /// Resolves a named, already-configured connection to its live
@@ -197,8 +199,20 @@ module Connections =
                 | :? int as i -> box (decimal i)
                 | :? int64 as i64 -> box (decimal i64)
                 | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+            elif targetType = typeof<DateTime> then
+                match raw with
+                | :? DateOnly as d -> box (d.ToDateTime(TimeOnly.MinValue))
+                | :? DateTimeOffset as dto -> box dto.DateTime
+                | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+            elif targetType = typeof<DateOnly> then
+                match raw with
+                | :? DateTime as dt -> box (DateOnly.FromDateTime(dt))
+                | :? DateTimeOffset as dto -> box (DateOnly.FromDateTime(dto.DateTime))
+                | _ -> DateOnly.Parse(string raw, CultureInfo.InvariantCulture) |> box
             else
                 Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+
+    let getCompiledRecordMapper<'T> = CompiledRecordMapper.getCompiledRecordMapper<'T>
 
     let getMapper<'T> (columns: string list) : (obj array -> 'T) =
         let targetType = typeof<'T>
@@ -342,12 +356,31 @@ module Connections =
     /// <param name="parameters">List of parameter tuples: [ "paramName", box value ].</param>
     /// <returns>A sequence of strongly-typed records of type 'T.</returns>
     let query<'T> (name: string) (sqlText: string) (parameters: (string * obj) list) : 'T seq =
-        let r = executeSqlRaw name sqlText parameters
-        let mapper = getMapper<'T> r.Columns
-        seq {
-            for row in r.Rows do
-                yield mapper row
-        }
+        match resolve name with
+        | :? IStreamingQueryableConnector as streaming ->
+            let stopwatch = Stopwatch.StartNew()
+            let rows = streaming.ExecuteReaderStreamWithColumns<'T> sqlText parameters getCompiledRecordMapper<'T>
+            seq {
+                let mutable count = 0
+                for row in rows do
+                    count <- count + 1
+                    yield row
+                stopwatch.Stop()
+                Log.Information(
+                    "Connector call {Kind} returned {RowCount} rows in {ElapsedMs}ms",
+                    streaming.Kind,
+                    count,
+                    stopwatch.ElapsedMilliseconds
+                )
+            }
+        | _ ->
+            let r = executeSqlRaw name sqlText parameters
+            let mapper = getMapper<'T> r.Columns
+            seq {
+                for row in r.Rows do
+                    yield mapper row
+            }
+
 
     /// <summary>
     /// Reads CSV rows and maps each record directly to a sequence of strongly-typed F# records.
@@ -452,18 +485,41 @@ module Connections =
             this.rawQuery(sqlText, [])
         member _.Query<'T>(sqlText: string, ?parameters: (string * obj) list) : 'T seq =
             let p = defaultArg parameters []
-            match resolver with
-            | Some _ -> query<'T> name sqlText p
-            | None ->
-                let (r: ConnectorQueryResult) = connector.ExecuteQuery sqlText p
-                let mapper = getMapper<'T> r.Columns
+            match connector with
+            | :? IStreamingQueryableConnector as streaming ->
+                let stopwatch = Stopwatch.StartNew()
+                let rows = streaming.ExecuteReaderStreamWithColumns<'T> sqlText p getCompiledRecordMapper<'T>
                 seq {
-                    for row in r.Rows do
-                        yield mapper row
+                    let mutable count = 0
+                    for row in rows do
+                        count <- count + 1
+                        yield row
+                    stopwatch.Stop()
+                    Log.Information(
+                        "Connector call {Kind} returned {RowCount} rows in {ElapsedMs}ms",
+                        (connector :> IConnector).Kind,
+                        count,
+                        stopwatch.ElapsedMilliseconds
+                    )
                 }
+            | _ ->
+                match resolver with
+                | Some _ -> query<'T> name sqlText p
+                | None ->
+                    let (r: ConnectorQueryResult) = connector.ExecuteQuery sqlText p
+                    let mapper = getMapper<'T> r.Columns
+                    seq {
+                        for row in r.Rows do
+                            yield mapper row
+                    }
         member this.Queryable<'T>(sqlText: string, ?parameters: (string * obj) list) : IQueryable<'T> =
             let p = defaultArg parameters []
-            (this.Query<'T>(sqlText, p)).AsQueryable()
+            SqlPushdownQueryable<'T>(connector, sqlText, p) :> IQueryable<'T>
+
+        member this.PushdownQueryable<'T>(sqlText: string, ?parameters: (string * obj) list) : SqlPushdownQueryable<'T> =
+            let p = defaultArg parameters []
+            SqlPushdownQueryable<'T>(connector, sqlText, p)
+
         member _.DiscoverSchemaAsync(?ct: CancellationToken) =
             let token = defaultArg ct CancellationToken.None
             connector.DiscoverSchemaAsync(token)
@@ -563,7 +619,7 @@ module Connections =
                         let propName = escapeIdent rawTableName
                         let colList = t.Columns |> List.map (fun c -> c.Name) |> String.concat ", "
                         let sqlQuery = $"SELECT {colList} FROM {t.Name}"
-                        sb.AppendLine($"        member _.{propName} : System.Linq.IQueryable<{escapeIdent schema}.{propName}> = conn.Queryable<{escapeIdent schema}.{propName}>(\"{sqlQuery}\")") |> ignore
+                        sb.AppendLine($"        member _.{propName} : FSharpQueryStudio.Connectors.SqlPushdownQueryable<{escapeIdent schema}.{propName}> = conn.PushdownQueryable<{escapeIdent schema}.{propName}>(\"{sqlQuery}\")") |> ignore
                 sb.AppendLine($"        member _.{escapeIdent schema} =") |> ignore
                 sb.AppendLine("            {|") |> ignore
                 for t in tbls do
@@ -573,7 +629,7 @@ module Connections =
                     let propName = escapeIdent rawTableName
                     let colList = t.Columns |> List.map (fun c -> c.Name) |> String.concat ", "
                     let sqlQuery = $"SELECT {colList} FROM {t.Name}"
-                    sb.AppendLine($"                {propName} = conn.Queryable<{escapeIdent schema}.{propName}>(\"{sqlQuery}\")") |> ignore
+                    sb.AppendLine($"                {propName} = conn.PushdownQueryable<{escapeIdent schema}.{propName}>(\"{sqlQuery}\")") |> ignore
                 sb.AppendLine("            |}") |> ignore
                 sb.AppendLine() |> ignore
             sb.AppendLine("    let database () : Database = Database()") |> ignore

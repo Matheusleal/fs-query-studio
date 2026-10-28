@@ -23,29 +23,73 @@ type SqliteConnector(filePath: string) =
             |> ignore
 
     /// Runs `sql` with `parameters` bound, returning columns immediately
-    /// (known as soon as the reader opens) and rows as a lazy sequence
-    /// that owns the connection/reader until fully enumerated or
-    /// disposed.
+    /// and rows as a re-enumerable lazy sequence that manages connection/reader
+    /// per enumerator lifecycle.
     member _.ExecuteQuery (sql: string) (parameters: (string * obj) list) : ConnectorQueryResult =
-        let connection = new SqliteConnection(connectionString)
-        connection.Open()
-        let command = connection.CreateCommand()
-        command.CommandText <- sql
-        SqliteConnector.BindParameters(command, parameters)
-        let reader = command.ExecuteReader(CommandBehavior.CloseConnection)
-        let columns = [ for i in 0 .. reader.FieldCount - 1 -> reader.GetName(i) ]
+        let initialConn = new SqliteConnection(connectionString)
+        initialConn.Open()
+        let initialCmd = initialConn.CreateCommand()
+        initialCmd.CommandText <- sql
+        SqliteConnector.BindParameters(initialCmd, parameters)
+        let initialReader = initialCmd.ExecuteReader(CommandBehavior.CloseConnection)
+        let columns = [ for i in 0 .. initialReader.FieldCount - 1 -> initialReader.GetName(i) ]
+        let mutable firstRun = Some (initialConn, initialCmd, initialReader)
 
         let rows =
-            seq {
-                use connection = connection
-                use command = command
-                use reader = reader
-
-                while reader.Read() do
-                    yield [| for i in 0 .. reader.FieldCount - 1 -> reader.GetValue(i) |]
-            }
+            Seq.delay (fun () ->
+                match firstRun with
+                | Some (conn, cmd, reader) ->
+                    firstRun <- None
+                    seq {
+                        use _c = conn
+                        use _cmd = cmd
+                        use _r = reader
+                        while reader.Read() do
+                            yield [| for i in 0 .. reader.FieldCount - 1 -> reader.GetValue(i) |]
+                    }
+                | None ->
+                    let conn = new SqliteConnection(connectionString)
+                    conn.Open()
+                    let cmd = conn.CreateCommand()
+                    cmd.CommandText <- sql
+                    SqliteConnector.BindParameters(cmd, parameters)
+                    let reader = cmd.ExecuteReader(CommandBehavior.CloseConnection)
+                    seq {
+                        use _c = conn
+                        use _cmd = cmd
+                        use _r = reader
+                        while reader.Read() do
+                            yield [| for i in 0 .. reader.FieldCount - 1 -> reader.GetValue(i) |]
+                    }
+            )
 
         { Columns = columns; Rows = rows }
+
+    /// Executes `sql` and streams rows directly into a typed F# record without creating intermediate obj[] arrays per row.
+    member this.ExecuteReaderStreamWithColumns<'T> (sql: string) (parameters: (string * obj) list) (mapperFactory: string list -> (System.Data.IDataRecord -> 'T)) : 'T seq =
+        Seq.delay (fun () ->
+            let connection = new SqliteConnection(connectionString)
+            connection.Open()
+            let command = connection.CreateCommand()
+            command.CommandText <- sql
+            SqliteConnector.BindParameters(command, parameters)
+            let reader = command.ExecuteReader(CommandBehavior.CloseConnection)
+            seq {
+                use _conn = connection
+                use _cmd = command
+                use _reader = reader
+                let columns = [ for i in 0 .. reader.FieldCount - 1 -> reader.GetName(i) ]
+                let mapper = mapperFactory columns
+                let record = reader :> System.Data.IDataRecord
+
+                while reader.Read() do
+                    yield mapper record
+            }
+        )
+
+    /// Executes `sql` and streams rows directly into a typed F# record using a pre-configured mapper.
+    member this.ExecuteReaderStream<'T> (sql: string) (parameters: (string * obj) list) (mapper: System.Data.IDataRecord -> 'T) : 'T seq =
+        this.ExecuteReaderStreamWithColumns sql parameters (fun _ -> mapper)
 
     /// Every table SQLite tracks in `sqlite_master`, plus each table's
     /// columns via `PRAGMA table_info` — Section 10's "schema discovery".
@@ -118,3 +162,10 @@ type SqliteConnector(filePath: string) =
     interface IQueryableConnector with
         member _.ConnectionString = connectionString
         member this.ExecuteQuery (sql: string) (parameters: (string * obj) list) = this.ExecuteQuery sql parameters
+
+    interface IStreamingQueryableConnector with
+        member this.ExecuteReaderStream (sql: string) (parameters: (string * obj) list) (mapper: System.Data.IDataRecord -> 'T) : 'T seq =
+            this.ExecuteReaderStream sql parameters mapper
+        member this.ExecuteReaderStreamWithColumns (sql: string) (parameters: (string * obj) list) (mapperFactory: string list -> (System.Data.IDataRecord -> 'T)) : 'T seq =
+            this.ExecuteReaderStreamWithColumns sql parameters mapperFactory
+
