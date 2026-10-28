@@ -26,6 +26,7 @@ export interface ConnectionsTreeDeps {
   getWorker: () => Promise<WorkerLike>;
   schemaCache: SchemaCache;
   log: (line: string) => void;
+  getWorkspaceDir?: () => string | undefined;
 }
 
 export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode> {
@@ -96,7 +97,12 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
   private async listConnections(): Promise<ConnNode[]> {
     try {
       const worker = await this.deps.getWorker();
-      const frame = await worker.send({ id: newRequestId(), method: "connection/list", params: {} });
+      const wsDir = this.deps.getWorkspaceDir?.();
+      const params: Record<string, unknown> = {};
+      if (wsDir) {
+        params.workspaceDir = wsDir;
+      }
+      const frame = await worker.send({ id: newRequestId(), method: "connection/list", params });
       if (frame.error) {
         return [{ t: "error", message: `Could not list connections: ${frame.error.message}` }];
       }
@@ -144,10 +150,15 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
   private async fetchSchema(def: ConnectionDefinition): Promise<SchemaTable[] | undefined> {
     try {
       const worker = await this.deps.getWorker();
+      const wsDir = this.deps.getWorkspaceDir?.();
+      const params: Record<string, unknown> = { id: def.id };
+      if (wsDir) {
+        params.workspaceDir = wsDir;
+      }
       const frame = await worker.send({
         id: newRequestId(),
         method: "connection/schema",
-        params: { id: def.id },
+        params,
       });
       if (frame.error) {
         this.lastSchemaError = `${def.name}: ${frame.error.message}`;

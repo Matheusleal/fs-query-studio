@@ -31,8 +31,24 @@ let ``inferType infers decimal for values with dot or comma decimal parts and ha
     // DateTime
     Assert.Equal("System.DateTime", EntityBackgroundGenerator.inferType [ "2026-10-27"; "2026-10-28T12:00:00Z" ])
 
-    // Mixed text fallback to string
-    Assert.Equal("string", EntityBackgroundGenerator.inferType [ "355272835.53"; "N/A" ])
+    // Sentinel values N/A, -, null trigger option types
+    Assert.Equal("decimal option", EntityBackgroundGenerator.inferType [ "355272835.53"; "N/A" ])
+    Assert.Equal("decimal option", EntityBackgroundGenerator.inferType [ "100.50"; "-" ])
+    Assert.Equal("int option", EntityBackgroundGenerator.inferType [ "1"; "null"; "42" ])
+    Assert.Equal("string option", EntityBackgroundGenerator.inferType [ "Alice"; "N/A"; "Bob" ])
+    Assert.Equal("string option", EntityBackgroundGenerator.inferType [ "Alice"; "-"; "Bob" ])
+    Assert.Equal("string option", EntityBackgroundGenerator.inferType [ "Alice"; "null"; "Bob" ])
+
+    // Non-sentinel mixed text fallback to regular string
+    Assert.Equal("string", EntityBackgroundGenerator.inferType [ "355272835.53"; "TextoInvalido" ])
+
+    // 200 rows sampling: sentinel at row 150 triggers option
+    let rows200WithSentinel = [ for i in 1 .. 200 -> if i = 150 then "N/A" else "100.50" ]
+    Assert.Equal("decimal option", EntityBackgroundGenerator.inferType rows200WithSentinel)
+
+    // 200 rows sampling: clean 200 rows has no option
+    let rows200Clean = [ for _ in 1 .. 200 -> "100.50" ]
+    Assert.Equal("decimal", EntityBackgroundGenerator.inferType rows200Clean)
 
 [<Fact>]
 let ``sanitizeColumns removes empty column names and deduplicates identical headers`` () =
@@ -90,10 +106,107 @@ let ``generateForConnectionsAsync handles multiple CSV data sources without omit
 
         // asEntities generated and handles multiple CSVs
         Assert.Contains("type FSharpQueryStudio.Connectors.Connections.CsvConnection with", code)
-        Assert.Contains("member this.SalesFeed = SalesFeedCsv.Data(this)", code)
-        Assert.Contains("member this.CustomersFeed = CustomersFeedCsv.Data(this)", code)
-        Assert.Contains("member this.asEntities", code)
-        Assert.Contains("\"SalesFeed\" -> box (SalesFeedCsv.Data(this))", code)
-        Assert.Contains("\"CustomersFeed\" -> box (CustomersFeedCsv.Data(this))", code)
+        Assert.Contains("member this.SalesFeed = SalesFeedCsv.Data(\"SalesFeed\")", code)
+        Assert.Contains("member this.CustomersFeed = CustomersFeedCsv.Data(\"CustomersFeed\")", code)
+        Assert.Contains("member this.asEntities = AllCsvEntities(this)", code)
+        Assert.Contains("type AllCsvEntities(conn: FSharpQueryStudio.Connectors.Connections.CsvConnection) =", code)
+        Assert.Contains("member _.SalesFeed = SalesFeedCsv.Data(\"SalesFeed\")", code)
+        Assert.Contains("member _.CustomersFeed = CustomersFeedCsv.Data(\"CustomersFeed\")", code)
     finally
         try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+let ``generateForConnectionsAsync handles multiple SQLite and multiple CSV data sources simultaneously`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), "fqs-multisource-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(tempDir) |> ignore
+
+    try
+        let db1Path = Path.Combine(tempDir, "sample_store.db")
+        do
+            use conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db1Path}")
+            conn.Open()
+            use cmd = conn.CreateCommand()
+            cmd.CommandText <- "CREATE TABLE Customers (Id INTEGER PRIMARY KEY, Name TEXT); INSERT INTO Customers VALUES (1, 'Alice');"
+            cmd.ExecuteNonQuery() |> ignore
+
+        let db2Path = Path.Combine(tempDir, "inventory.db")
+        do
+            use conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db2Path}")
+            conn.Open()
+            use cmd = conn.CreateCommand()
+            cmd.CommandText <- "CREATE TABLE Warehouses (Id INTEGER PRIMARY KEY, Location TEXT); INSERT INTO Warehouses VALUES (1, 'North');"
+            cmd.ExecuteNonQuery() |> ignore
+
+        let csv1Path = Path.Combine(tempDir, "sales.csv")
+        File.WriteAllText(csv1Path, "Id,Total\n1,100.50\n")
+
+        let csv2Path = Path.Combine(tempDir, "customers.csv")
+        File.WriteAllText(csv2Path, "Id,Name\n1,Alice\n")
+
+        let connSqlite1 =
+            { Id = Guid.NewGuid()
+              Name = "SampleStore"
+              Kind = ConnectorKind.Sqlite
+              Configuration = JsonSerializer.SerializeToElement({| FilePath = db1Path |})
+              SecretReference = None
+              IsTrusted = true }
+
+        let connSqlite2 =
+            { Id = Guid.NewGuid()
+              Name = "InventoryStore"
+              Kind = ConnectorKind.Sqlite
+              Configuration = JsonSerializer.SerializeToElement({| FilePath = db2Path |})
+              SecretReference = None
+              IsTrusted = true }
+
+        let connCsv1 =
+            { Id = Guid.NewGuid()
+              Name = "SalesFeed"
+              Kind = ConnectorKind.Csv
+              Configuration = JsonSerializer.SerializeToElement({| FilePath = csv1Path; Delimiter = Some "," |})
+              SecretReference = None
+              IsTrusted = true }
+
+        let connCsv2 =
+            { Id = Guid.NewGuid()
+              Name = "CustomersFeed"
+              Kind = ConnectorKind.Csv
+              Configuration = JsonSerializer.SerializeToElement({| FilePath = csv2Path; Delimiter = Some "," |})
+              SecretReference = None
+              IsTrusted = true }
+
+        let secretStore = InMemorySecretStore()
+        let result =
+            (EntityBackgroundGenerator.generateForConnectionsAsync tempDir [ connSqlite1; connSqlite2; connCsv1; connCsv2 ] secretStore)
+                .GetAwaiter()
+                .GetResult()
+
+        Assert.True(result)
+        let generatedFile = EntityBackgroundGenerator.generatedFilePath tempDir
+        Assert.True(File.Exists generatedFile)
+
+        let code = File.ReadAllText(generatedFile)
+
+        // SQLite modules and DatabaseConnection extension
+        Assert.Contains("module SampleStoreDb =", code)
+        Assert.Contains("module InventoryStoreDb =", code)
+        Assert.Contains("type FSharpQueryStudio.Connectors.Connections.DatabaseConnection with", code)
+        Assert.Contains("member this.SampleStore = SampleStoreDb.Database(\"SampleStore\")", code)
+        Assert.Contains("member this.InventoryStore = InventoryStoreDb.Database(\"InventoryStore\")", code)
+        Assert.Contains("member this.asEntities = AllDatabaseEntities(this)", code)
+        Assert.Contains("type AllDatabaseEntities(conn: FSharpQueryStudio.Connectors.Connections.DatabaseConnection) =", code)
+        Assert.Contains("member _.Customers = (SampleStoreDb.Database(\"SampleStore\")).Customers", code)
+        Assert.Contains("member _.Warehouses = (InventoryStoreDb.Database(\"InventoryStore\")).Warehouses", code)
+
+        // CSV modules and CsvConnection extension
+        Assert.Contains("module SalesFeedCsv =", code)
+        Assert.Contains("module CustomersFeedCsv =", code)
+        Assert.Contains("type FSharpQueryStudio.Connectors.Connections.CsvConnection with", code)
+        Assert.Contains("member this.SalesFeed = SalesFeedCsv.Data(\"SalesFeed\")", code)
+        Assert.Contains("member this.CustomersFeed = CustomersFeedCsv.Data(\"CustomersFeed\")", code)
+        Assert.Contains("member this.asEntities = AllCsvEntities(this)", code)
+        Assert.Contains("type AllCsvEntities(conn: FSharpQueryStudio.Connectors.Connections.CsvConnection) =", code)
+    finally
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+        try Directory.Delete(tempDir, true) with _ -> ()
+

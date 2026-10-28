@@ -10,8 +10,23 @@ import {
 } from "./definition";
 import type { WorkerLike } from "./tree";
 
+export type ConnectionScope = "local" | "global";
+export type SqlServerAuthType = "windows" | "sql";
+
+export interface WorkspaceFolderInfo {
+  name: string;
+  path: string;
+}
+
+export interface ConnectionScopePick {
+  scope: ConnectionScope;
+  targetDir?: string;
+}
+
 export interface ConnectionUi {
   pickKind(): Promise<ConnectorKindName | undefined>;
+  pickScope?(folders: WorkspaceFolderInfo[]): Promise<ConnectionScopePick | undefined>;
+  pickSqlServerAuth?(): Promise<SqlServerAuthType | undefined>;
   input(opts: {
     prompt: string;
     value?: string;
@@ -32,6 +47,7 @@ export interface ConnectionFlowDeps {
   secrets: SecretWriter;
   refresh: () => void;
   log: (line: string) => void;
+  getWorkspaceFolders?: () => WorkspaceFolderInfo[];
 }
 
 function stringProp(configuration: unknown, key: string): string {
@@ -73,16 +89,58 @@ async function collectFields(
         input.delimiter = delim.trim();
       }
     }
-  } else if (kind === "SqlServer" || kind === "PostgreSql") {
-    const isPg = kind === "PostgreSql";
+  } else if (kind === "SqlServer") {
+    let authType: SqlServerAuthType = "sql";
+    if (ui.pickSqlServerAuth) {
+      const existingConnStr = existing ? stringProp(existing.configuration, "connectionString") : "";
+      const isExistingWindows = /(integrated\s+security\s*=\s*(true|sspi)|trusted_connection\s*=\s*(true|yes))/i.test(existingConnStr);
+      const pickedAuth = await ui.pickSqlServerAuth();
+      if (!pickedAuth) return undefined;
+      authType = pickedAuth;
+    }
+
+    if (authType === "windows") {
+      const defaultConnStr = existing
+        ? stringProp(existing.configuration, "connectionString")
+        : "Server=localhost;Database=master;Integrated Security=True;TrustServerCertificate=True;";
+      const connectionString = await ui.input({
+        prompt: "SQL Server Connection String (Windows Authentication / Integrated Security)",
+        value: defaultConnStr,
+        placeHolder: "Server=localhost;Database=master;Integrated Security=True;TrustServerCertificate=True;",
+      });
+      if (connectionString === undefined) return undefined;
+
+      let normalized = connectionString.trim();
+      if (!/integrated\s+security\s*=/i.test(normalized) && !/trusted_connection\s*=/i.test(normalized)) {
+        normalized = normalized.replace(/;?$/, ";Integrated Security=True;");
+      }
+      if (!/trustservercertificate\s*=/i.test(normalized)) {
+        normalized = normalized.replace(/;?$/, ";TrustServerCertificate=True;");
+      }
+      input.connectionString = normalized;
+      // Windows Authentication uses current Windows identity — no password needed!
+    } else {
+      const connectionString = await ui.input({
+        prompt: "SQL Server Connection String (e.g. Server=localhost;Database=master;User Id=sa)",
+        value: existing ? stringProp(existing.configuration, "connectionString") : undefined,
+        placeHolder: "Server=localhost;Database=master;User Id=sa;Password={password};TrustServerCertificate=True",
+      });
+      if (connectionString === undefined) return undefined;
+      input.connectionString = connectionString;
+      const password = await ui.input({
+        prompt: existing?.secretReference
+          ? "Password (leave blank to keep the current one)"
+          : "Password (leave blank if already specified in connection string or not required)",
+        password: true,
+      });
+      if (password === undefined) return undefined;
+      input.password = password;
+    }
+  } else if (kind === "PostgreSql") {
     const connectionString = await ui.input({
-      prompt: isPg
-        ? "PostgreSQL Connection String (e.g. Host=localhost;Database=mydb;Username=postgres)"
-        : "SQL Server Connection String (e.g. Server=localhost;Database=master;User Id=sa)",
+      prompt: "PostgreSQL Connection String (e.g. Host=localhost;Database=mydb;Username=postgres)",
       value: existing ? stringProp(existing.configuration, "connectionString") : undefined,
-      placeHolder: isPg
-        ? "Host=localhost;Database=mydb;Username=postgres;Password={password}"
-        : "Server=localhost;Database=master;User Id=sa;Password={password};TrustServerCertificate=True",
+      placeHolder: "Host=localhost;Database=mydb;Username=postgres;Password={password}",
     });
     if (connectionString === undefined) return undefined;
     input.connectionString = connectionString;
@@ -110,18 +168,24 @@ async function collectFields(
 async function register(
   deps: ConnectionFlowDeps,
   built: ReturnType<typeof buildConnectionDefinition>,
+  workspaceDir?: string,
 ): Promise<boolean> {
   if (built.secret && built.secretReference) {
     await deps.secrets.store(built.secretReference, built.secret);
   }
   const worker = await deps.getWorker();
+  const scopeDesc = workspaceDir ? ` in local workspace: ${workspaceDir}` : " (global)";
   deps.log(
-    `Registering connection '${built.definition.name}' (${readUnionTag(built.definition.kind)})...`,
+    `Registering connection '${built.definition.name}' (${readUnionTag(built.definition.kind)})${scopeDesc}...`,
   );
+  const params: Record<string, unknown> = { ...built.definition };
+  if (workspaceDir) {
+    params.workspaceDir = workspaceDir;
+  }
   const frame = await worker.send({
     id: newRequestId(),
     method: "connection/register",
-    params: built.definition,
+    params,
   });
   if (frame.error) {
     deps.log(
@@ -134,11 +198,22 @@ async function register(
 }
 
 export async function runAddConnection(deps: ConnectionFlowDeps): Promise<void> {
+  let targetDir: string | undefined;
+  const folders = deps.getWorkspaceFolders ? deps.getWorkspaceFolders() : [];
+
+  if (folders.length > 0 && deps.ui.pickScope) {
+    const scopeChoice = await deps.ui.pickScope(folders);
+    if (!scopeChoice) return;
+    if (scopeChoice.scope === "local") {
+      targetDir = scopeChoice.targetDir;
+    }
+  }
+
   const kind = await deps.ui.pickKind();
   if (!kind) return;
   const input = await collectFields(deps.ui, kind);
   if (!input) return;
-  if (await register(deps, buildConnectionDefinition(input))) {
+  if (await register(deps, buildConnectionDefinition(input), targetDir)) {
     deps.refresh();
   }
 }
@@ -154,7 +229,9 @@ export async function runEditConnection(
   }
   const input = await collectFields(deps.ui, kind, existing);
   if (!input) return;
-  if (await register(deps, buildConnectionDefinition(input, existing))) {
+  const folders = deps.getWorkspaceFolders ? deps.getWorkspaceFolders() : [];
+  const targetDir = folders.length > 0 ? folders[0].path : undefined;
+  if (await register(deps, buildConnectionDefinition(input, existing), targetDir)) {
     deps.refresh();
   }
 }
@@ -165,10 +242,15 @@ export async function runRemoveConnection(
 ): Promise<void> {
   if (!(await deps.ui.confirmRemove(existing.name))) return;
   const worker = await deps.getWorker();
+  const folders = deps.getWorkspaceFolders ? deps.getWorkspaceFolders() : [];
+  const params: Record<string, unknown> = { id: existing.id };
+  if (folders.length > 0) {
+    params.workspaceDir = folders[0].path;
+  }
   const frame = await worker.send({
     id: newRequestId(),
     method: "connection/remove",
-    params: { id: existing.id },
+    params,
   });
   if (frame.error) {
     deps.log(`connection/remove failed: ${frame.error.message}`);

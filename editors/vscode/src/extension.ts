@@ -160,26 +160,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     new FsqnbSerializer(),
   );
 
-  const controller = createFsQueryController({
-    getWorker,
-    log,
-  });
-
-  const rendererMessaging = vscode.notebooks.createRendererMessaging(FSQUERY_RENDERER_ID);
-  const rendererHost = registerRendererHost({
-    messaging: rendererMessaging,
-    getWorker,
-    pickSaveFile: async (defaultName, documentUri) => {
-      const picked = await vscode.window.showSaveDialog({
-        defaultUri: vscode.Uri.joinPath(vscode.Uri.parse(documentUri), "..", defaultName),
-        filters: { CSV: ["csv"] },
-        saveLabel: "Export",
-      });
-      return picked?.fsPath;
-    },
-    log,
-  });
-
   // Registered before language features so its `api.list` can feed
   // `Connections.sql "…"` name completion.
   const connections = registerConnectionFeatures({
@@ -200,6 +180,27 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     },
     listConnectionNames: async () =>
       (await connections.api.list()).map((c) => c.name),
+  });
+
+  const controller = createFsQueryController({
+    getWorker,
+    log,
+    onCellExecuted: (cell) => languageFeatures.refreshNotebook(cell.notebook),
+  });
+
+  const rendererMessaging = vscode.notebooks.createRendererMessaging(FSQUERY_RENDERER_ID);
+  const rendererHost = registerRendererHost({
+    messaging: rendererMessaging,
+    getWorker,
+    pickSaveFile: async (defaultName, documentUri) => {
+      const picked = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.joinPath(vscode.Uri.parse(documentUri), "..", defaultName),
+        filters: { CSV: ["csv"] },
+        saveLabel: "Export",
+      });
+      return picked?.fsPath;
+    },
+    log,
   });
 
   const showOutputCommand = vscode.commands.registerCommand(
@@ -329,13 +330,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
 
         const data = res.result as {
           sqlitePath: string;
+          sqlite2Path?: string;
           csvPath: string;
+          csv2Path?: string;
           notebookPath: string;
           notebookPtPath?: string;
         };
 
         log(
-          `[Workspace] Sample data created successfully: SQLite=${data.sqlitePath}, CSV=${data.csvPath}, Notebook=${data.notebookPath}, NotebookPt=${data.notebookPtPath}`,
+          `[Workspace] Sample data created successfully: SQLite=${data.sqlitePath}, SQLite2=${data.sqlite2Path}, CSV=${data.csvPath}, CSV2=${data.csv2Path}, Notebook=${data.notebookPath}, NotebookPt=${data.notebookPtPath}`,
         );
 
         await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
@@ -354,8 +357,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
         }
 
         const successMsg = isPt
-          ? "Banco de dados SQLite ('sample_store.db'), CSV ('sales_feed.csv') e notebooks interativos ('sample_demo_pt.fsqnb', 'sample_demo.fsqnb') criados com sucesso!"
-          : "Sample SQLite database ('sample_store.db'), CSV ('sales_feed.csv'), and interactive notebooks ('sample_demo.fsqnb', 'sample_demo_pt.fsqnb') created successfully!";
+          ? "Bancos de dados SQLite ('sample_store.db', 'inventory.db'), CSVs ('sales_feed.csv', 'customers_feed.csv') e notebooks interativos ('sample_demo_pt.fsqnb', 'sample_demo.fsqnb') criados com sucesso!"
+          : "Sample SQLite databases ('sample_store.db', 'inventory.db'), CSVs ('sales_feed.csv', 'customers_feed.csv'), and interactive notebooks ('sample_demo.fsqnb', 'sample_demo_pt.fsqnb') created successfully!";
 
         void vscode.window.showInformationMessage(successMsg);
       } catch (err) {
@@ -404,6 +407,109 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     },
   );
 
+  const initEmptyProjectCommand = vscode.commands.registerCommand(
+    "fs-query-studio.initEmptyProject",
+    async (resource?: vscode.Uri) => {
+      let targetDir: string | undefined;
+      if (resource && resource.fsPath) {
+        targetDir = resource.fsPath;
+      } else {
+        const wsFolders = vscode.workspace.workspaceFolders;
+        if (wsFolders && wsFolders.length === 1) {
+          targetDir = wsFolders[0].uri.fsPath;
+        } else if (wsFolders && wsFolders.length > 1) {
+          const pick = await vscode.window.showQuickPick(
+            wsFolders.map((f) => ({ label: f.name, description: f.uri.fsPath, uri: f.uri })),
+            { placeHolder: "Select a workspace folder to initialize empty project" },
+          );
+          if (!pick) return;
+          targetDir = pick.uri.fsPath;
+        } else {
+          const picked = await vscode.window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+            openLabel: "Select Folder to Initialize Empty Project",
+          });
+          if (!picked || picked.length === 0) return;
+          targetDir = picked[0].fsPath;
+        }
+      }
+
+      log(`[Workspace] Initializing empty project in directory: ${targetDir}`);
+      try {
+        const worker = await getWorker();
+        const res = await worker.send({
+          id: randomUUID(),
+          method: "workspace/initEmptyProject",
+          params: { targetDir },
+        });
+
+        if (res.error) {
+          log(`[Workspace] Failed to initialize project: ${res.error.message}`);
+          outputChannel?.show(true);
+          void vscode.window.showErrorMessage(`Failed to initialize project: ${res.error.message}`);
+          return;
+        }
+
+        log(`[Workspace] Empty project initialized in ${targetDir}`);
+        await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
+
+        // Create a starter notebook if none exists
+        const starterNbUri = vscode.Uri.joinPath(vscode.Uri.file(targetDir), "notebook.fsqnb");
+        let exists = false;
+        try {
+          await vscode.workspace.fs.stat(starterNbUri);
+          exists = true;
+        } catch {
+          exists = false;
+        }
+
+        if (!exists) {
+          const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+          const starterContent = {
+            version: 1,
+            cells: [
+              {
+                kind: 1, // Markdown
+                language: "markdown",
+                value: isPt
+                  ? "# Projeto F# Query Studio\nUse **Adicionar Conexão** ou crie consultas F# abaixo."
+                  : "# F# Query Studio Project\nUse **Add Connection** or write F# queries below.",
+              },
+              {
+                kind: 2, // Code
+                language: "fsharp",
+                value: isPt
+                  ? "// Digite seu código F# ou consulte conexões aqui\nprintfn \"Pronto!\""
+                  : "// Write your F# queries or reference connections here\nprintfn \"Ready!\"",
+              },
+            ],
+          };
+          await vscode.workspace.fs.writeFile(
+            starterNbUri,
+            Buffer.from(JSON.stringify(starterContent, null, 2), "utf8"),
+          );
+        }
+
+        try {
+          const doc = await vscode.workspace.openNotebookDocument(starterNbUri);
+          await vscode.window.showNotebookDocument(doc);
+        } catch {
+          // ignore if notebook view fails
+        }
+
+        void vscode.window.showInformationMessage(
+          `F# Query Studio: Empty project initialized in ${targetDir}`,
+        );
+      } catch (err) {
+        const msg = (err as Error).message;
+        log(`[Workspace] Error initializing empty project: ${msg}`);
+        void vscode.window.showErrorMessage(`Error initializing empty project: ${msg}`);
+      }
+    },
+  );
+
   const statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   statusBar.command = "fs-query-studio.showOutput";
   statusBar.text = "$(database) F# Query Studio";
@@ -420,6 +526,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     newNotebookHereCommand,
     restartCommand,
     createSampleDataCommand,
+    initEmptyProjectCommand,
     openDocsCommand,
     languageFeatures,
     connections.disposable,

@@ -49,19 +49,30 @@ export function buildAnalysisInput(
   position?: AnalysisPosition,
 ): AnalysisInput {
   const targetUri = target.document.uri.toString();
+  const targetIndex = cells.findIndex((c) => c.document.uri.toString() === targetUri);
 
-  const prefixCells = cells
-    .filter(
-      (c) =>
-        c.kind === CODE_CELL_KIND &&
-        c.document.languageId === "fsharp" &&
-        c.document.uri.toString() !== targetUri &&
-        hasExecuted(c),
-    )
-    .sort(
-      (a, b) =>
-        (a.executionSummary!.executionOrder ?? 0) - (b.executionSummary!.executionOrder ?? 0),
-    );
+  const anyExecuted = cells.some((c) => c.kind === CODE_CELL_KIND && hasExecuted(c));
+
+  const prefixCells = anyExecuted
+    ? cells
+        .filter(
+          (c) =>
+            c.kind === CODE_CELL_KIND &&
+            c.document.languageId === "fsharp" &&
+            c.document.uri.toString() !== targetUri &&
+            hasExecuted(c),
+        )
+        .sort(
+          (a, b) =>
+            (a.executionSummary!.executionOrder ?? 0) - (b.executionSummary!.executionOrder ?? 0),
+        )
+    : cells.filter(
+        (c, idx) =>
+          c.kind === CODE_CELL_KIND &&
+          c.document.languageId === "fsharp" &&
+          c.document.uri.toString() !== targetUri &&
+          (targetIndex === -1 || idx < targetIndex),
+      );
 
   const prefixText = prefixCells.map((c) => c.document.getText()).join("\n");
   const targetText = target.document.getText();

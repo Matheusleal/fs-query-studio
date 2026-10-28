@@ -33,20 +33,23 @@ module SessionStore =
     /// stale bindings can never leak into the new evaluation. Every call
     /// leaves the log holding exactly `[source]`, replacing whatever was
     /// there before.
-    let getOrCreate (key: string) (workingDirectory: string) (source: string) : FsiSession.Session =
+    let getOrCreateInWorkspace (key: string) (workingDirectory: string) (source: string) (workspaceDirectory: string) : FsiSession.Session =
         let session =
             match sessions.TryGetValue(key) with
             | true, existing ->
                 let lastSource = existing.LastFragments |> List.tryLast |> Option.defaultValue ""
                 if invalidates lastSource source then
-                    FsiSession.create workingDirectory
+                    FsiSession.createInWorkspace workingDirectory workspaceDirectory
                 else
                     Directory.SetCurrentDirectory(workingDirectory)
                     existing.Session
-            | false, _ -> FsiSession.create workingDirectory
+            | false, _ -> FsiSession.createInWorkspace workingDirectory workspaceDirectory
 
         sessions.[key] <- { Session = session; LastFragments = [ source ] }
         session
+
+    let getOrCreate (key: string) (workingDirectory: string) (source: string) : FsiSession.Session =
+        getOrCreateInWorkspace key workingDirectory source ""
 
     /// Notebook/cell mode (E.4): `fragment` is one cell's own isolated
     /// text — never the whole document — appended as the next step in
@@ -57,19 +60,22 @@ module SessionStore =
     /// one live `FsiEvaluationSession`, called once per cell in order —
     /// while still reusing the same per-key tracked session `getOrCreate`
     /// would also see, since both policies share the same `sessions` map.
-    let appendFragment (key: string) (workingDirectory: string) (fragment: string) : FsiSession.Session =
+    let appendFragmentInWorkspace (key: string) (workingDirectory: string) (fragment: string) (workspaceDirectory: string) : FsiSession.Session =
         let entry =
             match sessions.TryGetValue(key) with
             | true, existing ->
                 Directory.SetCurrentDirectory(workingDirectory)
                 existing
-            | false, _ -> { Session = FsiSession.create workingDirectory; LastFragments = [] }
+            | false, _ -> { Session = FsiSession.createInWorkspace workingDirectory workspaceDirectory; LastFragments = [] }
 
         let updated =
             { entry with LastFragments = entry.LastFragments @ [ fragment ] }
 
         sessions.[key] <- updated
         updated.Session
+
+    let appendFragment (key: string) (workingDirectory: string) (fragment: string) : FsiSession.Session =
+        appendFragmentInWorkspace key workingDirectory fragment ""
 
     /// Drops the tracked session for `key`, if any — the next
     /// `getOrCreate`/`appendFragment` for that key starts a fresh one.

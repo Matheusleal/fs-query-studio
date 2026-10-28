@@ -42,10 +42,15 @@ module Prologue =
                     System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
                     "FSharpQueryStudio"
                 ))
+        let generatedFsqs = System.IO.Path.Combine(baseDir, ".fsqs", "generated", "GeneratedEntities.fs")
         let generatedFile = System.IO.Path.Combine(baseDir, "generated", "GeneratedEntities.fs")
+        let targetGenerated =
+            if System.IO.File.Exists generatedFsqs then generatedFsqs
+            elif System.IO.File.Exists generatedFile then generatedFile
+            else ""
         let generatedLoad =
-            if System.IO.File.Exists generatedFile then
-                $"#load \"{escapeForStringLiteral generatedFile}\"\nopen FSharpQueryStudio.Generated\n"
+            if not (System.String.IsNullOrEmpty targetGenerated) then
+                $"#load \"{escapeForStringLiteral targetGenerated}\"\nopen FSharpQueryStudio.Generated\n"
             else
                 ""
 

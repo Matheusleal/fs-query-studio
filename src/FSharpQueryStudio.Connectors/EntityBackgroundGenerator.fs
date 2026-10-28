@@ -14,7 +14,23 @@ open FSharpQueryStudio.Security
 module EntityBackgroundGenerator =
 
     let generatedDir (workspaceDir: string) : string =
-        Path.Combine(workspaceDir, "generated")
+        let baseDir =
+            if String.IsNullOrWhiteSpace workspaceDir then workspaceDir
+            else
+                let trimmed = workspaceDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                let leaf = Path.GetFileName trimmed
+                if leaf.Equals(".fsqs", StringComparison.OrdinalIgnoreCase) then
+                    workspaceDir
+                elif leaf.Equals("FSharpQueryStudio", StringComparison.OrdinalIgnoreCase) then
+                    workspaceDir
+                elif Directory.Exists(Path.Combine(workspaceDir, ".fsqs")) || File.Exists(Path.Combine(workspaceDir, ".fsqs", "workspace.json")) then
+                    Path.Combine(workspaceDir, ".fsqs")
+                elif Directory.Exists(Path.Combine(workspaceDir, "generated")) then
+                    workspaceDir
+                else
+                    Path.Combine(workspaceDir, ".fsqs")
+
+        Path.Combine(baseDir, "generated")
 
     let generatedFilePath (workspaceDir: string) : string =
         Path.Combine(generatedDir workspaceDir, "GeneratedEntities.fs")
@@ -42,68 +58,12 @@ module EntityBackgroundGenerator =
         else
             $"``{s}``"
 
-    let cleanSample (s: string) : string =
-        if isNull s then ""
-        else s.Trim().Trim('"', '\'')
+    let cleanSample (s: string) : string = CsvTypeInference.cleanSample s
 
-    /// Infers an F# type from a collection of sample string values.
-    let inferType (samples: string seq) : string =
-        let nonEmpties =
-            samples
-            |> Seq.map cleanSample
-            |> Seq.filter (fun s -> s <> "")
-            |> Seq.truncate 100
-            |> Seq.toList
-
-        if List.isEmpty nonEmpties then
-            "string"
-        elif nonEmpties |> List.forall (fun s ->
-            match Int32.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture) with
-            | true, _ -> true | false, _ -> false) then
-            "int"
-        elif nonEmpties |> List.forall (fun s ->
-            match Int64.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture) with
-            | true, _ -> true | false, _ -> false) then
-            "int64"
-        elif nonEmpties |> List.forall (fun s ->
-            let style = NumberStyles.Number ||| NumberStyles.AllowLeadingSign
-            match Decimal.TryParse(s, style, CultureInfo.InvariantCulture) with
-            | true, _ -> true
-            | false, _ ->
-                match Decimal.TryParse(s.Replace(",", "."), style, CultureInfo.InvariantCulture) with
-                | true, _ -> true
-                | false, _ -> false) then
-            "decimal"
-        elif nonEmpties |> List.forall (fun s ->
-            let style = NumberStyles.Float ||| NumberStyles.AllowThousands
-            match Double.TryParse(s, style, CultureInfo.InvariantCulture) with
-            | true, _ -> true
-            | false, _ ->
-                match Double.TryParse(s.Replace(",", "."), style, CultureInfo.InvariantCulture) with
-                | true, _ -> true
-                | false, _ -> false) then
-            "double"
-        elif nonEmpties |> List.forall (fun s ->
-            match Boolean.TryParse(s) with
-            | true, _ -> true
-            | false, _ ->
-                let l = s.ToLowerInvariant()
-                l = "true" || l = "false" || l = "1" || l = "0") then
-            "bool"
-        elif nonEmpties |> List.forall (fun s ->
-            match DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None) with
-            | true, _ -> true
-            | false, _ ->
-                match DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.None) with
-                | true, _ -> true
-                | false, _ -> false) then
-            "System.DateTime"
-        elif nonEmpties |> List.forall (fun s ->
-            match Guid.TryParse(s) with
-            | true, _ -> true | false, _ -> false) then
-            "System.Guid"
-        else
-            "string"
+    /// Infers an F# type from a collection of sample string values (up to 200 rows).
+    /// When sentinel values ("N/A", "-", "null") or empty values in non-string columns are encountered,
+    /// the inferred type becomes an option type (e.g. `decimal option`, `int option`, `string option`).
+    let inferType (samples: string seq) : string = CsvTypeInference.inferType samples
 
     /// Sanitizes and deduplicates column headers so they form valid, unique F# record fields.
     let sanitizeColumns (cols: string list) : string list =
@@ -238,7 +198,7 @@ module EntityBackgroundGenerator =
                         usedPropNames.Add candidate |> ignore
                         candidate
 
-                    let mutable dbExtensions: (string * string * string) list = []
+                    let mutable dbExtensions: (string * string * string * string list) list = []
                     let mutable csvExtensions: (string * string * string) list = []
                     let mutable excelExtensions: (string * string * string) list = []
                     let mutable restExtensions: (string * string * string) list = []
@@ -256,13 +216,17 @@ module EntityBackgroundGenerator =
                                 let code = dbConn.GenerateEntities(moduleName)
                                 sb.AppendLine(code) |> ignore
                                 sb.AppendLine() |> ignore
-                                dbExtensions <- (propName, moduleName, def.Name) :: dbExtensions
+                                let tbls =
+                                    try
+                                        dbConn.Tables
+                                    with _ -> []
+                                dbExtensions <- (propName, moduleName, def.Name, tbls) :: dbExtensions
 
                             | :? CsvConnector as cc ->
                                 let moduleName = makeUniqueModuleName $"{cleanName}Csv"
                                 let propName = makeUniquePropName cleanName
                                 let qr = cc.ReadRows()
-                                let rowsSample = qr.Rows |> Seq.truncate 50 |> Seq.toList
+                                let rowsSample = qr.Rows |> Seq.truncate 200 |> Seq.toList
                                 let sanitizedCols = sanitizeColumns qr.Columns
 
                                 sb.AppendLine($"module {moduleName} =") |> ignore
@@ -293,8 +257,8 @@ module EntityBackgroundGenerator =
                                 sb.AppendLine($"module {moduleName} =") |> ignore
                                 for tbl in tables do
                                     let sheetClean = cleanIdentifier tbl.Name
-                                    let qr = ec.ReadRows(sheetName = tbl.Name, maxRows = 50)
-                                    let rowsSample = qr.Rows |> Seq.truncate 50 |> Seq.toList
+                                    let qr = ec.ReadRows(sheetName = tbl.Name, maxRows = 200)
+                                    let rowsSample = qr.Rows |> Seq.truncate 200 |> Seq.toList
                                     let sanitizedCols = sanitizeColumns qr.Columns
 
                                     sb.AppendLine($"    module {sheetClean} =") |> ignore
@@ -354,72 +318,85 @@ module EntityBackgroundGenerator =
                         sb.AppendLine("module Extensions =") |> ignore
 
                         if not (List.isEmpty dbExtensions) then
-                            sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.DatabaseConnection with") |> ignore
-                            for (propName, modName, _) in List.rev dbExtensions do
-                                sb.AppendLine($"        member this.{propName} = {modName}.Database(this)") |> ignore
                             if dbExtensions.Length = 1 then
-                                let (_, singleModName, _) = dbExtensions.[0]
-                                sb.AppendLine($"        member this.asEntities = {singleModName}.Database(this)") |> ignore
+                                let (propName, singleModName, defName, _) = dbExtensions.[0]
+                                sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.DatabaseConnection with") |> ignore
+                                sb.AppendLine($"        member this.{propName} = {singleModName}.Database(\"{defName}\")") |> ignore
+                                sb.AppendLine($"        member this.asEntities = {singleModName}.Database(\"{defName}\")") |> ignore
                             else
-                                sb.AppendLine("        member this.asEntities : obj =") |> ignore
-                                sb.AppendLine("            match this.Name with") |> ignore
-                                for (_, modName, origName) in List.rev dbExtensions do
-                                    let escapedOrig = origName.Replace("\"", "\\\"")
-                                    sb.AppendLine($"            | \"{escapedOrig}\" -> box ({modName}.Database(this))") |> ignore
-                                let (_, firstMod, _) = dbExtensions.[dbExtensions.Length - 1]
-                                sb.AppendLine($"            | _ -> box ({firstMod}.Database(this))") |> ignore
+                                sb.AppendLine("    type AllDatabaseEntities(conn: FSharpQueryStudio.Connectors.Connections.DatabaseConnection) =") |> ignore
+                                for (propName, modName, defName, _) in List.rev dbExtensions do
+                                    sb.AppendLine($"        member _.{propName} = {modName}.Database(\"{defName}\")") |> ignore
+                                let mutable seenTables = Set.empty<string>
+                                for (_, modName, defName, tbls) in List.rev dbExtensions do
+                                    for t in tbls do
+                                        let rawTableName =
+                                            let dotIdx = t.IndexOf(".")
+                                            if dotIdx > 0 then t.Substring(dotIdx + 1) else t
+                                        let cleanTbl = cleanIdentifier rawTableName
+                                        let safeIdent = escapeIdent cleanTbl
+                                        if not (Set.contains cleanTbl seenTables) then
+                                            seenTables <- Set.add cleanTbl seenTables
+                                            sb.AppendLine($"        member _.{safeIdent} = ({modName}.Database(\"{defName}\")).{safeIdent}") |> ignore
+                                sb.AppendLine() |> ignore
+                                sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.DatabaseConnection with") |> ignore
+                                for (propName, modName, defName, _) in List.rev dbExtensions do
+                                    sb.AppendLine($"        member this.{propName} = {modName}.Database(\"{defName}\")") |> ignore
+                                sb.AppendLine("        member this.asEntities = AllDatabaseEntities(this)") |> ignore
                             sb.AppendLine() |> ignore
 
                         if not (List.isEmpty csvExtensions) then
-                            sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.CsvConnection with") |> ignore
-                            for (propName, modName, _) in List.rev csvExtensions do
-                                sb.AppendLine($"        member this.{propName} = {modName}.Data(this)") |> ignore
                             if csvExtensions.Length = 1 then
-                                let (_, singleModName, _) = csvExtensions.[0]
-                                sb.AppendLine($"        member this.asEntities = {singleModName}.Data(this)") |> ignore
+                                let (propName, singleModName, defName) = csvExtensions.[0]
+                                sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.CsvConnection with") |> ignore
+                                sb.AppendLine($"        member this.{propName} = {singleModName}.Data(\"{defName}\")") |> ignore
+                                sb.AppendLine($"        member this.asEntities = {singleModName}.Data(\"{defName}\")") |> ignore
                             else
-                                sb.AppendLine("        member this.asEntities : obj =") |> ignore
-                                sb.AppendLine("            match this.Name with") |> ignore
-                                for (_, modName, origName) in List.rev csvExtensions do
-                                    let escapedOrig = origName.Replace("\"", "\\\"")
-                                    sb.AppendLine($"            | \"{escapedOrig}\" -> box ({modName}.Data(this))") |> ignore
-                                let (_, firstMod, _) = csvExtensions.[csvExtensions.Length - 1]
-                                sb.AppendLine($"            | _ -> box ({firstMod}.Data(this))") |> ignore
+                                sb.AppendLine("    type AllCsvEntities(conn: FSharpQueryStudio.Connectors.Connections.CsvConnection) =") |> ignore
+                                for (propName, modName, defName) in List.rev csvExtensions do
+                                    sb.AppendLine($"        member _.{propName} = {modName}.Data(\"{defName}\")") |> ignore
+                                sb.AppendLine() |> ignore
+                                sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.CsvConnection with") |> ignore
+                                for (propName, modName, defName) in List.rev csvExtensions do
+                                    sb.AppendLine($"        member this.{propName} = {modName}.Data(\"{defName}\")") |> ignore
+                                sb.AppendLine("        member this.asEntities = AllCsvEntities(this)") |> ignore
                             sb.AppendLine() |> ignore
 
                         if not (List.isEmpty excelExtensions) then
-                            sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.ExcelConnection with") |> ignore
-                            for (propName, modName, _) in List.rev excelExtensions do
-                                sb.AppendLine($"        member this.{propName} = {modName}.Data(this)") |> ignore
                             if excelExtensions.Length = 1 then
-                                let (_, singleModName, _) = excelExtensions.[0]
-                                sb.AppendLine($"        member this.asEntities = {singleModName}.Data(this)") |> ignore
+                                let (propName, singleModName, defName) = excelExtensions.[0]
+                                sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.ExcelConnection with") |> ignore
+                                sb.AppendLine($"        member this.{propName} = {singleModName}.Data(\"{defName}\")") |> ignore
+                                sb.AppendLine($"        member this.asEntities = {singleModName}.Data(\"{defName}\")") |> ignore
                             else
-                                sb.AppendLine("        member this.asEntities : obj =") |> ignore
-                                sb.AppendLine("            match this.Name with") |> ignore
-                                for (_, modName, origName) in List.rev excelExtensions do
-                                    let escapedOrig = origName.Replace("\"", "\\\"")
-                                    sb.AppendLine($"            | \"{escapedOrig}\" -> box ({modName}.Data(this))") |> ignore
-                                let (_, firstMod, _) = excelExtensions.[excelExtensions.Length - 1]
-                                sb.AppendLine($"            | _ -> box ({firstMod}.Data(this))") |> ignore
+                                sb.AppendLine("    type AllExcelEntities(conn: FSharpQueryStudio.Connectors.Connections.ExcelConnection) =") |> ignore
+                                for (propName, modName, defName) in List.rev excelExtensions do
+                                    sb.AppendLine($"        member _.{propName} = {modName}.Data(\"{defName}\")") |> ignore
+                                sb.AppendLine() |> ignore
+                                sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.ExcelConnection with") |> ignore
+                                for (propName, modName, defName) in List.rev excelExtensions do
+                                    sb.AppendLine($"        member this.{propName} = {modName}.Data(\"{defName}\")") |> ignore
+                                sb.AppendLine("        member this.asEntities = AllExcelEntities(this)") |> ignore
                             sb.AppendLine() |> ignore
 
                         if not (List.isEmpty restExtensions) then
-                            sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.RestConnection with") |> ignore
-                            for (propName, modName, _) in List.rev restExtensions do
-                                sb.AppendLine($"        member this.{propName} = {modName}.Data(this)") |> ignore
                             if restExtensions.Length = 1 then
-                                let (_, singleModName, _) = restExtensions.[0]
-                                sb.AppendLine($"        member this.asEntities = {singleModName}.Data(this)") |> ignore
+                                let (propName, singleModName, defName) = restExtensions.[0]
+                                sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.RestConnection with") |> ignore
+                                sb.AppendLine($"        member this.{propName} = {singleModName}.Data(\"{defName}\")") |> ignore
+                                sb.AppendLine($"        member this.asEntities = {singleModName}.Data(\"{defName}\")") |> ignore
                             else
-                                sb.AppendLine("        member this.asEntities : obj =") |> ignore
-                                sb.AppendLine("            match this.Name with") |> ignore
-                                for (_, modName, origName) in List.rev restExtensions do
-                                    let escapedOrig = origName.Replace("\"", "\\\"")
-                                    sb.AppendLine($"            | \"{escapedOrig}\" -> box ({modName}.Data(this))") |> ignore
-                                let (_, firstMod, _) = restExtensions.[restExtensions.Length - 1]
-                                sb.AppendLine($"            | _ -> box ({firstMod}.Data(this))") |> ignore
+                                sb.AppendLine("    type AllRestEntities(conn: FSharpQueryStudio.Connectors.Connections.RestConnection) =") |> ignore
+                                for (propName, modName, defName) in List.rev restExtensions do
+                                    sb.AppendLine($"        member _.{propName} = {modName}.Data(\"{defName}\")") |> ignore
+                                sb.AppendLine() |> ignore
+                                sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.RestConnection with") |> ignore
+                                for (propName, modName, defName) in List.rev restExtensions do
+                                    sb.AppendLine($"        member this.{propName} = {modName}.Data(\"{defName}\")") |> ignore
+                                sb.AppendLine("        member this.asEntities = AllRestEntities(this)") |> ignore
                             sb.AppendLine() |> ignore
+
+
 
 
 

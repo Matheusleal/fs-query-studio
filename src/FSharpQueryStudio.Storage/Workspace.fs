@@ -1,5 +1,6 @@
 namespace FSharpQueryStudio.Storage
 
+open System
 open System.IO
 open System.Text.Json
 open FSharpQueryStudio.Protocol
@@ -13,7 +14,31 @@ module Workspace =
 
     let private fileName = "workspace.json"
 
-    let private workspaceFilePath (workspaceDir: string) = Path.Combine(workspaceDir, fileName)
+    let resolveStorageDir (workspaceDir: string) : string =
+        if String.IsNullOrWhiteSpace workspaceDir then workspaceDir
+        else
+            let trimmed = workspaceDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            let leaf = Path.GetFileName trimmed
+            if leaf.Equals(".fsqs", StringComparison.OrdinalIgnoreCase) then
+                workspaceDir
+            elif leaf.Equals("FSharpQueryStudio", StringComparison.OrdinalIgnoreCase) then
+                workspaceDir
+            elif Directory.Exists(Path.Combine(workspaceDir, ".fsqs")) || File.Exists(Path.Combine(workspaceDir, ".fsqs", fileName)) then
+                Path.Combine(workspaceDir, ".fsqs")
+            else
+                workspaceDir
+
+    let workspaceFilePath (workspaceDir: string) =
+        let targetDir = resolveStorageDir workspaceDir
+        let pathInTarget = Path.Combine(targetDir, fileName)
+        if File.Exists pathInTarget then
+            pathInTarget
+        elif File.Exists(Path.Combine(workspaceDir, ".fsqs", fileName)) then
+            Path.Combine(workspaceDir, ".fsqs", fileName)
+        elif File.Exists(Path.Combine(workspaceDir, fileName)) then
+            Path.Combine(workspaceDir, fileName)
+        else
+            pathInTarget
 
     /// The empty list if `workspace.json` doesn't exist yet — a brand-new
     /// workspace has no connections registered.
@@ -27,9 +52,11 @@ module Workspace =
             []
 
     let writeConnections (workspaceDir: string) (connections: ConnectionDefinition list) : unit =
-        Directory.CreateDirectory workspaceDir |> ignore
+        let storageDir = resolveStorageDir workspaceDir
+        Directory.CreateDirectory storageDir |> ignore
+        let targetPath = Path.Combine(storageDir, fileName)
         let json = JsonSerializer.Serialize(connections, Serialization.options)
-        File.WriteAllText(workspaceFilePath workspaceDir, json)
+        File.WriteAllText(targetPath, json)
 
     /// `connection/register` — Section 7. Adds `connection` as a new
     /// binding, or replaces the existing one sharing its `Id`, then

@@ -140,6 +140,7 @@ let ``Connections.rest routes to the resolved REST connector and sends the reque
 
 type OrderRecord = { Id: int; Name: string }
 type OrderWithOptions = { Id: int; Name: string; Notes: string option }
+type CsvRecordWithOptions = { Id: int; Price: decimal option; Notes: string option }
 
 [<Fact>]
 let ``Connections.getConnectionString returns the ADO.NET connection string for a SQL connector`` () =
@@ -199,6 +200,31 @@ let ``Connections.queryCsv streams CSV rows into strongly-typed records and allo
         |> Seq.toList
 
     Assert.Equal<string list>([ "Alpha" ], names)
+
+[<Fact>]
+let ``Connections.queryCsv maps sentinel strings N/A, -, null and empty to None for option fields`` () =
+    let path = Path.Combine(Path.GetTempPath(), "fqs-sentinels-" + Guid.NewGuid().ToString("N") + ".csv")
+    File.WriteAllText(path, "Id,Price,Notes\n1,100.50,Special\n2,N/A,-\n3,-,null\n4,250.75,Normal\n5,300.00,\n")
+    let csv = CsvConnector(path)
+    Connections.configure(FakeResolver(Map.ofList [ "SentinelsFeed", csv :> IConnector ]))
+
+    let items = Connections.queryCsv<CsvRecordWithOptions> "SentinelsFeed" |> Seq.toList
+
+    Assert.Equal(5, items.Length)
+    Assert.Equal(Some 100.50m, items.[0].Price)
+    Assert.Equal(Some "Special", items.[0].Notes)
+
+    Assert.Equal(None, items.[1].Price)
+    Assert.Equal(None, items.[1].Notes)
+
+    Assert.Equal(None, items.[2].Price)
+    Assert.Equal(None, items.[2].Notes)
+
+    Assert.Equal(Some 250.75m, items.[3].Price)
+    Assert.Equal(Some "Normal", items.[3].Notes)
+
+    Assert.Equal(Some 300.00m, items.[4].Price)
+    Assert.Equal(None, items.[4].Notes)
 
 [<Fact>]
 let ``Connections.get and Connections.connect return DatabaseConnection exposing Query, Queryable, Schema and Tables`` () =

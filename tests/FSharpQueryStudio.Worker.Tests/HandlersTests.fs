@@ -813,6 +813,70 @@ let ``dispatch on connection/register replacing an existing connection keeps onl
             cleanTempDir tempDir
     }
 
+[<Fact>]
+let ``dispatch on connection/register with workspaceDir persists to the specified local workspace directory instead of global`` () =
+    task {
+        let globalDir = Path.Combine(Path.GetTempPath(), "fqs-global-" + Guid.NewGuid().ToString("N"))
+        let localDir = Path.Combine(Path.GetTempPath(), "fqs-local-" + Guid.NewGuid().ToString("N"))
+        Handlers.setWorkspaceDirForTests (Some globalDir)
+
+        try
+            let conn = testConnection "LocalConn"
+            let payload =
+                JsonSerializer.SerializeToElement(
+                    {| id = conn.Id
+                       name = conn.Name
+                       kind = conn.Kind
+                       configuration = conn.Configuration
+                       secretReference = conn.SecretReference
+                       isTrusted = conn.IsTrusted
+                       workspaceDir = localDir |},
+                    Serialization.options
+                )
+            let req: WorkerRequestFrame =
+                { Id = "local-reg"
+                  Method = "connection/register"
+                  Params = payload }
+
+            let! response = Handlers.dispatch req
+            Assert.True(response.Error.IsNone)
+
+            let localPersisted = Workspace.readConnections localDir
+            Assert.Contains(localPersisted, fun c -> c.Name = "LocalConn")
+
+            let globalPersisted = Workspace.readConnections globalDir
+            Assert.DoesNotContain(globalPersisted, fun c -> c.Name = "LocalConn")
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir globalDir
+            cleanTempDir localDir
+    }
+
+[<Fact>]
+let ``dispatch on workspace/initEmptyProject creates empty workspace.json and generated directory`` () =
+    task {
+        let localDir = Path.Combine(Path.GetTempPath(), "fqs-init-" + Guid.NewGuid().ToString("N"))
+
+        try
+            let req: WorkerRequestFrame =
+                { Id = "init-proj"
+                  Method = "workspace/initEmptyProject"
+                  Params = JsonSerializer.SerializeToElement({| targetDir = localDir |}, Serialization.options) }
+
+            let! response = Handlers.dispatch req
+            Assert.True(response.Error.IsNone)
+
+            let wsFile = Path.Combine(localDir, ".fsqs", "workspace.json")
+            Assert.True(File.Exists wsFile)
+            let content = File.ReadAllText wsFile
+            Assert.Equal("[]\n", content)
+
+            let generatedDir = Path.Combine(localDir, ".fsqs", "generated")
+            Assert.True(Directory.Exists generatedDir)
+        finally
+            cleanTempDir localDir
+    }
+
 let private removeConnectionRequest (id: string) (connectionId: Guid) : WorkerRequestFrame =
     { Id = id
       Method = "connection/remove"
@@ -1268,6 +1332,26 @@ let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or em
             Assert.True(res1.Error.IsNone, (match res1.Error with Some e -> e.Message | None -> ""))
             Assert.True(res1.Result.IsSome)
 
+            let r1 = res1.Result.Value
+            let sqlite1 = r1.GetProperty("sqlitePath").GetString()
+            let sqlite2 = r1.GetProperty("sqlite2Path").GetString()
+            let csv1 = r1.GetProperty("csvPath").GetString()
+            let csv2 = r1.GetProperty("csv2Path").GetString()
+            let nb1 = r1.GetProperty("notebookPath").GetString()
+            let nb2 = r1.GetProperty("notebookPtPath").GetString()
+            Assert.True(File.Exists sqlite1, $"sqlitePath should exist: {sqlite1}")
+            Assert.True(File.Exists sqlite2, $"sqlite2Path should exist: {sqlite2}")
+            Assert.True(File.Exists csv1, $"csvPath should exist: {csv1}")
+            Assert.True(File.Exists csv2, $"csv2Path should exist: {csv2}")
+            Assert.True(File.Exists nb1, $"notebookPath should exist: {nb1}")
+            Assert.True(File.Exists nb2, $"notebookPtPath should exist: {nb2}")
+
+            let regConns =
+                r1.GetProperty("registeredConnections").EnumerateArray()
+                |> Seq.map (fun el -> el.GetString())
+                |> Seq.toList
+            Assert.Equal<string list>([ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed" ], regConns)
+
             // Test 2: with targetDirectory
             let req2: WorkerRequestFrame =
                 { Id = "s2"
@@ -1283,6 +1367,74 @@ let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or em
                   Params = JsonDocument.Parse("{}").RootElement }
             let! res3 = Handlers.dispatch req3
             Assert.True(res3.Error.IsNone, (match res3.Error with Some e -> e.Message | None -> ""))
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+            try
+                if Directory.Exists tmp then Directory.Delete(tmp, true)
+            with _ -> ()
+    }
+
+[<Fact>]
+let ``evaluating sample_demo notebook cells succeeds against generated samples`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-eval-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let escapedTmp = tmp.Replace("\\", "\\\\")
+            let req1: WorkerRequestFrame =
+                { Id = "s1"
+                  Method = "workspace/createSampleData"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+            let! res1 = Handlers.dispatch req1
+            Assert.True(res1.Error.IsNone)
+
+            let notebookPath = Path.Combine(tmp, "sample_demo.fsqnb")
+            Assert.True(File.Exists notebookPath)
+            let doc = JsonDocument.Parse(File.ReadAllText notebookPath)
+            let codeCells =
+                doc.RootElement.GetProperty("cells").EnumerateArray()
+                |> Seq.filter (fun c -> c.GetProperty("kind").GetString() = "code")
+                |> Seq.map (fun c -> c.GetProperty("value").GetString())
+                |> Seq.toList
+
+            Assert.Equal(9, codeCells.Length)
+
+            for idx, code in List.indexed codeCells do
+                let evalReq = notebookCellRequest $"cell-{idx + 1}" code "sample_demo.fsqnb"
+                let! evalRes = Handlers.dispatch evalReq
+                let errMsg = match evalRes.Error with Some e -> e.Message | None -> ""
+                Assert.True(evalRes.Error.IsNone, $"Cell {idx + 1} error: {errMsg}")
+                let env = JsonSerializer.Deserialize<ResultEnvelope>(evalRes.Result.Value.GetRawText(), Serialization.options)
+                let outputText = env.Output |> List.map (fun o -> o.Text) |> String.concat "\n"
+                Assert.True(
+                    (env.Kind = ResultKind.Table || env.Kind = ResultKind.Scalar),
+                    $"Cell {idx + 1} expected Table or Scalar outcome but got {env.Kind}. DisplayText: {env.DisplayText}. Output: {outputText}. Code:\n{code}"
+                )
+
+            let notebookPtPath = Path.Combine(tmp, "sample_demo_pt.fsqnb")
+            Assert.True(File.Exists notebookPtPath)
+            let docPt = JsonDocument.Parse(File.ReadAllText notebookPtPath)
+            let codeCellsPt =
+                docPt.RootElement.GetProperty("cells").EnumerateArray()
+                |> Seq.filter (fun c -> c.GetProperty("kind").GetString() = "code")
+                |> Seq.map (fun c -> c.GetProperty("value").GetString())
+                |> Seq.toList
+
+            Assert.Equal(9, codeCellsPt.Length)
+
+            for idx, code in List.indexed codeCellsPt do
+                let evalReq = notebookCellRequest $"cell-pt-{idx + 1}" code "sample_demo_pt.fsqnb"
+                let! evalRes = Handlers.dispatch evalReq
+                let errMsg = match evalRes.Error with Some e -> e.Message | None -> ""
+                Assert.True(evalRes.Error.IsNone, $"PT Cell {idx + 1} error: {errMsg}")
+                let env = JsonSerializer.Deserialize<ResultEnvelope>(evalRes.Result.Value.GetRawText(), Serialization.options)
+                let outputText = env.Output |> List.map (fun o -> o.Text) |> String.concat "\n"
+                Assert.True(
+                    (env.Kind = ResultKind.Table || env.Kind = ResultKind.Scalar),
+                    $"PT Cell {idx + 1} expected Table or Scalar outcome but got {env.Kind}. DisplayText: {env.DisplayText}. Output: {outputText}. Code:\n{code}"
+                )
         finally
             Handlers.setWorkspaceDirForTests None
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()

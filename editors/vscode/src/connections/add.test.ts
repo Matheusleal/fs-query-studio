@@ -55,6 +55,84 @@ describe("runAddConnection", () => {
     expect(sent).toHaveLength(0);
     expect(refresh).not.toHaveBeenCalled();
   });
+
+  it("passes workspaceDir when local scope is selected", async () => {
+    const d = deps({
+      getWorkspaceFolders: () => [{ name: "MyProj", path: "/workspace/my-proj" }],
+      ui: {
+        ...deps().deps.ui,
+        pickScope: async () => ({ scope: "local", targetDir: "/workspace/my-proj" }),
+      },
+    });
+    await runAddConnection(d.deps);
+    const reg = d.sent.find((s) => s.method === "connection/register")!;
+    expect((reg.params as Record<string, unknown>).workspaceDir).toBe("/workspace/my-proj");
+    expect(d.refresh).toHaveBeenCalledOnce();
+  });
+
+  it("does not pass workspaceDir when global scope is selected", async () => {
+    const d = deps({
+      getWorkspaceFolders: () => [{ name: "MyProj", path: "/workspace/my-proj" }],
+      ui: {
+        ...deps().deps.ui,
+        pickScope: async () => ({ scope: "global" }),
+      },
+    });
+    await runAddConnection(d.deps);
+    const reg = d.sent.find((s) => s.method === "connection/register")!;
+    expect((reg.params as Record<string, unknown>).workspaceDir).toBeUndefined();
+    expect(d.refresh).toHaveBeenCalledOnce();
+  });
+
+  it("aborts silently when scope selection is cancelled", async () => {
+    const d = deps({
+      getWorkspaceFolders: () => [{ name: "MyProj", path: "/workspace/my-proj" }],
+      ui: {
+        ...deps().deps.ui,
+        pickScope: async () => undefined,
+      },
+    });
+    await runAddConnection(d.deps);
+    expect(d.sent).toHaveLength(0);
+    expect(d.refresh).not.toHaveBeenCalled();
+  });
+
+  it("registers SQL Server with Windows Authentication without storing secrets", async () => {
+    const d = deps({
+      ui: {
+        ...deps().deps.ui,
+        pickKind: async () => "SqlServer" as const,
+        pickSqlServerAuth: async () => "windows" as const,
+        input: async (o: { prompt: string }) =>
+          o.prompt.includes("name")
+            ? "my-sql"
+            : "Server=localhost;Database=mydb;",
+      },
+    });
+    await runAddConnection(d.deps);
+    expect(d.stored).toHaveLength(0);
+    const reg = d.sent.find((s) => s.method === "connection/register")!;
+    const def = reg.params as ConnectionDefinition;
+    expect(def.name).toBe("my-sql");
+    expect(def.secretReference).toBeNull();
+    const config = def.configuration as { connectionString: string };
+    expect(config.connectionString).toContain("Integrated Security=True");
+    expect(config.connectionString).toContain("TrustServerCertificate=True");
+    expect(d.refresh).toHaveBeenCalledOnce();
+  });
+
+  it("aborts silently when SQL Server auth pick is cancelled", async () => {
+    const d = deps({
+      ui: {
+        ...deps().deps.ui,
+        pickKind: async () => "SqlServer" as const,
+        pickSqlServerAuth: async () => undefined,
+      },
+    });
+    await runAddConnection(d.deps);
+    expect(d.sent).toHaveLength(0);
+    expect(d.refresh).not.toHaveBeenCalled();
+  });
 });
 
 describe("runEditConnection", () => {

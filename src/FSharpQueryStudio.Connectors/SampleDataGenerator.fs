@@ -11,7 +11,9 @@ module SampleDataGenerator =
 
     type SampleFilesResult =
         { SqlitePath: string
+          Sqlite2Path: string
           CsvPath: string
+          Csv2Path: string
           NotebookPath: string
           NotebookPtPath: string }
 
@@ -113,6 +115,56 @@ INSERT OR IGNORE INTO OrderItems (Id, OrderId, ProductId, Quantity, UnitPrice) V
 (12, 108, 4, 1, 249.00);
 """
 
+    let private createInventoryTablesSql = """
+CREATE TABLE IF NOT EXISTS Warehouses (
+    Id INTEGER PRIMARY KEY,
+    Code TEXT NOT NULL,
+    City TEXT NOT NULL,
+    Country TEXT NOT NULL,
+    Capacity INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS StockLevels (
+    Id INTEGER PRIMARY KEY,
+    WarehouseId INTEGER NOT NULL,
+    ProductSku TEXT NOT NULL,
+    QuantityOnHand INTEGER NOT NULL,
+    ReorderLevel INTEGER NOT NULL,
+    LastRestocked TEXT NOT NULL,
+    FOREIGN KEY (WarehouseId) REFERENCES Warehouses(Id)
+);
+
+CREATE TABLE IF NOT EXISTS Suppliers (
+    Id INTEGER PRIMARY KEY,
+    CompanyName TEXT NOT NULL,
+    ContactEmail TEXT NOT NULL,
+    Country TEXT NOT NULL,
+    Rating REAL NOT NULL
+);
+"""
+
+    let private insertInventoryDataSql = """
+INSERT OR IGNORE INTO Warehouses (Id, Code, City, Country, Capacity) VALUES
+(1, 'WH-SP-01', 'São Paulo', 'Brazil', 50000),
+(2, 'WH-LON-01', 'London', 'UK', 35000),
+(3, 'WH-NYC-01', 'New York', 'USA', 45000),
+(4, 'WH-MAD-01', 'Madrid', 'Spain', 25000);
+
+INSERT OR IGNORE INTO StockLevels (Id, WarehouseId, ProductSku, QuantityOnHand, ReorderLevel, LastRestocked) VALUES
+(1, 1, 'LAPTOP-PRO-16', 45, 10, '2026-03-01T08:00:00Z'),
+(2, 1, 'MOUSE-WL-ERG', 220, 50, '2026-03-05T09:30:00Z'),
+(3, 2, 'BOOK-EXP-FS4', 80, 20, '2026-02-28T14:00:00Z'),
+(4, 2, 'BOOK-DM-FUNC', 110, 30, '2026-03-10T11:15:00Z'),
+(5, 3, 'HEADPHONES-NC', 65, 15, '2026-03-12T16:00:00Z'),
+(6, 4, 'SHOES-PRO-RUN', 90, 25, '2026-03-15T10:00:00Z');
+
+INSERT OR IGNORE INTO Suppliers (Id, CompanyName, ContactEmail, Country, Rating) VALUES
+(1, 'Global Tech Logistics', 'contact@globaltech.com', 'Brazil', 4.8),
+(2, 'EuroPublishing Group', 'supply@europub.co.uk', 'UK', 4.9),
+(3, 'Apex Electronics Corp', 'sales@apexelectronics.com', 'USA', 4.6),
+(4, 'Iberia Sports Supply', 'info@iberiasports.es', 'Spain', 4.7);
+"""
+
     let private sampleCsvContent = """Date,OrderId,Customer,Product,Category,Quantity,UnitPrice,TotalAmount,Status
 2026-03-01,101,Carlos Silva,Laptop Pro 16,Electronics,1,1499.99,1499.99,Completed
 2026-03-05,102,Alice Smith,Expert F# 4.0,Books,1,54.99,54.99,Completed
@@ -124,6 +176,15 @@ INSERT OR IGNORE INTO OrderItems (Id, OrderId, ProductId, Quantity, UnitPrice) V
 2026-03-25,106,Yuki Tanaka,Mechanical Keyboard RGB,Electronics,1,119.50,119.50,Completed
 2026-04-01,107,Ana Pereira,F# Deep Dives,Books,1,42.50,42.50,Processing
 2026-04-05,108,John Doe,Noise-Cancelling Headphones,Electronics,1,249.00,249.00,Pending
+"""
+
+    let private sampleCustomersCsvContent = """CustomerId,CustomerName,LoyaltyTier,TotalSpent,Score,ActiveSince,Feedback
+1,Carlos Silva,Platinum,1549.89,9.8,2025-11-10,Excelente atendimento e entrega rapida
+2,Alice Smith,Gold,499.50,9.5,2025-12-01,Great book selection and fast dispatch
+3,John Doe,Silver,298.90,8.7,2026-01-05,Reliable wireless accessories and audio gear
+4,Maria Garcia,Gold,389.90,9.2,2026-01-12,Muy buena calidad en productos deportivos
+5,Yuki Tanaka,Silver,119.50,9.0,2026-02-01,High quality mechanical keyboards
+6,Ana Pereira,Bronze,87.50,8.9,2026-02-18,Atendimento cordial e catalogo diversificado
 """
 
     type private NotebookCell =
@@ -159,9 +220,9 @@ INSERT OR IGNORE INTO OrderItems (Id, OrderId, ProductId, Quantity, UnitPrice) V
         let cells =
             [
                 mkMarkdown """
-# 🚀 F# Query Studio — Interactive Demo Notebook
+# 🚀 F# Query Studio — Multi-Source Interactive Notebook
 
-> **Welcome to F# Query Studio!** This interactive notebook comes pre-configured with two ready-to-query sample data sources. You can explore strongly-typed LINQ queries, relational joins, analytical aggregations, flat-file queries, and native parameterized SQL right out of the box.
+> **Welcome to F# Query Studio!** This interactive notebook demonstrates querying multiple data sources of the same type without collisions, alongside strongly-typed LINQ, joins, analytical aggregations, and flat files.
 
 ---
 
@@ -169,8 +230,10 @@ INSERT OR IGNORE INTO OrderItems (Id, OrderId, ProductId, Quantity, UnitPrice) V
 
 | Connection | Kind | Description | Primary Tables & Columns |
 | :--- | :--- | :--- | :--- |
-| **`SampleStore`** | SQLite | Relational e-commerce database | `Categories`, `Products`, `Customers`, `Orders`, `OrderItems` |
-| **`SalesFeed`** | CSV | Flat-file transaction export | `Date`, `OrderId`, `Customer`, `Product`, `Category`, `Quantity`, `UnitPrice`, `TotalAmount`, `Status` |
+| **`SampleStore`** | SQLite | Relational e-commerce orders & catalog | `Categories`, `Products`, `Customers`, `Orders`, `OrderItems` |
+| **`InventoryStore`** | SQLite | Warehouse inventory & logistics | `Warehouses`, `StockLevels`, `Suppliers` |
+| **`SalesFeed`** | CSV | Flat-file transaction export | `Date`, `OrderId`, `Customer`, `Product`, `Category`, `TotalAmount`, `Status` |
+| **`CustomersFeed`** | CSV | Flat-file loyalty & satisfaction feed | `CustomerId`, `CustomerName`, `LoyaltyTier`, `TotalSpent`, `Score`, `Feedback` |
 
 ---
 
@@ -184,7 +247,7 @@ INSERT OR IGNORE INTO OrderItems (Id, OrderId, ProductId, Quantity, UnitPrice) V
 """
 
                 mkMarkdown """
-## 1. ⚡ Strongly-Typed LINQ: Filtering Customers
+## 1. ⚡ Strongly-Typed LINQ: Filtering Customers (`SampleStore`)
 
 Access strongly-typed entities using `(Connections.connect "SampleStore").asEntities`. Notice how `c.Country`, `c.FirstName`, and `c.Email` have complete IntelliSense autocomplete, hover documentation, and type safety!
 
@@ -192,7 +255,7 @@ Access strongly-typed entities using `(Connections.connect "SampleStore").asEnti
 """
 
                 mkCode """
-// 1. Connect to SQLite and query customers from Brazil
+// 1. Connect to SQLite (SampleStore) and query customers from Brazil
 let store = (Connections.connect "SampleStore").asEntities
 
 query {
@@ -210,7 +273,7 @@ query {
 """
 
                 mkMarkdown """
-## 2. 🔗 Relational Joins: Orders with Customer Profiles
+## 2. 🔗 Relational Joins: Orders with Customer Profiles (`SampleStore`)
 
 Join tables cleanly and naturally using standard F# LINQ `join ... on (...)` syntax.
 """
@@ -233,13 +296,39 @@ query {
 """
 
                 mkMarkdown """
-## 3. 📊 Analytical Aggregations & Grouping (GroupBy)
+## 3. 🏬 Second SQLite Source: Querying Warehouses & Stocks (`InventoryStore`)
+
+Notice that multiple SQLite data sources coexist seamlessly without naming or module collisions!
+Here we query the second database `InventoryStore`.
+"""
+
+                mkCode """
+// 3. Connect to the second SQLite database (InventoryStore)
+let inventory = (Connections.connect "InventoryStore").asEntities
+
+query {
+    for w in inventory.Warehouses do
+    join s in inventory.StockLevels on (w.Id = s.WarehouseId)
+    sortByDescending s.QuantityOnHand
+    select {|
+        Warehouse = w.Code
+        City = w.City
+        ProductSku = s.ProductSku
+        QuantityOnHand = s.QuantityOnHand
+        ReorderLevel = s.ReorderLevel
+        LastRestocked = s.LastRestocked
+    |}
+}
+"""
+
+                mkMarkdown """
+## 4. 📊 Analytical Aggregations & Grouping (GroupBy)
 
 Compute business metrics, order counts, and revenue statistics grouped by order status.
 """
 
                 mkCode """
-// 3. Financial breakdown: Total revenue and average ticket by order status
+// 4. Financial breakdown: Total revenue and average ticket by order status
 let orders = store.Orders |> Seq.toList
 
 orders
@@ -253,14 +342,14 @@ orders
 """
 
                 mkMarkdown """
-## 4. 📁 Flat-File Queries: CSV with Strongly-Typed LINQ
+## 5. 📁 First Flat-File CSV: Sales Transactions (`SalesFeed`)
 
 CSV files are automatically discovered, inferred, and mapped to strongly-typed record rows. Decimal values, integers, and text fields are parsed culture-invariantly.
 """
 
                 mkCode """
-// 4. Connect to CSV transaction feed and filter electronics purchases
-let salesFeed = (Connections.connect "SalesFeed").asEntities
+// 5. Connect to the first CSV feed (SalesFeed) and filter electronics purchases
+let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
 
 query {
     for row in salesFeed.Rows do
@@ -279,13 +368,68 @@ query {
 """
 
                 mkMarkdown """
-## 5. 🛡️ Safe Parameterized SQL
+## 6. 📋 Second Flat-File CSV: Customer Loyalty Feed (`CustomersFeed`)
+
+A second CSV source is registered alongside `SalesFeed`. Both CSV sources generate independent, unique strongly-typed models without collision.
+"""
+
+                mkCode """
+// 6. Connect to the second CSV feed (CustomersFeed)
+let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
+
+query {
+    for row in loyaltyFeed.Rows do
+    where (row.TotalSpent >= 300.0M)
+    sortByDescending row.Score
+    select {|
+        Customer = row.CustomerName
+        Tier = row.LoyaltyTier
+        TotalSpent = row.TotalSpent
+        SatisfactionScore = row.Score
+        ActiveSince = row.ActiveSince
+        Feedback = row.Feedback
+    |}
+}
+"""
+
+                mkMarkdown """
+## 7. 🔄 Cross-Source LINQ: Correlating Multiple CSV Feeds in Memory
+
+Seamlessly join and correlate data from both CSV files (`SalesFeed` + `CustomersFeed`) in a single F# query!
+"""
+
+                mkCode """
+// 7. In-memory correlation between SalesFeed transactions and CustomersFeed loyalty
+let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
+let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
+
+let salesRows = salesFeed.Rows |> Seq.toList
+let loyaltyRows = loyaltyFeed.Rows |> Seq.toList
+
+query {
+    for s in salesRows do
+    join l in loyaltyRows on (s.Customer = l.CustomerName)
+    where (s.TotalAmount >= 100.0M)
+    sortByDescending s.TotalAmount
+    select {|
+        OrderId = s.OrderId
+        Customer = s.Customer
+        LoyaltyTier = l.LoyaltyTier
+        Product = s.Product
+        OrderAmount = s.TotalAmount
+        CustomerScore = l.Score
+    |}
+}
+"""
+
+                mkMarkdown """
+## 8. 🛡️ Safe Parameterized SQL (`SampleStore`)
 
 For complex database-specific queries, use `Connections.sql` with parameterized inputs to guard against SQL injection while maintaining raw database performance.
 """
 
                 mkCode """
-// 5. Parameterized SQL query joining Products and Categories
+// 8. Parameterized SQL query joining Products and Categories
 let catalogSql = @"
 SELECT 
     p.Name          AS Product,
@@ -302,26 +446,28 @@ Connections.sql "SampleStore" catalogSql [ "minPrice", box 100.0 ]
 """
 
                 mkMarkdown """
-## 6. 🌐 Cross-Source Analytics: SQLite Database vs CSV Feed
+## 9. 🌐 Cross-Database & Cross-Kind Overview: Multi-Source Pipeline
 
-Because F# Query Studio executes queries in an integrated F# Interactive session, you can effortlessly aggregate and correlate data across different sources in a single cell.
+Because F# Query Studio executes queries in an integrated F# Interactive session, you can aggregate metadata and counts across all 4 sources simultaneously.
 """
 
                 mkCode """
-// 6. Cross-source volume comparison: SQLite Orders vs. CSV Sales Feed
-let dbTotal =
-    store.Orders
-    |> Seq.filter (fun o -> o.Status = "Completed")
-    |> Seq.sumBy (fun o -> o.TotalAmount)
+// 9. Comprehensive summary across all 4 registered data sources
+let store = (Connections.connect "SampleStore").asEntities
+let inventory = (Connections.connect "InventoryStore").asEntities
+let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
+let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
 
-let csvTotal =
-    salesFeed.Rows
-    |> Seq.filter (fun r -> r.Status = "Completed")
-    |> Seq.sumBy (fun r -> r.TotalAmount)
+let sampleStoreOrders = store.Orders |> Seq.length
+let inventoryWarehouses = inventory.Warehouses |> Seq.length
+let salesCount = salesFeed.Rows |> Seq.length
+let loyaltyCount = loyaltyFeed.Rows |> Seq.length
 
 [
-    {| Source = "SQLite (SampleStore.Orders)"; CompletedRevenue = dbTotal; Currency = "USD" |}
-    {| Source = "CSV Feed (SalesFeed.csv)";   CompletedRevenue = csvTotal; Currency = "USD" |}
+    {| Source = "SampleStore";    Kind = "SQLite (Relational)"; RecordCount = sampleStoreOrders; PrimaryEntity = "Orders" |}
+    {| Source = "InventoryStore"; Kind = "SQLite (Relational)"; RecordCount = inventoryWarehouses; PrimaryEntity = "Warehouses" |}
+    {| Source = "SalesFeed";      Kind = "CSV (Flat-File)";     RecordCount = salesCount; PrimaryEntity = "Transactions" |}
+    {| Source = "CustomersFeed";  Kind = "CSV (Flat-File)";     RecordCount = loyaltyCount; PrimaryEntity = "Loyalty Profiles" |}
 ]
 """
 
@@ -341,9 +487,9 @@ let csvTotal =
         let cells =
             [
                 mkMarkdown """
-# 🚀 F# Query Studio — Guia Interativo de Amostras
+# 🚀 F# Query Studio — Guia Interativo Multi-Fontes
 
-> **Bem-vindo ao F# Query Studio!** Este notebook foi gerado com conexões prontas para você explorar consultas fortemente tipadas em F#, joins relacionais, agregações analíticas e arquivos planos (CSV) sem configurações adicionais.
+> **Bem-vindo ao F# Query Studio!** Este notebook interativo demonstra o funcionamento com múltiplas fontes de dados do mesmo tipo simultâneas, sem colisões de nomes, além de consultas LINQ fortemente tipadas, agregações, joins e análise de arquivos planos.
 
 ---
 
@@ -351,8 +497,10 @@ let csvTotal =
 
 | Conexão | Tipo | Descrição | Tabelas / Colunas Principais |
 | :--- | :--- | :--- | :--- |
-| **`SampleStore`** | SQLite | E-commerce relacional | `Categories`, `Products`, `Customers`, `Orders`, `OrderItems` |
-| **`SalesFeed`** | CSV | Feed diário de transações | `Date`, `OrderId`, `Customer`, `Product`, `Category`, `Quantity`, `UnitPrice`, `TotalAmount`, `Status` |
+| **`SampleStore`** | SQLite | E-commerce relacional (pedidos e catálogo) | `Categories`, `Products`, `Customers`, `Orders`, `OrderItems` |
+| **`InventoryStore`** | SQLite | Gestão de armazéns e logística | `Warehouses`, `StockLevels`, `Suppliers` |
+| **`SalesFeed`** | CSV | Feed diário de transações de vendas | `Date`, `OrderId`, `Customer`, `Product`, `Category`, `TotalAmount`, `Status` |
+| **`CustomersFeed`** | CSV | Feed de fidelidade e avaliação de clientes | `CustomerId`, `CustomerName`, `LoyaltyTier`, `TotalSpent`, `Score`, `Feedback` |
 
 ---
 
@@ -366,7 +514,7 @@ let csvTotal =
 """
 
                 mkMarkdown """
-## 1. ⚡ Consultas LINQ Fortemente Tipadas: Filtrando Clientes
+## 1. ⚡ Consultas LINQ Fortemente Tipadas: Filtrando Clientes (`SampleStore`)
 
 Ao chamar `(Connections.connect "SampleStore").asEntities`, o **F# Query Studio** fornece suporte a autocompletar completo com IntelliSense e tipos fortemente tipados gerados em segundo plano.
 
@@ -374,7 +522,7 @@ Ao chamar `(Connections.connect "SampleStore").asEntities`, o **F# Query Studio*
 """
 
                 mkCode """
-// 1. Conecta ao banco SQLite e consulta clientes do Brasil
+// 1. Conecta ao banco SQLite (SampleStore) e consulta clientes do Brasil
 let store = (Connections.connect "SampleStore").asEntities
 
 query {
@@ -392,7 +540,7 @@ query {
 """
 
                 mkMarkdown """
-## 2. 🔗 Relacionamentos e Joins Relacionais
+## 2. 🔗 Relacionamentos e Joins Relacionais (`SampleStore`)
 
 Combine tabelas relacionais de forma natural utilizando a sintaxe `join ... on (...)` do F# LINQ.
 """
@@ -415,13 +563,39 @@ query {
 """
 
                 mkMarkdown """
-## 3. 📊 Agregações Analíticas e Agrupamento (GroupBy)
+## 3. 🏬 Segunda Fonte SQLite: Armazéns e Estoque (`InventoryStore`)
+
+Múltiplas fontes SQLite coexistem sem colisão de módulos ou tipos gerados.
+Aqui conectamos e consultamos a segunda base SQLite: `InventoryStore`.
+"""
+
+                mkCode """
+// 3. Conecta à segunda base SQLite (InventoryStore)
+let inventory = (Connections.connect "InventoryStore").asEntities
+
+query {
+    for w in inventory.Warehouses do
+    join s in inventory.StockLevels on (w.Id = s.WarehouseId)
+    sortByDescending s.QuantityOnHand
+    select {|
+        Armazem = w.Code
+        Cidade = w.City
+        SkuProduto = s.ProductSku
+        QuantidadeEmEstoque = s.QuantityOnHand
+        PontoReposicao = s.ReorderLevel
+        UltimoReabastecimento = s.LastRestocked
+    |}
+}
+"""
+
+                mkMarkdown """
+## 4. 📊 Agregações Analíticas e Agrupamento (GroupBy)
 
 Realize agregações analíticas (`sumBy`, `count`, `averageBy`) agrupando os dados por status do pedido.
 """
 
                 mkCode """
-// 3. Resumo financeiro: Faturamento total e ticket médio por Status do Pedido
+// 4. Resumo financeiro: Faturamento total e ticket médio por Status do Pedido
 let orders = store.Orders |> Seq.toList
 
 orders
@@ -435,14 +609,14 @@ orders
 """
 
                 mkMarkdown """
-## 4. 📁 Consultas em Arquivos Planos (CSV com LINQ Tipado)
+## 5. 📁 Primeiro Arquivo CSV: Transações de Vendas (`SalesFeed`)
 
 Arquivos CSV são mapeados como registros fortemente tipados com inferência automática de colunas numéricas, decimais e texto.
 """
 
                 mkCode """
-// 4. Conecta ao arquivo CSV 'SalesFeed' e filtra compras de Eletrônicos
-let salesFeed = (Connections.connect "SalesFeed").asEntities
+// 5. Conecta ao primeiro arquivo CSV (SalesFeed) e filtra compras de Eletrônicos
+let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
 
 query {
     for row in salesFeed.Rows do
@@ -461,13 +635,68 @@ query {
 """
 
                 mkMarkdown """
-## 5. 🛡️ Consultas SQL Parametrizadas Seguras
+## 6. 📋 Segundo Arquivo CSV: Feed de Fidelidade (`CustomersFeed`)
+
+Uma segunda fonte CSV registrada ao lado de `SalesFeed`. Ambas possuem inferência de tipos e módulos independentes sem sobrescrita.
+"""
+
+                mkCode """
+// 6. Conecta ao segundo arquivo CSV (CustomersFeed)
+let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
+
+query {
+    for row in loyaltyFeed.Rows do
+    where (row.TotalSpent >= 300.0M)
+    sortByDescending row.Score
+    select {|
+        Cliente = row.CustomerName
+        NivelFidelidade = row.LoyaltyTier
+        GastoTotal = row.TotalSpent
+        NotaSatisfacao = row.Score
+        ClienteDesde = row.ActiveSince
+        Avaliacao = row.Feedback
+    |}
+}
+"""
+
+                mkMarkdown """
+## 7. 🔄 Cruzamento Multi-CSV com LINQ em Memória
+
+Cruze dados de múltiplos arquivos CSV distintos (`SalesFeed` + `CustomersFeed`) com um join tipado em memória:
+"""
+
+                mkCode """
+// 7. Correlação em memória entre transações de vendas e fidelidade de clientes
+let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
+let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
+
+let salesRows = salesFeed.Rows |> Seq.toList
+let loyaltyRows = loyaltyFeed.Rows |> Seq.toList
+
+query {
+    for s in salesRows do
+    join l in loyaltyRows on (s.Customer = l.CustomerName)
+    where (s.TotalAmount >= 100.0M)
+    sortByDescending s.TotalAmount
+    select {|
+        PedidoId = s.OrderId
+        Cliente = s.Customer
+        NivelFidelidade = l.LoyaltyTier
+        Produto = s.Product
+        ValorPedido = s.TotalAmount
+        Satisfacao = l.Score
+    |}
+}
+"""
+
+                mkMarkdown """
+## 8. 🛡️ Consultas SQL Parametrizadas Seguras (`SampleStore`)
 
 Para queries complexas ou instruções SQL nativas, use `Connections.sql` com passagem segura de parâmetros nomeados para evitar injeção de SQL.
 """
 
                 mkCode """
-// 5. Query SQL nativa com parâmetros nomeados seguros
+// 8. Query SQL nativa com parâmetros nomeados seguros
 let sqlCatalogo = @"
 SELECT 
     p.Name          AS Produto,
@@ -484,26 +713,28 @@ Connections.sql "SampleStore" sqlCatalogo [ "precoMinimo", box 100.0 ]
 """
 
                 mkMarkdown """
-## 6. 🌐 Análise Cruzada de Fontes: Banco SQLite vs. Feed CSV
+## 9. 🌐 Visão Consolidada Multi-Fontes: SQLite + CSV
 
-Como as consultas no F# Query Studio rodam em uma sessão FSI unificada, você pode cruzar e comparar dados de diferentes fontes em uma única célula:
+Como as consultas no F# Query Studio rodam em uma sessão FSI unificada, você pode cruzar e comparar dados das 4 fontes simultaneamente:
 """
 
                 mkCode """
-// 6. Comparativo de volume faturado entre o Banco SQLite e o Feed CSV
-let totalBanco =
-    store.Orders
-    |> Seq.filter (fun o -> o.Status = "Completed")
-    |> Seq.sumBy (fun o -> o.TotalAmount)
+// 9. Resumo consolidado das 4 fontes de dados registradas
+let store = (Connections.connect "SampleStore").asEntities
+let inventory = (Connections.connect "InventoryStore").asEntities
+let salesFeed = (Connections.connectCsv "SalesFeed").SalesFeed
+let loyaltyFeed = (Connections.connectCsv "CustomersFeed").CustomersFeed
 
-let totalCsv =
-    salesFeed.Rows
-    |> Seq.filter (fun r -> r.Status = "Completed")
-    |> Seq.sumBy (fun r -> r.TotalAmount)
+let sampleStoreOrders = store.Orders |> Seq.length
+let inventoryWarehouses = inventory.Warehouses |> Seq.length
+let salesCount = salesFeed.Rows |> Seq.length
+let loyaltyCount = loyaltyFeed.Rows |> Seq.length
 
 [
-    {| Fonte = "Banco SQLite (SampleStore.Orders)"; FaturamentoConcluido = totalBanco; Moeda = "USD" |}
-    {| Fonte = "Feed Diário (SalesFeed.csv)";       FaturamentoConcluido = totalCsv;   Moeda = "USD" |}
+    {| Fonte = "SampleStore";    Tipo = "SQLite (Relacional)"; TotalRegistros = sampleStoreOrders; EntidadePrincipal = "Orders" |}
+    {| Fonte = "InventoryStore"; Tipo = "SQLite (Relacional)"; TotalRegistros = inventoryWarehouses; EntidadePrincipal = "Warehouses" |}
+    {| Fonte = "SalesFeed";      Tipo = "CSV (Arquivo Plano)"; TotalRegistros = salesCount; EntidadePrincipal = "Transações" |}
+    {| Fonte = "CustomersFeed";  Tipo = "CSV (Arquivo Plano)"; TotalRegistros = loyaltyCount; EntidadePrincipal = "Perfis de Fidelidade" |}
 ]
 """
 
@@ -538,12 +769,38 @@ let totalCsv =
 
         SqliteConnection.ClearAllPools()
 
+    let createInventoryDatabase (filePath: string) : unit =
+        let dir = Path.GetDirectoryName(filePath)
+        if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
+            Directory.CreateDirectory(dir) |> ignore
+
+        let connectionString = $"Data Source={filePath}"
+        use connection = new SqliteConnection(connectionString)
+        connection.Open()
+
+        use cmd1 = connection.CreateCommand()
+        cmd1.CommandText <- createInventoryTablesSql
+        cmd1.ExecuteNonQuery() |> ignore
+
+        use cmd2 = connection.CreateCommand()
+        cmd2.CommandText <- insertInventoryDataSql
+        cmd2.ExecuteNonQuery() |> ignore
+
+        SqliteConnection.ClearAllPools()
+
     let createSampleCsv (filePath: string) : unit =
         let dir = Path.GetDirectoryName(filePath)
         if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
             Directory.CreateDirectory(dir) |> ignore
 
         File.WriteAllText(filePath, sampleCsvContent)
+
+    let createSampleCustomersCsv (filePath: string) : unit =
+        let dir = Path.GetDirectoryName(filePath)
+        if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
+            Directory.CreateDirectory(dir) |> ignore
+
+        File.WriteAllText(filePath, sampleCustomersCsvContent)
 
     let createSampleDemoNotebook (filePath: string) : unit =
         let dir = Path.GetDirectoryName(filePath)
@@ -565,17 +822,22 @@ let totalCsv =
             Directory.CreateDirectory sampleDir |> ignore
 
         let dbPath = Path.Combine(sampleDir, "sample_store.db")
+        let db2Path = Path.Combine(sampleDir, "inventory.db")
         let csvPath = Path.Combine(sampleDir, "sales_feed.csv")
+        let csv2Path = Path.Combine(sampleDir, "customers_feed.csv")
         let notebookPath = Path.Combine(targetDir, "sample_demo.fsqnb")
         let notebookPtPath = Path.Combine(targetDir, "sample_demo_pt.fsqnb")
 
         createSampleStoreDatabase dbPath
+        createInventoryDatabase db2Path
         createSampleCsv csvPath
+        createSampleCustomersCsv csv2Path
         createSampleDemoNotebook notebookPath
         createSampleDemoNotebookPt notebookPtPath
 
         { SqlitePath = dbPath
+          Sqlite2Path = db2Path
           CsvPath = csvPath
+          Csv2Path = csv2Path
           NotebookPath = notebookPath
           NotebookPtPath = notebookPtPath }
-
