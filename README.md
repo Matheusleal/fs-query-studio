@@ -138,12 +138,6 @@ Build / package / publish mechanics live in
 release process is in
 [`docs/vscode-extension-release.md`](docs/vscode-extension-release.md).
 
-## Relationship to Ionide
-
-[Ionide](https://ionide.io) handles F# in ordinary `.fs` / `.fsx` files. It
-never sees notebook cells, and this extension never touches `.fs` / `.fsx`.
-Install both; they do not conflict.
-
 ## License
 
 [MIT](LICENSE) © 2026 Matheus Leal.

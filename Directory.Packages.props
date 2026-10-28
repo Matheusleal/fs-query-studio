@@ -24,7 +24,7 @@
     <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
     <PackageVersion Include="SQLitePCLRaw.lib.e_sqlite3" Version="3.53.3" />
     <PackageVersion Include="SQLProvider" Version="1.5.28" />
-    <PackageVersion Include="SSH.NET" Version="2026.0.0" />
+    <!-- Transitive pinning: pins transitively referenced Pkcs to patched 10.x to prevent NU1903 security advisory on 9.0.18 -->
     <PackageVersion Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
     <PackageVersion Include="Testcontainers.MsSql" Version="4.16.0" />
     <PackageVersion Include="Testcontainers.PostgreSql" Version="4.16.0" />

@@ -322,12 +322,8 @@ As you type in a cell you get:
 - **diagnostics** — red squiggles for errors, per cell.
 
 That is the whole list. There is no find-all-references, no formatting, no code
-actions, no rename across cells. This intelligence comes from the extension's
-worker, not from Ionide.
-
-[Ionide](https://ionide.io) still owns ordinary `.fs` / `.fsx` files; it never
-sees notebook cells and this extension never touches `.fs` / `.fsx`. Running
-both is fine.
+actions, no rename across cells. This intelligence is provided directly by the extension's
+built-in language service worker.
 
 ---
 
