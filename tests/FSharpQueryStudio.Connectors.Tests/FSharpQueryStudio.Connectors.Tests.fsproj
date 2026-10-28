@@ -12,6 +12,7 @@
     <Compile Include="ExcelConnectorTests.fs" />
     <Compile Include="RestConnectorTests.fs" />
     <Compile Include="ConnectionsTests.fs" />
+    <Compile Include="SqlPushdownQueryTests.fs" />
     <Compile Include="CsvExportTests.fs" />
     <Compile Include="ConnectorCallLoggingTests.fs" />
     <Compile Include="WorkspaceConnectionResolverTests.fs" />

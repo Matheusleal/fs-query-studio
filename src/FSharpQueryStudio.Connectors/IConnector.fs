@@ -38,3 +38,10 @@ type IQueryableConnector =
     inherit IConnector
     abstract ConnectionString: string
     abstract ExecuteQuery: sql: string -> parameters: (string * obj) list -> ConnectorQueryResult
+
+/// Extended interface for SQL connectors supporting zero-allocation direct reader streaming.
+type IStreamingQueryableConnector =
+    inherit IQueryableConnector
+    abstract ExecuteReaderStream: sql: string -> parameters: (string * obj) list -> mapper: (System.Data.IDataRecord -> 'T) -> 'T seq
+    abstract ExecuteReaderStreamWithColumns: sql: string -> parameters: (string * obj) list -> mapperFactory: (string list -> (System.Data.IDataRecord -> 'T)) -> 'T seq
+

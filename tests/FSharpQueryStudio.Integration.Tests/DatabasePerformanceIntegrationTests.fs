@@ -266,7 +266,34 @@ type PostgreSqlPerformanceIntegrationTests(fixture: PostgreSqlContainerFixture, 
             output.WriteLine($"  - Raw ADO.NET obj[]:       {swRaw.ElapsedMilliseconds}ms, Allocated: {(allocAfterRaw - allocBeforeRaw) / 1024L} KB")
             output.WriteLine($"  - Mapped to F# PerfOrder:  {swMapped.ElapsedMilliseconds}ms, Allocated: {(allocAfterMapped - allocBeforeMapped) / 1024L} KB")
             output.WriteLine($"  - Pure Mapping Overhead:   {swMapped.ElapsedMilliseconds - swRaw.ElapsedMilliseconds}ms, Added Alloc: {((allocAfterMapped - allocBeforeMapped) - (allocAfterRaw - allocBeforeRaw)) / 1024L} KB")
+
+            // 8. VALIDATION: SqlPushdownQueryable LINQ Pushdown & Helpers
+            let pushdownQueryable = dbConn.Queryable<PerfOrder>("perf_sales.orders")
+            let linqPushdownFiltered =
+                query {
+                    for o in pushdownQueryable do
+                    where (o.total_amount > 1400.0M)
+                    select o
+                }
+                |> Seq.toList
+            Assert.Equal(pushdownFiltered.Length, linqPushdownFiltered.Length)
+
+            let linqPushdownCount =
+                query {
+                    for o in pushdownQueryable do
+                    where (o.status = "Completed")
+                    count
+                }
+            Assert.True(linqPushdownCount > 0)
+
+            let pageResult =
+                (dbConn.PushdownQueryable<PerfOrder>("perf_sales.orders"))
+                    .Where("total_amount > @min", [ "@min", box 1400.0M ])
+                    .Page(1, 10)
+                |> Seq.toList
+            Assert.Equal(10, pageResult.Length)
         }
+
 
 [<Collection("SqlServer container")>]
 [<Trait("Category", "RequiresDocker")>]
@@ -507,4 +534,30 @@ type SqlServerPerformanceIntegrationTests(fixture: MsSqlContainerFixture, output
             output.WriteLine($"  - Raw ADO.NET obj[]:       {swRaw.ElapsedMilliseconds}ms, Allocated: {(allocAfterRaw - allocBeforeRaw) / 1024L} KB")
             output.WriteLine($"  - Mapped to F# PerfOrder:  {swMapped.ElapsedMilliseconds}ms, Allocated: {(allocAfterMapped - allocBeforeMapped) / 1024L} KB")
             output.WriteLine($"  - Pure Mapping Overhead:   {swMapped.ElapsedMilliseconds - swRaw.ElapsedMilliseconds}ms, Added Alloc: {((allocAfterMapped - allocBeforeMapped) - (allocAfterRaw - allocBeforeRaw)) / 1024L} KB")
+
+            // 8. VALIDATION: SqlPushdownQueryable LINQ Pushdown & Helpers
+            let pushdownQueryable = dbConn.Queryable<PerfOrder>("perf_sales.orders")
+            let linqPushdownFiltered =
+                query {
+                    for o in pushdownQueryable do
+                    where (o.total_amount > 1400.0M)
+                    select o
+                }
+                |> Seq.toList
+            Assert.Equal(pushdownFiltered.Length, linqPushdownFiltered.Length)
+
+            let linqPushdownCount =
+                query {
+                    for o in pushdownQueryable do
+                    where (o.status = "Completed")
+                    count
+                }
+            Assert.True(linqPushdownCount > 0)
+
+            let pageResult =
+                (dbConn.PushdownQueryable<PerfOrder>("perf_sales.orders"))
+                    .Where("total_amount > @min", [ "@min", box 1400.0M ])
+                    .Page(1, 10)
+                |> Seq.toList
+            Assert.Equal(10, pageResult.Length)
         }
