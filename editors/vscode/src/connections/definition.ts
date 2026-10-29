@@ -1,17 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { makeUnionTag, type ConnectorKindName, type ConnectionDefinition } from "../protocol";
+import {
+  ConnectorFrontRegistry,
+  type ConnectionFormInput,
+} from "./connector-registry";
 
-export interface ConnectionFormInput {
-  kind: ConnectorKindName;
-  name: string;
-  filePath?: string;
-  delimiter?: string;
-  connectionString?: string;
-  password?: string;
-  url?: string;
-  /** Generic key-value configuration populated by schema-driven form fields */
-  configValues?: Record<string, unknown>;
-}
+export type { ConnectionFormInput };
 
 export interface BuiltConnection {
   definition: ConnectionDefinition;
@@ -26,88 +20,7 @@ export function sanitizeConnectionStringAndPassword(
   rawConnStr: string,
   rawPassword?: string,
 ): { connectionString: string; password?: string } {
-  let connStr = rawConnStr.trim();
-  let pwd = rawPassword?.trim() ? rawPassword.trim() : undefined;
-
-  // 0. If SQL Server has Integrated Security or Trusted_Connection and no raw password,
-  // do not extract or add any password:
-  const isIntegrated =
-    kind === "SqlServer" &&
-    /(integrated\s+security\s*=\s*(true|sspi)|trusted_connection\s*=\s*(true|yes))/i.test(connStr);
-  if (isIntegrated && !pwd) {
-    return { connectionString: connStr, password: undefined };
-  }
-
-  // 1. Check for plaintext password in standard key=value connection string:
-  // e.g. "Password=secret", "Pwd=secret", "User Id=sa;Password=secret;"
-  const kvPwdRegex = /(^|;)\s*(password|pwd)\s*=\s*([^;]+)/i;
-  const kvMatch = connStr.match(kvPwdRegex);
-  if (kvMatch) {
-    const extractedVal = kvMatch[3].trim();
-    if (!extractedVal.toLowerCase().includes("{password}")) {
-      if (!pwd) {
-        pwd = extractedVal;
-      }
-      connStr = connStr.replace(kvPwdRegex, "$1$2={password}");
-    }
-  }
-
-  // 2. Check for URI format: e.g. postgres://user:secret@host:port/db
-  const uriPwdRegex = /^(postgres(?:ql)?:\/\/[^:]+):([^@]+)(@.+)$/i;
-  const uriMatch = connStr.match(uriPwdRegex);
-  if (uriMatch) {
-    const extractedUriPwd = decodeURIComponent(uriMatch[2]);
-    if (!extractedUriPwd.toLowerCase().includes("{password}")) {
-      if (!pwd) {
-        pwd = extractedUriPwd;
-      }
-      connStr = connStr.replace(uriPwdRegex, "$1:{password}$3");
-    }
-  }
-
-  // 3. If password was provided (either extracted or typed), but connection string does NOT have {password} placeholder:
-  if (pwd && !connStr.toLowerCase().includes("{password}")) {
-    if (
-      connStr.toLowerCase().startsWith("postgres://") ||
-      connStr.toLowerCase().startsWith("postgresql://")
-    ) {
-      const uriUserRegex = /^(postgres(?:ql)?:\/\/[^@]+)(@.+)$/i;
-      if (uriUserRegex.test(connStr)) {
-        connStr = connStr.replace(uriUserRegex, "$1:{password}$2");
-      }
-    } else {
-      const trimmed = connStr.endsWith(";") ? connStr.slice(0, -1) : connStr;
-      connStr = trimmed ? `${trimmed};Password={password};` : "Password={password};";
-    }
-  }
-
-  return { connectionString: connStr, password: pwd };
-}
-
-function configurationFor(input: ConnectionFormInput): unknown {
-  if (input.configValues && Object.keys(input.configValues).length > 0) {
-    return { ...input.configValues };
-  }
-  const cleanPath = (input.filePath ?? "").trim().replace(/^["']|["']$/g, "").trim();
-  switch (input.kind) {
-    case "Sqlite":
-    case "Excel":
-      return { filePath: cleanPath };
-    case "Csv": {
-      const config: { filePath: string; delimiter?: string } = { filePath: cleanPath };
-      if (input.delimiter && input.delimiter.trim().length > 0) {
-        config.delimiter = input.delimiter.trim();
-      }
-      return config;
-    }
-    case "SqlServer":
-    case "PostgreSql":
-      return { connectionString: input.connectionString ?? "" };
-    case "RestJson":
-      return { url: input.url ?? "", method: "GET", headers: [], queryParams: [], body: null };
-    default:
-      return {};
-  }
+  return ConnectorFrontRegistry.sanitizeConnectionStringAndPassword(kind, rawConnStr, rawPassword);
 }
 
 /** Pure. Assembles a `ConnectionDefinition` from form input, applying the
@@ -125,8 +38,8 @@ export function buildConnectionDefinition(
     formInput.connectionString ??
     (formInput.configValues?.connectionString as string | undefined);
 
-  if (connStr !== undefined && (formInput.kind === "SqlServer" || formInput.kind === "PostgreSql")) {
-    const sanitized = sanitizeConnectionStringAndPassword(
+  if (connStr !== undefined) {
+    const sanitized = ConnectorFrontRegistry.sanitizeConnectionStringAndPassword(
       formInput.kind,
       connStr,
       formInput.password,
@@ -148,15 +61,13 @@ export function buildConnectionDefinition(
     (formInput.configValues?.connectionString as string | undefined) ??
     "";
 
-  const isWindowsAuthSql =
-    formInput.kind === "SqlServer" &&
-    /(integrated\s+security\s*=\s*(true|sspi)|trusted_connection\s*=\s*(true|yes))/i.test(
-      effectiveConnStr,
-    ) &&
-    !hasNewSecret;
+  const isWindowsAuth = ConnectorFrontRegistry.isWindowsAuthentication(
+    formInput.kind,
+    effectiveConnStr,
+    hasNewSecret,
+  );
 
-
-  const secretReference = isWindowsAuthSql
+  const secretReference = isWindowsAuth
     ? null
     : (existing?.secretReference ??
       (hasNewSecret ? `fqs-conn-${randomUUID().replace(/-/g, "")}` : null));
@@ -165,7 +76,7 @@ export function buildConnectionDefinition(
     id: existing?.id ?? randomUUID(),
     name: formInput.name,
     kind: makeUnionTag(formInput.kind),
-    configuration: configurationFor(formInput),
+    configuration: ConnectorFrontRegistry.configurationFor(formInput),
     secretReference,
     isTrusted: existing?.isTrusted ?? false,
   };

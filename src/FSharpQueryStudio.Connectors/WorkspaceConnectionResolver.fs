@@ -66,23 +66,6 @@ module ConnectionStringSecrets =
                         $"{trimmed};Password={secret}"
             | _ -> template
 
-module BuiltinConnectors =
-    let registerDefaults () =
-        let r = ConnectorRegistry.Instance
-        let sqlGen = SqlEntityGenerator() :> IConnectorEntityGenerator
-        let csvGen = CsvEntityGenerator() :> IConnectorEntityGenerator
-        let excelGen = ExcelEntityGenerator() :> IConnectorEntityGenerator
-        let restGen = RestEntityGenerator() :> IConnectorEntityGenerator
-
-        r.Register(CustomDescriptorWithGenerator(SqliteDescriptor.Instance, sqlGen))
-        r.Register(CustomDescriptorWithGenerator(SqlServerDescriptor.Instance, sqlGen))
-        r.Register(CustomDescriptorWithGenerator(PostgreSqlDescriptor.Instance, sqlGen))
-        r.Register(CustomDescriptorWithGenerator(CsvDescriptor.Instance, csvGen))
-        r.Register(CustomDescriptorWithGenerator(ExcelDescriptor.Instance, excelGen))
-        r.Register(CustomDescriptorWithGenerator(RestDescriptor.Instance, restGen))
-
-    do registerDefaults ()
-
 /// Builds a live `IConnector` from a registered `ConnectionDefinition` —
 /// Section 13's workspace connection registry, the real implementation
 /// `Connections.IConnectionResolver` was designed against but, until this

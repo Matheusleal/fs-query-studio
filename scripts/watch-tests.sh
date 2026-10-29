@@ -12,14 +12,14 @@ HEARTBEAT_SECONDS="${3:-5}"
 
 echo ""
 echo "======================================================================"
-echo "==> [Watcher] Iniciando monitoramento externo de testes"
-echo "    Comando:        $COMMAND"
-echo "    Timeout limite: ${TIMEOUT_SECONDS}s ($(( TIMEOUT_SECONDS / 60 )) min)"
+echo "==> [Watcher] Starting external test execution monitor"
+echo "    Command:        $COMMAND"
+echo "    Timeout limit:  ${TIMEOUT_SECONDS}s ($(( TIMEOUT_SECONDS / 60 )) min)"
 echo "    Heartbeat:      ${HEARTBEAT_SECONDS}s"
 echo "======================================================================"
 echo ""
 
-# Iniciar o comando em background
+# Start the command in the background
 eval "$COMMAND" &
 PID=$!
 
@@ -33,13 +33,13 @@ while kill -0 "$PID" 2>/dev/null; do
     if [ "$ELAPSED" -ge "$TIMEOUT_SECONDS" ]; then
         echo ""
         echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
-        echo "[FATAL] [Watcher] A EXECUÇÃO EXCEDEU O LIMITE DE 5 MINUTOS (${TIMEOUT_SECONDS}s)!"
-        echo "[FATAL] [Watcher] O teste está com problema (hang / deadlock / loop infinito)!"
+        echo "[FATAL] [Watcher] EXECUTION EXCEEDED THE 5-MINUTE LIMIT (${TIMEOUT_SECONDS}s)!"
+        echo "[FATAL] [Watcher] The test suite has a problem (hang / deadlock / infinite loop)!"
         echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
         echo ""
-        echo "[Watcher] Encerrando árvore de processos PID $PID..."
+        echo "[Watcher] Terminating process tree for PID $PID..."
         
-        # Kill toda a árvore de processos do PID
+        # Kill the entire process tree for PID
         pkill -P "$PID" 2>/dev/null || true
         kill -9 "$PID" 2>/dev/null || true
         
@@ -48,7 +48,7 @@ while kill -0 "$PID" 2>/dev/null; do
 
     MINUTES=$(( ELAPSED / 60 ))
     SECONDS=$(( ELAPSED % 60 ))
-    printf "[Watcher] Execução em andamento... Decorrido: %02d:%02d / %02d:00\n" "$MINUTES" "$SECONDS" $(( TIMEOUT_SECONDS / 60 ))
+    printf "[Watcher] Test execution in progress... Elapsed: %02d:%02d / %02d:00\n" "$MINUTES" "$SECONDS" $(( TIMEOUT_SECONDS / 60 ))
 done
 
 wait "$PID"
@@ -60,9 +60,9 @@ TOTAL_MIN=$(( TOTAL_ELAPSED / 60 ))
 TOTAL_SEC=$(( TOTAL_ELAPSED % 60 ))
 
 if [ "$EXIT_CODE" -eq 0 ]; then
-    printf "\n[OK] [Watcher] Testes concluídos com SUCESSO em %02d:%02d (ExitCode: 0).\n" "$TOTAL_MIN" "$TOTAL_SEC"
+    printf "\n[OK] [Watcher] Tests completed SUCCESSFULLY in %02d:%02d (ExitCode: 0).\n" "$TOTAL_MIN" "$TOTAL_SEC"
 else
-    printf "\n[ERROR] [Watcher] Testes FALHARAM em %02d:%02d com código de saída %d.\n" "$TOTAL_MIN" "$TOTAL_SEC" "$EXIT_CODE"
+    printf "\n[ERROR] [Watcher] Tests FAILED in %02d:%02d with exit code %d.\n" "$TOTAL_MIN" "$TOTAL_SEC" "$EXIT_CODE"
 fi
 
 exit "$EXIT_CODE"

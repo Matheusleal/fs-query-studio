@@ -10,6 +10,7 @@ import {
   buildConnectionDefinition,
   type ConnectionFormInput,
 } from "./definition";
+import { ConnectorFrontRegistry } from "./connector-registry";
 import type { WorkerLike } from "./tree";
 
 export type ConnectionScope = "local" | "global";
@@ -53,65 +54,8 @@ export interface ConnectionFlowDeps {
   getDescriptors?: () => Promise<ConnectorDescriptorDto[]>;
 }
 
-export const DEFAULT_CONNECTOR_DESCRIPTORS: ConnectorDescriptorDto[] = [
-  {
-    kindId: "SqlServer",
-    displayName: "SQL Server",
-    category: "sql",
-    icon: "database",
-    formFields: [
-      { name: "connectionString", label: "SQL Server Connection String", type: "string", required: true, placeholder: "Server=localhost;Database=master;TrustServerCertificate=True;", secretHandling: "connectionString:{password}" },
-      { name: "password", label: "Password", type: "password", required: false, secretHandling: "isolated" },
-    ],
-  },
-  {
-    kindId: "PostgreSql",
-    displayName: "PostgreSQL",
-    category: "sql",
-    icon: "database",
-    formFields: [
-      { name: "connectionString", label: "PostgreSQL Connection String", type: "string", required: true, placeholder: "Host=localhost;Database=mydb;Username=postgres", secretHandling: "connectionString:{password}" },
-      { name: "password", label: "Password", type: "password", required: false, secretHandling: "isolated" },
-    ],
-  },
-  {
-    kindId: "Sqlite",
-    displayName: "SQLite",
-    category: "sql",
-    icon: "database",
-    formFields: [
-      { name: "filePath", label: "Absolute file path", type: "file", required: true, placeholder: "/path/to/database.db", secretHandling: "none" },
-    ],
-  },
-  {
-    kindId: "Csv",
-    displayName: "CSV",
-    category: "csv",
-    icon: "file",
-    formFields: [
-      { name: "filePath", label: "Absolute file path", type: "file", required: true, placeholder: "/path/to/data.csv", secretHandling: "none" },
-      { name: "delimiter", label: "Delimiter (optional: comma, semicolon, tab. Leave blank for auto-detect)", type: "string", required: false, placeholder: "Leave blank for auto-detect (, ; \\t |)", secretHandling: "none" },
-    ],
-  },
-  {
-    kindId: "Excel",
-    displayName: "Excel",
-    category: "excel",
-    icon: "file",
-    formFields: [
-      { name: "filePath", label: "Absolute file path", type: "file", required: true, placeholder: "/path/to/spreadsheet.xlsx", secretHandling: "none" },
-    ],
-  },
-  {
-    kindId: "RestJson",
-    displayName: "REST (JSON)",
-    category: "rest",
-    icon: "globe",
-    formFields: [
-      { name: "url", label: "Base URL", type: "string", required: true, placeholder: "https://example.com/api", secretHandling: "none" },
-    ],
-  },
-];
+export const DEFAULT_CONNECTOR_DESCRIPTORS: ConnectorDescriptorDto[] =
+  ConnectorFrontRegistry.defaultDescriptors;
 
 function stringProp(configuration: unknown, key: string): string {
   const value = (configuration as Record<string, unknown> | null | undefined)?.[key];
@@ -163,29 +107,23 @@ export async function collectFields(
       continue;
     }
 
-    if (kind === "SqlServer" && field.name === "connectionString" && ui.pickSqlServerAuth) {
+    if (ConnectorFrontRegistry.supportsWindowsAuthPrompt(kind, field.name) && ui.pickSqlServerAuth) {
       const pickedAuth = await ui.pickSqlServerAuth();
       if (!pickedAuth) return undefined;
 
       if (pickedAuth === "windows") {
         isWindowsAuth = true;
         const defaultConnStr = existing
-          ? stringProp(existing.configuration, "connectionString")
-          : "Server=localhost;Database=master;Integrated Security=True;TrustServerCertificate=True;";
+          ? stringProp(existing.configuration, field.name)
+          : ConnectorFrontRegistry.defaultWindowsAuthConnectionString;
         const connectionString = await ui.input({
-          prompt: "SQL Server Connection String (Windows Authentication / Integrated Security)",
+          prompt: `${field.label} (Windows Authentication / Integrated Security)`,
           value: defaultConnStr,
-          placeHolder: "Server=localhost;Database=master;Integrated Security=True;TrustServerCertificate=True;",
+          placeHolder: ConnectorFrontRegistry.defaultWindowsAuthConnectionString,
         });
         if (connectionString === undefined) return undefined;
 
-        let normalized = connectionString.trim();
-        if (!/integrated\s+security\s*=/i.test(normalized) && !/trusted_connection\s*=/i.test(normalized)) {
-          normalized = normalized.replace(/;?$/, ";Integrated Security=True;");
-        }
-        if (!/trustservercertificate\s*=/i.test(normalized)) {
-          normalized = normalized.replace(/;?$/, ";TrustServerCertificate=True;");
-        }
+        const normalized = ConnectorFrontRegistry.normalizeWindowsAuthConnectionString(connectionString);
         input.connectionString = normalized;
         configValues[field.name] = normalized;
         // Windows Authentication uses current Windows identity — skip password

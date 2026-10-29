@@ -127,6 +127,11 @@ module Workspace =
         let config = readConfiguration workspaceDir
         config.Connections
 
+    let private storageJsonOptions =
+        let o = JsonSerializerOptions(Serialization.options)
+        o.WriteIndented <- true
+        o
+
     /// Persists the full configuration to `workspace.json` in Schema v2 format.
     let writeConfiguration (workspaceDir: string) (config: WorkspaceConfiguration) : unit =
         if not (String.IsNullOrWhiteSpace workspaceDir) && ProjectUpgrader.needsUpgrade workspaceDir then
@@ -136,13 +141,13 @@ module Workspace =
         Directory.CreateDirectory storageDir |> ignore
         let targetPath = Path.Combine(storageDir, fileName)
 
-        let payload =
-            {| schemaVersion = CurrentSchemaVersion
-               extensionVersion = if String.IsNullOrWhiteSpace config.ExtensionVersion then currentExtensionVersion () else config.ExtensionVersion
-               updatedAt = DateTimeOffset.UtcNow.ToString("o")
-               connections = config.Connections |}
+        let payload: WorkspaceJsonPayload =
+            { schemaVersion = CurrentSchemaVersion
+              extensionVersion = if String.IsNullOrWhiteSpace config.ExtensionVersion then currentExtensionVersion () else config.ExtensionVersion
+              updatedAt = DateTimeOffset.UtcNow.ToString("o")
+              connections = config.Connections }
 
-        let json = JsonSerializer.Serialize(payload, Serialization.options)
+        let json = JsonSerializer.Serialize(payload, storageJsonOptions)
         File.WriteAllText(targetPath, json)
 
     /// Persists connections to `workspace.json` wrapped in Schema v2 format.

@@ -1,17 +1,17 @@
 <#
 .SYNOPSIS
-    Watcher externo para monitorar o tempo de execução de testes.
-    Se a execução ultrapassar o tempo limite (padrão: 5 minutos / 300s),
-    o processo e toda a sua árvore de processos filhos são terminados e um erro é reportado.
+    External watcher to monitor test execution time.
+    If the execution exceeds the maximum timeout (default: 5 minutes / 300s),
+    the process and its entire child process tree are terminated and a fatal error is reported.
 
 .PARAMETER Command
-    O comando de teste a ser executado. Padrão: dotnet test FSharpQueryStudio.slnx -c Release --filter "Category!=RequiresDocker"
+    The test command to execute. Default: dotnet test FSharpQueryStudio.slnx -c Release --filter "Category!=RequiresDocker"
 
 .PARAMETER TimeoutSeconds
-    Tempo limite máximo em segundos. Padrão: 300 (5 minutos).
+    Maximum allowed execution time in seconds. Default: 300 (5 minutes).
 
 .PARAMETER HeartbeatSeconds
-    Intervalo em segundos para emissão do status de progresso do watcher. Padrão: 5.
+    Interval in seconds for emitting progress heartbeat messages. Default: 5.
 #>
 
 [CmdletBinding()]
@@ -24,20 +24,20 @@ param(
 $ErrorActionPreference = 'Stop'
 
 Write-Host "`n======================================================================" -ForegroundColor Cyan
-Write-Host "==> [Watcher] Iniciando monitoramento externo de testes" -ForegroundColor Cyan
-Write-Host "    Comando:       $Command" -ForegroundColor DarkGray
-Write-Host "    Timeout limite: $TimeoutSeconds segundos ($([math]::Round($TimeoutSeconds / 60, 1)) min)" -ForegroundColor DarkGray
-Write-Host "    Heartbeat:     $HeartbeatSeconds segundos" -ForegroundColor DarkGray
+Write-Host "==> [Watcher] Starting external test execution monitor" -ForegroundColor Cyan
+Write-Host "    Command:        $Command" -ForegroundColor DarkGray
+Write-Host "    Timeout limit:  $TimeoutSeconds seconds ($([math]::Round($TimeoutSeconds / 60, 1)) min)" -ForegroundColor DarkGray
+Write-Host "    Heartbeat:      $HeartbeatSeconds seconds" -ForegroundColor DarkGray
 Write-Host "======================================================================`n" -ForegroundColor Cyan
 
 function Stop-ProcessTree([int]$ParentId) {
-    # Procura filhos recursivamente
+    # Recursively find and terminate child processes
     try {
         $children = Get-CimInstance Win32_Process -Filter "ParentProcessId = $ParentId" -ErrorAction SilentlyContinue
         foreach ($child in $children) {
             Stop-ProcessTree -ParentId $child.ProcessId
             try {
-                Write-Host "    [Watcher] Encerrando subprocesso PID $($child.ProcessId) ($($child.Name))..." -ForegroundColor Yellow
+                Write-Host "    [Watcher] Terminating child process PID $($child.ProcessId) ($($child.Name))..." -ForegroundColor Yellow
                 Stop-Process -Id $child.ProcessId -Force -ErrorAction SilentlyContinue
             } catch { }
         }
@@ -65,11 +65,10 @@ $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 $process = [System.Diagnostics.Process]::Start($psi)
 
 if ($null -eq $process) {
-    Write-Host "[ERROR] [Watcher] Falha ao iniciar o processo de teste." -ForegroundColor Red
+    Write-Host "[ERROR] [Watcher] Failed to start the test process." -ForegroundColor Red
     exit 1
 }
 
-$hasExited = $false
 $timedOut = $false
 
 while (-not $process.HasExited) {
@@ -83,7 +82,7 @@ while (-not $process.HasExited) {
 
     $elapsedStr = "{0:D2}:{1:D2}" -f [int]$elapsed.TotalMinutes, $elapsed.Seconds
     $limitStr = "{0:D2}:{1:D2}" -f [int]($TimeoutSeconds / 60), ($TimeoutSeconds % 60)
-    Write-Host "[Watcher] Execução em andamento... Decorrido: $elapsedStr / $limitStr" -ForegroundColor DarkCyan
+    Write-Host "[Watcher] Test execution in progress... Elapsed: $elapsedStr / $limitStr" -ForegroundColor DarkCyan
 }
 
 $stopwatch.Stop()
@@ -92,10 +91,10 @@ $totalElapsedStr = "{0:D2}:{1:D2}" -f [int]$totalElapsed.TotalMinutes, $totalEla
 
 if ($timedOut) {
     Write-Host "`n!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" -ForegroundColor Red
-    Write-Host "[FATAL] [Watcher] A EXECUÇÃO EXCEDEU O LIMITE DE 5 MINUTOS ($TimeoutSeconds segundos)!" -ForegroundColor Red
-    Write-Host "[FATAL] [Watcher] O teste está com problema (hang / deadlock / loop infinito)!" -ForegroundColor Red
+    Write-Host "[FATAL] [Watcher] EXECUTION EXCEEDED THE 5-MINUTE LIMIT ($TimeoutSeconds seconds)!" -ForegroundColor Red
+    Write-Host "[FATAL] [Watcher] The test suite has a problem (hang / deadlock / infinite loop)!" -ForegroundColor Red
     Write-Host "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!`n" -ForegroundColor Red
-    Write-Host "[Watcher] Encerrando árvore de processos PID $($process.Id)..." -ForegroundColor Yellow
+    Write-Host "[Watcher] Terminating process tree for PID $($process.Id)..." -ForegroundColor Yellow
 
     Stop-ProcessTree -ParentId $process.Id
 
@@ -104,9 +103,9 @@ if ($timedOut) {
 
 $exitCode = $process.ExitCode
 if ($exitCode -eq 0) {
-    Write-Host "`n[OK] [Watcher] Testes concluídos com SUCESSO em $totalElapsedStr (ExitCode: 0)." -ForegroundColor Green
+    Write-Host "`n[OK] [Watcher] Tests completed SUCCESSFULLY in $totalElapsedStr (ExitCode: 0)." -ForegroundColor Green
 } else {
-    Write-Host "`n[ERROR] [Watcher] Testes FALHARAM em $totalElapsedStr com código de saída $exitCode." -ForegroundColor Red
+    Write-Host "`n[ERROR] [Watcher] Tests FAILED in $totalElapsedStr with exit code $exitCode." -ForegroundColor Red
 }
 
 exit $exitCode

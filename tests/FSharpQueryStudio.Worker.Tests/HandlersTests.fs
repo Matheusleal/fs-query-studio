@@ -1548,4 +1548,43 @@ let ``connector/list returns all registered connector descriptors with form sche
                 Assert.False(String.IsNullOrWhiteSpace field.Type)
     }
 
+[<Fact>]
+let ``evaluating table rows with UTF-8 accented characters over UTF-8 stdio stream preserves characters without mojibake`` () =
+    task {
+        let utf8NoBom = System.Text.UTF8Encoding(false)
+        let code =
+            """[
+    {| Fonte = "SalesFeed"; Tipo = "CSV (Arquivo Plano)"; TotalRegistros = 10; EntidadePrincipal = "Transações" |}
+    {| Fonte = "CustomersFeed"; Tipo = "CSV (Arquivo Plano)"; TotalRegistros = 6; EntidadePrincipal = "Perfis de Fidelidade" |}
+]"""
+        let reqFrame = evaluateRequest "utf8-eval-1" code
+        let reqJson = JsonSerializer.Serialize(reqFrame, Serialization.options) + "\n"
+        let inputBytes = utf8NoBom.GetBytes(reqJson)
+
+        use inputStream = new MemoryStream(inputBytes)
+        use outputStream = new MemoryStream()
+
+        use reader = new StreamReader(inputStream, utf8NoBom, detectEncodingFromByteOrderMarks = false, bufferSize = 4096, leaveOpen = true)
+        use writer = new StreamWriter(outputStream, utf8NoBom, bufferSize = 4096, leaveOpen = true, AutoFlush = true)
+
+        let! readReqOpt = NdjsonStream.readFrame<WorkerRequestFrame> reader
+        Assert.True(readReqOpt.IsSome)
+        let! dispatchResp = Handlers.dispatch readReqOpt.Value
+        do! NdjsonStream.writeFrame writer dispatchResp
+
+        let outputJson = utf8NoBom.GetString(outputStream.ToArray()).Trim()
+        let respFrame = JsonSerializer.Deserialize<WorkerResponseFrame>(outputJson, Serialization.options)
+        Assert.True(respFrame.Error.IsNone)
+        Assert.True(respFrame.Result.IsSome)
+
+        let envelope = JsonSerializer.Deserialize<ResultEnvelope>(respFrame.Result.Value.GetRawText(), Serialization.options)
+        Assert.Equal(ResultKind.Table, envelope.Kind)
+        Assert.Equal(2, envelope.Rows.Length)
+
+        let entColIdx = envelope.Schema |> List.findIndex (fun c -> c.Name = "EntidadePrincipal")
+        Assert.Equal("Transações", envelope.Rows.[0].[entColIdx].ToString())
+        Assert.Equal("Perfis de Fidelidade", envelope.Rows.[1].[entColIdx].ToString())
+    }
+
+
 

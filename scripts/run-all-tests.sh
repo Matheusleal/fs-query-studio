@@ -7,8 +7,8 @@ WATCHER="$SCRIPT_DIR/watch-tests.sh"
 TIMEOUT=${TIMEOUT:-300}
 
 echo "======================================================================"
-echo "==> Iniciando Bateria Completa de Testes com Watcher Externo (Linux/Docker)"
-echo "    Timeout por Projeto: ${TIMEOUT}s (5 min)"
+echo "==> Starting Full Test Suite with External Watcher (Linux/Docker)"
+echo "    Timeout per Project: ${TIMEOUT}s (5 min)"
 echo "======================================================================"
 
 dotnet build "$ROOT_DIR/FSharpQueryStudio.slnx" -c Release
@@ -30,10 +30,10 @@ TEST_PROJECTS=(
 for proj in "${TEST_PROJECTS[@]}"; do
     PROJ_PATH="$ROOT_DIR/$proj"
     if [ -d "$PROJ_PATH" ]; then
-        echo -e "\n>>> [Watcher] Executando suite: $(basename "$proj")"
+        echo -e "\n>>> [Watcher] Running test suite: $(basename "$proj")"
         EXTRA_ARGS=""
         if [ "$(basename "$proj")" = "FSharpQueryStudio.Integration.Tests" ] && [ -f /.dockerenv ]; then
-            echo "    [Nota] Executando dentro de container Docker; excluindo testes que requerem Testcontainers aninhado (--TestCaseFilter Category!=RequiresDocker)"
+            echo "    [Note] Running inside Docker container; excluding nested Testcontainers tests (--TestCaseFilter Category!=RequiresDocker)"
             EXTRA_ARGS="--TestCaseFilter Category!=RequiresDocker"
         fi
         PROJ_NAME="$(basename "$proj")"
@@ -49,15 +49,15 @@ done
 
 if [ -d "$ROOT_DIR/editors/vscode" ]; then
     if command -v npm >/dev/null 2>&1; then
-        echo -e "\n>>> [Watcher] Executando testes da Extensão VS Code (npm test)..."
+        echo -e "\n>>> [Watcher] Running VS Code Extension tests (npm test)..."
         cd "$ROOT_DIR/editors/vscode"
         bash "$WATCHER" "npm test" "$TIMEOUT" 5
         cd "$ROOT_DIR"
     else
-        echo -e "\n>>> [Watcher] Node/npm não encontrado no ambiente atual. Pulando testes da extensão VS Code."
+        echo -e "\n>>> [Watcher] Node/npm not found in the current environment. Skipping VS Code extension tests."
     fi
 fi
 
 echo "======================================================================"
-echo "==> [OK] TODAS AS SUÍTES DE TESTES FORAM CONCLUÍDAS COM 100% DE SUCESSO!"
+echo "==> [OK] ALL TEST SUITES COMPLETED WITH 100% SUCCESS!"
 echo "======================================================================"

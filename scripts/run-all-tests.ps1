@@ -1,7 +1,7 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Executa todos os projetos de teste do FSharpQueryStudio sob o monitoramento do Watcher Externo (5 min timeout).
+    Runs all FSharpQueryStudio test projects under the supervision of the External Watcher (5 min timeout).
 #>
 
 [CmdletBinding()]
@@ -17,8 +17,8 @@ $rootDir = Split-Path -Parent $scriptDir
 $watcher = Join-Path $scriptDir "watch-tests.ps1"
 
 Write-Host "======================================================================" -ForegroundColor Cyan
-Write-Host "==> Iniciando Bateria Completa de Testes com Watcher Externo" -ForegroundColor Cyan
-Write-Host "    Timeout por Projeto: $TimeoutSeconds segundos (5 min)" -ForegroundColor Cyan
+Write-Host "==> Starting Full Test Suite with External Watcher" -ForegroundColor Cyan
+Write-Host "    Timeout per Project: $TimeoutSeconds seconds (5 min)" -ForegroundColor Cyan
 Write-Host "======================================================================" -ForegroundColor Cyan
 
 $testProjects = @(
@@ -34,12 +34,11 @@ $testProjects = @(
     "tests/FSharpQueryStudio.Worker.Tests"
 )
 
-# Compilação prévia da solução inteira
-Write-Host "`n==> Compilando Solução em modo Release..." -ForegroundColor Yellow
+# Pre-build the entire solution in Release mode
+Write-Host "`n==> Building Solution in Release mode..." -ForegroundColor Yellow
 & dotnet build "$rootDir/FSharpQueryStudio.slnx" -c Release
 if ($LASTEXITCODE -ne 0) {
-
-    Write-Error "Falha na compilação da solução. Abortando execução de testes."
+    Write-Error "Solution build failed. Aborting test execution."
     exit 1
 }
 
@@ -52,7 +51,7 @@ foreach ($proj in $testProjects) {
     }
 
     $projName = Split-Path -Leaf $proj
-    Write-Host "`n>>> [Watcher] Executando suite: $projName" -ForegroundColor Magenta
+    Write-Host "`n>>> [Watcher] Running test suite: $projName" -ForegroundColor Magenta
 
     $cmd = "dotnet test `"$projPath`" -c Release --no-build"
     if ($SkipDocker -and $proj -like "*Integration*") {
@@ -61,7 +60,7 @@ foreach ($proj in $testProjects) {
 
     & pwsh -NoProfile -ExecutionPolicy Bypass -File $watcher -Command $cmd -TimeoutSeconds $TimeoutSeconds -HeartbeatSeconds 10
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "A suite de testes '$projName' falhou ou excedeu o limite de 5 minutos."
+        Write-Error "Test suite '$projName' failed or exceeded the 5-minute timeout limit."
         exit $LASTEXITCODE
     }
 
@@ -72,13 +71,13 @@ foreach ($proj in $testProjects) {
 if (!$SkipNpm) {
     $vscodeDir = Join-Path $rootDir "editors/vscode"
     if (Test-Path $vscodeDir) {
-        Write-Host "`n>>> [Watcher] Executando testes da Extensão VS Code (npm test)..." -ForegroundColor Magenta
+        Write-Host "`n>>> [Watcher] Running VS Code Extension tests (npm test)..." -ForegroundColor Magenta
         $cmd = "npm test"
         Push-Location $vscodeDir
         try {
             & pwsh -NoProfile -ExecutionPolicy Bypass -File $watcher -Command $cmd -TimeoutSeconds $TimeoutSeconds -HeartbeatSeconds 5
             if ($LASTEXITCODE -ne 0) {
-                Write-Error "Os testes do VS Code (npm test) falharam ou excederam o limite de 5 minutos."
+                Write-Error "VS Code extension tests (npm test) failed or exceeded the 5-minute timeout limit."
                 exit $LASTEXITCODE
             }
         } finally {
@@ -89,6 +88,6 @@ if (!$SkipNpm) {
 
 $swTotal.Stop()
 Write-Host "`n======================================================================" -ForegroundColor Green
-Write-Host "==> [OK] TODAS AS SUÍTES DE TESTES FORAM CONCLUÍDAS COM 100% DE SUCESSO!" -ForegroundColor Green
-Write-Host "    Tempo Total Decorrido: $($swTotal.Elapsed.ToString('mm\:ss'))" -ForegroundColor Green
+Write-Host "==> [OK] ALL TEST SUITES COMPLETED WITH 100% SUCCESS!" -ForegroundColor Green
+Write-Host "    Total Elapsed Time: $($swTotal.Elapsed.ToString('mm\:ss'))" -ForegroundColor Green
 Write-Host "======================================================================" -ForegroundColor Green

@@ -19,6 +19,15 @@ type IMigrationStep =
     abstract member Description: string
     abstract member Apply: projectRoot: string -> Result<string list, string>
 
+/// Explicit record type used to serialize `workspace.json` so field order is
+/// preserved (`schemaVersion`, `extensionVersion`, `updatedAt`, and `connections` last).
+/// F# anonymous records sort fields alphabetically, which would place `connections` first.
+type WorkspaceJsonPayload =
+    { schemaVersion: int
+      extensionVersion: string
+      updatedAt: string
+      connections: ConnectionDefinition list }
+
 module ProjectUpgradeConstants =
     [<Literal>]
     let CurrentSchemaVersion = 2
@@ -61,18 +70,23 @@ module ProjectUpgradeConstants =
         with _ ->
             1
 
+    let private upgraderJsonOptions =
+        let o = JsonSerializerOptions(Serialization.options)
+        o.WriteIndented <- true
+        o
+
     let writeV2WorkspaceJson (filePath: string) (connections: ConnectionDefinition list) : unit =
         let dir = Path.GetDirectoryName filePath
         if not (String.IsNullOrWhiteSpace dir) && not (Directory.Exists dir) then
             Directory.CreateDirectory dir |> ignore
 
-        let payload =
-            {| schemaVersion = CurrentSchemaVersion
-               extensionVersion = currentExtensionVersion ()
-               updatedAt = DateTimeOffset.UtcNow.ToString("o")
-               connections = connections |}
+        let payload: WorkspaceJsonPayload =
+            { schemaVersion = CurrentSchemaVersion
+              extensionVersion = currentExtensionVersion ()
+              updatedAt = DateTimeOffset.UtcNow.ToString("o")
+              connections = connections }
 
-        let json = JsonSerializer.Serialize(payload, Serialization.options)
+        let json = JsonSerializer.Serialize(payload, upgraderJsonOptions)
         File.WriteAllText(filePath, json)
 
 /// Migration step for Legacy / Schema v1 -> Schema v2.

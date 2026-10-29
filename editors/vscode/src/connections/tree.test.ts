@@ -97,7 +97,7 @@ describe("ConnectionsTreeProvider", () => {
       return { id: req.id, result: { connections: [] } };
     });
     const { p } = provider(send);
-    const connectionNode = { t: "connection" as const, def: conn("1", "Backbone") };
+    const connectionNode = { t: "connection" as const, def: conn("1", "TestDb") };
     const schemaNodes = await p.getChildren(connectionNode);
 
     expect(schemaNodes.map((n) => (n.t === "schema" ? n.schemaName : n.t))).toEqual(["core", "public"]);
