@@ -230,17 +230,20 @@ module Connections =
                             |> Array.mapi (fun defaultIdx f ->
                                 let byName =
                                     columns
-                                    |> List.tryFindIndex (fun c -> String.Equals(c, f.Name, StringComparison.OrdinalIgnoreCase))
+                                    |> List.tryFindIndex (fun c ->
+                                        String.Equals(c, f.Name, StringComparison.OrdinalIgnoreCase)
+                                        || String.Equals(CodeGenerationHelpers.cleanIdentifier c, f.Name, StringComparison.OrdinalIgnoreCase)
+                                        || String.Equals(CodeGenerationHelpers.cleanIdentifier c, CodeGenerationHelpers.cleanIdentifier f.Name, StringComparison.OrdinalIgnoreCase))
                                 match byName with
                                 | Some idx -> idx
-                                | None -> if defaultIdx < columns.Length then defaultIdx else 0
+                                | None -> if defaultIdx < columns.Length then defaultIdx else -1
                             )
                         let ctor = FSharpValue.PreComputeRecordConstructor(targetType)
                         fun (row: obj array) ->
                             let args: obj array = Array.zeroCreate fields.Length
                             for i in 0 .. fields.Length - 1 do
                                 let idx = colIndices.[i]
-                                let raw = if idx < row.Length then row.[idx] else null
+                                let raw = if idx >= 0 && idx < row.Length then row.[idx] else null
                                 let isNullVal = isNull raw || Convert.IsDBNull(raw)
                                 let propType = fields.[i].PropertyType
                                 let isOption = propType.IsGenericType && propType.GetGenericTypeDefinition() = typedefof<option<_>>
@@ -271,7 +274,12 @@ module Connections =
                                             args.[i] <- FSharpValue.MakeUnion(someCase, [| converted |])
                                 else
                                     if isNullVal then
-                                        args.[i] <- null
+                                        if propType = typeof<string> then
+                                            args.[i] <- box ""
+                                        elif propType.IsValueType then
+                                            args.[i] <- Activator.CreateInstance(propType)
+                                        else
+                                            args.[i] <- null
                                     else
                                         args.[i] <- convertValue raw propType
                             ctor args
@@ -432,30 +440,93 @@ module Connections =
             }
         | other -> unsupported name "Connections.queryExcelSheet" other
 
+    let private jsonElementToBoxedValue (v: JsonElement) : obj =
+        match v.ValueKind with
+        | JsonValueKind.Null
+        | JsonValueKind.Undefined -> null
+        | JsonValueKind.String -> box (v.GetString())
+        | JsonValueKind.True -> box true
+        | JsonValueKind.False -> box false
+        | JsonValueKind.Number ->
+            let okI, i = v.TryGetInt32()
+            if okI then box i
+            else
+                let okL, l = v.TryGetInt64()
+                if okL then box l
+                else
+                    let okM, m = v.TryGetDecimal()
+                    if okM then box m
+                    else
+                        let okD, d = v.TryGetDouble()
+                        if okD then box d else box (v.GetRawText())
+        | _ -> box (v.GetRawText())
+
     /// <summary>
     /// Sends a request to a REST/JSON connection and deserializes JSON into strongly-typed records.
     /// </summary>
     let queryJsonWithOptions<'T> (name: string) (options: RestRequestOptions option) : 'T seq =
         match resolve name with
         | :? RestConnector as c ->
+            let stopwatch = Stopwatch.StartNew()
             let opts = defaultArg options c.BaseOptions
             let elem = (c.SendAsync opts CancellationToken.None).GetAwaiter().GetResult()
-            let jsonText = elem.GetRawText()
-            let items: 'T list =
+            let objectElements =
                 if elem.ValueKind = JsonValueKind.Array then
-                    JsonSerializer.Deserialize<'T list>(jsonText, Serialization.options)
+                    elem.EnumerateArray()
+                    |> Seq.filter (fun e -> e.ValueKind = JsonValueKind.Object)
+                    |> Seq.toList
                 elif elem.ValueKind = JsonValueKind.Object then
                     let arrayProp =
                         elem.EnumerateObject()
                         |> Seq.tryFind (fun prop -> prop.Value.ValueKind = JsonValueKind.Array)
                     match arrayProp with
                     | Some prop ->
-                        JsonSerializer.Deserialize<'T list>(prop.Value.GetRawText(), Serialization.options)
-                    | None ->
-                        [ JsonSerializer.Deserialize<'T>(jsonText, Serialization.options) ]
+                        prop.Value.EnumerateArray()
+                        |> Seq.filter (fun e -> e.ValueKind = JsonValueKind.Object)
+                        |> Seq.toList
+                    | None -> [ elem ]
                 else
                     []
-            items :> 'T seq
+
+            if FSharpType.IsRecord(typeof<'T>) && not (List.isEmpty objectElements) then
+                let columns =
+                    objectElements
+                    |> Seq.collect (fun o -> o.EnumerateObject() |> Seq.map (fun p -> p.Name))
+                    |> Seq.distinct
+                    |> Seq.toList
+                let rows =
+                    objectElements
+                    |> Seq.map (fun o ->
+                        columns
+                        |> List.map (fun col ->
+                            match o.TryGetProperty(col) with
+                            | true, v -> jsonElementToBoxedValue v
+                            | false, _ -> null)
+                        |> Array.ofList)
+                let loggedRows = logOnceDrained (c :> IConnector).Kind stopwatch rows
+                let mapper = getMapper<'T> columns
+                seq {
+                    for row in loggedRows do
+                        yield mapper row
+                }
+            else
+                let jsonText = elem.GetRawText()
+                let items: 'T list =
+                    if elem.ValueKind = JsonValueKind.Array then
+                        JsonSerializer.Deserialize<'T list>(jsonText, Serialization.options)
+                    elif elem.ValueKind = JsonValueKind.Object then
+                        let arrayProp =
+                            elem.EnumerateObject()
+                            |> Seq.tryFind (fun prop -> prop.Value.ValueKind = JsonValueKind.Array)
+                        match arrayProp with
+                        | Some prop ->
+                            JsonSerializer.Deserialize<'T list>(prop.Value.GetRawText(), Serialization.options)
+                        | None ->
+                            [ JsonSerializer.Deserialize<'T>(jsonText, Serialization.options) ]
+                    else
+                        []
+                stopwatch.Stop()
+                items :> 'T seq
         | other -> unsupported name "Connections.queryJson" other
 
     /// <summary>

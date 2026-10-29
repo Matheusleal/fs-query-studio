@@ -32,7 +32,13 @@ type CsvEntityGenerator() =
                 sb.AppendLine("    type Row =") |> ignore
                 sb.AppendLine("        {") |> ignore
                 for idx, col in List.indexed sanitizedCols do
-                    let samples = rowsSample |> Seq.map (fun r -> if idx < r.Length then string r.[idx] else "")
+                    let samples =
+                        rowsSample
+                        |> Seq.map (fun r ->
+                            if idx < r.Length && not (isNull r.[idx]) then
+                                Convert.ToString(r.[idx], System.Globalization.CultureInfo.InvariantCulture)
+                            else
+                                "")
                     let colType = CsvTypeInference.inferType samples
                     sb.AppendLine($"            {CodeGenerationHelpers.escapeIdent col}: {colType}") |> ignore
                 sb.AppendLine("        }") |> ignore
@@ -81,7 +87,13 @@ type ExcelEntityGenerator() =
                     sb.AppendLine("        type Row =") |> ignore
                     sb.AppendLine("            {") |> ignore
                     for idx, col in List.indexed sanitizedCols do
-                        let samples = rowsSample |> Seq.map (fun r -> if idx < r.Length then string r.[idx] else "")
+                        let samples =
+                            rowsSample
+                            |> Seq.map (fun r ->
+                                if idx < r.Length && not (isNull r.[idx]) then
+                                    Convert.ToString(r.[idx], System.Globalization.CultureInfo.InvariantCulture)
+                                else
+                                    "")
                         let colType = CsvTypeInference.inferType samples
                         sb.AppendLine($"                {CodeGenerationHelpers.escapeIdent col}: {colType}") |> ignore
                     sb.AppendLine("            }") |> ignore
@@ -90,6 +102,11 @@ type ExcelEntityGenerator() =
                     sb.AppendLine() |> ignore
 
                 sb.AppendLine("    type Data(conn: FSharpQueryStudio.Connectors.Connections.ExcelConnection) =") |> ignore
+                match tables with
+                | firstTbl :: _ ->
+                    let firstClean = CodeGenerationHelpers.cleanIdentifier firstTbl.Name
+                    sb.AppendLine($"        let defaultQueryable = conn.SheetQueryable<{firstClean}.Row>(\"{firstTbl.Name}\")") |> ignore
+                | [] -> ()
                 sb.AppendLine($"        new(name: string) = Data(FSharpQueryStudio.Connectors.Connections.getExcelConnection(name))") |> ignore
                 sb.AppendLine($"        new() = Data(\"{connectionName}\")") |> ignore
                 sb.AppendLine("        member _.Raw(?maxRows: int) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.Raw(?maxRows = maxRows)") |> ignore
@@ -97,6 +114,19 @@ type ExcelEntityGenerator() =
                 for tbl in tables do
                     let sheetClean = CodeGenerationHelpers.cleanIdentifier tbl.Name
                     sb.AppendLine($"        member _.{CodeGenerationHelpers.escapeIdent sheetClean} : System.Linq.IQueryable<{sheetClean}.Row> = conn.SheetQueryable<{sheetClean}.Row>(\"{tbl.Name}\")") |> ignore
+                match tables with
+                | firstTbl :: _ ->
+                    let firstClean = CodeGenerationHelpers.cleanIdentifier firstTbl.Name
+                    sb.AppendLine($"        member _.Rows : System.Linq.IQueryable<{firstClean}.Row> = defaultQueryable") |> ignore
+                    sb.AppendLine($"        interface System.Linq.IQueryable<{firstClean}.Row> with") |> ignore
+                    sb.AppendLine("            member _.ElementType = (defaultQueryable :> System.Linq.IQueryable).ElementType") |> ignore
+                    sb.AppendLine("            member _.Expression = (defaultQueryable :> System.Linq.IQueryable).Expression") |> ignore
+                    sb.AppendLine("            member _.Provider = (defaultQueryable :> System.Linq.IQueryable).Provider") |> ignore
+                    sb.AppendLine($"        interface System.Collections.Generic.IEnumerable<{firstClean}.Row> with") |> ignore
+                    sb.AppendLine($"            member _.GetEnumerator() = (defaultQueryable :> System.Collections.Generic.IEnumerable<{firstClean}.Row>).GetEnumerator()") |> ignore
+                    sb.AppendLine("        interface System.Collections.IEnumerable with") |> ignore
+                    sb.AppendLine("            member _.GetEnumerator() = (defaultQueryable :> System.Collections.IEnumerable).GetEnumerator()") |> ignore
+                | [] -> ()
                 sb.AppendLine() |> ignore
                 sb.AppendLine("    let data () : Data = Data()") |> ignore
                 sb.ToString()
@@ -145,11 +175,13 @@ module JsonTypeInference =
                     sampleObjects
                     |> List.choose (fun o ->
                         match o.TryGetProperty(propName) with
-                        | true, v -> Some v
-                        | false, _ -> None)
+                        | true, v when v.ValueKind <> JsonValueKind.Null && v.ValueKind <> JsonValueKind.Undefined -> Some v
+                        | _ -> None)
 
                 let inferred =
-                    if values |> List.forall (fun v -> v.ValueKind = JsonValueKind.Number && (let ok, _ = v.TryGetInt32() in ok)) then
+                    if values.IsEmpty then
+                        "string"
+                    elif values |> List.forall (fun v -> v.ValueKind = JsonValueKind.Number && (let ok, _ = v.TryGetInt32() in ok)) then
                         "int"
                     elif values |> List.forall (fun v -> v.ValueKind = JsonValueKind.Number && (let ok, _ = v.TryGetInt64() in ok)) then
                         "int64"
@@ -189,18 +221,34 @@ type RestEntityGenerator() =
                 sb.AppendLine($"module {uniqueModuleName} =") |> ignore
                 sb.AppendLine("    type Item =") |> ignore
                 sb.AppendLine("        {") |> ignore
-                for propNameItem, propType in props do
-                    sb.AppendLine($"            {CodeGenerationHelpers.escapeIdent propNameItem}: {propType}") |> ignore
+                if List.isEmpty props then
+                    sb.AppendLine("            Value: string") |> ignore
+                else
+                    for propNameItem, propType in props do
+                        sb.AppendLine($"            {CodeGenerationHelpers.escapeIdent propNameItem}: {propType}") |> ignore
                 sb.AppendLine("        }") |> ignore
                 sb.AppendLine() |> ignore
                 sb.AppendLine("    type Data(conn: FSharpQueryStudio.Connectors.Connections.RestConnection) =") |> ignore
+                sb.AppendLine("        let queryable = conn.Queryable<Item>()") |> ignore
                 sb.AppendLine($"        new(name: string) = Data(FSharpQueryStudio.Connectors.Connections.getRestConnection(name))") |> ignore
                 sb.AppendLine($"        new() = Data(\"{connectionName}\")") |> ignore
+                sb.AppendLine("        member _.Rows : System.Linq.IQueryable<Item> = queryable") |> ignore
+                sb.AppendLine("        member _.Queryable : System.Linq.IQueryable<Item> = queryable") |> ignore
                 sb.AppendLine("        member _.Items(?options: FSharpQueryStudio.Connectors.RestRequestOptions) : System.Linq.IQueryable<Item> = conn.Queryable<Item>(?options = options)") |> ignore
                 sb.AppendLine("        member _.SendAsync(options: FSharpQueryStudio.Connectors.RestRequestOptions, ?ct: System.Threading.CancellationToken) : System.Threading.Tasks.Task<System.Text.Json.JsonElement> = conn.SendAsync(options, ?ct = ct)") |> ignore
                 sb.AppendLine("        member _.Connection : FSharpQueryStudio.Connectors.Connections.RestConnection = conn") |> ignore
+                sb.AppendLine("        interface System.Linq.IQueryable<Item> with") |> ignore
+                sb.AppendLine("            member _.ElementType = (queryable :> System.Linq.IQueryable).ElementType") |> ignore
+                sb.AppendLine("            member _.Expression = (queryable :> System.Linq.IQueryable).Expression") |> ignore
+                sb.AppendLine("            member _.Provider = (queryable :> System.Linq.IQueryable).Provider") |> ignore
+                sb.AppendLine("        interface System.Collections.Generic.IEnumerable<Item> with") |> ignore
+                sb.AppendLine("            member _.GetEnumerator() = (queryable :> System.Collections.Generic.IEnumerable<Item>).GetEnumerator()") |> ignore
+                sb.AppendLine("        interface System.Collections.IEnumerable with") |> ignore
+                sb.AppendLine("            member _.GetEnumerator() = (queryable :> System.Collections.IEnumerable).GetEnumerator()") |> ignore
                 sb.AppendLine() |> ignore
-                sb.AppendLine("    let items (?options: FSharpQueryStudio.Connectors.RestRequestOptions) : System.Linq.IQueryable<Item> = (Data()).Items(?options = options)") |> ignore
+                sb.AppendLine("    let items () : System.Linq.IQueryable<Item> = (Data()).Items()") |> ignore
+                sb.AppendLine("    let itemsWithOptions (options: FSharpQueryStudio.Connectors.RestRequestOptions) : System.Linq.IQueryable<Item> = (Data()).Items(options)") |> ignore
+                sb.AppendLine("    let rows () : System.Linq.IQueryable<Item> = (Data()).Rows") |> ignore
                 sb.AppendLine("    let data () : Data = Data()") |> ignore
                 sb.ToString()
             | _ -> ""

@@ -18,6 +18,6 @@ type WorkspaceConnectionResolver(connections: ConnectionDefinition list, secretS
 
     interface IConnectionResolver with
         member _.Resolve(name: string) : IConnector =
-            match connections |> List.tryFind (fun c -> c.Name = name) with
+            match connections |> List.tryFindBack (fun c -> System.String.Equals(c.Name, name, System.StringComparison.OrdinalIgnoreCase)) with
             | Some definition -> build definition
             | None -> failwith $"No connection named '{name}' is registered."

@@ -71,7 +71,11 @@ foreach ($proj in $testProjects) {
 if (!$SkipNpm) {
     $vscodeDir = Join-Path $rootDir "editors/vscode"
     if (Test-Path $vscodeDir) {
-        Write-Host "`n>>> [Watcher] Running VS Code Extension tests (npm test)..." -ForegroundColor Magenta
+        Write-Host "`n>>> [Watcher] Running VS Code Extension tests (npm test, including sample_demo E2E)..." -ForegroundColor Magenta
+        $releaseWorkerDll = Join-Path $rootDir "src/FSharpQueryStudio.Worker/bin/Release/net10.0/FSharpQueryStudio.Worker.dll"
+        if (Test-Path $releaseWorkerDll) {
+            $env:FSQS_WORKER_DLL = $releaseWorkerDll
+        }
         $cmd = "npm test"
         Push-Location $vscodeDir
         try {

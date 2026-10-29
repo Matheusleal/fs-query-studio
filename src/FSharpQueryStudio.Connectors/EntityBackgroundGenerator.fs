@@ -49,16 +49,38 @@ module EntityBackgroundGenerator =
         | Failed of error: string
 
     let mutable onStatusChanged: (EntityMappingStatus -> unit) option = None
+    let private fileWriteLock = obj()
+
+    let private deduplicateByName (connections: ConnectionDefinition list) : ConnectionDefinition list =
+        let seenNames = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        connections
+        |> List.rev
+        |> List.filter (fun c -> seenNames.Add(c.Name))
+        |> List.rev
+
+    let private writeAtomically (targetPath: string) (content: string) : bool =
+        lock fileWriteLock (fun () ->
+            let targetDir = Path.GetDirectoryName targetPath
+            if not (String.IsNullOrWhiteSpace targetDir) then
+                Directory.CreateDirectory targetDir |> ignore
+            if not (File.Exists targetPath) || File.ReadAllText(targetPath) <> content then
+                let tempPath = $"{targetPath}.{Guid.NewGuid():N}.tmp"
+                File.WriteAllText(tempPath, content)
+                File.Move(tempPath, targetPath, overwrite = true)
+                true
+            else
+                false)
 
     /// Generates strongly-typed entity modules and connection extension properties
     /// for all accessible connections (SQL DB, CSV, Excel, and REST/JSON) in the workspace.
     let generateForConnectionsAsync
         (workspaceDir: string)
-        (connections: ConnectionDefinition list)
+        (rawConnections: ConnectionDefinition list)
         (secretStore: ISecretStore)
         : Task<bool> =
         task {
             try
+                let connections = deduplicateByName rawConnections
                 if List.isEmpty connections then
                     let targetPath = generatedFilePath workspaceDir
                     if File.Exists targetPath then
@@ -69,9 +91,7 @@ module EntityBackgroundGenerator =
                             "// </auto-generated>\n\n" +
                             "namespace FSharpQueryStudio.Generated\n\n" +
                             "open FSharpQueryStudio.Connectors\n"
-                        let tempPath = targetPath + ".tmp"
-                        File.WriteAllText(tempPath, emptyContent)
-                        File.Move(tempPath, targetPath, overwrite = true)
+                        writeAtomically targetPath emptyContent |> ignore
                     onStatusChanged |> Option.iter (fun cb -> cb (EntityMappingStatus.Completed 0))
                     return true
                 else
@@ -153,21 +173,15 @@ module EntityBackgroundGenerator =
                                 sb.AppendLine(extLine) |> ignore
                             sb.AppendLine() |> ignore
 
-                        let targetDir = generatedDir workspaceDir
-                        Directory.CreateDirectory(targetDir) |> ignore
                         let targetPath = generatedFilePath workspaceDir
                         let newContent = sb.ToString()
 
                         onStatusChanged |> Option.iter (fun cb -> cb (EntityMappingStatus.Completed totalExtensions))
 
-                        if not (File.Exists targetPath) || File.ReadAllText(targetPath) <> newContent then
-                            let tempPath = targetPath + ".tmp"
-                            File.WriteAllText(tempPath, newContent)
-                            File.Move(tempPath, targetPath, overwrite = true)
+                        let changed = writeAtomically targetPath newContent
+                        if changed then
                             Log.Information("FS Query Studio: Background entity types generated at {Path} ({Count} connections)", targetPath, totalExtensions)
-                            return true
-                        else
-                            return false
+                        return changed
                     else
                         onStatusChanged |> Option.iter (fun cb -> cb (EntityMappingStatus.Completed 0))
                         return false
@@ -199,18 +213,54 @@ module EntityBackgroundGenerator =
             currentGenerationTask.Wait()
         with _ -> ()
 
-    /// Ensures generated entities exist, generating synchronously on first access or refreshing in background.
+    let private needsSynchronousGeneration (targetPath: string) (connections: ConnectionDefinition list) : bool =
+        if not (File.Exists targetPath) then
+            true
+        else
+            try
+                let existing = File.ReadAllText targetPath
+                if existing.Contains("// No connections registered.") then
+                    true
+                else
+                    let deduped = deduplicateByName connections
+                    deduped
+                    |> List.exists (fun def ->
+                        let hasBinding = existing.Contains($"(\"{def.Name}\")")
+                        if not hasBinding then
+                            true
+                        else
+                            let cleanName = cleanIdentifier def.Name
+                            let kindId = ConnectorRegistry.KindIdOf def.Kind
+                            if String.Equals(kindId, "Sqlite", StringComparison.OrdinalIgnoreCase) then
+                                // Verify that a SQLite connection's module actually has PushdownQueryable table members
+                                let modHeader = $"module {cleanName}Db ="
+                                let modIdx = existing.IndexOf(modHeader, StringComparison.Ordinal)
+                                if modIdx < 0 then
+                                    true
+                                else
+                                    let nextModIdx = existing.IndexOf("\nmodule ", modIdx + modHeader.Length, StringComparison.Ordinal)
+                                    let slice =
+                                        if nextModIdx > modIdx then existing.Substring(modIdx, nextModIdx - modIdx)
+                                        else existing.Substring(modIdx)
+                                    not (slice.Contains("PushdownQueryable<"))
+                            else
+                                false)
+            with _ ->
+                true
+
+    /// Ensures generated entities exist, generating synchronously when missing or stale, or refreshing in background.
     let ensureGenerated
         (workspaceDir: string)
         (connections: ConnectionDefinition list)
         (secretStore: ISecretStore)
         : unit =
+        waitForPendingGeneration ()
         let targetPath = generatedFilePath workspaceDir
         if List.isEmpty connections then
             if File.Exists targetPath then
                 triggerBackgroundGeneration workspaceDir connections secretStore
         else
-            if not (File.Exists targetPath) then
+            if needsSynchronousGeneration targetPath connections then
                 try
                     (generateForConnectionsAsync workspaceDir connections secretStore).GetAwaiter().GetResult() |> ignore
                 with ex ->

@@ -42,6 +42,7 @@ module SessionStore =
                     FsiSession.createInWorkspace workingDirectory workspaceDirectory
                 else
                     Directory.SetCurrentDirectory(workingDirectory)
+                    FsiSession.refreshGeneratedEntities workingDirectory workspaceDirectory existing.Session
                     existing.Session
             | false, _ ->
                 FsiSession.createInWorkspace workingDirectory workspaceDirectory
@@ -57,6 +58,7 @@ module SessionStore =
             match sessions.TryGetValue(key) with
             | true, existing ->
                 Directory.SetCurrentDirectory(workingDirectory)
+                FsiSession.refreshGeneratedEntities workingDirectory workspaceDirectory existing.Session
                 existing
             | false, _ ->
                 { Session = FsiSession.createInWorkspace workingDirectory workspaceDirectory; LastFragments = [] }
@@ -78,3 +80,6 @@ module SessionStore =
     /// context is reclaimed once nothing (including this dictionary)
     /// still references it.
     let reset (key: string) : unit = sessions.TryRemove(key) |> ignore
+
+    /// Drops all tracked sessions across all keys.
+    let resetAll () : unit = sessions.Clear()

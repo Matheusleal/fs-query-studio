@@ -156,6 +156,28 @@ module Handlers =
         Prologue.resolveWorkspaceForDocument docUriStr
         |> Option.defaultValue (workspaceDir ())
 
+    let private ensureSampleFilesHealed (connections: ConnectionDefinition list) : unit =
+        for def in connections do
+            try
+                if def.Configuration.ValueKind = JsonValueKind.Object then
+                    let mutable fpProp = Unchecked.defaultof<JsonElement>
+                    if def.Configuration.TryGetProperty("filePath", &fpProp) && fpProp.ValueKind = JsonValueKind.String then
+                        let fp = fpProp.GetString()
+                        if not (String.IsNullOrWhiteSpace fp) then
+                            let isMissingOrEmpty = not (File.Exists fp) || (FileInfo(fp).Length = 0L)
+                            if isMissingOrEmpty then
+                                if String.Equals(def.Name, "SampleStore", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.createSampleStoreDatabase fp
+                                elif String.Equals(def.Name, "InventoryStore", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.createInventoryDatabase fp
+                                elif String.Equals(def.Name, "SalesFeed", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.createSampleCsv fp
+                                elif String.Equals(def.Name, "CustomersFeed", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.createSampleCustomersCsv fp
+                                elif String.Equals(def.Name, "RegionalTargets", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.createSampleExcelWorkbook fp
+            with _ -> ()
+
     let runEvaluate (request: WorkerRequestFrame) (workDir: string) : WorkerResponseFrame =
         try
             let evalParams =
@@ -165,6 +187,7 @@ module Handlers =
 
             let targetWs = resolveWorkspaceForDocument evalParams.DocumentUri
             let connections = Workspace.readConnections targetWs
+            ensureSampleFilesHealed connections
             Connections.configure (WorkspaceConnectionResolver(connections, secretStore))
             EntityBackgroundGenerator.ensureGenerated targetWs connections secretStore
 
@@ -602,7 +625,7 @@ module Handlers =
 
     let private cleanLeakedGlobalSampleConnections (globalWs: string) : ConnectionDefinition list =
         let conns = Workspace.readConnections globalWs
-        let sampleNames = set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed" ]
+        let sampleNames = set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "GitHubFSharp" ]
         let isLeakedSample (c: ConnectionDefinition) =
             sampleNames.Contains c.Name && (
                 try
@@ -708,7 +731,7 @@ module Handlers =
                     let connector = resolver.Resolve(definition.Name)
                     let! tables = connector.DiscoverSchemaAsync(CancellationToken.None)
 
-                    EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) connections secretStore
+                    EntityBackgroundGenerator.triggerBackgroundGeneration targetWs connections secretStore
 
                     let result: ConnectionSchemaResult =
                         { Tables =
@@ -740,6 +763,8 @@ module Handlers =
           Sqlite2Path: string
           CsvPath: string
           Csv2Path: string
+          ExcelPath: string
+          RestUrl: string
           NotebookPath: string
           NotebookPtPath: string
           RegisteredConnections: string list }
@@ -801,10 +826,34 @@ module Handlers =
                   SecretReference = None
                   IsTrusted = true }
 
+            let excelDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "RegionalTargets"
+                  Kind = ConnectorKind.Excel
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = files.ExcelPath; hasHeader = true |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let restDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "GitHubFSharp"
+                  Kind = ConnectorKind.RestJson
+                  Configuration =
+                      JsonSerializer.SerializeToElement(
+                          {| url = files.RestUrl
+                             method = "GET"
+                             headers = [ ("Accept", "application/vnd.github+json"); ("User-Agent", "FSharpQueryStudio/1.0") ] |},
+                          Serialization.options
+                      )
+                  SecretReference = None
+                  IsTrusted = true }
+
             let _ = Workspace.registerConnection dir sqliteDef
             let _ = Workspace.registerConnection dir sqlite2Def
             let _ = Workspace.registerConnection dir csvDef
-            let updatedInDir = Workspace.registerConnection dir csv2Def
+            let _ = Workspace.registerConnection dir csv2Def
+            let _ = Workspace.registerConnection dir excelDef
+            let updatedInDir = Workspace.registerConnection dir restDef
 
             Connections.configure (WorkspaceConnectionResolver(updatedInDir, secretStore))
             try
@@ -812,14 +861,18 @@ module Handlers =
             with ex ->
                 Log.Warning("FS Query Studio: Entity generation after sample creation failed: {Error}", ex.Message)
 
+            SessionStore.resetAll ()
+
             let result: SampleCreateResult =
                 { SqlitePath = files.SqlitePath
                   Sqlite2Path = files.Sqlite2Path
                   CsvPath = files.CsvPath
                   Csv2Path = files.Csv2Path
+                  ExcelPath = files.ExcelPath
+                  RestUrl = files.RestUrl
                   NotebookPath = files.NotebookPath
                   NotebookPtPath = files.NotebookPtPath
-                  RegisteredConnections = [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed" ] }
+                  RegisteredConnections = [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "GitHubFSharp" ] }
 
             { Id = request.Id
               Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))

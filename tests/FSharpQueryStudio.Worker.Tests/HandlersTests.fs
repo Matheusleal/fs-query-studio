@@ -1412,12 +1412,17 @@ let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or em
             let sqlite2 = r1.GetProperty("sqlite2Path").GetString()
             let csv1 = r1.GetProperty("csvPath").GetString()
             let csv2 = r1.GetProperty("csv2Path").GetString()
+            let excel1 = r1.GetProperty("excelPath").GetString()
+            let restUrl = r1.GetProperty("restUrl").GetString()
             let nb1 = r1.GetProperty("notebookPath").GetString()
             let nb2 = r1.GetProperty("notebookPtPath").GetString()
             Assert.True(File.Exists sqlite1, $"sqlitePath should exist: {sqlite1}")
             Assert.True(File.Exists sqlite2, $"sqlite2Path should exist: {sqlite2}")
             Assert.True(File.Exists csv1, $"csvPath should exist: {csv1}")
             Assert.True(File.Exists csv2, $"csv2Path should exist: {csv2}")
+            Assert.True(File.Exists excel1, $"excelPath should exist: {excel1}")
+            Assert.StartsWith("https://", restUrl)
+            Assert.Contains("github.com", restUrl)
             Assert.True(File.Exists nb1, $"notebookPath should exist: {nb1}")
             Assert.True(File.Exists nb2, $"notebookPtPath should exist: {nb2}")
 
@@ -1425,7 +1430,10 @@ let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or em
                 r1.GetProperty("registeredConnections").EnumerateArray()
                 |> Seq.map (fun el -> el.GetString())
                 |> Seq.toList
-            Assert.Equal<string list>([ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed" ], regConns)
+            Assert.Equal<string list>(
+                [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "GitHubFSharp" ],
+                regConns
+            )
 
             // Test 2: with targetDirectory
             let req2: WorkerRequestFrame =
@@ -1474,7 +1482,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(9, codeCells.Length)
+            Assert.Equal(11, codeCells.Length)
 
             for idx, code in List.indexed codeCells do
                 let evalReq = notebookCellRequest $"cell-{idx + 1}" code "sample_demo.fsqnb"
@@ -1487,6 +1495,8 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                     (env.Kind = ResultKind.Table || env.Kind = ResultKind.Scalar),
                     $"Cell {idx + 1} expected Table or Scalar outcome but got {env.Kind}. DisplayText: {env.DisplayText}. Output: {outputText}. Code:\n{code}"
                 )
+                if env.Kind = ResultKind.Table then
+                    Assert.NotEmpty(env.Rows)
 
             let notebookPtPath = Path.Combine(tmp, "sample_demo_pt.fsqnb")
             Assert.True(File.Exists notebookPtPath)
@@ -1497,7 +1507,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(9, codeCellsPt.Length)
+            Assert.Equal(11, codeCellsPt.Length)
 
             for idx, code in List.indexed codeCellsPt do
                 let evalReq = notebookCellRequest $"cell-pt-{idx + 1}" code "sample_demo_pt.fsqnb"
@@ -1510,6 +1520,98 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                     (env.Kind = ResultKind.Table || env.Kind = ResultKind.Scalar),
                     $"PT Cell {idx + 1} expected Table or Scalar outcome but got {env.Kind}. DisplayText: {env.DisplayText}. Output: {outputText}. Code:\n{code}"
                 )
+                if env.Kind = ResultKind.Table then
+                    Assert.NotEmpty(env.Rows)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+            try
+                if Directory.Exists tmp then Directory.Delete(tmp, true)
+            with _ -> ()
+    }
+
+[<Fact>]
+let ``re-creating sample data over a workspace with a stale empty SampleStore db and existing session heals and evaluates Customers`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-heal-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+
+            // 1. Simulate a broken/empty SampleStore connection and stale GeneratedEntities.fs
+            let brokenDbPath = Path.Combine(tmp, "broken_empty.db")
+            File.WriteAllBytes(brokenDbPath, [||])
+            let staleDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "SampleStore"
+                  Kind = ConnectorKind.Sqlite
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = brokenDbPath |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+            let _ = Workspace.registerConnection tmp staleDef
+            let! _ = EntityBackgroundGenerator.generateForConnectionsAsync tmp [ staleDef ] (FSharpQueryStudio.Security.InMemorySecretStore())
+
+            // Start a persistent session while SampleStore is still broken
+            let docUri = Path.Combine(tmp, "sample_demo_pt.fsqnb")
+            let warmupReq: WorkerRequestFrame =
+                { Id = "warmup-1"
+                  Method = "execution/evaluate"
+                  Params =
+                    JsonSerializer.SerializeToElement(
+                        { Source = "1 + 1"
+                          SessionId = Some docUri
+                          Mode = Persistent
+                          DocumentUri = docUri
+                          IsNotebookCell = true },
+                        Serialization.options
+                    ) }
+            let! _ = Handlers.dispatch warmupReq
+
+            // 2. Now run workspace/createSampleData in the same workspace
+            let escapedTmp = tmp.Replace("\\", "\\\\")
+            let createReq: WorkerRequestFrame =
+                { Id = "heal-create"
+                  Method = "workspace/createSampleData"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+            let! createRes = Handlers.dispatch createReq
+            Assert.True(createRes.Error.IsNone)
+
+            // Verify no duplicate SampleStore exists in workspace.json
+            let currentConns = Workspace.readConnections tmp
+            let sampleStoreConns = currentConns |> List.filter (fun c -> c.Name = "SampleStore")
+            Assert.Single(sampleStoreConns) |> ignore
+
+            // 3. Evaluate Cell 1 of sample_demo_pt.fsqnb on the same sessionId
+            let cell1Code = """
+query {
+    for c in Connections.sql.SampleStore.Customers do
+    where (c.Country = "Brazil")
+    sortBy c.FirstName
+    select {|
+        Id = c.Id
+        NomeCliente = c.FirstName + " " + c.LastName
+        Email = c.Email
+        Cidade = c.City
+        Pais = c.Country
+    |}
+}"""
+            let evalReq: WorkerRequestFrame =
+                { Id = "heal-eval-1"
+                  Method = "execution/evaluate"
+                  Params =
+                    JsonSerializer.SerializeToElement(
+                        { Source = cell1Code
+                          SessionId = Some docUri
+                          Mode = Persistent
+                          DocumentUri = docUri
+                          IsNotebookCell = true },
+                        Serialization.options
+                    ) }
+            let! evalRes = Handlers.dispatch evalReq
+            Assert.True(evalRes.Error.IsNone)
+            let env = JsonSerializer.Deserialize<ResultEnvelope>(evalRes.Result.Value.GetRawText(), Serialization.options)
+            Assert.Equal(ResultKind.Table, env.Kind)
+            Assert.Equal(2, env.Rows.Length)
         finally
             Handlers.setWorkspaceDirForTests None
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
