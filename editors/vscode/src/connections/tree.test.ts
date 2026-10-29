@@ -16,7 +16,7 @@ function provider(send: WorkerLike["send"]) {
   const p = new ConnectionsTreeProvider({
     getWorker: async () => ({ send }),
     schemaCache,
-    log: () => {},
+    log: () => { },
   });
   return { p, schemaCache };
 }

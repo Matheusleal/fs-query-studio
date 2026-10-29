@@ -31,22 +31,22 @@ type ConnectorFormField =
       DefaultValue: string option
       SecretHandling: SecretHandling }
 
-/// High-level category for typed access (`Connections.sql`, `Connections.csv`, etc.).
-[<RequireQualifiedAccess>]
-type ConnectorCategory =
-    | Sql
-    | TabularFile
-    | Excel
-    | Rest
-    | Custom of string
-
-    member this.Identifier: string =
-        match this with
-        | Sql -> "sql"
-        | TabularFile -> "csv"
-        | Excel -> "excel"
-        | Rest -> "rest"
-        | Custom s -> s
+/// Open, extensible category descriptor for typed access and entity generation.
+/// Each connector category specifies its wire identifier, generated module suffix,
+/// and target F# category extension type without hardcoding specific connectors in shared code.
+[<Struct; CustomEquality; NoComparison>]
+type ConnectorCategory(identifier: string, moduleSuffix: string, categoryTypeName: string) =
+    member _.Identifier: string = if isNull identifier then "" else identifier
+    member _.ModuleSuffix: string = if isNull moduleSuffix then "" else moduleSuffix
+    member _.CategoryTypeName: string = if isNull categoryTypeName then "" else categoryTypeName
+    static member Custom(id: string) = ConnectorCategory(id, id, "")
+    override this.ToString() = this.Identifier
+    override this.Equals(other: obj) =
+        match other with
+        | :? ConnectorCategory as c -> String.Equals(this.Identifier, c.Identifier, StringComparison.OrdinalIgnoreCase)
+        | _ -> false
+    override this.GetHashCode() =
+        StringComparer.OrdinalIgnoreCase.GetHashCode(this.Identifier)
 
 /// Pluggable entity code generator invoked by the background mapper.
 type IConnectorEntityGenerator =
@@ -58,18 +58,48 @@ type IConnectorEntityGenerator =
 type IConnectorFactory =
     abstract Create: configuration: JsonElement * secretStore: ISecretStore * secretReference: string option -> IConnector
 
-/// Self-describing connector metadata and factory provider (SPI).
+/// Self-describing connector metadata, validation, and factory provider (SPI).
 type IConnectorDescriptor =
     abstract KindId: string
     abstract DisplayName: string
     abstract Category: ConnectorCategory
     abstract Icon: string
     abstract FormFields: ConnectorFormField list
+    abstract ValidateConfiguration: configuration: JsonElement -> Result<unit, string>
     abstract Factory: IConnectorFactory
     abstract EntityGenerator: IConnectorEntityGenerator option
 
+module JsonElementHelpers =
+    let tryGetString (propName: string) (elem: JsonElement) : string option =
+        if elem.ValueKind = JsonValueKind.Object then
+            elem.EnumerateObject()
+            |> Seq.tryFind (fun p -> String.Equals(p.Name, propName, StringComparison.OrdinalIgnoreCase))
+            |> Option.bind (fun p ->
+                if p.Value.ValueKind = JsonValueKind.String then Some (p.Value.GetString())
+                elif p.Value.ValueKind = JsonValueKind.Null then None
+                else Some (p.Value.GetRawText().Trim('"')))
+        else None
+
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module ConnectorDescriptor =
+    /// Generic schema-based validation of required form fields.
+    /// Individual connectors can invoke this and/or apply their own domain validation rules.
+    let validateRequiredFields (fields: ConnectorFormField list) (configuration: JsonElement) : Result<unit, string> =
+        let missing =
+            fields
+            |> List.filter (fun f -> f.Required && f.Type <> ConnectorFieldType.Password)
+            |> List.tryFind (fun f ->
+                match JsonElementHelpers.tryGetString f.Name configuration with
+                | Some v when not (String.IsNullOrWhiteSpace v) -> false
+                | _ ->
+                    if configuration.ValueKind = JsonValueKind.String && not (String.IsNullOrWhiteSpace(configuration.GetString())) then
+                        false
+                    else
+                        true)
+        match missing with
+        | Some f -> Result.Error $"Required field '{f.Name}' ({f.Label}) is missing or empty."
+        | None -> Result.Ok ()
+
     let toDto (desc: IConnectorDescriptor) : ConnectorDescriptorDto =
         { KindId = desc.KindId
           DisplayName = desc.DisplayName
@@ -98,17 +128,6 @@ module ConnectorDescriptor =
                   DefaultValue = f.DefaultValue
                   Options = opts
                   SecretHandling = secretHandlingStr }: ConnectorFormFieldDto) }
-
-module JsonElementHelpers =
-    let tryGetString (propName: string) (elem: JsonElement) : string option =
-        if elem.ValueKind = JsonValueKind.Object then
-            elem.EnumerateObject()
-            |> Seq.tryFind (fun p -> String.Equals(p.Name, propName, StringComparison.OrdinalIgnoreCase))
-            |> Option.bind (fun p ->
-                if p.Value.ValueKind = JsonValueKind.String then Some (p.Value.GetString())
-                elif p.Value.ValueKind = JsonValueKind.Null then None
-                else Some (p.Value.GetRawText().Trim('"')))
-        else None
 
 module CodeGenerationHelpers =
     open System.Text.RegularExpressions

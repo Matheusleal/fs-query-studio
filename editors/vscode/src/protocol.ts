@@ -233,15 +233,11 @@ export interface AnalysisRenameResult {
 
 // --- F5: connections + reverse channel ---
 
-export type KnownConnectorKindName =
-  | "SqlServer"
-  | "PostgreSql"
-  | "Sqlite"
-  | "Csv"
-  | "Excel"
-  | "RestJson";
-
-export type ConnectorKindName = KnownConnectorKindName | (string & {});
+/**
+ * Open, connector-agnostic identifier representing a connector kind on the wire.
+ * Concrete connector modules define their own kind identifiers without coupling the protocol.
+ */
+export type ConnectorKindName = string;
 
 export type ConnectorFieldTypeName = "string" | "file" | "password" | "select" | "boolean";
 export type SecretHandlingName = "none" | "isolated" | string;

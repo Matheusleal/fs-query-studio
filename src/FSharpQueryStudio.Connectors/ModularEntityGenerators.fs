@@ -215,5 +215,6 @@ type CustomDescriptorWithGenerator(inner: IConnectorDescriptor, generator: IConn
         member _.Category = inner.Category
         member _.Icon = inner.Icon
         member _.FormFields = inner.FormFields
+        member _.ValidateConfiguration(configuration: JsonElement) = inner.ValidateConfiguration configuration
         member _.Factory = inner.Factory
         member _.EntityGenerator = Some generator

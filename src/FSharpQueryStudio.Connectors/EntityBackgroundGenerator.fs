@@ -122,13 +122,7 @@ module EntityBackgroundGenerator =
                             match ConnectorRegistry.Instance.TryGet kindId with
                             | Some desc when desc.EntityGenerator.IsSome ->
                                 let gen = desc.EntityGenerator.Value
-                                let suffix =
-                                    match gen.Category with
-                                    | ConnectorCategory.Sql -> "Db"
-                                    | ConnectorCategory.TabularFile -> "Csv"
-                                    | ConnectorCategory.Excel -> "Excel"
-                                    | ConnectorCategory.Rest -> "Json"
-                                    | ConnectorCategory.Custom s -> s
+                                let suffix = gen.Category.ModuleSuffix
                                 let moduleName = makeUniqueModuleName $"{cleanName}{suffix}"
                                 let propName = makeUniquePropName cleanName
                                 let moduleCode = gen.EmitModuleCode(def.Name, rawConnector, moduleName)
@@ -147,57 +141,17 @@ module EntityBackgroundGenerator =
                         sb.AppendLine("[<AutoOpen>]") |> ignore
                         sb.AppendLine("module Extensions =") |> ignore
 
-                        let sqlExts =
+                        let groupedExtensions =
                             extensions
-                            |> List.filter (fun (cat, _) -> cat = ConnectorCategory.Sql)
-                            |> List.map snd
                             |> List.rev
+                            |> Seq.groupBy (fun (cat, _) -> cat.CategoryTypeName)
+                            |> Seq.filter (fun (typeName, _) -> not (String.IsNullOrWhiteSpace typeName))
 
-                        if not (List.isEmpty sqlExts) then
-                            sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.SqlCategory with") |> ignore
-                            for extLine in sqlExts do
+                        for (categoryTypeName, items) in groupedExtensions do
+                            sb.AppendLine($"    type {categoryTypeName} with") |> ignore
+                            for (_, extLine) in items do
                                 sb.AppendLine(extLine) |> ignore
                             sb.AppendLine() |> ignore
-
-                        let csvExts =
-                            extensions
-                            |> List.filter (fun (cat, _) -> cat = ConnectorCategory.TabularFile)
-                            |> List.map snd
-                            |> List.rev
-
-                        if not (List.isEmpty csvExts) then
-                            sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.CsvCategory with") |> ignore
-                            for extLine in csvExts do
-                                sb.AppendLine(extLine) |> ignore
-                            sb.AppendLine() |> ignore
-
-                        let excelExts =
-                            extensions
-                            |> List.filter (fun (cat, _) -> cat = ConnectorCategory.Excel)
-                            |> List.map snd
-                            |> List.rev
-
-                        if not (List.isEmpty excelExts) then
-                            sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.ExcelCategory with") |> ignore
-                            for extLine in excelExts do
-                                sb.AppendLine(extLine) |> ignore
-                            sb.AppendLine() |> ignore
-
-                        let restExts =
-                            extensions
-                            |> List.filter (fun (cat, _) -> cat = ConnectorCategory.Rest)
-                            |> List.map snd
-                            |> List.rev
-
-                        if not (List.isEmpty restExts) then
-                            sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.RestCategory with") |> ignore
-                            for extLine in restExts do
-                                sb.AppendLine(extLine) |> ignore
-                            sb.AppendLine() |> ignore
-
-
-
-
 
                         let targetDir = generatedDir workspaceDir
                         Directory.CreateDirectory(targetDir) |> ignore

@@ -10,73 +10,41 @@ type ConnectorKindJsonConverter() =
     override _.Read(reader: byref<Utf8JsonReader>, _: Type, _: JsonSerializerOptions) : ConnectorKind =
         match reader.TokenType with
         | JsonTokenType.String ->
-            let s = reader.GetString()
-            match s with
-            | "SqlServer" -> ConnectorKind.SqlServer
-            | "PostgreSql" -> ConnectorKind.PostgreSql
-            | "Sqlite" -> ConnectorKind.Sqlite
-            | "Csv" -> ConnectorKind.Csv
-            | "Excel" -> ConnectorKind.Excel
-            | "RestJson" -> ConnectorKind.RestJson
-            | other -> ConnectorKind.Custom other
+            ConnectorKind(reader.GetString())
         | JsonTokenType.StartObject ->
             use doc = JsonDocument.ParseValue(&reader)
             let root = doc.RootElement
             let mutable caseProp = Unchecked.defaultof<JsonElement>
             if root.TryGetProperty("Case", &caseProp) && caseProp.ValueKind = JsonValueKind.String then
-                let s = caseProp.GetString()
-                match s with
-                | "SqlServer" -> ConnectorKind.SqlServer
-                | "PostgreSql" -> ConnectorKind.PostgreSql
-                | "Sqlite" -> ConnectorKind.Sqlite
-                | "Csv" -> ConnectorKind.Csv
-                | "Excel" -> ConnectorKind.Excel
-                | "RestJson" -> ConnectorKind.RestJson
-                | other -> ConnectorKind.Custom other
+                ConnectorKind(caseProp.GetString())
             elif root.TryGetProperty("case", &caseProp) && caseProp.ValueKind = JsonValueKind.String then
-                let s = caseProp.GetString()
-                match s with
-                | "SqlServer" -> ConnectorKind.SqlServer
-                | "PostgreSql" -> ConnectorKind.PostgreSql
-                | "Sqlite" -> ConnectorKind.Sqlite
-                | "Csv" -> ConnectorKind.Csv
-                | "Excel" -> ConnectorKind.Excel
-                | "RestJson" -> ConnectorKind.RestJson
-                | other -> ConnectorKind.Custom other
+                ConnectorKind(caseProp.GetString())
             else
-                ConnectorKind.Custom (root.GetRawText())
+                ConnectorKind(root.GetRawText())
         | _ ->
-            let s = reader.GetString()
-            ConnectorKind.Custom s
+            ConnectorKind(reader.GetString())
 
     override _.Write(writer: Utf8JsonWriter, value: ConnectorKind, _: JsonSerializerOptions) : unit =
-        let caseName =
-            match value with
-            | ConnectorKind.SqlServer -> "SqlServer"
-            | ConnectorKind.PostgreSql -> "PostgreSql"
-            | ConnectorKind.Sqlite -> "Sqlite"
-            | ConnectorKind.Csv -> "Csv"
-            | ConnectorKind.Excel -> "Excel"
-            | ConnectorKind.RestJson -> "RestJson"
-            | ConnectorKind.Custom s -> s
         writer.WriteStartObject()
-        writer.WriteString("Case", caseName)
+        writer.WriteString("Case", value.Id)
         writer.WriteEndObject()
 
-/// The open connector targets: native first-party targets plus extensible custom kinds.
-and [<JsonConverter(typeof<ConnectorKindJsonConverter>)>] ConnectorKind =
-    | SqlServer
-    | PostgreSql
-    | Sqlite
-    | Csv
-    | Excel
-    | RestJson
-    | Custom of string
+/// Open, connector-agnostic identifier representing a connector kind on the wire.
+/// Concrete connector modules define their own kind identifiers without coupling the protocol.
+and [<Struct; CustomEquality; NoComparison; JsonConverter(typeof<ConnectorKindJsonConverter>)>] ConnectorKind(id: string) =
+    member _.Id: string = if isNull id then "" else id
+    static member Custom(id: string) : ConnectorKind = ConnectorKind(id)
+    override this.ToString() = this.Id
+    override this.Equals(other: obj) =
+        match other with
+        | :? ConnectorKind as k -> String.Equals(this.Id, k.Id, StringComparison.OrdinalIgnoreCase)
+        | _ -> false
+    override this.GetHashCode() =
+        StringComparer.OrdinalIgnoreCase.GetHashCode(this.Id)
 
 /// A registered, non-secret connection binding. `Configuration` is
-/// connector-specific (a SQLite file path, a REST base URL and headers,
-/// ...); `SecretReference` points into the OS credential store rather
-/// than carrying any credential value itself, so this type is always
+/// connector-specific; `SecretReference` points into the OS credential store
+/// rather than carrying any credential value itself, so this type is always
 /// safe to write to `workspace.json` as-is.
 type ConnectionDefinition =
     { Id: Guid

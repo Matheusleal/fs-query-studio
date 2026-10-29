@@ -605,18 +605,15 @@ module Handlers =
         let sampleNames = set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed" ]
         let isLeakedSample (c: ConnectionDefinition) =
             sampleNames.Contains c.Name && (
-                match c.Kind with
-                | ConnectorKind.Sqlite | ConnectorKind.Csv | ConnectorKind.Excel ->
-                    try
-                        let doc = JsonDocument.Parse(c.Configuration.GetRawText())
-                        let mutable fpProp = Unchecked.defaultof<JsonElement>
-                        if doc.RootElement.TryGetProperty("filePath", &fpProp) && fpProp.ValueKind = JsonValueKind.String then
-                            let fp = fpProp.GetString()
-                            not (File.Exists fp) || not (fp.StartsWith(globalWs, StringComparison.OrdinalIgnoreCase))
-                        else
-                            true
-                    with _ -> true
-                | _ -> false
+                try
+                    let doc = JsonDocument.Parse(c.Configuration.GetRawText())
+                    let mutable fpProp = Unchecked.defaultof<JsonElement>
+                    if doc.RootElement.ValueKind = JsonValueKind.Object && doc.RootElement.TryGetProperty("filePath", &fpProp) && fpProp.ValueKind = JsonValueKind.String then
+                        let fp = fpProp.GetString()
+                        not (File.Exists fp) || not (fp.StartsWith(globalWs, StringComparison.OrdinalIgnoreCase))
+                    else
+                        false
+                with _ -> false
             )
         let leaked = conns |> List.filter isLeakedSample
         if not (List.isEmpty leaked) then

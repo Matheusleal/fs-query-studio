@@ -22,10 +22,9 @@ type SqlDialect =
 
 module SqlDialect =
     let fromConnectorKind (kind: ConnectorKind) =
-        match kind with
-        | ConnectorKind.PostgreSql -> SqlDialect.PostgreSql
-        | ConnectorKind.SqlServer -> SqlDialect.SqlServer
-        | _ -> SqlDialect.Sqlite
+        if kind = ConnectorKind("PostgreSql") then SqlDialect.PostgreSql
+        elif kind = ConnectorKind("SqlServer") then SqlDialect.SqlServer
+        else SqlDialect.Sqlite
 
 /// Static helper methods for reading primitive types directly from IDataRecord without boxing.
 type RecordReaders =

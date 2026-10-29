@@ -1,320 +1,168 @@
+import type { ConnectorDescriptorDto, ConnectorKindName } from "../protocol";
 import {
-  type ConnectionDefinition,
-  type ConnectorDescriptorDto,
-  type ConnectorKindName,
-} from "../protocol";
+  ConnectorSharedUtils,
+  type ConnectionFormInput,
+  type FrontendConnectorModule,
+  type TargetConnectorCategory,
+} from "./connector-shared";
+import { BUILTIN_FRONTEND_CONNECTORS } from "./modules";
 
-export type TargetConnectorCategory = "Database" | "Csv" | "Excel" | "RestJson";
-
-export interface ConnectionFormInput {
-  kind: ConnectorKindName;
-  name: string;
-  filePath?: string;
-  delimiter?: string;
-  connectionString?: string;
-  password?: string;
-  url?: string;
-  configValues?: Record<string, unknown>;
-}
+export type { ConnectionFormInput, FrontendConnectorModule, TargetConnectorCategory };
 
 /**
- * Single source of truth in the frontend for all connector-specific
- * metadata, default descriptors, credential sanitization, and category mapping.
- * Adding support for a new connector in the frontend only requires updates in this file.
+ * Central, connector-agnostic frontend registry.
+ * Delegates all connector-specific validation, credential sanitization, authentication rules,
+ * and configuration building to each registered `FrontendConnectorModule`, falling back
+ * to shared generic utilities when a dynamic/unknown connector is encountered.
  */
 export class ConnectorFrontRegistry {
-  /**
-   * Default fallback connector descriptors used before the worker initializes.
-   */
-  static readonly defaultDescriptors: ConnectorDescriptorDto[] = [
-    {
-      kindId: "SqlServer",
-      displayName: "SQL Server",
-      category: "sql",
-      icon: "database",
-      formFields: [
-        {
-          name: "connectionString",
-          label: "SQL Server Connection String",
-          type: "string",
-          required: true,
-          placeholder: "Server=localhost;Database=master;TrustServerCertificate=True;",
-          secretHandling: "connectionString:{password}",
-        },
-        {
-          name: "password",
-          label: "Password",
-          type: "password",
-          required: false,
-          secretHandling: "isolated",
-        },
-      ],
-    },
-    {
-      kindId: "PostgreSql",
-      displayName: "PostgreSQL",
-      category: "sql",
-      icon: "database",
-      formFields: [
-        {
-          name: "connectionString",
-          label: "PostgreSQL Connection String",
-          type: "string",
-          required: true,
-          placeholder: "Host=localhost;Database=mydb;Username=postgres",
-          secretHandling: "connectionString:{password}",
-        },
-        {
-          name: "password",
-          label: "Password",
-          type: "password",
-          required: false,
-          secretHandling: "isolated",
-        },
-      ],
-    },
-    {
-      kindId: "Sqlite",
-      displayName: "SQLite",
-      category: "sql",
-      icon: "database",
-      formFields: [
-        {
-          name: "filePath",
-          label: "Absolute file path",
-          type: "file",
-          required: true,
-          placeholder: "/path/to/database.db",
-          secretHandling: "none",
-        },
-      ],
-    },
-    {
-      kindId: "Csv",
-      displayName: "CSV",
-      category: "csv",
-      icon: "file",
-      formFields: [
-        {
-          name: "filePath",
-          label: "Absolute file path",
-          type: "file",
-          required: true,
-          placeholder: "/path/to/data.csv",
-          secretHandling: "none",
-        },
-        {
-          name: "delimiter",
-          label: "Delimiter (optional: comma, semicolon, tab. Leave blank for auto-detect)",
-          type: "string",
-          required: false,
-          placeholder: "Leave blank for auto-detect (, ; \\t |)",
-          secretHandling: "none",
-        },
-      ],
-    },
-    {
-      kindId: "Excel",
-      displayName: "Excel",
-      category: "excel",
-      icon: "file",
-      formFields: [
-        {
-          name: "filePath",
-          label: "Absolute file path",
-          type: "file",
-          required: true,
-          placeholder: "/path/to/spreadsheet.xlsx",
-          secretHandling: "none",
-        },
-      ],
-    },
-    {
-      kindId: "RestJson",
-      displayName: "REST API (JSON)",
-      category: "rest",
-      icon: "globe",
-      formFields: [
-        {
-          name: "url",
-          label: "Endpoint URL",
-          type: "string",
-          required: true,
-          placeholder: "https://api.example.com/data",
-          secretHandling: "none",
-        },
-      ],
-    },
-  ];
+  private static readonly modules = new Map<string, FrontendConnectorModule>(
+    BUILTIN_FRONTEND_CONNECTORS.map((m) => [m.descriptor.kindId.toLowerCase(), m]),
+  );
 
   /**
-   * Sanitizes connection string and extracts/replaces plaintext credentials with `{password}`.
+   * Registers or replaces a frontend connector module at runtime.
+   */
+  static register(module: FrontendConnectorModule): void {
+    this.modules.set(module.descriptor.kindId.toLowerCase(), module);
+  }
+
+  /**
+   * Looks up a registered frontend connector module by kind identifier (case-insensitive).
+   */
+  static getModule(kind: ConnectorKindName | string | undefined): FrontendConnectorModule | undefined {
+    if (!kind) {
+      return undefined;
+    }
+    return this.modules.get(kind.toLowerCase());
+  }
+
+  /**
+   * Default fallback connector descriptors derived from all registered frontend connector modules.
+   */
+  static get defaultDescriptors(): ConnectorDescriptorDto[] {
+    return Array.from(this.modules.values()).map((m) => m.descriptor);
+  }
+
+  /**
+   * Sanitizes a connection string and extracts/replaces plaintext credentials with `{password}`
+   * by delegating to the connector's own `sanitizeCredentials` rule or shared generic helpers.
    */
   static sanitizeConnectionStringAndPassword(
     kind: ConnectorKindName,
     rawConnStr: string,
     rawPassword?: string,
   ): { connectionString: string; password?: string } {
-    let connStr = rawConnStr.trim();
-    let pwd = rawPassword?.trim() ? rawPassword.trim() : undefined;
-
-    // If SQL Server has Integrated Security or Trusted_Connection and no raw password:
-    const isIntegrated =
-      kind === "SqlServer" &&
-      /(integrated\s+security\s*=\s*(true|sspi)|trusted_connection\s*=\s*(true|yes))/i.test(connStr);
-    if (isIntegrated && !pwd) {
-      return { connectionString: connStr, password: undefined };
+    const mod = this.getModule(kind);
+    if (mod?.sanitizeCredentials) {
+      return mod.sanitizeCredentials(rawConnStr, rawPassword);
     }
-
-    // 1. Key=value connection string:
-    const kvPwdRegex = /(^|;)\s*(password|pwd)\s*=\s*([^;]+)/i;
-    const kvMatch = connStr.match(kvPwdRegex);
-    if (kvMatch) {
-      const extractedVal = kvMatch[3].trim();
-      if (!extractedVal.toLowerCase().includes("{password}")) {
-        if (!pwd) {
-          pwd = extractedVal;
-        }
-        connStr = connStr.replace(kvPwdRegex, "$1$2={password}");
-      }
+    const trimmed = rawConnStr.trim();
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+      return ConnectorSharedUtils.sanitizeUriConnectionString(trimmed, rawPassword);
     }
-
-    // 2. URI format (e.g. postgres://user:secret@host:port/db):
-    const uriPwdRegex = /^(postgres(?:ql)?:\/\/[^:]+):([^@]+)(@.+)$/i;
-    const uriMatch = connStr.match(uriPwdRegex);
-    if (uriMatch) {
-      const extractedUriPwd = decodeURIComponent(uriMatch[2]);
-      if (!extractedUriPwd.toLowerCase().includes("{password}")) {
-        if (!pwd) {
-          pwd = extractedUriPwd;
-        }
-        connStr = connStr.replace(uriPwdRegex, "$1:{password}$3");
-      }
-    }
-
-    // 3. Fallback appending:
-    if (pwd && !connStr.toLowerCase().includes("{password}")) {
-      if (
-        connStr.toLowerCase().startsWith("postgres://") ||
-        connStr.toLowerCase().startsWith("postgresql://")
-      ) {
-        const uriUserRegex = /^(postgres(?:ql)?:\/\/[^@]+)(@.+)$/i;
-        if (uriUserRegex.test(connStr)) {
-          connStr = connStr.replace(uriUserRegex, "$1:{password}$2");
-        }
-      } else {
-        const trimmed = connStr.endsWith(";") ? connStr.slice(0, -1) : connStr;
-        connStr = trimmed ? `${trimmed};Password={password};` : "Password={password};";
-      }
-    }
-
-    return { connectionString: connStr, password: pwd };
+    return ConnectorSharedUtils.sanitizeKeyValueConnectionString(trimmed, rawPassword);
   }
 
   /**
-   * Checks whether a connection uses Windows Authentication (Integrated Security) without a password.
+   * Checks whether a connection uses Windows Authentication (Integrated Security) without a password,
+   * delegated to the connector module.
    */
-  static isWindowsAuthentication(kind: ConnectorKindName, connectionString: string, hasPassword = false): boolean {
-    if (kind !== "SqlServer" || hasPassword) {
-      return false;
-    }
-    return /(integrated\s+security\s*=\s*(true|sspi)|trusted_connection\s*=\s*(true|yes))/i.test(connectionString);
+  static isWindowsAuthentication(
+    kind: ConnectorKindName,
+    connectionString: string,
+    hasPassword = false,
+  ): boolean {
+    const mod = this.getModule(kind);
+    return mod?.isWindowsAuthentication ? mod.isWindowsAuthentication(connectionString, hasPassword) : false;
   }
 
   /**
    * Checks whether the connector and field support interactive Windows Authentication selection.
    */
   static supportsWindowsAuthPrompt(kind: ConnectorKindName, fieldName: string): boolean {
-    return kind === "SqlServer" && fieldName === "connectionString";
+    const mod = this.getModule(kind);
+    return mod?.supportsWindowsAuthPrompt ? mod.supportsWindowsAuthPrompt(fieldName) : false;
   }
 
   /**
-   * Default Windows Authentication connection string for connectors that support it.
+   * Returns the default Windows Authentication connection string for a connector.
    */
-  static readonly defaultWindowsAuthConnectionString =
-    "Server=localhost;Database=master;Integrated Security=True;TrustServerCertificate=True;";
-
-  /**
-   * Normalizes a connection string to include Integrated Security and TrustServerCertificate.
-   */
-  static normalizeWindowsAuthConnectionString(rawConnStr: string): string {
-    let normalized = rawConnStr.trim();
-    if (!/integrated\s+security\s*=/i.test(normalized) && !/trusted_connection\s*=/i.test(normalized)) {
-      normalized = normalized.replace(/;?$/, ";Integrated Security=True;");
-    }
-    if (!/trustservercertificate\s*=/i.test(normalized)) {
-      normalized = normalized.replace(/;?$/, ";TrustServerCertificate=True;");
-    }
-    return normalized;
+  static getDefaultWindowsAuthConnectionString(kind: ConnectorKindName): string {
+    return this.getModule(kind)?.defaultWindowsAuthConnectionString ?? "";
   }
 
   /**
-   * Returns the target connection category for the function call before the cursor,
-   * or `undefined` if the cursor is not inside a recognized connection-name string argument.
+   * Normalizes a Windows Authentication connection string using the connector's own rule.
    */
-  static getTargetConnectorCategory(linePrefix: string): TargetConnectorCategory | undefined {
-    if (/Connections\.(?:sql|connect|get|query|getConnectionString)\b\s*\(?\s*"[^"]*$/.test(linePrefix)) {
-      return "Database";
-    }
-    if (/Connections\.(?:csv|connectCsv|queryCsv)\b\s*\(?\s*"[^"]*$/.test(linePrefix)) {
-      return "Csv";
-    }
-    if (/Connections\.(?:excel|connectExcel|queryExcel|queryExcelSheet)\b\s*\(?\s*"[^"]*$/.test(linePrefix)) {
-      return "Excel";
-    }
-    if (/Connections\.(?:rest|connectRest|queryJson)\b\s*\(?\s*"[^"]*$/.test(linePrefix)) {
-      return "RestJson";
-    }
-    return undefined;
+  static normalizeWindowsAuthConnectionString(kind: ConnectorKindName, rawConnStr: string): string {
+    const mod = this.getModule(kind);
+    return mod?.normalizeWindowsAuthConnectionString
+      ? mod.normalizeWindowsAuthConnectionString(rawConnStr)
+      : rawConnStr.trim();
   }
 
   /**
-   * Builds the configuration dictionary from form input.
+   * Builds the configuration object from form input by delegating to the connector module.
    */
   static configurationFor(input: ConnectionFormInput): unknown {
     if (input.configValues && Object.keys(input.configValues).length > 0) {
       return { ...input.configValues };
     }
-    const cleanPath = (input.filePath ?? "").trim().replace(/^["']|["']$/g, "").trim();
-    switch (input.kind) {
-      case "Sqlite":
-      case "Excel":
-        return { filePath: cleanPath };
-      case "Csv": {
-        const config: { filePath: string; delimiter?: string } = { filePath: cleanPath };
-        if (input.delimiter && input.delimiter.trim().length > 0) {
-          config.delimiter = input.delimiter.trim();
-        }
-        return config;
-      }
-      case "SqlServer":
-      case "PostgreSql":
-        return { connectionString: input.connectionString ?? "" };
-      case "RestJson":
-        return { url: input.url ?? "", method: "GET", headers: [], queryParams: [], body: null };
-      default:
-        return {};
+    const mod = this.getModule(input.kind);
+    if (mod) {
+      return mod.buildConfiguration(input);
     }
+    return {};
   }
 
   /**
-   * Maps a connector kind to its autocomplete category.
+   * Validates a configuration object against the connector module's own validation logic.
    */
-  static isInCategory(kind: ConnectorKindName | string | undefined, category: TargetConnectorCategory): boolean {
+  static validateConfiguration(
+    kind: ConnectorKindName,
+    config: Record<string, unknown>,
+  ): string | undefined {
+    const mod = this.getModule(kind);
+    if (mod) {
+      return mod.validateConfiguration(config);
+    }
+    return undefined;
+  }
+
+  /**
+   * Returns the target connection category for the function call before the cursor,
+   * derived dynamically from each registered connector module's `completionTriggerMembers`.
+   */
+  static getTargetConnectorCategory(linePrefix: string): TargetConnectorCategory | undefined {
+    for (const mod of this.modules.values()) {
+      if (mod.completionTriggerMembers.length === 0) {
+        continue;
+      }
+      const escapedMembers = mod.completionTriggerMembers.join("|");
+      const pattern = new RegExp(`Connections\\.(?:${escapedMembers})\\b\\s*\\(?\\s*"[^"]*$`);
+      if (pattern.test(linePrefix)) {
+        return mod.autocompleteCategory;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Checks whether a connector kind belongs to a target autocomplete category
+   * by delegating to the registered connector module.
+   */
+  static isInCategory(
+    kind: ConnectorKindName | string | undefined,
+    category: TargetConnectorCategory,
+  ): boolean {
     if (!kind) {
       return true;
     }
-    switch (category) {
-      case "Database":
-        return kind === "SqlServer" || kind === "PostgreSql" || kind === "Sqlite";
-      case "Csv":
-        return kind === "Csv";
-      case "Excel":
-        return kind === "Excel";
-      case "RestJson":
-        return kind === "RestJson";
-      default:
-        return false;
+    const mod = this.getModule(kind);
+    if (mod) {
+      return mod.autocompleteCategory === category;
     }
+    return kind.toLowerCase() === category.toLowerCase();
   }
 }

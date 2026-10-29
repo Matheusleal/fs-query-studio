@@ -8,6 +8,14 @@ open System.Threading
 open System.Threading.Tasks
 open FSharpQueryStudio.Protocol
 
+[<AutoOpen>]
+module RestConnectorExtensions =
+    type ConnectorKind with
+        static member RestJson = ConnectorKind("RestJson")
+
+    type ConnectorCategory with
+        static member Rest = ConnectorCategory("rest", "Json", "FSharpQueryStudio.Connectors.Connections.RestCategory")
+
 /// URL/method/header/query/body configuration — Section 10's REST/JSON
 /// connector capability shape.
 type RestRequestOptions =

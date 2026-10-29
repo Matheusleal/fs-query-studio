@@ -8,6 +8,14 @@ open System.Threading
 open System.Threading.Tasks
 open FSharpQueryStudio.Protocol
 
+[<AutoOpen>]
+module CsvConnectorExtensions =
+    type ConnectorKind with
+        static member Csv = ConnectorKind("Csv")
+
+    type ConnectorCategory with
+        static member TabularFile = ConnectorCategory("csv", "Csv", "FSharpQueryStudio.Connectors.Connections.CsvCategory")
+
 /// Delimiter/encoding/header options — Section 10's CSV connector
 /// capability shape.
 type CsvOptions =

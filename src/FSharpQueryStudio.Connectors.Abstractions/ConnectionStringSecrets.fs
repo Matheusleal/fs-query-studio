@@ -5,8 +5,8 @@ open System.Data.Common
 open System.Text.RegularExpressions
 open FSharpQueryStudio.Security
 
-/// Substitutes `template`'s `{password}` token from `secretStore`, keyed
-/// by `secretReference`. Returns `template` unchanged when there's no
+/// Generic utility that substitutes `template`'s `{password}` token from `secretStore`,
+/// keyed by `secretReference`. Returns `template` unchanged when there is no
 /// reference to resolve, or the reference has nothing stored under it.
 module ConnectionStringSecrets =
     let resolve (secretStore: ISecretStore) (secretReference: string option) (template: string) : string =
@@ -17,7 +17,7 @@ module ConnectionStringSecrets =
             | Some secret when not (String.IsNullOrEmpty secret) ->
                 if template.IndexOf("{password}", StringComparison.OrdinalIgnoreCase) >= 0 then
                     Regex.Replace(template, "\{password\}", secret, RegexOptions.IgnoreCase)
-                elif template.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) || template.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase) then
+                elif template.Contains("://") then
                     try
                         let uri = Uri(template)
                         let userInfo = uri.UserInfo

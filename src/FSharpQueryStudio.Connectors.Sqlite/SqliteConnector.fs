@@ -7,6 +7,14 @@ open System.Threading.Tasks
 open Microsoft.Data.Sqlite
 open FSharpQueryStudio.Protocol
 
+[<AutoOpen>]
+module SqliteConnectorExtensions =
+    type ConnectorKind with
+        static member Sqlite = ConnectorKind("Sqlite")
+
+    type ConnectorCategory with
+        static member Sql = ConnectorCategory("sql", "Db", "FSharpQueryStudio.Connectors.Connections.SqlCategory")
+
 /// SQLite connector — Section 10. `filePath` names a local `.db` file;
 /// SQLite creates it automatically on first connection if it doesn't
 /// exist yet.

@@ -641,12 +641,12 @@ module Connections =
         /// Generates a SQLProvider declaration snippet for this database connection.
         member this.GenerateSqlProvider(?typeAlias: string) : string =
             let alias = defaultArg typeAlias "Db"
+            let kind = (connector :> IConnector).Kind
             let vendor =
-                match (connector :> IConnector).Kind with
-                | ConnectorKind.PostgreSql -> "Common.DatabaseProviderTypes.POSTGRESQL"
-                | ConnectorKind.SqlServer -> "Common.DatabaseProviderTypes.MSSQLSERVER"
-                | ConnectorKind.Sqlite -> "Common.DatabaseProviderTypes.SQLITE"
-                | _ -> "Common.DatabaseProviderTypes.POSTGRESQL"
+                if kind = ConnectorKind.PostgreSql then "Common.DatabaseProviderTypes.POSTGRESQL"
+                elif kind = ConnectorKind.SqlServer then "Common.DatabaseProviderTypes.MSSQLSERVER"
+                elif kind = ConnectorKind.Sqlite then "Common.DatabaseProviderTypes.SQLITE"
+                else "Common.DatabaseProviderTypes.POSTGRESQL"
             $"open FSharp.Data.Sql\n\n[<Literal>]\nlet private connStr = \"{connector.ConnectionString}\"\n\ntype {alias} = SqlDataProvider<\n    DatabaseVendor = {vendor},\n    ConnectionString = connStr >\n\nlet db = {alias}.GetDataContext()\n"
 
     /// Represents an active CSV connection with typed row queries and autocomplete.

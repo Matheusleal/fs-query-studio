@@ -19,6 +19,21 @@ type PostgreSqlConnectorFactory() =
 
 type PostgreSqlDescriptor() =
     static let instance = PostgreSqlDescriptor()
+    static let formFields =
+        [ { Name = "connectionString"
+            Label = "Connection String"
+            Type = ConnectorFieldType.String
+            Required = true
+            Placeholder = Some "Host=localhost;Database=postgres;Username=postgres;Password={password}"
+            DefaultValue = None
+            SecretHandling = SecretHandling.EmbedInConnectionString "{password}" }
+          { Name = "password"
+            Label = "Password"
+            Type = ConnectorFieldType.Password
+            Required = false
+            Placeholder = Some "Password for PostgreSQL user"
+            DefaultValue = None
+            SecretHandling = SecretHandling.IsolatedCredential } ]
     static member Instance = instance
 
     interface IConnectorDescriptor with
@@ -26,20 +41,8 @@ type PostgreSqlDescriptor() =
         member _.DisplayName = "PostgreSQL"
         member _.Category = ConnectorCategory.Sql
         member _.Icon = "database"
-        member _.FormFields =
-            [ { Name = "connectionString"
-                Label = "Connection String"
-                Type = ConnectorFieldType.String
-                Required = true
-                Placeholder = Some "Host=localhost;Database=postgres;Username=postgres;Password={password}"
-                DefaultValue = None
-                SecretHandling = SecretHandling.EmbedInConnectionString "{password}" }
-              { Name = "password"
-                Label = "Password"
-                Type = ConnectorFieldType.Password
-                Required = false
-                Placeholder = Some "Password for PostgreSQL user"
-                DefaultValue = None
-                SecretHandling = SecretHandling.IsolatedCredential } ]
+        member _.FormFields = formFields
+        member _.ValidateConfiguration(configuration: JsonElement) : Result<unit, string> =
+            ConnectorDescriptor.validateRequiredFields formFields configuration
         member _.Factory = PostgreSqlConnectorFactory() :> IConnectorFactory
         member _.EntityGenerator = None

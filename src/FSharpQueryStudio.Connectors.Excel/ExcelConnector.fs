@@ -6,6 +6,14 @@ open System.Threading.Tasks
 open ClosedXML.Excel
 open FSharpQueryStudio.Protocol
 
+[<AutoOpen>]
+module ExcelConnectorExtensions =
+    type ConnectorKind with
+        static member Excel = ConnectorKind("Excel")
+
+    type ConnectorCategory with
+        static member Excel = ConnectorCategory("excel", "Excel", "FSharpQueryStudio.Connectors.Connections.ExcelCategory")
+
 /// Workbook/sheet selection and header options — Section 10's Excel
 /// connector capability shape. `SheetName = None` targets the workbook's
 /// first sheet.

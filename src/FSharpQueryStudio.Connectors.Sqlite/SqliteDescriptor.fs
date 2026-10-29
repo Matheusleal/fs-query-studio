@@ -19,6 +19,14 @@ type SqliteConnectorFactory() =
 
 type SqliteDescriptor() =
     static let instance = SqliteDescriptor()
+    static let formFields =
+        [ { Name = "filePath"
+            Label = "Database File Path"
+            Type = ConnectorFieldType.File
+            Required = true
+            Placeholder = Some "/path/to/database.db"
+            DefaultValue = None
+            SecretHandling = SecretHandling.None } ]
     static member Instance = instance
 
     interface IConnectorDescriptor with
@@ -26,13 +34,8 @@ type SqliteDescriptor() =
         member _.DisplayName = "SQLite"
         member _.Category = ConnectorCategory.Sql
         member _.Icon = "database"
-        member _.FormFields =
-            [ { Name = "filePath"
-                Label = "Database File Path"
-                Type = ConnectorFieldType.File
-                Required = true
-                Placeholder = Some "/path/to/database.db"
-                DefaultValue = None
-                SecretHandling = SecretHandling.None } ]
+        member _.FormFields = formFields
+        member _.ValidateConfiguration(configuration: JsonElement) : Result<unit, string> =
+            ConnectorDescriptor.validateRequiredFields formFields configuration
         member _.Factory = SqliteConnectorFactory() :> IConnectorFactory
         member _.EntityGenerator = None

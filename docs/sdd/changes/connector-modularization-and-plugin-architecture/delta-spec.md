@@ -11,27 +11,27 @@
 The FSharpQueryStudio.Connectors.Abstractions assembly shall expose connector interfaces (IConnector, IQueryableConnector, IStreamingQueryableConnector), entity code generator interfaces (IConnectorEntityGenerator), and registry abstractions (IConnectorDescriptor, IConnectorFactory, IConnectorRegistry) without referencing any third-party database driver package.
 ```
 
-#### FR-CONN-DESCRIPTOR-SCHEMA: Metadados Declarativos de UI para Conectores
+#### FR-CONN-DESCRIPTOR-SCHEMA: Metadados Declarativos de UI e Validação por Conector
 ```text
 When a connector module registers with the connector registry,
-the connector module shall provide an IConnectorDescriptor containing a unique kind identifier, display name, category, icon name, and a declarative list of form fields defining connection configuration inputs, required validations, and secret handling.
+the connector module shall provide an IConnectorDescriptor containing a unique kind identifier, display name, category, icon name, a declarative list of form fields, and a connector-specific ValidateConfiguration implementation.
 ```
 
-#### FR-CONN-REGISTRY-RESOLUTION: Registro Dinâmico e Resolução de Conectores
+#### FR-CONN-REGISTRY-RESOLUTION: Registro Dinâmico, Validação e Resolução de Conectores
 ```text
 When resolving a connection definition,
-the ConnectorRegistry shall locate the matching registered descriptor by kind identifier and instantiate the connector instance using the descriptor's factory, configuration JSON, and secret store.
+the ConnectorRegistry shall locate the matching registered descriptor by kind identifier, validate the configuration via the descriptor's ValidateConfiguration rule, and instantiate the connector instance using the descriptor's factory, configuration JSON, and secret store.
 ```
 
 #### FR-CONN-MODULAR-PACKAGING: Decomposição em Projetos Isolados por Conector
 ```text
-The solution shall provide isolated projects for each native connector (FSharpQueryStudio.Connectors.Sqlite, FSharpQueryStudio.Connectors.SqlServer, FSharpQueryStudio.Connectors.PostgreSql, FSharpQueryStudio.Connectors.Csv, FSharpQueryStudio.Connectors.Excel, FSharpQueryStudio.Connectors.Rest), each depending strictly on FSharpQueryStudio.Connectors.Abstractions and its own minimal driver package.
+The solution shall provide isolated projects for each native connector (FSharpQueryStudio.Connectors.Sqlite, FSharpQueryStudio.Connectors.SqlServer, FSharpQueryStudio.Connectors.PostgreSql, FSharpQueryStudio.Connectors.Csv, FSharpQueryStudio.Connectors.Excel, FSharpQueryStudio.Connectors.Rest), each depending strictly on FSharpQueryStudio.Connectors.Abstractions and its own minimal driver package, and defining its own ConnectorKind and validation rules.
 ```
 
-#### FR-CONN-SINGLE-REGISTRATION: Ponto Único no Backend e no Frontend
+#### FR-CONN-SINGLE-REGISTRATION: Ponto Único no Backend e no Frontend e Zero Acoplamento em Módulos Compartilhados
 ```text
 Where a new connector module is added to the solution,
-the backend shall register the connector exclusively in BuiltinConnectors.fs and the frontend shall reference connector-specific metadata exclusively in connector-registry.ts.
+the backend shall register the connector exclusively in BuiltinConnectors.fs and the frontend shall register the connector module exclusively in modules/index.ts, while shared protocol and registry modules (Connections.fs, Registry.fs, protocol.ts, connector-registry.ts) remain completely agnostic of concrete connector kinds.
 ```
 
 #### FR-CONN-MODULAR-ENTITY-GEN: Geração Modular de Entidades Tipadas
@@ -89,27 +89,27 @@ the BuiltinConnectors module shall register all native connector modules (Sqlite
 The FSharpQueryStudio.Connectors.Abstractions assembly shall expose connector interfaces (IConnector, IQueryableConnector, IStreamingQueryableConnector), entity code generator interfaces (IConnectorEntityGenerator), and registry abstractions (IConnectorDescriptor, IConnectorFactory, IConnectorRegistry) without referencing any third-party database driver package.
 ```
 
-#### FR-CONN-DESCRIPTOR-SCHEMA: Declarative UI Metadata for Connectors
+#### FR-CONN-DESCRIPTOR-SCHEMA: Declarative UI Metadata and Per-Connector Validation
 ```text
 When a connector module registers with the connector registry,
-the connector module shall provide an IConnectorDescriptor containing a unique kind identifier, display name, category, icon name, and a declarative list of form fields defining connection configuration inputs, required validations, and secret handling.
+the connector module shall provide an IConnectorDescriptor containing a unique kind identifier, display name, category, icon name, a declarative list of form fields, and a connector-specific ValidateConfiguration implementation.
 ```
 
-#### FR-CONN-REGISTRY-RESOLUTION: Dynamic Connector Registration and Resolution
+#### FR-CONN-REGISTRY-RESOLUTION: Dynamic Connector Registration, Validation, and Resolution
 ```text
 When resolving a connection definition,
-the ConnectorRegistry shall locate the matching registered descriptor by kind identifier and instantiate the connector instance using the descriptor's factory, configuration JSON, and secret store.
+the ConnectorRegistry shall locate the matching registered descriptor by kind identifier, validate the configuration via the descriptor's ValidateConfiguration rule, and instantiate the connector instance using the descriptor's factory, configuration JSON, and secret store.
 ```
 
 #### FR-CONN-MODULAR-PACKAGING: Decomposition into Isolated Connector Projects
 ```text
-The solution shall provide isolated projects for each native connector (FSharpQueryStudio.Connectors.Sqlite, FSharpQueryStudio.Connectors.SqlServer, FSharpQueryStudio.Connectors.PostgreSql, FSharpQueryStudio.Connectors.Csv, FSharpQueryStudio.Connectors.Excel, FSharpQueryStudio.Connectors.Rest), each depending strictly on FSharpQueryStudio.Connectors.Abstractions and its own minimal driver package.
+The solution shall provide isolated projects for each native connector (FSharpQueryStudio.Connectors.Sqlite, FSharpQueryStudio.Connectors.SqlServer, FSharpQueryStudio.Connectors.PostgreSql, FSharpQueryStudio.Connectors.Csv, FSharpQueryStudio.Connectors.Excel, FSharpQueryStudio.Connectors.Rest), each depending strictly on FSharpQueryStudio.Connectors.Abstractions and its own minimal driver package, and defining its own ConnectorKind and validation rules.
 ```
 
-#### FR-CONN-SINGLE-REGISTRATION: Single Registration Point in Backend and Frontend
+#### FR-CONN-SINGLE-REGISTRATION: Single Registration Point in Backend and Frontend and Zero Coupling in Shared Modules
 ```text
 Where a new connector module is added to the solution,
-the backend shall register the connector exclusively in BuiltinConnectors.fs and the frontend shall reference connector-specific metadata exclusively in connector-registry.ts.
+the backend shall register the connector exclusively in BuiltinConnectors.fs and the frontend shall register the connector module exclusively in modules/index.ts, while shared protocol and registry modules (Connections.fs, Registry.fs, protocol.ts, connector-registry.ts) remain completely agnostic of concrete connector kinds.
 ```
 
 #### FR-CONN-MODULAR-ENTITY-GEN: Modular Typed Entity Generation

@@ -89,8 +89,7 @@ export async function collectFields(
   }
 
   for (const field of effectiveDescriptor.formFields) {
-    const existingVal =
-      existing !== undefined ? stringProp(existing?.configuration, field.name) : undefined;
+    const existingVal = existing ? stringProp(existing.configuration, field.name) : undefined;
     const defaultVal = existingVal || field.defaultValue || undefined;
 
     if (field.name === "password" || field.type === "password") {
@@ -114,18 +113,18 @@ export async function collectFields(
 
       if (pickedAuth === "windows") {
         isWindowsAuth = true;
-        const defaultConnStr =
-          existing !== undefined
-            ? stringProp(existing?.configuration, field.name)
-            : ConnectorFrontRegistry.defaultWindowsAuthConnectionString;
+        const defaultWindowsConnStr = ConnectorFrontRegistry.getDefaultWindowsAuthConnectionString(kind);
+        const defaultConnStr = existing
+          ? stringProp(existing.configuration, field.name)
+          : defaultWindowsConnStr;
         const connectionString = await ui.input({
           prompt: `${field.label} (Windows Authentication / Integrated Security)`,
           value: defaultConnStr,
-          placeHolder: ConnectorFrontRegistry.defaultWindowsAuthConnectionString,
+          placeHolder: defaultWindowsConnStr,
         });
         if (connectionString === undefined) return undefined;
 
-        const normalized = ConnectorFrontRegistry.normalizeWindowsAuthConnectionString(connectionString);
+        const normalized = ConnectorFrontRegistry.normalizeWindowsAuthConnectionString(kind, connectionString);
         input.connectionString = normalized;
         configValues[field.name] = normalized;
         // Windows Authentication uses current Windows identity — skip password

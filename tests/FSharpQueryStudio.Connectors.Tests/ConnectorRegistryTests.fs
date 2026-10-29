@@ -22,19 +22,23 @@ type DummyFactory() =
             DummyConnector(doc) :> IConnector
 
 type DummyDescriptor(kindId: string, displayName: string) =
+    static let formFields =
+        [ { Name = "filePath"
+            Label = "Database Path"
+            Type = ConnectorFieldType.File
+            Required = true
+            Placeholder = Some "/path/to/db"
+            DefaultValue = None
+            SecretHandling = SecretHandling.None } ]
+
     interface IConnectorDescriptor with
         member _.KindId = kindId
         member _.DisplayName = displayName
         member _.Category = ConnectorCategory.Custom "dummy"
         member _.Icon = "database"
-        member _.FormFields =
-            [ { Name = "path"
-                Label = "Database Path"
-                Type = ConnectorFieldType.File
-                Required = true
-                Placeholder = Some "/path/to/db"
-                DefaultValue = None
-                SecretHandling = SecretHandling.None } ]
+        member _.FormFields = formFields
+        member _.ValidateConfiguration(configuration: JsonElement) =
+            ConnectorDescriptor.validateRequiredFields formFields configuration
         member _.Factory = DummyFactory() :> IConnectorFactory
         member _.EntityGenerator = None
 
@@ -94,3 +98,22 @@ type ConnectorRegistryTests() =
         let secretStore = InMemorySecretStore() :> ISecretStore
         let ex = Assert.Throws<Exception>(fun () -> registry.Resolve(def, secretStore) |> ignore)
         Assert.Contains("No connector descriptor registered for kind 'PostgreSql'", ex.Message)
+
+    [<Fact>]
+    member _.``Delegates configuration validation to the connector descriptor`` () =
+        let registry = ConnectorRegistry()
+        registry.Register (DummyDescriptor("Sqlite", "SQLite"))
+
+        use invalidDoc = JsonDocument.Parse("""{"filePath": "   "}""")
+        let invalidDef: ConnectionDefinition =
+            { Id = Guid.NewGuid()
+              Name = "InvalidSqlite"
+              Kind = ConnectorKind.Sqlite
+              Configuration = invalidDoc.RootElement.Clone()
+              SecretReference = None
+              IsTrusted = true }
+
+        match registry.Validate invalidDef with
+        | Result.Ok () -> failwith "Expected validation error for empty required field"
+        | Result.Error msg -> Assert.Contains("filePath", msg)
+

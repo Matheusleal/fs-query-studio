@@ -27,6 +27,14 @@ type RestConnectorFactory() =
 
 type RestDescriptor() =
     static let instance = RestDescriptor()
+    static let formFields =
+        [ { Name = "url"
+            Label = "REST Endpoint URL"
+            Type = ConnectorFieldType.String
+            Required = true
+            Placeholder = Some "https://api.example.com/data"
+            DefaultValue = None
+            SecretHandling = SecretHandling.None } ]
     static member Instance = instance
 
     interface IConnectorDescriptor with
@@ -34,13 +42,8 @@ type RestDescriptor() =
         member _.DisplayName = "REST (JSON)"
         member _.Category = ConnectorCategory.Rest
         member _.Icon = "cloud"
-        member _.FormFields =
-            [ { Name = "url"
-                Label = "REST Endpoint URL"
-                Type = ConnectorFieldType.String
-                Required = true
-                Placeholder = Some "https://api.example.com/data"
-                DefaultValue = None
-                SecretHandling = SecretHandling.None } ]
+        member _.FormFields = formFields
+        member _.ValidateConfiguration(configuration: JsonElement) : Result<unit, string> =
+            ConnectorDescriptor.validateRequiredFields formFields configuration
         member _.Factory = RestConnectorFactory() :> IConnectorFactory
         member _.EntityGenerator = None

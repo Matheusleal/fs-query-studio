@@ -74,6 +74,21 @@ type CsvEntityGenerator() =
 
 type CsvDescriptor() =
     static let instance = CsvDescriptor()
+    static let formFields =
+        [ { Name = "filePath"
+            Label = "CSV File Path"
+            Type = ConnectorFieldType.File
+            Required = true
+            Placeholder = Some "/path/to/data.csv"
+            DefaultValue = None
+            SecretHandling = SecretHandling.None }
+          { Name = "delimiter"
+            Label = "Delimiter"
+            Type = ConnectorFieldType.String
+            Required = false
+            Placeholder = Some "Leave blank for auto-detect (, ; \\t |)"
+            DefaultValue = None
+            SecretHandling = SecretHandling.None } ]
     static member Instance = instance
 
     interface IConnectorDescriptor with
@@ -81,20 +96,8 @@ type CsvDescriptor() =
         member _.DisplayName = "CSV"
         member _.Category = ConnectorCategory.TabularFile
         member _.Icon = "file-text"
-        member _.FormFields =
-            [ { Name = "filePath"
-                Label = "CSV File Path"
-                Type = ConnectorFieldType.File
-                Required = true
-                Placeholder = Some "/path/to/data.csv"
-                DefaultValue = None
-                SecretHandling = SecretHandling.None }
-              { Name = "delimiter"
-                Label = "Delimiter"
-                Type = ConnectorFieldType.String
-                Required = false
-                Placeholder = Some "Leave blank for auto-detect (, ; \\t |)"
-                DefaultValue = None
-                SecretHandling = SecretHandling.None } ]
+        member _.FormFields = formFields
+        member _.ValidateConfiguration(configuration: JsonElement) : Result<unit, string> =
+            ConnectorDescriptor.validateRequiredFields formFields configuration
         member _.Factory = CsvConnectorFactory() :> IConnectorFactory
         member _.EntityGenerator = Some (CsvEntityGenerator() :> IConnectorEntityGenerator)

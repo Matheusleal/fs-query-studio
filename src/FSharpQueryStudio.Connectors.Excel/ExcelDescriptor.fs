@@ -19,6 +19,14 @@ type ExcelConnectorFactory() =
 
 type ExcelDescriptor() =
     static let instance = ExcelDescriptor()
+    static let formFields =
+        [ { Name = "filePath"
+            Label = "Excel File Path (.xlsx)"
+            Type = ConnectorFieldType.File
+            Required = true
+            Placeholder = Some "/path/to/data.xlsx"
+            DefaultValue = None
+            SecretHandling = SecretHandling.None } ]
     static member Instance = instance
 
     interface IConnectorDescriptor with
@@ -26,13 +34,8 @@ type ExcelDescriptor() =
         member _.DisplayName = "Excel"
         member _.Category = ConnectorCategory.Excel
         member _.Icon = "table"
-        member _.FormFields =
-            [ { Name = "filePath"
-                Label = "Excel File Path (.xlsx)"
-                Type = ConnectorFieldType.File
-                Required = true
-                Placeholder = Some "/path/to/data.xlsx"
-                DefaultValue = None
-                SecretHandling = SecretHandling.None } ]
+        member _.FormFields = formFields
+        member _.ValidateConfiguration(configuration: JsonElement) : Result<unit, string> =
+            ConnectorDescriptor.validateRequiredFields formFields configuration
         member _.Factory = ExcelConnectorFactory() :> IConnectorFactory
         member _.EntityGenerator = None

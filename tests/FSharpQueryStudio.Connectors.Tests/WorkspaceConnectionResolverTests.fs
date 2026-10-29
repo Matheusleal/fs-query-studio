@@ -75,7 +75,7 @@ let ``resolves a registered SQLite connection to a real, correctly-kinded Sqlite
     let path = Path.Combine(Path.GetTempPath(), "fqs-resolver-" + Guid.NewGuid().ToString("N") + ".db")
 
     try
-        let def = definition "Sales" Sqlite {| FilePath = path |} None
+        let def = definition "Sales" ConnectorKind.Sqlite {| FilePath = path |} None
         let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore())
 
         let connector = (resolver :> IConnectionResolver).Resolve("Sales")
@@ -88,7 +88,7 @@ let ``resolves a registered SQLite connection to a real, correctly-kinded Sqlite
 
 [<Fact>]
 let ``resolves a registered CSV connection to a real CsvConnector`` () =
-    let def = definition "Feed" Csv {| FilePath = @"C:\data\feed.csv" |} None
+    let def = definition "Feed" ConnectorKind.Csv {| FilePath = @"C:\data\feed.csv" |} None
     let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore())
 
     let connector = (resolver :> IConnectionResolver).Resolve("Feed")
@@ -98,7 +98,7 @@ let ``resolves a registered CSV connection to a real CsvConnector`` () =
 
 [<Fact>]
 let ``resolves a registered Excel connection to a real ExcelConnector`` () =
-    let def = definition "Book" Excel {| FilePath = @"C:\data\book.xlsx" |} None
+    let def = definition "Book" ConnectorKind.Excel {| FilePath = @"C:\data\book.xlsx" |} None
     let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore())
 
     let connector = (resolver :> IConnectionResolver).Resolve("Book")
@@ -111,7 +111,7 @@ let ``resolves a registered REST connection to a real RestConnector using the st
     let def =
         definition
             "Api"
-            RestJson
+            ConnectorKind.RestJson
             {| Url = "https://example.test/orders"
                Method = "GET"
                Headers = [||]
@@ -133,7 +133,7 @@ let ``resolves a registered SQL Server connection with its {password} token subs
     let def =
         definition
             "Sales"
-            SqlServer
+            ConnectorKind.SqlServer
             {| ConnectionString = "Server=.;Database=Orders;User Id=sa;Password={password};" |}
             (Some "fqs-conn-sales")
 

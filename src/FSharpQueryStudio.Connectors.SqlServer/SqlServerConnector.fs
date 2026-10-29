@@ -7,6 +7,14 @@ open System.Threading.Tasks
 open Microsoft.Data.SqlClient
 open FSharpQueryStudio.Protocol
 
+[<AutoOpen>]
+module SqlServerConnectorExtensions =
+    type ConnectorKind with
+        static member SqlServer = ConnectorKind("SqlServer")
+
+    type ConnectorCategory with
+        static member Sql = ConnectorCategory("sql", "Db", "FSharpQueryStudio.Connectors.Connections.SqlCategory")
+
 /// SQL Server connector — Section 10, same capability shape as
 /// `SqliteConnector`: connection, parameterized commands, reader-based
 /// paging, schema discovery.
