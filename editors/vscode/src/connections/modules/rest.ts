@@ -28,7 +28,7 @@ export const restFrontendModule: FrontendConnectorModule = {
 
   buildConfiguration(input: ConnectionFormInput): unknown {
     return {
-      url: input.url ?? "",
+      url: (input.url ?? "").trim(),
       method: "GET",
       headers: [],
       queryParams: [],

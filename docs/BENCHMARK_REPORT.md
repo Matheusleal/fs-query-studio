@@ -1,6 +1,6 @@
 # F# Query Studio — Benchmark de Execução e Consumo de Recursos
 
-> **Data do Benchmark:** 2026-10-27 08:29:43 UTC  
+> **Data do Benchmark:** 2026-10-29 17:28:46 UTC  
 > **Ambiente de Teste:** .NET 10.0 | Microsoft Windows NT 10.0.26300.0 | 12 vCPUs  
 
 Este relatório documenta as medições de desempenho, tempo de execução, uso de CPU e alocação de memória (GC e Working Set) do **F# Query Studio**, cobrindo o ciclo de vida completo: desde a conexão e descoberta de schemas até a execução de queries em diferentes escalas, consultas LINQ tipadas e leitura de arquivos.
@@ -9,20 +9,20 @@ Este relatório documenta as medições de desempenho, tempo de execução, uso 
 
 | Categoria | Cenário de Teste | Iterações | Tempo Médio | P95 | Min | Max | CPU Total | Uso CPU % | Memória/Op | Coletas GC (G0/G1/G2) |
 |:---|:---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Connection** | Connect & Ping (SQLite) | 50 | `0.00 ms` | `0.00 ms` | `0.00 ms` | `0.02 ms` | `0.00 ms` | `0.0%` | `1.2 KB` | `0/0/0` |
-| **Connection** | Schema Discovery (tables & views) | 30 | `0.17 ms` | `0.33 ms` | `0.14 ms` | `0.46 ms` | `0.00 ms` | `0.0%` | `6.9 KB` | `0/0/0` |
-| **Latency** | Cold Start Query (New Connection + First Query) | 20 | `0.25 ms` | `0.35 ms` | `0.08 ms` | `0.36 ms` | `0.00 ms` | `0.0%` | `2.5 KB` | `0/0/0` |
-| **Latency** | Warm Query (10 rows, pooled) | 100 | `0.20 ms` | `0.31 ms` | `0.03 ms` | `0.71 ms` | `15.62 ms` | `6.7%` | `1.6 KB` | `0/0/0` |
-| **Latency** | Warm Query Parameterized (@minAmount) | 100 | `0.05 ms` | `0.07 ms` | `0.04 ms` | `0.27 ms` | `15.62 ms` | `23.8%` | `1.8 KB` | `0/0/0` |
-| **Volume** | Fetch 100 rows | 50 | `0.06 ms` | `0.10 ms` | `0.04 ms` | `0.13 ms` | `0.00 ms` | `0.0%` | `1.5 KB` | `0/0/0` |
-| **Volume** | Fetch 1,000 rows | 30 | `0.05 ms` | `0.08 ms` | `0.05 ms` | `0.10 ms` | `0.00 ms` | `0.0%` | `1.5 KB` | `0/0/0` |
-| **Volume** | Fetch 10,000 rows | 15 | `0.07 ms` | `0.18 ms` | `0.04 ms` | `0.18 ms` | `0.00 ms` | `0.0%` | `1.5 KB` | `0/0/0` |
-| **Volume** | Fetch 50,000 rows | 5 | `0.06 ms` | `0.09 ms` | `0.05 ms` | `0.09 ms` | `0.00 ms` | `0.0%` | `1.5 KB` | `0/0/0` |
-| **Mapping** | Raw ExecuteQuery (1,000 rows) | 30 | `0.04 ms` | `0.07 ms` | `0.04 ms` | `0.08 ms` | `0.00 ms` | `0.0%` | `1.6 KB` | `0/0/0` |
-| **Mapping** | Typed Connections.query<Customer> (1,000 rows) | 30 | `1.66 ms` | `2.04 ms` | `1.51 ms` | `2.14 ms` | `46.88 ms` | `7.9%` | `424.2 KB` | `0/0/0` |
-| **Mapping** | LINQ query { ... } Filter & Sort (1,000 rows) | 30 | `2.00 ms` | `2.50 ms` | `1.78 ms` | `2.50 ms` | `62.50 ms` | `8.7%` | `547.3 KB` | `1/0/0` |
-| **CSV** | queryCsv<Customer> (1,000 records) | 30 | `2.11 ms` | `2.60 ms` | `1.96 ms` | `2.70 ms` | `62.50 ms` | `8.2%` | `1.25 MB` | `2/0/0` |
-| **CSV** | queryCsv<Customer> (10,000 records) | 10 | `20.10 ms` | `21.27 ms` | `17.94 ms` | `21.27 ms` | `203.12 ms` | `8.4%` | `12.45 MB` | `7/0/0` |
+| **Connection** | Connect & Ping (SQLite) | 50 | `0.00 ms` | `0.00 ms` | `0.00 ms` | `0.03 ms` | `0.00 ms` | `0.0%` | `1.2 KB` | `0/0/0` |
+| **Connection** | Schema Discovery (tables & views) | 30 | `0.20 ms` | `0.32 ms` | `0.14 ms` | `0.50 ms` | `0.00 ms` | `0.0%` | `6.9 KB` | `0/0/0` |
+| **Latency** | Cold Start Query (New Connection + First Query) | 20 | `0.24 ms` | `0.29 ms` | `0.06 ms` | `0.39 ms` | `0.00 ms` | `0.0%` | `2.6 KB` | `0/0/0` |
+| **Latency** | Warm Query (10 rows, pooled) | 100 | `0.17 ms` | `0.28 ms` | `0.03 ms` | `0.68 ms` | `15.62 ms` | `7.7%` | `1.7 KB` | `0/0/0` |
+| **Latency** | Warm Query Parameterized (@minAmount) | 100 | `0.05 ms` | `0.06 ms` | `0.04 ms` | `0.29 ms` | `0.00 ms` | `0.0%` | `1.9 KB` | `0/0/0` |
+| **Volume** | Fetch 100 rows | 50 | `0.05 ms` | `0.08 ms` | `0.04 ms` | `0.09 ms` | `15.62 ms` | `57.6%` | `1.6 KB` | `0/0/0` |
+| **Volume** | Fetch 1,000 rows | 30 | `0.04 ms` | `0.07 ms` | `0.04 ms` | `0.07 ms` | `0.00 ms` | `0.0%` | `1.6 KB` | `0/0/0` |
+| **Volume** | Fetch 10,000 rows | 15 | `0.05 ms` | `0.09 ms` | `0.05 ms` | `0.09 ms` | `0.00 ms` | `0.0%` | `1.6 KB` | `0/0/0` |
+| **Volume** | Fetch 50,000 rows | 5 | `0.06 ms` | `0.10 ms` | `0.05 ms` | `0.10 ms` | `0.00 ms` | `0.0%` | `1.6 KB` | `0/0/0` |
+| **Mapping** | Raw ExecuteQuery (1,000 rows) | 30 | `0.06 ms` | `0.10 ms` | `0.04 ms` | `0.14 ms` | `0.00 ms` | `0.0%` | `1.6 KB` | `0/0/0` |
+| **Mapping** | Typed Connections.query<Customer> (1,000 rows) | 30 | `1.03 ms` | `1.26 ms` | `0.94 ms` | `1.26 ms` | `31.25 ms` | `8.5%` | `158.5 KB` | `0/0/0` |
+| **Mapping** | LINQ query { ... } Filter & Sort (1,000 rows) | 30 | `1.37 ms` | `1.87 ms` | `1.25 ms` | `1.88 ms` | `46.88 ms` | `9.5%` | `281.4 KB` | `0/0/0` |
+| **CSV** | queryCsv<Customer> (1,000 records) | 30 | `2.20 ms` | `2.54 ms` | `2.01 ms` | `2.61 ms` | `62.50 ms` | `7.9%` | `1.34 MB` | `2/0/0` |
+| **CSV** | queryCsv<Customer> (10,000 records) | 10 | `25.65 ms` | `32.65 ms` | `20.76 ms` | `32.65 ms` | `312.50 ms` | `10.2%` | `13.36 MB` | `8/0/0` |
 
 ## 2. Análise Detalhada dos Resultados
 
@@ -44,19 +44,4 @@ Este relatório documenta as medições de desempenho, tempo de execução, uso 
 - **Expressões LINQ F# (`query { ... }`)**: A combinação de `AsQueryable` e `query` permite filtros (`where`), ordenação (`sortBy`) e projeções (`select`) nativas do F# com alto desempenho.
 
 ### 2.5 Consultas Baseadas em Arquivos (CSV)
-- `Connections.queryCsv<'T>` processa de 1.000 a 10.000 linhas com parsing rápido delimitado e mapeamento dinâmico em poucas dezenas de milissegundos (~500.000 linhas/segundo).
-
----
-
-## 3. Executive Summary (English)
-
-This report details the execution performance, CPU utilization, and memory allocation (.NET GC allocations and Working Set) of **F# Query Studio** across the entire lifecycle: from connection initialization and schema discovery to multi-tier query execution, strongly-typed LINQ record mapping, and high-throughput file queries.
-
-### 3.1 Key Architectural Findings
-- **Zero-Cost Connection & Pooling**: Reusing connections via ADO.NET connection pools achieves sub-millisecond roundtrips (`0.00 ms` mean ping, `1.2 KB` allocation per check) without triggering Gen 0/1/2 garbage collections.
-- **Concurrent Schema Discovery**: Multi-schema and views metadata queries execute in parallel (`0.17 ms` mean, `6.9 KB` allocation), populating the Connections tree explorer instantly.
-- **Cold vs Warm Execution**: First-time queries incur a minimal cold-start penalty (`0.25 ms`), while warm queries complete in `0.05 ms - 0.20 ms` with negligible CPU impact.
-- **Linear Volume Scaling & Lazy Streaming**: Fetching from 100 up to 50,000 rows streams rows lazily through `Results.fs`, consuming a constant `1.5 KB` baseline allocation per cursor acquisition without full in-memory materialization.
-- **High-Performance LINQ & Reflection Caching**: Strongly-typed record mapping (`Connections.query<'T>`) and F# LINQ expressions (`query { for ... in ... do where ... select ... }`) leverage precompiled constructor delegates cached in `ConcurrentDictionary`, querying 1,000 typed records in `~2.0 ms` with zero Gen 1/2 collections.
-- **Fast File Processing**: CSV queries (`Connections.queryCsv<'T>`) deliver sustained throughput of `~500,000 rows/second`.
-
+- `Connections.queryCsv<'T>` processa de 1.000 a 10.000 linhas com parsing rápido delimitado e mapeamento dinâmico em poucas dezenas de milissegundos.

@@ -6,6 +6,7 @@ open System.Text.Json
 open System.Threading.Tasks
 open Xunit
 open FSharpQueryStudio.Protocol
+open FSharpQueryStudio.Connectors
 open FSharpQueryStudio.Execution
 open FSharpQueryStudio.Storage
 open FSharpQueryStudio.Worker
@@ -1113,7 +1114,7 @@ let ``execution/evaluate committing a connector-query tail expression, then resu
                     "reg1"
                     { Id = Guid.NewGuid()
                       Name = "test1"
-                      Kind = ConnectorKind("Csv")
+                      Kind = ConnectorKind.Csv
                       Configuration =
                         JsonSerializer.SerializeToElement({| FilePath = csvPath |}, Serialization.options)
                       SecretReference = None
@@ -1263,7 +1264,7 @@ let ``dispatch on connection/list returns the connections persisted in workspace
             let seeded: ConnectionDefinition =
                 { Id = Guid.NewGuid()
                   Name = "Sales"
-                  Kind = ConnectorKind("Sqlite")
+                  Kind = ConnectorKind.Sqlite
                   Configuration = JsonDocument.Parse("""{"filePath":"C:/data/sales.db"}""").RootElement
                   SecretReference = None
                   IsTrusted = true }
@@ -1308,14 +1309,14 @@ let ``dispatch on connection/list cleans leaked sample connections from global w
             let leakedSample: ConnectionDefinition =
                 { Id = Guid.NewGuid()
                   Name = "SampleStore"
-                  Kind = ConnectorKind("Sqlite")
+                  Kind = ConnectorKind.Sqlite
                   Configuration = JsonDocument.Parse("""{"filePath":"C:/nonexistent/sample_store.db"}""").RootElement
                   SecretReference = None
                   IsTrusted = true }
             let normalGlobal: ConnectionDefinition =
                 { Id = Guid.NewGuid()
                   Name = "SharedProdDb"
-                  Kind = ConnectorKind("SqlServer")
+                  Kind = ConnectorKind.SqlServer
                   Configuration = JsonDocument.Parse("""{"connectionString":"Server=prod;Database=app;"}""").RootElement
                   SecretReference = None
                   IsTrusted = true }
@@ -1363,7 +1364,7 @@ let ``connection/schema reads {password} from the store configured via configure
             let definition: ConnectionDefinition =
                 { Id = Guid.NewGuid()
                   Name = "pg"
-                  Kind = ConnectorKind("PostgreSql")
+                  Kind = ConnectorKind.PostgreSql
                   Configuration =
                     JsonDocument.Parse("""{"connectionString":"Host={password}-sentinel;Port=5432"}""").RootElement
                   SecretReference = Some "fqs-conn-seam"

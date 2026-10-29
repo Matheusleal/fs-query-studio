@@ -28,11 +28,12 @@ let private roundTrip (proc: Process) (req: WorkerRequestFrame) : Task<WorkerRes
     task {
         do! NdjsonStream.writeFrame proc.StandardInput req
         let mutable targetResponse: WorkerResponseFrame option = None
+        let mutable eof = false
         use cts = new System.Threading.CancellationTokenSource(System.TimeSpan.FromSeconds 30.0)
-        while targetResponse.IsNone && not proc.HasExited do
+        while targetResponse.IsNone && not eof && not proc.HasExited && not cts.IsCancellationRequested do
             let! line = proc.StandardOutput.ReadLineAsync(cts.Token)
             if isNull line then
-                ()
+                eof <- true
             else
                 try
                     use doc = System.Text.Json.JsonDocument.Parse(line)
@@ -50,6 +51,15 @@ let private roundTrip (proc: Process) (req: WorkerRequestFrame) : Task<WorkerRes
         return targetResponse
     }
 
+let private stopWorker (proc: Process) =
+    try
+        if not proc.HasExited then
+            try proc.StandardInput.Close() with _ -> ()
+            if not (proc.WaitForExit(2000)) then
+                proc.Kill(entireProcessTree = true)
+                proc.WaitForExit(5000) |> ignore
+    with _ -> ()
+
 [<Fact>]
 let ``starting the real worker process and requesting worker/health returns a healthy response`` () =
     task {
@@ -65,8 +75,7 @@ let ``starting the real worker process and requesting worker/health returns a he
                 Assert.True(resp.Error.IsNone)
             | None -> failwith "expected a health response, got end of stream"
         finally
-            if not proc.HasExited then
-                proc.Kill()
+            stopWorker proc
     }
 
 [<Fact>]
@@ -97,6 +106,5 @@ let ``a throwing script returns a structured Error result and the worker survive
             | Some resp -> Assert.True(resp.Result.IsSome)
             | None -> failwith "worker did not respond to a follow-up request - process likely died"
         finally
-            if not proc.HasExited then
-                proc.Kill()
+            stopWorker proc
     }

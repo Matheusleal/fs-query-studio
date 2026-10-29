@@ -40,6 +40,13 @@
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Worker\FSharpQueryStudio.Worker.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Security\FSharpQueryStudio.Security.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.Abstractions\FSharpQueryStudio.Connectors.Abstractions.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.Sqlite\FSharpQueryStudio.Connectors.Sqlite.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.SqlServer\FSharpQueryStudio.Connectors.SqlServer.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.PostgreSql\FSharpQueryStudio.Connectors.PostgreSql.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.Csv\FSharpQueryStudio.Connectors.Csv.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.Excel\FSharpQueryStudio.Connectors.Excel.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.Rest\FSharpQueryStudio.Connectors.Rest.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors\FSharpQueryStudio.Connectors.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Storage\FSharpQueryStudio.Storage.fsproj" />
   </ItemGroup>

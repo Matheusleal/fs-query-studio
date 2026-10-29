@@ -222,6 +222,34 @@ describe("Results Grid UI Elements & Interactivity", () => {
       expect(row1Cells[4].textContent).toBe("Standard item");
     });
 
+    it("renders UTF-8 accented strings in grid headers and cells without mojibake", () => {
+      host.renderOutputItem(
+        createItem(
+          "out-utf8",
+          samplePayload({
+            columns: [
+              { name: "EntidadePrincipal", displayType: "string" },
+              { name: "Fonte", displayType: "string" },
+              { name: "Tipo", displayType: "string" },
+              { name: "TotalRegistros", displayType: "int" },
+            ],
+            rows: [
+              ["Transações", "SalesFeed", "CSV (Arquivo Plano)", 10],
+              ["Perfis de Fidelidade", "CustomersFeed", "CSV (Arquivo Plano)", 6],
+              ["Operação São Paulo — Ação", "InventoryStore", "SQLite (Relacional)", 4],
+            ],
+          }),
+        ),
+        container,
+      );
+
+      const rows = container.querySelectorAll(".fsq-rows .fsq-row");
+      expect(rows).toHaveLength(3);
+      expect(rows[0].querySelectorAll(".fsq-cell")[0].textContent).toBe("Transações");
+      expect(rows[1].querySelectorAll(".fsq-cell")[0].textContent).toBe("Perfis de Fidelidade");
+      expect(rows[2].querySelectorAll(".fsq-cell")[0].textContent).toBe("Operação São Paulo — Ação");
+    });
+
     it("renders .fsq-empty container with 'No rows' when result set is empty", () => {
       host.renderOutputItem(createItem("out-empty", samplePayload({ rows: [] })), container);
 

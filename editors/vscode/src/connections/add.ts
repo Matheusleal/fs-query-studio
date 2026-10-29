@@ -3,8 +3,7 @@ import {
   readUnionTag,
   type ConnectionDefinition,
   type ConnectorKindName,
-  type ConnectorDescriptorDto,
-  type ConnectorFormFieldDto,
+  type ConnectorDescriptorDto
 } from "../protocol";
 import {
   buildConnectionDefinition,
