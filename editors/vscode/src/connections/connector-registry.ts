@@ -88,15 +88,27 @@ export class ConnectorFrontRegistry {
   /**
    * Returns the default Windows Authentication connection string for a connector.
    */
-  static getDefaultWindowsAuthConnectionString(kind: ConnectorKindName): string {
+  static getDefaultWindowsAuthConnectionString(kind: ConnectorKindName = "SqlServer"): string {
     return this.getModule(kind)?.defaultWindowsAuthConnectionString ?? "";
   }
 
   /**
    * Normalizes a Windows Authentication connection string using the connector's own rule.
+   * Supports both `(kind, rawConnStr)` and legacy single-argument `(rawConnStr)` calls.
    */
-  static normalizeWindowsAuthConnectionString(kind: ConnectorKindName, rawConnStr: string): string {
-    const mod = this.getModule(kind);
+  static normalizeWindowsAuthConnectionString(
+    kindOrConnStr: ConnectorKindName,
+    rawConnStr?: string,
+  ): string {
+    if (rawConnStr === undefined) {
+      for (const mod of this.modules.values()) {
+        if (mod.normalizeWindowsAuthConnectionString) {
+          return mod.normalizeWindowsAuthConnectionString(kindOrConnStr);
+        }
+      }
+      return kindOrConnStr.trim();
+    }
+    const mod = this.getModule(kindOrConnStr);
     return mod?.normalizeWindowsAuthConnectionString
       ? mod.normalizeWindowsAuthConnectionString(rawConnStr)
       : rawConnStr.trim();
