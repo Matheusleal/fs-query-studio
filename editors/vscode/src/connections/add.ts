@@ -89,7 +89,8 @@ export async function collectFields(
   }
 
   for (const field of effectiveDescriptor.formFields) {
-    const existingVal = existing ? stringProp(existing.configuration, field.name) : undefined;
+    const existingVal =
+      existing !== undefined ? stringProp(existing?.configuration, field.name) : undefined;
     const defaultVal = existingVal || field.defaultValue || undefined;
 
     if (field.name === "password" || field.type === "password") {
@@ -113,9 +114,10 @@ export async function collectFields(
 
       if (pickedAuth === "windows") {
         isWindowsAuth = true;
-        const defaultConnStr = existing
-          ? stringProp(existing.configuration, field.name)
-          : ConnectorFrontRegistry.defaultWindowsAuthConnectionString;
+        const defaultConnStr =
+          existing !== undefined
+            ? stringProp(existing?.configuration, field.name)
+            : ConnectorFrontRegistry.defaultWindowsAuthConnectionString;
         const connectionString = await ui.input({
           prompt: `${field.label} (Windows Authentication / Integrated Security)`,
           value: defaultConnStr,
