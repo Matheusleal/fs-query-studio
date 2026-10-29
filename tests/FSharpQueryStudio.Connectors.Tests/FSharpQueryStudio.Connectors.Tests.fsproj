@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
+    <Compile Include="ConnectorRegistryTests.fs" />
     <Compile Include="Tests.fs" />
     <Compile Include="SqliteConnectorTests.fs" />
     <Compile Include="CsvConnectorTests.fs" />

@@ -233,13 +233,41 @@ export interface AnalysisRenameResult {
 
 // --- F5: connections + reverse channel ---
 
-export type ConnectorKindName =
+export type KnownConnectorKindName =
   | "SqlServer"
   | "PostgreSql"
   | "Sqlite"
   | "Csv"
   | "Excel"
   | "RestJson";
+
+export type ConnectorKindName = KnownConnectorKindName | (string & {});
+
+export type ConnectorFieldTypeName = "string" | "file" | "password" | "select" | "boolean";
+export type SecretHandlingName = "none" | "isolated" | string;
+
+export interface ConnectorFormFieldDto {
+  name: string;
+  label: string;
+  type: ConnectorFieldTypeName;
+  required: boolean;
+  placeholder?: string | null;
+  defaultValue?: string | null;
+  options?: string[] | null;
+  secretHandling: SecretHandlingName;
+}
+
+export interface ConnectorDescriptorDto {
+  kindId: string;
+  displayName: string;
+  category: string;
+  icon: string;
+  formFields: ConnectorFormFieldDto[];
+}
+
+export interface ConnectorListResult {
+  connectors: ConnectorDescriptorDto[];
+}
 
 /** A registered, non-secret connection binding — mirrors F#
  *  `FSharpQueryStudio.Protocol.ConnectionDefinition`. `kind` is an F# DU on

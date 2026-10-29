@@ -65,7 +65,6 @@ module SqliteLocalIntegrationTests =
 
 [<Collection("PostgreSql container")>]
 [<Trait("Category", "RequiresDocker")>]
-[<Trait("Category", "LocalOnly")>]
 type PostgreSqlLocalIntegrationTests(fixture: PostgreSqlContainerFixture) =
 
     [<Fact>]
@@ -125,7 +124,6 @@ type PostgreSqlLocalIntegrationTests(fixture: PostgreSqlContainerFixture) =
 
 [<Collection("SqlServer container")>]
 [<Trait("Category", "RequiresDocker")>]
-[<Trait("Category", "LocalOnly")>]
 type SqlServerLocalIntegrationTests(fixture: MsSqlContainerFixture) =
 
     [<Fact>]

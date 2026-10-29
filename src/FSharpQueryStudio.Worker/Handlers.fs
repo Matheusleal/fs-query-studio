@@ -266,6 +266,14 @@ module Handlers =
         finally
             currentWorkDir <- None
             Interlocked.Exchange(evaluationInFlight, 0) |> ignore
+            try
+                Directory.SetCurrentDirectory(Path.GetTempPath())
+                if Directory.Exists workDir then
+                    Directory.Delete(workDir, true)
+            with _ ->
+                ()
+            GC.Collect()
+
 
     /// Convenience wrapper (reserve, then run, both synchronous) for
     /// callers that don't need the two steps split — direct/unit-test use.
@@ -639,6 +647,23 @@ module Handlers =
           Result = Some(JsonSerializer.SerializeToElement({| connections = connections |}, Serialization.options))
           Error = None }
 
+    /// `connector/list` — returns all registered connector descriptors and their declarative form schemas.
+    let handleConnectorList (request: WorkerRequestFrame) : WorkerResponseFrame =
+        try
+            BuiltinConnectors.registerDefaults ()
+            let descriptors =
+                ConnectorRegistry.Instance.AllDescriptors()
+                |> List.map ConnectorDescriptor.toDto
+            let result: ConnectorListResult = { Connectors = descriptors }
+            { Id = request.Id
+              Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+              Error = None }
+        with ex ->
+            { Id = request.Id
+              Result = None
+              Error = Some { Code = "connector/listFailed"; Message = ex.Message } }
+
+
     /// `connection/remove` — drops the connection with the given `Id`
     /// from `workspace.json` via `Workspace.removeConnection` and returns
     /// the updated full list.
@@ -861,7 +886,9 @@ module Handlers =
             | "results/page" -> return handleResultsPage request
             | "results/exportCsv" -> return handleResultsExportCsv request
             | "results/discard" -> return handleResultsDiscard request
+            | "connector/list" -> return handleConnectorList request
             | "connection/list" -> return handleConnectionList request
+
             | "connection/register" -> return handleConnectionRegister request
             | "connection/remove" -> return handleConnectionRemove request
             | "connection/schema" -> return! handleConnectionSchema request

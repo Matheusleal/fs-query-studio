@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="CsvConnector.fs" />
+    <Compile Include="CsvDescriptor.fs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\FSharpQueryStudio.Connectors.Abstractions\FSharpQueryStudio.Connectors.Abstractions.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Security\FSharpQueryStudio.Security.fsproj" />
+  </ItemGroup>
+
+</Project>

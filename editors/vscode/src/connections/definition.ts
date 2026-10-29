@@ -9,6 +9,8 @@ export interface ConnectionFormInput {
   connectionString?: string;
   password?: string;
   url?: string;
+  /** Generic key-value configuration populated by schema-driven form fields */
+  configValues?: Record<string, unknown>;
 }
 
 export interface BuiltConnection {
@@ -83,6 +85,9 @@ export function sanitizeConnectionStringAndPassword(
 }
 
 function configurationFor(input: ConnectionFormInput): unknown {
+  if (input.configValues && Object.keys(input.configValues).length > 0) {
+    return { ...input.configValues };
+  }
   const cleanPath = (input.filePath ?? "").trim().replace(/^["']|["']$/g, "").trim();
   switch (input.kind) {
     case "Sqlite":
@@ -100,6 +105,8 @@ function configurationFor(input: ConnectionFormInput): unknown {
       return { connectionString: input.connectionString ?? "" };
     case "RestJson":
       return { url: input.url ?? "", method: "GET", headers: [], queryParams: [], body: null };
+    default:
+      return {};
   }
 }
 
@@ -114,24 +121,40 @@ export function buildConnectionDefinition(
 ): BuiltConnection {
   let formInput = { ...input };
 
-  if (formInput.kind === "SqlServer" || formInput.kind === "PostgreSql") {
+  const connStr =
+    formInput.connectionString ??
+    (formInput.configValues?.connectionString as string | undefined);
+
+  if (connStr !== undefined && (formInput.kind === "SqlServer" || formInput.kind === "PostgreSql")) {
     const sanitized = sanitizeConnectionStringAndPassword(
       formInput.kind,
-      formInput.connectionString ?? "",
+      connStr,
       formInput.password,
     );
     formInput.connectionString = sanitized.connectionString;
     formInput.password = sanitized.password;
+    if (formInput.configValues) {
+      formInput.configValues = {
+        ...formInput.configValues,
+        connectionString: sanitized.connectionString,
+      };
+    }
   }
 
   const hasNewSecret = !!formInput.password && formInput.password.trim().length > 0;
 
+  const effectiveConnStr =
+    formInput.connectionString ??
+    (formInput.configValues?.connectionString as string | undefined) ??
+    "";
+
   const isWindowsAuthSql =
     formInput.kind === "SqlServer" &&
     /(integrated\s+security\s*=\s*(true|sspi)|trusted_connection\s*=\s*(true|yes))/i.test(
-      formInput.connectionString ?? "",
+      effectiveConnStr,
     ) &&
     !hasNewSecret;
+
 
   const secretReference = isWindowsAuthSql
     ? null

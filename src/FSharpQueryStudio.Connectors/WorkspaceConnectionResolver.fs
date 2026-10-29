@@ -66,6 +66,23 @@ module ConnectionStringSecrets =
                         $"{trimmed};Password={secret}"
             | _ -> template
 
+module BuiltinConnectors =
+    let registerDefaults () =
+        let r = ConnectorRegistry.Instance
+        let sqlGen = SqlEntityGenerator() :> IConnectorEntityGenerator
+        let csvGen = CsvEntityGenerator() :> IConnectorEntityGenerator
+        let excelGen = ExcelEntityGenerator() :> IConnectorEntityGenerator
+        let restGen = RestEntityGenerator() :> IConnectorEntityGenerator
+
+        r.Register(CustomDescriptorWithGenerator(SqliteDescriptor.Instance, sqlGen))
+        r.Register(CustomDescriptorWithGenerator(SqlServerDescriptor.Instance, sqlGen))
+        r.Register(CustomDescriptorWithGenerator(PostgreSqlDescriptor.Instance, sqlGen))
+        r.Register(CustomDescriptorWithGenerator(CsvDescriptor.Instance, csvGen))
+        r.Register(CustomDescriptorWithGenerator(ExcelDescriptor.Instance, excelGen))
+        r.Register(CustomDescriptorWithGenerator(RestDescriptor.Instance, restGen))
+
+    do registerDefaults ()
+
 /// Builds a live `IConnector` from a registered `ConnectionDefinition` —
 /// Section 13's workspace connection registry, the real implementation
 /// `Connections.IConnectionResolver` was designed against but, until this
@@ -76,50 +93,15 @@ module ConnectionStringSecrets =
 /// `execution/evaluate` (Task 3) so a connection registered mid-session
 /// is usable on the very next run, no worker restart required.
 type WorkspaceConnectionResolver(connections: ConnectionDefinition list, secretStore: ISecretStore) =
+    do BuiltinConnectors.registerDefaults ()
 
     let build (definition: ConnectionDefinition) : IConnector =
-        match definition.Kind with
-        | Sqlite ->
-            let config =
-                JsonSerializer.Deserialize<FileConnectionConfig>(definition.Configuration, Serialization.options)
-
-            SqliteConnector(PathHelpers.clean config.FilePath)
-        | Csv ->
-            let config =
-                JsonSerializer.Deserialize<FileConnectionConfig>(definition.Configuration, Serialization.options)
-
-            let cleanPath = PathHelpers.clean config.FilePath
-            let opts =
-                match config.Delimiter with
-                | Some d when not (String.IsNullOrEmpty d) ->
-                    { CsvOptions.Default with Delimiter = d.[0] }
-                | _ ->
-                    let autoDelim = CsvConnector.DetectDelimiter(cleanPath, System.Text.Encoding.UTF8)
-                    { CsvOptions.Default with Delimiter = autoDelim }
-
-            CsvConnector(cleanPath, opts)
-        | Excel ->
-            let config =
-                JsonSerializer.Deserialize<FileConnectionConfig>(definition.Configuration, Serialization.options)
-
-            ExcelConnector(PathHelpers.clean config.FilePath)
-        | SqlServer ->
-            let config =
-                JsonSerializer.Deserialize<SqlConnectionStringConfig>(definition.Configuration, Serialization.options)
-
-            SqlServerConnector(ConnectionStringSecrets.resolve secretStore definition.SecretReference config.ConnectionString)
-        | PostgreSql ->
-            let config =
-                JsonSerializer.Deserialize<SqlConnectionStringConfig>(definition.Configuration, Serialization.options)
-
-            PostgreSqlConnector(
-                ConnectionStringSecrets.resolve secretStore definition.SecretReference config.ConnectionString
-            )
-        | RestJson ->
-            let options =
-                JsonSerializer.Deserialize<RestRequestOptions>(definition.Configuration, Serialization.options)
-
-            RestConnector(options)
+        let kindId = ConnectorRegistry.KindIdOf definition.Kind
+        match ConnectorRegistry.Instance.TryGet kindId with
+        | Some _ ->
+            ConnectorRegistry.Instance.Resolve(definition, secretStore)
+        | None ->
+            failwith $"No connector descriptor registered for kind '{kindId}' (connection '{definition.Name}')."
 
     interface IConnectionResolver with
         member _.Resolve(name: string) : IConnector =

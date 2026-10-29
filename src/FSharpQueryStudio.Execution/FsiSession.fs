@@ -40,8 +40,11 @@ module FsiSession =
         let fsi =
             FsiEvaluationSession.Create(config, argv, stdin, output, errors, collectible = true)
 
-        let connectorsAssemblyPath =
+        let abstractionsAssemblyPath =
             typeof<FSharpQueryStudio.Connectors.IConnector>.Assembly.Location
+
+        let connectorsAssemblyPath =
+            typeof<FSharpQueryStudio.Connectors.WorkspaceConnectionResolver>.Assembly.Location
 
         let resultsAssemblyPath =
             typeof<FSharpQueryStudio.Results.PagingCursor>.Assembly.Location
@@ -90,7 +93,7 @@ module FsiSession =
                 ""
 
         let basePrologue =
-            $"#r @\"{connectorsAssemblyPath}\"\n#r @\"{resultsAssemblyPath}\"\nopen System.Linq\nopen FSharpQueryStudio.Connectors\n"
+            $"#r @\"{abstractionsAssemblyPath}\"\n#r @\"{connectorsAssemblyPath}\"\n#r @\"{resultsAssemblyPath}\"\nopen System.Linq\nopen FSharpQueryStudio.Connectors\n"
 
         fsi.EvalInteractionNonThrowing(basePrologue) |> ignore
 

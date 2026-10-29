@@ -1516,3 +1516,36 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 if Directory.Exists tmp then Directory.Delete(tmp, true)
             with _ -> ()
     }
+
+[<Fact>]
+let ``connector/list returns all registered connector descriptors with form schemas`` () =
+    task {
+        let req = emptyParamsRequest "conn-list-1" "connector/list"
+        let! res = Handlers.dispatch req
+        Assert.Null(res.Error |> Option.toObj)
+        Assert.True(res.Result.IsSome)
+
+        let listResult =
+            JsonSerializer.Deserialize<ConnectorListResult>(res.Result.Value.GetRawText(), Serialization.options)
+
+        Assert.True(listResult.Connectors.Length >= 6)
+        let kindIds = listResult.Connectors |> List.map (fun c -> c.KindId) |> Set.ofList
+        Assert.True(Set.contains "Sqlite" kindIds)
+        Assert.True(Set.contains "SqlServer" kindIds)
+        Assert.True(Set.contains "PostgreSql" kindIds)
+        Assert.True(Set.contains "Csv" kindIds)
+        Assert.True(Set.contains "Excel" kindIds)
+        Assert.True(Set.contains "RestJson" kindIds)
+
+        for desc in listResult.Connectors do
+            Assert.False(String.IsNullOrWhiteSpace desc.DisplayName)
+            Assert.False(String.IsNullOrWhiteSpace desc.Category)
+            Assert.False(String.IsNullOrWhiteSpace desc.Icon)
+            Assert.NotEmpty(desc.FormFields)
+            for field in desc.FormFields do
+                Assert.False(String.IsNullOrWhiteSpace field.Name)
+                Assert.False(String.IsNullOrWhiteSpace field.Label)
+                Assert.False(String.IsNullOrWhiteSpace field.Type)
+    }
+
+

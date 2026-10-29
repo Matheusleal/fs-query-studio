@@ -35,121 +35,12 @@ module EntityBackgroundGenerator =
     let generatedFilePath (workspaceDir: string) : string =
         Path.Combine(generatedDir workspaceDir, "GeneratedEntities.fs")
 
-    let cleanIdentifier (name: string) : string =
-        let cleaned = Regex.Replace(name, @"[^a-zA-Z0-9_]", "_")
-        if Regex.IsMatch(cleaned, @"^[0-9]") then $"_{cleaned}" else cleaned
-
-    let private keywords =
-        set [ "abstract"; "and"; "as"; "assert"; "base"; "begin"; "class"; "default"; "delegate";
-              "do"; "done"; "downcast"; "downto"; "elif"; "else"; "end"; "exception"; "extern";
-              "false"; "finally"; "fixed"; "for"; "fun"; "function"; "global"; "if"; "in";
-              "inherit"; "inline"; "interface"; "internal"; "lazy"; "let"; "match"; "member";
-              "module"; "mutable"; "namespace"; "new"; "not"; "null"; "of"; "open"; "or";
-              "override"; "private"; "public"; "rec"; "return"; "static"; "struct"; "then";
-              "to"; "true"; "try"; "type"; "upcast"; "use"; "val"; "void"; "when"; "while";
-              "with"; "yield"; "atomic"; "break"; "checked"; "component"; "const"; "constraint";
-              "constructor"; "continue"; "eager"; "event"; "external"; "functor"; "include";
-              "method"; "mixin"; "object"; "parallel"; "process"; "protected"; "pure"; "sealed";
-              "tailcall"; "trait"; "virtual"; "volatile" ]
-
-    let escapeIdent (s: string) =
-        if Regex.IsMatch(s, @"^[a-zA-Z][a-zA-Z0-9_]*$") && not (Set.contains s keywords) then
-            s
-        else
-            $"``{s}``"
-
+    let cleanIdentifier (name: string) : string = CodeGenerationHelpers.cleanIdentifier name
+    let escapeIdent (s: string) : string = CodeGenerationHelpers.escapeIdent s
     let cleanSample (s: string) : string = CsvTypeInference.cleanSample s
-
-    /// Infers an F# type from a collection of sample string values (up to 200 rows).
-    /// When sentinel values ("N/A", "-", "null") or empty values in non-string columns are encountered,
-    /// the inferred type becomes an option type (e.g. `decimal option`, `int option`, `string option`).
     let inferType (samples: string seq) : string = CsvTypeInference.inferType samples
-
-    /// Sanitizes and deduplicates column headers so they form valid, unique F# record fields.
-    let sanitizeColumns (cols: string list) : string list =
-        let seen = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        cols
-        |> List.mapi (fun idx col ->
-            let baseCol =
-                if String.IsNullOrWhiteSpace col then $"Column{idx + 1}"
-                else col.Trim()
-            let mutable candidate = baseCol
-            let mutable counter = 2
-            while seen.Contains candidate do
-                candidate <- $"{baseCol}_{counter}"
-                counter <- counter + 1
-            seen.Add candidate |> ignore
-            candidate
-        )
-
-    /// Infers F# property names and types from a JSON element (array or object).
-    let inferJsonTypes (elem: JsonElement) : (string * string) list =
-        let sampleObjects =
-            if elem.ValueKind = JsonValueKind.Array then
-                elem.EnumerateArray()
-                |> Seq.filter (fun e -> e.ValueKind = JsonValueKind.Object)
-                |> Seq.truncate 50
-                |> Seq.toList
-            elif elem.ValueKind = JsonValueKind.Object then
-                let arrayProp =
-                    elem.EnumerateObject()
-                    |> Seq.tryFind (fun p -> p.Value.ValueKind = JsonValueKind.Array)
-                match arrayProp with
-                | Some p ->
-                    p.Value.EnumerateArray()
-                    |> Seq.filter (fun e -> e.ValueKind = JsonValueKind.Object)
-                    |> Seq.truncate 50
-                    |> Seq.toList
-                | None -> [ elem ]
-            else
-                []
-
-        if List.isEmpty sampleObjects then
-            []
-        else
-            let allProps =
-                sampleObjects
-                |> Seq.collect (fun o -> o.EnumerateObject() |> Seq.map (fun p -> p.Name))
-                |> Seq.distinct
-                |> Seq.toList
-
-            allProps
-            |> List.map (fun propName ->
-                let values =
-                    sampleObjects
-                    |> List.choose (fun o ->
-                        match o.TryGetProperty(propName) with
-                        | true, v -> Some v
-                        | false, _ -> None)
-
-                let inferred =
-                    if values |> List.forall (fun v -> v.ValueKind = JsonValueKind.Number && (let ok, _ = v.TryGetInt32() in ok)) then
-                        "int"
-                    elif values |> List.forall (fun v -> v.ValueKind = JsonValueKind.Number && (let ok, _ = v.TryGetInt64() in ok)) then
-                        "int64"
-                    elif values |> List.forall (fun v -> v.ValueKind = JsonValueKind.Number && (let ok, _ = v.TryGetDecimal() in ok)) then
-                        "decimal"
-                    elif values |> List.forall (fun v -> v.ValueKind = JsonValueKind.Number) then
-                        "double"
-                    elif values |> List.forall (fun v -> v.ValueKind = JsonValueKind.True || v.ValueKind = JsonValueKind.False) then
-                        "bool"
-                    elif values |> List.forall (fun v ->
-                        if v.ValueKind = JsonValueKind.String then
-                            match DateTime.TryParse(v.GetString(), CultureInfo.InvariantCulture, DateTimeStyles.None) with
-                            | true, _ -> true | false, _ -> false
-                        else false) then
-                        "System.DateTime"
-                    elif values |> List.forall (fun v ->
-                        if v.ValueKind = JsonValueKind.String then
-                            match Guid.TryParse(v.GetString()) with
-                            | true, _ -> true | false, _ -> false
-                        else false) then
-                        "System.Guid"
-                    else
-                        "string"
-
-                (propName, inferred)
-            )
+    let sanitizeColumns (cols: string list) : string list = CodeGenerationHelpers.sanitizeColumns cols
+    let inferJsonTypes (elem: JsonElement) : (string * string) list = JsonTypeInference.inferJsonTypes elem
 
     [<RequireQualifiedAccess>]
     type EntityMappingStatus =
@@ -220,162 +111,88 @@ module EntityBackgroundGenerator =
                         usedPropNames.Add candidate |> ignore
                         candidate
 
-                    let mutable dbExtensions: (string * string * string * string list) list = []
-                    let mutable csvExtensions: (string * string * string) list = []
-                    let mutable excelExtensions: (string * string * string) list = []
-                    let mutable restExtensions: (string * string * string) list = []
+                    let mutable extensions: (ConnectorCategory * string) list = []
 
                     for def in connections do
                         try
                             let cleanName = cleanIdentifier def.Name
                             let rawConnector = (resolver :> IConnectionResolver).Resolve def.Name
+                            let kindId = ConnectorRegistry.KindIdOf def.Kind
 
-                            match rawConnector with
-                            | :? IQueryableConnector as qc ->
-                                let moduleName = makeUniqueModuleName $"{cleanName}Db"
+                            match ConnectorRegistry.Instance.TryGet kindId with
+                            | Some desc when desc.EntityGenerator.IsSome ->
+                                let gen = desc.EntityGenerator.Value
+                                let suffix =
+                                    match gen.Category with
+                                    | ConnectorCategory.Sql -> "Db"
+                                    | ConnectorCategory.TabularFile -> "Csv"
+                                    | ConnectorCategory.Excel -> "Excel"
+                                    | ConnectorCategory.Rest -> "Json"
+                                    | ConnectorCategory.Custom s -> s
+                                let moduleName = makeUniqueModuleName $"{cleanName}{suffix}"
                                 let propName = makeUniquePropName cleanName
-                                let dbConn = Connections.DatabaseConnection(def.Name, qc)
-                                let code = dbConn.GenerateEntities(moduleName)
-                                sb.AppendLine(code) |> ignore
-                                sb.AppendLine() |> ignore
-                                let tbls =
-                                    try
-                                        dbConn.Tables
-                                    with _ -> []
-                                dbExtensions <- (propName, moduleName, def.Name, tbls) :: dbExtensions
-
-                            | :? CsvConnector as cc ->
-                                let moduleName = makeUniqueModuleName $"{cleanName}Csv"
-                                let propName = makeUniquePropName cleanName
-                                let qr = cc.ReadRows()
-                                let rowsSample = qr.Rows |> Seq.truncate 200 |> Seq.toList
-                                let sanitizedCols = sanitizeColumns qr.Columns
-
-                                sb.AppendLine($"module {moduleName} =") |> ignore
-                                sb.AppendLine("    type Row =") |> ignore
-                                sb.AppendLine("        {") |> ignore
-                                for idx, col in List.indexed sanitizedCols do
-                                    let samples = rowsSample |> Seq.map (fun r -> if idx < r.Length then string r.[idx] else "")
-                                    let colType = inferType samples
-                                    sb.AppendLine($"            {escapeIdent col}: {colType}") |> ignore
-                                sb.AppendLine("        }") |> ignore
-                                sb.AppendLine() |> ignore
-                                sb.AppendLine("    type Data(conn: FSharpQueryStudio.Connectors.Connections.CsvConnection) =") |> ignore
-                                sb.AppendLine("        let queryable = conn.Queryable<Row>()") |> ignore
-                                sb.AppendLine($"        new(name: string) = Data(FSharpQueryStudio.Connectors.Connections.getCsvConnection(name))") |> ignore
-                                sb.AppendLine($"        new() = Data(\"{def.Name}\")") |> ignore
-                                sb.AppendLine("        member _.Rows : System.Linq.IQueryable<Row> = queryable") |> ignore
-                                sb.AppendLine("        member _.Queryable : System.Linq.IQueryable<Row> = queryable") |> ignore
-                                sb.AppendLine("        member _.Raw() : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.Raw()") |> ignore
-                                sb.AppendLine("        member _.Connection : FSharpQueryStudio.Connectors.Connections.CsvConnection = conn") |> ignore
-                                sb.AppendLine("        interface System.Linq.IQueryable<Row> with") |> ignore
-                                sb.AppendLine("            member _.ElementType = (queryable :> System.Linq.IQueryable).ElementType") |> ignore
-                                sb.AppendLine("            member _.Expression = (queryable :> System.Linq.IQueryable).Expression") |> ignore
-                                sb.AppendLine("            member _.Provider = (queryable :> System.Linq.IQueryable).Provider") |> ignore
-                                sb.AppendLine("        interface System.Collections.Generic.IEnumerable<Row> with") |> ignore
-                                sb.AppendLine("            member _.GetEnumerator() = (queryable :> System.Collections.Generic.IEnumerable<Row>).GetEnumerator()") |> ignore
-                                sb.AppendLine("        interface System.Collections.IEnumerable with") |> ignore
-                                sb.AppendLine("            member _.GetEnumerator() = (queryable :> System.Collections.IEnumerable).GetEnumerator()") |> ignore
-                                sb.AppendLine() |> ignore
-                                sb.AppendLine("    let rows () : System.Linq.IQueryable<Row> = (Data()).Rows") |> ignore
-                                sb.AppendLine("    let data () : Data = Data()") |> ignore
-                                sb.AppendLine() |> ignore
-                                csvExtensions <- (propName, moduleName, def.Name) :: csvExtensions
-
-                            | :? ExcelConnector as ec ->
-                                let moduleName = makeUniqueModuleName $"{cleanName}Excel"
-                                let propName = makeUniquePropName cleanName
-                                let tables = (ec :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result
-
-                                sb.AppendLine($"module {moduleName} =") |> ignore
-                                for tbl in tables do
-                                    let sheetClean = cleanIdentifier tbl.Name
-                                    let qr = ec.ReadRows(sheetName = tbl.Name, maxRows = 200)
-                                    let rowsSample = qr.Rows |> Seq.truncate 200 |> Seq.toList
-                                    let sanitizedCols = sanitizeColumns qr.Columns
-
-                                    sb.AppendLine($"    module {sheetClean} =") |> ignore
-                                    sb.AppendLine("        type Row =") |> ignore
-                                    sb.AppendLine("            {") |> ignore
-                                    for idx, col in List.indexed sanitizedCols do
-                                        let samples = rowsSample |> Seq.map (fun r -> if idx < r.Length then string r.[idx] else "")
-                                        let colType = inferType samples
-                                        sb.AppendLine($"                {escapeIdent col}: {colType}") |> ignore
-                                    sb.AppendLine("            }") |> ignore
+                                let moduleCode = gen.EmitModuleCode(def.Name, rawConnector, moduleName)
+                                if not (String.IsNullOrWhiteSpace moduleCode) then
+                                    sb.AppendLine(moduleCode) |> ignore
                                     sb.AppendLine() |> ignore
-                                    sb.AppendLine($"        let rows () : System.Linq.IQueryable<Row> = (FSharpQueryStudio.Connectors.Connections.queryExcelSheet<Row> (\"{def.Name}\") (Some \"{tbl.Name}\") None).AsQueryable()") |> ignore
-                                    sb.AppendLine() |> ignore
-
-                                sb.AppendLine("    type Data(conn: FSharpQueryStudio.Connectors.Connections.ExcelConnection) =") |> ignore
-                                sb.AppendLine($"        new(name: string) = Data(FSharpQueryStudio.Connectors.Connections.getExcelConnection(name))") |> ignore
-                                sb.AppendLine($"        new() = Data(\"{def.Name}\")") |> ignore
-                                sb.AppendLine("        member _.Raw(?maxRows: int) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.Raw(?maxRows = maxRows)") |> ignore
-                                sb.AppendLine("        member _.Connection : FSharpQueryStudio.Connectors.Connections.ExcelConnection = conn") |> ignore
-                                for tbl in tables do
-                                    let sheetClean = cleanIdentifier tbl.Name
-                                    sb.AppendLine($"        member _.{escapeIdent sheetClean} : System.Linq.IQueryable<{sheetClean}.Row> = conn.SheetQueryable<{sheetClean}.Row>(\"{tbl.Name}\")") |> ignore
-                                sb.AppendLine() |> ignore
-                                sb.AppendLine("    let data () : Data = Data()") |> ignore
-                                sb.AppendLine() |> ignore
-                                excelExtensions <- (propName, moduleName, def.Name) :: excelExtensions
-
-                            | :? RestConnector as rc ->
-                                let moduleName = makeUniqueModuleName $"{cleanName}Json"
-                                let propName = makeUniquePropName cleanName
-                                let elem = (rc.SendAsync rc.BaseOptions CancellationToken.None).Result
-                                let props = inferJsonTypes elem
-
-                                sb.AppendLine($"module {moduleName} =") |> ignore
-                                sb.AppendLine("    type Item =") |> ignore
-                                sb.AppendLine("        {") |> ignore
-                                for propNameItem, propType in props do
-                                    sb.AppendLine($"            {escapeIdent propNameItem}: {propType}") |> ignore
-                                sb.AppendLine("        }") |> ignore
-                                sb.AppendLine() |> ignore
-                                sb.AppendLine("    type Data(conn: FSharpQueryStudio.Connectors.Connections.RestConnection) =") |> ignore
-                                sb.AppendLine($"        new(name: string) = Data(FSharpQueryStudio.Connectors.Connections.getRestConnection(name))") |> ignore
-                                sb.AppendLine($"        new() = Data(\"{def.Name}\")") |> ignore
-                                sb.AppendLine("        member _.Items(?options: FSharpQueryStudio.Connectors.RestRequestOptions) : System.Linq.IQueryable<Item> = conn.Queryable<Item>(?options = options)") |> ignore
-                                sb.AppendLine("        member _.SendAsync(options: FSharpQueryStudio.Connectors.RestRequestOptions, ?ct: System.Threading.CancellationToken) : System.Threading.Tasks.Task<System.Text.Json.JsonElement> = conn.SendAsync(options, ?ct = ct)") |> ignore
-                                sb.AppendLine("        member _.Connection : FSharpQueryStudio.Connectors.Connections.RestConnection = conn") |> ignore
-                                sb.AppendLine() |> ignore
-                                sb.AppendLine("    let items (?options: FSharpQueryStudio.Connectors.RestRequestOptions) : System.Linq.IQueryable<Item> = (Data()).Items(?options = options)") |> ignore
-                                sb.AppendLine("    let data () : Data = Data()") |> ignore
-                                sb.AppendLine() |> ignore
-                                restExtensions <- (propName, moduleName, def.Name) :: restExtensions
-
+                                    let extCode = gen.EmitExtensionCode(def.Name, moduleName, propName)
+                                    extensions <- (gen.Category, extCode) :: extensions
                             | _ -> ()
                         with ex ->
                             Log.Warning("FS Query Studio: Could not generate background entities for connection '{Name}': {Error}", def.Name, ex.Message)
 
-                    let totalExtensions = dbExtensions.Length + csvExtensions.Length + excelExtensions.Length + restExtensions.Length
+                    let totalExtensions = extensions.Length
 
                     if totalExtensions > 0 then
                         sb.AppendLine("[<AutoOpen>]") |> ignore
                         sb.AppendLine("module Extensions =") |> ignore
 
-                        if not (List.isEmpty dbExtensions) then
+                        let sqlExts =
+                            extensions
+                            |> List.filter (fun (cat, _) -> cat = ConnectorCategory.Sql)
+                            |> List.map snd
+                            |> List.rev
+
+                        if not (List.isEmpty sqlExts) then
                             sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.SqlCategory with") |> ignore
-                            for (propName, modName, defName, _) in List.rev dbExtensions do
-                                sb.AppendLine($"        member _.{escapeIdent propName} : {modName}.Database = {modName}.Database(\"{defName}\")") |> ignore
+                            for extLine in sqlExts do
+                                sb.AppendLine(extLine) |> ignore
                             sb.AppendLine() |> ignore
 
-                        if not (List.isEmpty csvExtensions) then
+                        let csvExts =
+                            extensions
+                            |> List.filter (fun (cat, _) -> cat = ConnectorCategory.TabularFile)
+                            |> List.map snd
+                            |> List.rev
+
+                        if not (List.isEmpty csvExts) then
                             sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.CsvCategory with") |> ignore
-                            for (propName, modName, defName) in List.rev csvExtensions do
-                                sb.AppendLine($"        member _.{escapeIdent propName} : {modName}.Data = {modName}.Data(\"{defName}\")") |> ignore
+                            for extLine in csvExts do
+                                sb.AppendLine(extLine) |> ignore
                             sb.AppendLine() |> ignore
 
-                        if not (List.isEmpty excelExtensions) then
+                        let excelExts =
+                            extensions
+                            |> List.filter (fun (cat, _) -> cat = ConnectorCategory.Excel)
+                            |> List.map snd
+                            |> List.rev
+
+                        if not (List.isEmpty excelExts) then
                             sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.ExcelCategory with") |> ignore
-                            for (propName, modName, defName) in List.rev excelExtensions do
-                                sb.AppendLine($"        member _.{escapeIdent propName} : {modName}.Data = {modName}.Data(\"{defName}\")") |> ignore
+                            for extLine in excelExts do
+                                sb.AppendLine(extLine) |> ignore
                             sb.AppendLine() |> ignore
 
-                        if not (List.isEmpty restExtensions) then
+                        let restExts =
+                            extensions
+                            |> List.filter (fun (cat, _) -> cat = ConnectorCategory.Rest)
+                            |> List.map snd
+                            |> List.rev
+
+                        if not (List.isEmpty restExts) then
                             sb.AppendLine("    type FSharpQueryStudio.Connectors.Connections.RestCategory with") |> ignore
-                            for (propName, modName, defName) in List.rev restExtensions do
-                                sb.AppendLine($"        member _.{escapeIdent propName} : {modName}.Data = {modName}.Data(\"{defName}\")") |> ignore
+                            for extLine in restExts do
+                                sb.AppendLine(extLine) |> ignore
                             sb.AppendLine() |> ignore
 
 

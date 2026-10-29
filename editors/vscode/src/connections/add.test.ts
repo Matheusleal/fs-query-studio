@@ -133,7 +133,40 @@ describe("runAddConnection", () => {
     expect(d.sent).toHaveLength(0);
     expect(d.refresh).not.toHaveBeenCalled();
   });
+
+  it("renders and registers custom connector dynamically based on descriptor schema", async () => {
+    const customDescriptor = {
+      kindId: "MongoDb",
+      displayName: "MongoDB (Custom)",
+      category: "nosql",
+      icon: "server",
+      formFields: [
+        { name: "connectionUri", label: "MongoDB Connection URI", type: "string" as const, required: true, secretHandling: "none" },
+        { name: "databaseName", label: "Database Name", type: "string" as const, required: true, secretHandling: "none" },
+      ],
+    };
+    const inputs = ["my-mongo", "mongodb://localhost:27017", "analytics_db"];
+    let inputIdx = 0;
+    const d = deps({
+      getDescriptors: async () => [customDescriptor],
+      ui: {
+        ...deps().deps.ui,
+        pickKind: async () => "MongoDb" as any,
+        input: async () => inputs[inputIdx++],
+      },
+    });
+    await runAddConnection(d.deps);
+    const reg = d.sent.find((s) => s.method === "connection/register")!;
+    const def = reg.params as ConnectionDefinition;
+    expect(def.name).toBe("my-mongo");
+    expect(def.kind).toEqual({ Case: "MongoDb" });
+    const config = def.configuration as Record<string, unknown>;
+    expect(config.connectionUri).toBe("mongodb://localhost:27017");
+    expect(config.databaseName).toBe("analytics_db");
+    expect(d.refresh).toHaveBeenCalledOnce();
+  });
 });
+
 
 describe("runEditConnection", () => {
   it("does not store a secret when the password box is left blank", async () => {

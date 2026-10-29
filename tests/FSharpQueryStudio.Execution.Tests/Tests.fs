@@ -25,17 +25,17 @@ let ``create returns a session that evaluates a trivial expression without hangi
             let work =
                 task {
                     let session = FsiSession.create workDir
-                    return session.Fsi.EvalInteractionNonThrowing("1 + 1")
+                    return Evaluation.evaluate session "1 + 1"
                 }
 
-            let! (result, diagnostics) = work |> withTimeout 30.0
+            let! outcome = work |> withTimeout 30.0
 
-            match result with
-            | Choice1Of2(Some _) -> ()
-            | Choice1Of2 None -> failwith "expected a value, got none"
-            | Choice2Of2 ex -> failwithf "evaluation failed: %O" ex
+            Assert.True(outcome.Exception.IsNone)
+            match outcome.Value with
+            | Some v -> Assert.Equal(box 2, v.ReflectionValue)
+            | None -> failwith "expected a value, got none"
 
-            Assert.Empty(diagnostics)
+            Assert.Empty(outcome.Diagnostics)
         finally
             cleanupWorkingDirectory workDir
     }
