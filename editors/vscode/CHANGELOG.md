@@ -6,6 +6,21 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.4.0-rc1] — 2026-10-30
+
+### Added
+
+- **Modular Connector Architecture (Backend & Frontend)** — Decoupled connectors into independent, self-contained modules (`FSharpQueryStudio.Connectors.Abstractions`, `.Sqlite`, `.SqlServer`, `.PostgreSql`, `.Csv`, `.Excel`, `.Rest`) on the backend and declarative frontend modules (`editors/vscode/src/connections/modules/*.ts`) registered via `ConnectorRegistry` and `ConnectorFrontRegistry`.
+- **Declarative Schema-Driven Connection Wizard (`connector/list`)** — Added `connector/list` RPC endpoint exposing connector descriptors and form field schemas so the VS Code extension dynamically renders connection forms, secret handling, and validation rules per connector module.
+- **Expanded Multi-Source Sample Notebooks (`sample_demo.fsqnb` & `sample_demo_pt.fsqnb`)** — Added **Excel (`.xlsx`)** multi-sheet workbook (`RegionalTargets`) and **GitHub HTTPS REST API (`https://`)** (`GitHubFSharp`) connections and interactive LINQ query cells (11 code cells across 6 data sources: 2x SQLite, 2x CSV, Excel `.xlsx`, and GitHub HTTPS REST).
+- **External Test Execution Watcher** — Added `scripts/watch-tests.ps1`, `scripts/run-all-tests.ps1`, and `scripts/run-all-tests.sh` enforcing a strict 5-minute external timeout and process-tree cleanup across all test suites.
+
+### Fixed
+
+- **UTF-8 Encoding Preservation Across Cell & Result Grid** — Enforced UTF-8 without BOM across NDJSON stdio streams in the worker and host process, preserving accented characters (e.g., `Transações`, `São Paulo`) without mojibake.
+- **Sample Data Deduplication, Healing & FSI Entity Reloading** — Fixed duplicate connection name registration in `workspace.json`, added automatic healing for 0-byte or missing sample files, enforced synchronous entity generation when `GeneratedEntities.fs` is missing or stale, and added automatic `#load` reloading of updated entities in persistent FSI sessions.
+- **Workspace Schema v2 Field Ordering** — Placed `connections` as the last property in `.fsqs/workspace.json` for improved readability of top-level metadata (`schemaVersion`, `extensionVersion`, `updatedAt`).
+
 ## [0.3.2] — 2026-10-28
 
 ### Removed
