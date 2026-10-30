@@ -55,9 +55,73 @@ module Projection =
         |> Array.map (fun p -> { Name = p.Name; DisplayType = p.PropertyType.Name })
         |> Array.toList
 
+    let private optionValuePropCache = ConcurrentDictionary<Type, PropertyInfo option>()
+
+    let rec private sanitizeCell (v: obj) : obj =
+        if isNull v || Convert.IsDBNull(v) then
+            null
+        else
+            match v with
+            | :? double as d -> if Double.IsFinite d then v else null
+            | :? single as f -> if Single.IsFinite f then v else null
+            | _ ->
+                let t = v.GetType()
+                if t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<option<_>> then
+                    let propOpt =
+                        optionValuePropCache.GetOrAdd(
+                            t,
+                            fun typ ->
+                                let p = typ.GetProperty("Value", recordBindingFlags)
+                                if isNull p then None else Some p
+                        )
+                    match propOpt with
+                    | Some p -> sanitizeCell (p.GetValue(v))
+                    | None -> v
+                else
+                    v
+
+    let private recordReaderCache = ConcurrentDictionary<Type, obj -> obj array>()
+
+    let private getRecordReader (t: Type) : (obj -> obj array) =
+        recordReaderCache.GetOrAdd(
+            t,
+            Func<Type, obj -> obj array>(fun typ ->
+                let rawReader = FSharpValue.PreComputeRecordReader(typ, recordBindingFlags)
+                let fields = FSharpType.GetRecordFields(typ, recordBindingFlags)
+                let needsSanitize =
+                    fields
+                    |> Array.exists (fun f ->
+                        let pt = f.PropertyType
+                        pt = typeof<double>
+                        || pt = typeof<single>
+                        || pt = typeof<obj>
+                        || (pt.IsGenericType && pt.GetGenericTypeDefinition() = typedefof<option<_>>))
+                if not needsSanitize then
+                    rawReader
+                else
+                    fun (instance: obj) ->
+                        let arr = rawReader instance
+                        for i = 0 to arr.Length - 1 do
+                            arr.[i] <- sanitizeCell arr.[i]
+                        arr)
+        )
+
+    let private tupleReaderCache = ConcurrentDictionary<Type, obj -> obj array>()
+
+    let private getTupleReader (t: Type) : (obj -> obj array) =
+        tupleReaderCache.GetOrAdd(
+            t,
+            Func<Type, obj -> obj array>(fun typ ->
+                let rawReader = FSharpValue.PreComputeTupleReader(typ)
+                fun (instance: obj) ->
+                    let arr = rawReader instance
+                    for i = 0 to arr.Length - 1 do
+                        arr.[i] <- sanitizeCell arr.[i]
+                    arr)
+        )
+
     let private recordRow (t: Type) (value: obj) : obj array =
-        FSharpType.GetRecordFields(t, recordBindingFlags)
-        |> Array.map (fun p -> p.GetValue(value))
+        (getRecordReader t) value
 
     type private IDictionaryAccessor =
         abstract GetKeys: obj -> string list
@@ -240,8 +304,13 @@ module Projection =
                 // rescue a non-terminating enumeration. Only the
                 // materialized shapes below pull the whole sequence.
                 let e = items.GetEnumerator()
+                let disposeEnumerator () =
+                    match box e with
+                    | :? IDisposable as d -> try d.Dispose() with _ -> ()
+                    | _ -> ()
 
                 if not (e.MoveNext()) then
+                    disposeEnumerator ()
                     // A cell ending in `[]` must not overwrite the notebook's
                     // exportable grid with an empty table — return the empty
                     // Table envelope but retain nothing.
@@ -251,29 +320,63 @@ module Projection =
                     // The rest of the sequence, still lazy, with element 0 re-prepended.
                     let full =
                         seq {
-                            yield first
-                            while e.MoveNext() do
-                                yield e.Current
+                            try
+                                yield first
+                                while e.MoveNext() do
+                                    yield e.Current
+                            finally
+                                disposeEnumerator ()
                         }
 
                     match first with
                     | :? ConnectorQueryResult ->
+                        disposeEnumerator ()
                         failwith "a sequence of ConnectorQueryResult is not supported; enumerate .Rows"
                     | _ when not (isNull first) && FSharpType.IsRecord(first.GetType(), recordBindingFlags) ->
-                        let rows = full |> Array.ofSeq
                         let recordType = first.GetType()
+                        let reader = getRecordReader recordType
+                        let dataRows = ResizeArray<obj array>()
+                        dataRows.Add(reader first)
+                        let mutable keepReading = true
+                        try
+                            while keepReading do
+                                let hasNext =
+                                    try
+                                        e.MoveNext()
+                                    with _ ->
+                                        false
+                                if not hasNext then
+                                    keepReading <- false
+                                else
+                                    let curr = e.Current
+                                    if isNull curr then
+                                        ()
+                                    elif curr.GetType() <> recordType then
+                                        failwith "Mixed-shape sequence cannot be projected as a uniform record table."
+                                    else
+                                        dataRows.Add(reader curr)
+                        finally
+                            disposeEnumerator ()
 
-                        let dataRows =
-                            rows |> Array.map (fun r -> FSharpValue.GetRecordFields(r, recordBindingFlags))
-
-                        materializedTable (recordSchema recordType) dataRows
+                        materializedTable (recordSchema recordType) (dataRows.ToArray())
                     | _ when not (isNull first) && FSharpType.IsTuple(first.GetType()) ->
-                        let rows = full |> Array.ofSeq
-                        let width = (FSharpValue.GetTupleFields first).Length
+                        let tupleType = first.GetType()
+                        let reader = getTupleReader tupleType
+                        let firstFields = reader first
+                        let width = firstFields.Length
                         let names =
                             [ for i in 1..width -> { Name = sprintf "Item%d" i; DisplayType = "obj" } ]
-                        let dataRows = rows |> Array.map (fun r -> FSharpValue.GetTupleFields r)
-                        materializedTable names dataRows
+                        let dataRows = ResizeArray<obj array>()
+                        dataRows.Add(firstFields)
+                        try
+                            while e.MoveNext() do
+                                let curr = e.Current
+                                if isNull curr || curr.GetType() <> tupleType then
+                                    failwith "Mixed-shape sequence cannot be projected as a uniform tuple table."
+                                dataRows.Add(reader curr)
+                        finally
+                            disposeEnumerator ()
+                        materializedTable names (dataRows.ToArray())
                     | _ when not (isNull first) && isDictionary (first.GetType()) ->
                         let rows = full |> Array.ofSeq
 

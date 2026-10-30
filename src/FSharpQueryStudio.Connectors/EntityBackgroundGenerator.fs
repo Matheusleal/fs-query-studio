@@ -248,7 +248,7 @@ module EntityBackgroundGenerator =
             with _ ->
                 true
 
-    /// Ensures generated entities exist, generating synchronously when missing or stale, or refreshing in background.
+    /// Ensures generated entities exist, generating synchronously when missing or stale.
     let ensureGenerated
         (workspaceDir: string)
         (connections: ConnectionDefinition list)
@@ -259,11 +259,8 @@ module EntityBackgroundGenerator =
         if List.isEmpty connections then
             if File.Exists targetPath then
                 triggerBackgroundGeneration workspaceDir connections secretStore
-        else
-            if needsSynchronousGeneration targetPath connections then
-                try
-                    (generateForConnectionsAsync workspaceDir connections secretStore).GetAwaiter().GetResult() |> ignore
-                with ex ->
-                    Log.Warning("FS Query Studio: Initial entity generation failed: {Error}", ex.Message)
-            else
-                triggerBackgroundGeneration workspaceDir connections secretStore
+        elif needsSynchronousGeneration targetPath connections then
+            try
+                (generateForConnectionsAsync workspaceDir connections secretStore).GetAwaiter().GetResult() |> ignore
+            with ex ->
+                Log.Warning("FS Query Studio: Initial entity generation failed: {Error}", ex.Message)

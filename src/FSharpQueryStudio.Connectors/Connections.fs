@@ -55,164 +55,248 @@ module Connections =
 
     let private mapperCache = ConcurrentDictionary<Type * string, obj array -> obj>()
 
+    let private isSentinelString (s: string) : bool =
+        if String.IsNullOrWhiteSpace s then
+            true
+        else
+            let t = s.Trim().Trim('"', '\'')
+            String.IsNullOrEmpty t
+            || String.Equals(t, "n/a", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "na", StringComparison.OrdinalIgnoreCase)
+            || t = "-"
+            || t = "--"
+            || t = "?"
+            || String.Equals(t, "null", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "none", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "nil", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "undefined", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "nan", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "infinity", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "-infinity", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "tbd", StringComparison.OrdinalIgnoreCase)
+            || t.StartsWith("#", StringComparison.Ordinal)
+
+    let private tryParseNormalizedDecimal (clean: string) : decimal option =
+        if clean.Contains(",") && not (clean.Contains(".")) then
+            let normalized = clean.Replace(",", ".")
+            match Decimal.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+            | true, v -> Some v
+            | false, _ -> None
+        elif clean.Contains(".") && not (clean.Contains(",")) then
+            match Decimal.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+            | true, v -> Some v
+            | false, _ -> None
+        elif clean.Contains(",") && clean.Contains(".") then
+            let lastComma = clean.LastIndexOf(',')
+            let lastDot = clean.LastIndexOf('.')
+            let normalized =
+                if lastDot > lastComma then clean.Replace(",", "")
+                else clean.Replace(".", "").Replace(",", ".")
+            match Decimal.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+            | true, v -> Some v
+            | false, _ -> None
+        else
+            match Decimal.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+            | true, v -> Some v
+            | false, _ ->
+                match Decimal.TryParse(clean, NumberStyles.Number, CultureInfo.CurrentCulture) with
+                | true, v -> Some v
+                | false, _ -> None
+
+    let private tryParseNormalizedDouble (clean: string) : double option =
+        let parsed =
+            if clean.Contains(",") && not (clean.Contains(".")) then
+                let normalized = clean.Replace(",", ".")
+                match Double.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                | true, v -> Some v
+                | false, _ -> None
+            elif clean.Contains(".") && not (clean.Contains(",")) then
+                match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                | true, v -> Some v
+                | false, _ -> None
+            elif clean.Contains(",") && clean.Contains(".") then
+                let lastComma = clean.LastIndexOf(',')
+                let lastDot = clean.LastIndexOf('.')
+                let normalized =
+                    if lastDot > lastComma then clean.Replace(",", "")
+                    else clean.Replace(".", "").Replace(",", ".")
+                match Double.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                | true, v -> Some v
+                | false, _ -> None
+            else
+                match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                | true, v -> Some v
+                | false, _ ->
+                    match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands, CultureInfo.CurrentCulture) with
+                    | true, v -> Some v
+                    | false, _ -> None
+        match parsed with
+        | Some v when Double.IsFinite v -> Some v
+        | _ -> None
+
     let private convertValue (raw: obj) (targetType: Type) : obj =
         if isNull raw || Convert.IsDBNull(raw) then
             null
         elif targetType.IsInstanceOfType(raw) then
-            raw
+            match raw with
+            | :? double as d when not (Double.IsFinite d) -> null
+            | :? single as f when not (Single.IsFinite f) -> null
+            | _ -> raw
         elif raw :? string then
             let rawStr = (raw :?> string).Trim().Trim('"', '\'')
-            let isSentinelOrEmpty =
-                String.IsNullOrEmpty rawStr
-                || String.Equals(rawStr, "n/a", StringComparison.OrdinalIgnoreCase)
-                || rawStr = "-"
-                || String.Equals(rawStr, "null", StringComparison.OrdinalIgnoreCase)
 
             if targetType = typeof<string> then
                 box rawStr
-            elif isSentinelOrEmpty then
+            elif isSentinelString rawStr then
                 null
             elif targetType = typeof<decimal> then
-                let clean = rawStr
-                let parsed =
-                    if clean.Contains(",") && not (clean.Contains(".")) then
-                        let normalized = clean.Replace(",", ".")
-                        match Decimal.TryParse(normalized, NumberStyles.AllowDecimalPoint ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    elif clean.Contains(".") && not (clean.Contains(",")) then
-                        match Decimal.TryParse(clean, NumberStyles.AllowDecimalPoint ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    elif clean.Contains(",") && clean.Contains(".") then
-                        let lastComma = clean.LastIndexOf(',')
-                        let lastDot = clean.LastIndexOf('.')
-                        let normalized =
-                            if lastDot > lastComma then clean.Replace(",", "")
-                            else clean.Replace(".", "").Replace(",", ".")
-                        match Decimal.TryParse(normalized, NumberStyles.AllowDecimalPoint ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    else
-                        match Decimal.TryParse(clean, NumberStyles.Integer ||| NumberStyles.AllowLeadingSign ||| NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v
-                        | false, _ ->
-                            match Decimal.TryParse(clean, NumberStyles.Number, CultureInfo.CurrentCulture) with
-                            | true, v -> Some v | false, _ -> None
-
-                match parsed with
+                match tryParseNormalizedDecimal rawStr with
                 | Some v -> box v
-                | None -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
-
+                | None ->
+                    match tryParseNormalizedDouble rawStr with
+                    | Some d when d >= float Decimal.MinValue && d <= float Decimal.MaxValue ->
+                        try box (Convert.ToDecimal(d, CultureInfo.InvariantCulture)) with _ -> null
+                    | _ -> null
             elif targetType = typeof<double> || targetType = typeof<float> then
-                let clean = rawStr
-                let parsed =
-                    if clean.Contains(",") && not (clean.Contains(".")) then
-                        let normalized = clean.Replace(",", ".")
-                        match Double.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    elif clean.Contains(".") && not (clean.Contains(",")) then
-                        match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    elif clean.Contains(",") && clean.Contains(".") then
-                        let lastComma = clean.LastIndexOf(',')
-                        let lastDot = clean.LastIndexOf('.')
-                        let normalized =
-                            if lastDot > lastComma then clean.Replace(",", "")
-                            else clean.Replace(".", "").Replace(",", ".")
-                        match Double.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    else
-                        match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v
-                        | false, _ ->
-                            match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands, CultureInfo.CurrentCulture) with
-                            | true, v -> Some v | false, _ -> None
-
-                match parsed with
+                match tryParseNormalizedDouble rawStr with
                 | Some v -> box v
-                | None -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
-
+                | None -> null
             elif targetType = typeof<single> then
-                let clean = rawStr
-                let parsed =
-                    if clean.Contains(",") && not (clean.Contains(".")) then
-                        let normalized = clean.Replace(",", ".")
-                        match Single.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    elif clean.Contains(".") && not (clean.Contains(",")) then
-                        match Single.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    elif clean.Contains(",") && clean.Contains(".") then
-                        let lastComma = clean.LastIndexOf(',')
-                        let lastDot = clean.LastIndexOf('.')
-                        let normalized =
-                            if lastDot > lastComma then clean.Replace(",", "")
-                            else clean.Replace(".", "").Replace(",", ".")
-                        match Single.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    else
-                        match Single.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v
-                        | false, _ ->
-                            match Single.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands, CultureInfo.CurrentCulture) with
-                            | true, v -> Some v | false, _ -> None
-
-                match parsed with
-                | Some v -> box v
-                | None -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                match tryParseNormalizedDouble rawStr with
+                | Some v ->
+                    let f = single v
+                    if Single.IsFinite f then box f else null
+                | None -> null
             elif targetType = typeof<int> then
-                match Int32.TryParse(rawStr, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+                match Int32.TryParse(rawStr, NumberStyles.Integer ||| NumberStyles.AllowThousands ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
                 | true, v -> box v
-                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                | false, _ ->
+                    match tryParseNormalizedDouble rawStr with
+                    | Some d ->
+                        let clamped = Math.Clamp(Math.Round(d), float Int32.MinValue, float Int32.MaxValue)
+                        box (int clamped)
+                    | None -> null
             elif targetType = typeof<int64> then
-                match Int64.TryParse(rawStr, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+                match Int64.TryParse(rawStr, NumberStyles.Integer ||| NumberStyles.AllowThousands ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
                 | true, v -> box v
-                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                | false, _ ->
+                    match tryParseNormalizedDouble rawStr with
+                    | Some d ->
+                        let clamped = Math.Clamp(Math.Round(d), float Int64.MinValue, float Int64.MaxValue)
+                        box (int64 clamped)
+                    | None -> null
             elif targetType = typeof<int16> then
-                match Int16.TryParse(rawStr, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+                match Int16.TryParse(rawStr, NumberStyles.Integer ||| NumberStyles.AllowThousands ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
                 | true, v -> box v
-                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                | false, _ ->
+                    match tryParseNormalizedDouble rawStr with
+                    | Some d ->
+                        let clamped = Math.Clamp(Math.Round(d), float Int16.MinValue, float Int16.MaxValue)
+                        box (int16 clamped)
+                    | None -> null
             elif targetType = typeof<bool> then
                 match Boolean.TryParse(rawStr) with
                 | true, v -> box v
                 | false, _ ->
                     let l = rawStr.ToLowerInvariant()
-                    if l = "1" || l = "true" || l = "t" || l = "yes" || l = "y" then box true
-                    elif l = "0" || l = "false" || l = "f" || l = "no" || l = "n" then box false
-                    else Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                    if l = "1" || l = "true" || l = "t" || l = "yes" || l = "y" || l = "sim" || l = "s" then box true
+                    elif l = "0" || l = "false" || l = "f" || l = "no" || l = "n" || l = "nao" || l = "não" then box false
+                    else null
             elif targetType = typeof<DateTime> then
                 match DateTime.TryParse(rawStr, CultureInfo.InvariantCulture, DateTimeStyles.None) with
                 | true, v -> box v
                 | false, _ ->
                     match DateTime.TryParse(rawStr, CultureInfo.CurrentCulture, DateTimeStyles.None) with
                     | true, v -> box v
-                    | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                    | false, _ ->
+                        match tryParseNormalizedDouble rawStr with
+                        | Some d when d > -657435.0 && d < 2958466.0 ->
+                            try box (DateTime.FromOADate(d)) with _ -> null
+                        | _ -> null
+            elif targetType = typeof<DateOnly> then
+                match DateOnly.TryParse(rawStr, CultureInfo.InvariantCulture, DateTimeStyles.None) with
+                | true, v -> box v
+                | false, _ ->
+                    match DateTime.TryParse(rawStr, CultureInfo.InvariantCulture, DateTimeStyles.None) with
+                    | true, dt -> box (DateOnly.FromDateTime(dt))
+                    | false, _ -> null
             elif targetType = typeof<Guid> then
                 match Guid.TryParse(rawStr) with
                 | true, v -> box v
-                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                | false, _ -> null
             else
-                Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                try Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                with _ -> null
         else
-            if targetType = typeof<decimal> then
-                match raw with
-                | :? double as d -> box (Convert.ToDecimal(d, CultureInfo.InvariantCulture))
-                | :? single as f -> box (Convert.ToDecimal(f, CultureInfo.InvariantCulture))
-                | :? int as i -> box (decimal i)
-                | :? int64 as i64 -> box (decimal i64)
-                | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
-            elif targetType = typeof<DateTime> then
-                match raw with
-                | :? DateOnly as d -> box (d.ToDateTime(TimeOnly.MinValue))
-                | :? DateTimeOffset as dto -> box dto.DateTime
-                | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
-            elif targetType = typeof<DateOnly> then
-                match raw with
-                | :? DateTime as dt -> box (DateOnly.FromDateTime(dt))
-                | :? DateTimeOffset as dto -> box (DateOnly.FromDateTime(dto.DateTime))
-                | _ -> DateOnly.Parse(string raw, CultureInfo.InvariantCulture) |> box
-            else
-                Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+            try
+                if targetType = typeof<string> then
+                    box (Convert.ToString(raw, CultureInfo.InvariantCulture))
+                elif targetType = typeof<decimal> then
+                    match raw with
+                    | :? double as d -> if Double.IsFinite d then box (Convert.ToDecimal(d, CultureInfo.InvariantCulture)) else null
+                    | :? single as f -> if Single.IsFinite f then box (Convert.ToDecimal(f, CultureInfo.InvariantCulture)) else null
+                    | :? int as i -> box (decimal i)
+                    | :? int64 as i64 -> box (decimal i64)
+                    | :? int16 as i16 -> box (decimal i16)
+                    | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+                elif targetType = typeof<double> || targetType = typeof<float> then
+                    match raw with
+                    | :? decimal as m -> box (double m)
+                    | :? single as f -> if Single.IsFinite f then box (double f) else null
+                    | :? int as i -> box (double i)
+                    | :? int64 as i64 -> box (double i64)
+                    | _ ->
+                        let v = Convert.ToDouble(raw, CultureInfo.InvariantCulture)
+                        if Double.IsFinite v then box v else null
+                elif targetType = typeof<int> then
+                    match raw with
+                    | :? double as d ->
+                        if Double.IsFinite d then
+                            box (int (Math.Clamp(Math.Round(d), float Int32.MinValue, float Int32.MaxValue)))
+                        else null
+                    | :? decimal as m ->
+                        box (int (Math.Clamp(Math.Round(double m), float Int32.MinValue, float Int32.MaxValue)))
+                    | :? int64 as i64 ->
+                        box (int (Math.Clamp(i64, int64 Int32.MinValue, int64 Int32.MaxValue)))
+                    | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+                elif targetType = typeof<int64> then
+                    match raw with
+                    | :? double as d ->
+                        if Double.IsFinite d then
+                            box (int64 (Math.Clamp(Math.Round(d), float Int64.MinValue, float Int64.MaxValue)))
+                        else null
+                    | :? decimal as m ->
+                        box (int64 (Math.Clamp(Math.Round(double m), float Int64.MinValue, float Int64.MaxValue)))
+                    | :? int as i -> box (int64 i)
+                    | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+                elif targetType = typeof<DateTime> then
+                    match raw with
+                    | :? DateOnly as d -> box (d.ToDateTime(TimeOnly.MinValue))
+                    | :? DateTimeOffset as dto -> box dto.DateTime
+                    | :? double as d when Double.IsFinite d && d > -657435.0 && d < 2958466.0 -> box (DateTime.FromOADate(d))
+                    | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+                elif targetType = typeof<DateOnly> then
+                    match raw with
+                    | :? DateTime as dt -> box (DateOnly.FromDateTime(dt))
+                    | :? DateTimeOffset as dto -> box (DateOnly.FromDateTime(dto.DateTime))
+                    | :? double as d when Double.IsFinite d && d > -657435.0 && d < 2958466.0 ->
+                        box (DateOnly.FromDateTime(DateTime.FromOADate(d)))
+                    | _ -> DateOnly.Parse(string raw, CultureInfo.InvariantCulture) |> box
+                else
+                    Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+            with _ ->
+                null
 
     let getCompiledRecordMapper<'T> = CompiledRecordMapper.getCompiledRecordMapper<'T>
+
+    type private FieldMapperSpec =
+        { ColIndex: int
+          PropType: Type
+          IsOption: bool
+          InnerType: Type
+          NoneValue: obj
+          SomeCtor: (obj array -> obj) option
+          DefaultValue: obj }
 
     let getMapper<'T> (columns: string list) : (obj array -> 'T) =
         let targetType = typeof<'T>
@@ -221,11 +305,13 @@ module Connections =
             mapperCache.GetOrAdd(
                 key,
                 Func<Type * string, obj array -> obj>(fun _ ->
+                    let flags = System.Reflection.BindingFlags.Public ||| System.Reflection.BindingFlags.NonPublic ||| System.Reflection.BindingFlags.Instance
                     if targetType = typeof<obj array> then
                         (fun row -> box row)
-                    elif FSharpType.IsRecord(targetType) then
-                        let fields = FSharpType.GetRecordFields(targetType)
-                        let colIndices =
+                    elif FSharpType.IsRecord(targetType, flags) then
+                        let fields = FSharpType.GetRecordFields(targetType, flags)
+                        let sanitizedColumns = CodeGenerationHelpers.sanitizeColumns columns
+                        let specs =
                             fields
                             |> Array.mapi (fun defaultIdx f ->
                                 let byName =
@@ -234,61 +320,87 @@ module Connections =
                                         String.Equals(c, f.Name, StringComparison.OrdinalIgnoreCase)
                                         || String.Equals(CodeGenerationHelpers.cleanIdentifier c, f.Name, StringComparison.OrdinalIgnoreCase)
                                         || String.Equals(CodeGenerationHelpers.cleanIdentifier c, CodeGenerationHelpers.cleanIdentifier f.Name, StringComparison.OrdinalIgnoreCase))
-                                match byName with
-                                | Some idx -> idx
-                                | None -> if defaultIdx < columns.Length then defaultIdx else -1
-                            )
-                        let ctor = FSharpValue.PreComputeRecordConstructor(targetType)
-                        fun (row: obj array) ->
-                            let args: obj array = Array.zeroCreate fields.Length
-                            for i in 0 .. fields.Length - 1 do
-                                let idx = colIndices.[i]
-                                let raw = if idx >= 0 && idx < row.Length then row.[idx] else null
-                                let isNullVal = isNull raw || Convert.IsDBNull(raw)
-                                let propType = fields.[i].PropertyType
-                                let isOption = propType.IsGenericType && propType.GetGenericTypeDefinition() = typedefof<option<_>>
+                                    |> Option.orElseWith (fun () ->
+                                        sanitizedColumns
+                                        |> List.tryFindIndex (fun sc ->
+                                            String.Equals(sc, f.Name, StringComparison.OrdinalIgnoreCase)
+                                            || String.Equals(CodeGenerationHelpers.cleanIdentifier sc, CodeGenerationHelpers.cleanIdentifier f.Name, StringComparison.OrdinalIgnoreCase)))
+                                let colIdx =
+                                    match byName with
+                                    | Some idx -> idx
+                                    | None -> if defaultIdx < columns.Length then defaultIdx else -1
 
+                                let propType = f.PropertyType
+                                let isOption = propType.IsGenericType && propType.GetGenericTypeDefinition() = typedefof<option<_>>
                                 if isOption then
-                                    let cases = FSharpType.GetUnionCases(propType)
+                                    let cases = FSharpType.GetUnionCases(propType, flags)
                                     let noneCase = cases |> Array.find (fun c -> c.Name = "None")
                                     let someCase = cases |> Array.find (fun c -> c.Name = "Some")
+                                    { ColIndex = colIdx
+                                      PropType = propType
+                                      IsOption = true
+                                      InnerType = propType.GetGenericArguments().[0]
+                                      NoneValue = FSharpValue.MakeUnion(noneCase, [||], flags)
+                                      SomeCtor = Some(FSharpValue.PreComputeUnionConstructor(someCase, flags))
+                                      DefaultValue = null }
+                                else
+                                    let defaultVal =
+                                        if propType = typeof<string> then box ""
+                                        elif propType = typeof<DateTime> then box DateTime.MinValue
+                                        elif propType.IsValueType then Activator.CreateInstance(propType)
+                                        else null
+                                    { ColIndex = colIdx
+                                      PropType = propType
+                                      IsOption = false
+                                      InnerType = propType
+                                      NoneValue = null
+                                      SomeCtor = None
+                                      DefaultValue = defaultVal }
+                            )
+                        let ctor = FSharpValue.PreComputeRecordConstructor(targetType, flags)
+                        let fieldCount = specs.Length
+                        fun (row: obj array) ->
+                            let args: obj array = Array.zeroCreate fieldCount
+                            let rowLen = if isNull row then 0 else row.Length
+                            for i = 0 to fieldCount - 1 do
+                                let spec = specs.[i]
+                                let idx = spec.ColIndex
+                                let raw = if idx >= 0 && idx < rowLen then row.[idx] else null
+                                let isNullVal = isNull raw || Convert.IsDBNull(raw)
+
+                                if spec.IsOption then
                                     let isOptionNone =
                                         isNullVal
                                         || (match raw with
-                                            | :? string as s ->
-                                                let t = s.Trim().Trim('"', '\'')
-                                                String.IsNullOrEmpty t
-                                                || String.Equals(t, "n/a", StringComparison.OrdinalIgnoreCase)
-                                                || t = "-"
-                                                || String.Equals(t, "null", StringComparison.OrdinalIgnoreCase)
+                                            | :? string as s -> isSentinelString s
                                             | _ -> false)
 
                                     if isOptionNone then
-                                        args.[i] <- FSharpValue.MakeUnion(noneCase, [||])
+                                        args.[i] <- spec.NoneValue
                                     else
-                                        let innerType = propType.GetGenericArguments().[0]
-                                        let converted = convertValue raw innerType
+                                        let converted = convertValue raw spec.InnerType
                                         if isNull converted then
-                                            args.[i] <- FSharpValue.MakeUnion(noneCase, [||])
+                                            args.[i] <- spec.NoneValue
                                         else
-                                            args.[i] <- FSharpValue.MakeUnion(someCase, [| converted |])
+                                            args.[i] <- spec.SomeCtor.Value [| converted |]
                                 else
                                     if isNullVal then
-                                        if propType = typeof<string> then
-                                            args.[i] <- box ""
-                                        elif propType.IsValueType then
-                                            args.[i] <- Activator.CreateInstance(propType)
-                                        else
-                                            args.[i] <- null
+                                        args.[i] <- spec.DefaultValue
                                     else
-                                        args.[i] <- convertValue raw propType
+                                        let converted = convertValue raw spec.PropType
+                                        args.[i] <- if isNull converted then spec.DefaultValue else converted
                             ctor args
                     else
+                        let defaultScalar =
+                            if targetType = typeof<string> then box ""
+                            elif targetType.IsValueType then Activator.CreateInstance(targetType)
+                            else null
                         fun (row: obj array) ->
-                            if row.Length > 0 && not (isNull row.[0]) && not (Convert.IsDBNull(row.[0])) then
-                                convertValue row.[0] targetType
+                            if not (isNull row) && row.Length > 0 && not (isNull row.[0]) && not (Convert.IsDBNull(row.[0])) then
+                                let converted = convertValue row.[0] targetType
+                                if isNull converted then defaultScalar else converted
                             else
-                                null
+                                defaultScalar
                 )
             )
         fun (row: obj array) -> unbox<'T> (rawMapper row)
@@ -397,9 +509,9 @@ module Connections =
     /// <param name="name">The registered CSV connection name.</param>
     /// <returns>A sequence of strongly-typed records of type 'T.</returns>
     let queryCsv<'T> (name: string) : 'T seq =
-        let r = readCsvRaw name
-        let mapper = getMapper<'T> r.Columns
         seq {
+            let r = readCsvRaw name
+            let mapper = getMapper<'T> r.Columns
             for row in r.Rows do
                 yield mapper row
         }
@@ -412,9 +524,9 @@ module Connections =
     /// <param name="maxRows">Optional maximum number of rows to read.</param>
     /// <returns>A sequence of strongly-typed records of type 'T.</returns>
     let queryExcel<'T> (name: string) (maxRows: int option) : 'T seq =
-        let r = readExcelRaw name maxRows
-        let mapper = getMapper<'T> r.Columns
         seq {
+            let r = readExcelRaw name maxRows
+            let mapper = getMapper<'T> r.Columns
             for row in r.Rows do
                 yield mapper row
         }
@@ -428,17 +540,17 @@ module Connections =
     /// <param name="maxRows">Optional maximum number of rows.</param>
     /// <returns>A sequence of strongly-typed records of type 'T.</returns>
     let queryExcelSheet<'T> (name: string) (sheetName: string option) (maxRows: int option) : 'T seq =
-        match resolve name with
-        | :? ExcelConnector as c ->
-            let stopwatch = Stopwatch.StartNew()
-            let result = c.ReadRows(?sheetName = sheetName, ?maxRows = maxRows)
-            let logged = { result with Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows }
-            let mapper = getMapper<'T> logged.Columns
-            seq {
+        seq {
+            match resolve name with
+            | :? ExcelConnector as c ->
+                let stopwatch = Stopwatch.StartNew()
+                let result = c.ReadRows(?sheetName = sheetName, ?maxRows = maxRows)
+                let logged = { result with Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows }
+                let mapper = getMapper<'T> logged.Columns
                 for row in logged.Rows do
                     yield mapper row
-            }
-        | other -> unsupported name "Connections.queryExcelSheet" other
+            | other -> unsupported name "Connections.queryExcelSheet" other
+        }
 
     let private jsonElementToBoxedValue (v: JsonElement) : obj =
         match v.ValueKind with

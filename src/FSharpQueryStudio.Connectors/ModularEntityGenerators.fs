@@ -31,16 +31,19 @@ type CsvEntityGenerator() =
                 sb.AppendLine($"module {uniqueModuleName} =") |> ignore
                 sb.AppendLine("    type Row =") |> ignore
                 sb.AppendLine("        {") |> ignore
-                for idx, col in List.indexed sanitizedCols do
-                    let samples =
-                        rowsSample
-                        |> Seq.map (fun r ->
-                            if idx < r.Length && not (isNull r.[idx]) then
-                                Convert.ToString(r.[idx], System.Globalization.CultureInfo.InvariantCulture)
-                            else
-                                "")
-                    let colType = CsvTypeInference.inferType samples
-                    sb.AppendLine($"            {CodeGenerationHelpers.escapeIdent col}: {colType}") |> ignore
+                if List.isEmpty sanitizedCols then
+                    sb.AppendLine("            Value: string") |> ignore
+                else
+                    for idx, col in List.indexed sanitizedCols do
+                        let samples =
+                            rowsSample
+                            |> Seq.map (fun r ->
+                                if idx < r.Length && not (isNull r.[idx]) then
+                                    Convert.ToString(r.[idx], System.Globalization.CultureInfo.InvariantCulture)
+                                else
+                                    "")
+                        let colType = CsvTypeInference.inferType samples
+                        sb.AppendLine($"            {CodeGenerationHelpers.escapeIdent col}: {colType}") |> ignore
                 sb.AppendLine("        }") |> ignore
                 sb.AppendLine() |> ignore
                 sb.AppendLine("    type Data(conn: FSharpQueryStudio.Connectors.Connections.CsvConnection) =") |> ignore
@@ -77,53 +80,73 @@ type ExcelEntityGenerator() =
                 let tables = (ec :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result
                 let sb = System.Text.StringBuilder()
                 sb.AppendLine($"module {uniqueModuleName} =") |> ignore
-                for tbl in tables do
-                    let sheetClean = CodeGenerationHelpers.cleanIdentifier tbl.Name
-                    let qr = ec.ReadRows(sheetName = tbl.Name, maxRows = 200)
+                let seenSheets = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                let sheetEntries =
+                    tables
+                    |> List.map (fun tbl ->
+                        let rawClean = CodeGenerationHelpers.cleanIdentifier tbl.Name
+                        let baseClean = if String.IsNullOrWhiteSpace rawClean then "Sheet" else rawClean
+                        let mutable propIdent = baseClean
+                        let mutable counter = 2
+                        while seenSheets.Contains propIdent do
+                            propIdent <- $"{baseClean}_{counter}"
+                            counter <- counter + 1
+                        seenSheets.Add propIdent |> ignore
+                        // Avoid F# type/module collision inside `type Data` when a worksheet is named "Data"
+                        let modIdent =
+                            if String.Equals(propIdent, "Data", StringComparison.OrdinalIgnoreCase) then
+                                "Data_Sheet"
+                            else
+                                propIdent
+                        (tbl.Name, propIdent, modIdent))
+
+                for sheetName, _, modIdent in sheetEntries do
+                    let qr = ec.ReadRows(sheetName = sheetName, maxRows = 200)
                     let rowsSample = qr.Rows |> Seq.truncate 200 |> Seq.toList
                     let sanitizedCols = CodeGenerationHelpers.sanitizeColumns qr.Columns
 
-                    sb.AppendLine($"    module {sheetClean} =") |> ignore
+                    sb.AppendLine($"    module {CodeGenerationHelpers.escapeIdent modIdent} =") |> ignore
                     sb.AppendLine("        type Row =") |> ignore
                     sb.AppendLine("            {") |> ignore
-                    for idx, col in List.indexed sanitizedCols do
-                        let samples =
-                            rowsSample
-                            |> Seq.map (fun r ->
-                                if idx < r.Length && not (isNull r.[idx]) then
-                                    Convert.ToString(r.[idx], System.Globalization.CultureInfo.InvariantCulture)
-                                else
-                                    "")
-                        let colType = CsvTypeInference.inferType samples
-                        sb.AppendLine($"                {CodeGenerationHelpers.escapeIdent col}: {colType}") |> ignore
+                    if List.isEmpty sanitizedCols then
+                        sb.AppendLine("                Value: string") |> ignore
+                    else
+                        for idx, col in List.indexed sanitizedCols do
+                            let samples =
+                                rowsSample
+                                |> Seq.map (fun r ->
+                                    if idx < r.Length && not (isNull r.[idx]) then
+                                        Convert.ToString(r.[idx], System.Globalization.CultureInfo.InvariantCulture)
+                                    else
+                                        "")
+                            let colType = CsvTypeInference.inferType samples
+                            sb.AppendLine($"                {CodeGenerationHelpers.escapeIdent col}: {colType}") |> ignore
                     sb.AppendLine("            }") |> ignore
                     sb.AppendLine() |> ignore
-                    sb.AppendLine($"        let rows () : System.Linq.IQueryable<Row> = (FSharpQueryStudio.Connectors.Connections.queryExcelSheet<Row> (\"{connectionName}\") (Some \"{tbl.Name}\") None).AsQueryable()") |> ignore
+                    sb.AppendLine($"        let rows () : System.Linq.IQueryable<Row> = (FSharpQueryStudio.Connectors.Connections.queryExcelSheet<Row> (\"{connectionName}\") (Some \"{sheetName}\") None).AsQueryable()") |> ignore
                     sb.AppendLine() |> ignore
 
                 sb.AppendLine("    type Data(conn: FSharpQueryStudio.Connectors.Connections.ExcelConnection) =") |> ignore
-                match tables with
-                | firstTbl :: _ ->
-                    let firstClean = CodeGenerationHelpers.cleanIdentifier firstTbl.Name
-                    sb.AppendLine($"        let defaultQueryable = conn.SheetQueryable<{firstClean}.Row>(\"{firstTbl.Name}\")") |> ignore
+                match sheetEntries with
+                | (firstSheetName, _, firstModIdent) :: _ ->
+                    sb.AppendLine($"        let defaultQueryable = conn.SheetQueryable<{CodeGenerationHelpers.escapeIdent firstModIdent}.Row>(\"{firstSheetName}\")") |> ignore
                 | [] -> ()
                 sb.AppendLine($"        new(name: string) = Data(FSharpQueryStudio.Connectors.Connections.getExcelConnection(name))") |> ignore
                 sb.AppendLine($"        new() = Data(\"{connectionName}\")") |> ignore
                 sb.AppendLine("        member _.Raw(?maxRows: int) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.Raw(?maxRows = maxRows)") |> ignore
                 sb.AppendLine("        member _.Connection : FSharpQueryStudio.Connectors.Connections.ExcelConnection = conn") |> ignore
-                for tbl in tables do
-                    let sheetClean = CodeGenerationHelpers.cleanIdentifier tbl.Name
-                    sb.AppendLine($"        member _.{CodeGenerationHelpers.escapeIdent sheetClean} : System.Linq.IQueryable<{sheetClean}.Row> = conn.SheetQueryable<{sheetClean}.Row>(\"{tbl.Name}\")") |> ignore
-                match tables with
-                | firstTbl :: _ ->
-                    let firstClean = CodeGenerationHelpers.cleanIdentifier firstTbl.Name
-                    sb.AppendLine($"        member _.Rows : System.Linq.IQueryable<{firstClean}.Row> = defaultQueryable") |> ignore
-                    sb.AppendLine($"        interface System.Linq.IQueryable<{firstClean}.Row> with") |> ignore
+                for sheetName, propIdent, modIdent in sheetEntries do
+                    sb.AppendLine($"        member _.{CodeGenerationHelpers.escapeIdent propIdent} : System.Linq.IQueryable<{CodeGenerationHelpers.escapeIdent modIdent}.Row> = conn.SheetQueryable<{CodeGenerationHelpers.escapeIdent modIdent}.Row>(\"{sheetName}\")") |> ignore
+                match sheetEntries with
+                | (_, _, firstModIdent) :: _ ->
+                    let escMod = CodeGenerationHelpers.escapeIdent firstModIdent
+                    sb.AppendLine($"        member _.Rows : System.Linq.IQueryable<{escMod}.Row> = defaultQueryable") |> ignore
+                    sb.AppendLine($"        interface System.Linq.IQueryable<{escMod}.Row> with") |> ignore
                     sb.AppendLine("            member _.ElementType = (defaultQueryable :> System.Linq.IQueryable).ElementType") |> ignore
                     sb.AppendLine("            member _.Expression = (defaultQueryable :> System.Linq.IQueryable).Expression") |> ignore
                     sb.AppendLine("            member _.Provider = (defaultQueryable :> System.Linq.IQueryable).Provider") |> ignore
-                    sb.AppendLine($"        interface System.Collections.Generic.IEnumerable<{firstClean}.Row> with") |> ignore
-                    sb.AppendLine($"            member _.GetEnumerator() = (defaultQueryable :> System.Collections.Generic.IEnumerable<{firstClean}.Row>).GetEnumerator()") |> ignore
+                    sb.AppendLine($"        interface System.Collections.Generic.IEnumerable<{escMod}.Row> with") |> ignore
+                    sb.AppendLine($"            member _.GetEnumerator() = (defaultQueryable :> System.Collections.Generic.IEnumerable<{escMod}.Row>).GetEnumerator()") |> ignore
                     sb.AppendLine("        interface System.Collections.IEnumerable with") |> ignore
                     sb.AppendLine("            member _.GetEnumerator() = (defaultQueryable :> System.Collections.IEnumerable).GetEnumerator()") |> ignore
                 | [] -> ()

@@ -290,3 +290,58 @@ let ``Connections.getDatabaseConnection returns DatabaseConnection exposing Quer
         let sqlProviderCode = conn.GenerateSqlProvider()
         Assert.Contains("SqlDataProvider<", sqlProviderCode)
     )
+
+type LargeCsvRecord =
+    { Id: int
+      Customer: string
+      Quantity: int
+      Amount: decimal
+      Active: bool
+      OrderDate: DateTime }
+
+[<Fact>]
+let ``Connections.queryCsv streams >100,000 rows with messy cells past row 200 without throwing or losing rows`` () =
+    let path = Path.Combine(Path.GetTempPath(), "fqs-large-100k-" + Guid.NewGuid().ToString("N") + ".csv")
+    try
+        do
+            use fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None, 65536)
+            use writer = new StreamWriter(fs, Encoding.UTF8, 65536)
+            writer.WriteLine("Id,Customer,Quantity,Amount,Active,OrderDate")
+            for i = 1 to 105_000 do
+                if i <= 200 then
+                    writer.WriteLine($"{i},Customer_{i},2,150.25,true,2026-03-15")
+                elif i = 250 then
+                    // Empty cells in non-option value-type columns after the 200-row inference sample
+                    writer.WriteLine($"{i},Customer_{i},,,,")
+                elif i = 300 then
+                    // Sentinels N/A, -, null, #N/A in non-option value-type columns
+                    writer.WriteLine($"{i},Customer_{i},N/A,-,null,#N/A")
+                elif i = 350 then
+                    // Decimal string in an int-inferred column + comma decimal
+                    writer.WriteLine($"{i},Customer_{i},12.8,\"1250,50\",yes,2026-04-01")
+                else
+                    writer.WriteLine($"{i},Customer_{i},5,200.00,false,2026-03-20")
+            // Trailing blank line
+            writer.WriteLine()
+
+        let csv = CsvConnector(path)
+        Connections.configure(FakeResolver(Map.ofList [ "LargeFeed", csv :> IConnector ]))
+
+        let conn = Connections.getCsvConnection "LargeFeed"
+        let queryable = conn.Queryable<LargeCsvRecord>()
+
+        let allRows = queryable |> Seq.toArray
+        Assert.Equal(105_000, allRows.Length)
+        Assert.Equal(1, allRows.[0].Id)
+        Assert.Equal(150.25m, allRows.[0].Amount)
+        // Row 250 (index 249): empty cells fall back safely to default values
+        Assert.Equal(250, allRows.[249].Id)
+        Assert.Equal(0, allRows.[249].Quantity)
+        Assert.Equal(0m, allRows.[249].Amount)
+        // Row 350 (index 349): 12.8 rounded to 13, "1250,50" parsed as 1250.50m
+        Assert.Equal(13, allRows.[349].Quantity)
+        Assert.Equal(1250.50m, allRows.[349].Amount)
+        Assert.True(allRows.[349].Active)
+        Assert.Equal(105_000, allRows.[104_999].Id)
+    finally
+        try File.Delete path with _ -> ()

@@ -84,6 +84,57 @@ module private CsvParsing =
 
             Some(fields |> List.ofSeq)
 
+    /// Fast streaming parser that reuses `field` and directly returns `obj array`
+    /// without intermediate `string list` -> `obj list` -> `obj array` allocations per row.
+    let readRecordAsObjArray (reader: TextReader) (delimiter: char) (field: StringBuilder) (expectedCols: int) : obj array option =
+        if reader.Peek() = -1 then
+            None
+        else
+            let fields = ResizeArray<obj>(max 4 expectedCols)
+            field.Clear() |> ignore
+            let mutable inQuotes = false
+            let mutable finished = false
+
+            let flush () =
+                fields.Add(box (field.ToString()))
+                field.Clear() |> ignore
+
+            while not finished do
+                let code = reader.Read()
+
+                if code = -1 then
+                    flush ()
+                    finished <- true
+                else
+                    let ch = char code
+
+                    if inQuotes then
+                        if ch = '"' then
+                            if reader.Peek() = int '"' then
+                                reader.Read() |> ignore
+                                field.Append('"') |> ignore
+                            else
+                                inQuotes <- false
+                        else
+                            field.Append(ch) |> ignore
+                    elif ch = '"' && field.Length = 0 then
+                        inQuotes <- true
+                    elif ch = delimiter then
+                        flush ()
+                    elif ch = '\r' then
+                        if reader.Peek() = int '\n' then
+                            reader.Read() |> ignore
+
+                        flush ()
+                        finished <- true
+                    elif ch = '\n' then
+                        flush ()
+                        finished <- true
+                    else
+                        field.Append(ch) |> ignore
+
+            Some(fields.ToArray())
+
 /// Typed conversion helpers a script uses to interpret a CSV cell's raw
 /// string value — Section 10's CSV connector capability shape.
 module CsvConversions =
@@ -282,7 +333,8 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
     /// throwaway reader closed before this method returns.
     member _.ReadRows() : ConnectorQueryResult =
         let columns =
-            use headerReader = new StreamReader(cleanPath, resolvedOptions.Encoding)
+            use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096)
+            use headerReader = new StreamReader(fs, resolvedOptions.Encoding, true, 4096)
 
             match CsvParsing.readRecord headerReader resolvedOptions.Delimiter with
             | None -> []
@@ -292,20 +344,30 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
                 else
                     [ for i in 1 .. record.Length -> $"Column{i}" ]
 
+        let expectedCols = columns.Length
+        let isBlankLine (record: obj array) =
+            expectedCols > 1
+            && record.Length = 1
+            && (match record.[0] with :? string as s -> String.IsNullOrWhiteSpace s | _ -> false)
+
         let rows =
             seq {
-                use streamReader = new StreamReader(cleanPath, resolvedOptions.Encoding)
-                let first = CsvParsing.readRecord streamReader resolvedOptions.Delimiter
+                use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 65536)
+                use streamReader = new StreamReader(fs, resolvedOptions.Encoding, true, 65536)
+                let sb = StringBuilder(256)
+                let first = CsvParsing.readRecordAsObjArray streamReader resolvedOptions.Delimiter sb expectedCols
 
                 match first, resolvedOptions.HasHeader with
-                | Some record, false -> yield record |> List.map box |> Array.ofList
+                | Some record, false when not (isBlankLine record) -> yield record
                 | _ -> () // Some when HasHeader (the header itself) or None (empty file) - nothing to yield yet.
 
                 let mutable more = true
 
                 while more do
-                    match CsvParsing.readRecord streamReader resolvedOptions.Delimiter with
-                    | Some record -> yield record |> List.map box |> Array.ofList
+                    match CsvParsing.readRecordAsObjArray streamReader resolvedOptions.Delimiter sb expectedCols with
+                    | Some record ->
+                        if not (isBlankLine record) then
+                            yield record
                     | None -> more <- false
             }
 

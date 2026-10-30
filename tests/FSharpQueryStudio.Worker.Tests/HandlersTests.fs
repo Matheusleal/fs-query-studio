@@ -1689,5 +1689,151 @@ let ``evaluating table rows with UTF-8 accented characters over UTF-8 stdio stre
         Assert.Equal("Perfis de Fidelidade", envelope.Rows.[1].[entColIdx].ToString())
     }
 
+[<Fact>]
+let ``evaluating a CSV with >100,000 rows and messy rows past row 200 projects to ResultKind.Table and never falls back to val IQueryable Text`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-large-csv-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let csvPath = Path.Combine(tmp, "large_sales_100k.csv")
+            do
+                use fs = new FileStream(csvPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536)
+                use writer = new StreamWriter(fs, System.Text.Encoding.UTF8, 65536)
+                writer.WriteLine("Id,Customer,Quantity,Amount,Active,OrderDate")
+                for i = 1 to 105_000 do
+                    if i <= 200 then
+                        // Clean first 200 rows so type inference infers non-option int, decimal, bool, DateTime
+                        writer.WriteLine($"{i},Customer_{i},3,199.90,true,2026-03-01")
+                    elif i % 1000 = 0 then
+                        // Empty values after row 200 in non-option columns
+                        writer.WriteLine($"{i},Customer_{i},,,,")
+                    elif i % 1000 = 1 then
+                        // Sentinels N/A, -, null, #N/A after row 200
+                        writer.WriteLine($"{i},Customer_{i},N/A,-,null,#N/A")
+                    elif i % 1000 = 2 then
+                        // Float in int column and comma decimal
+                        writer.WriteLine($"{i},Customer_{i},4.7,\"350,75\",1,2026-03-15")
+                    else
+                        writer.WriteLine($"{i},Customer_{i},2,120.00,false,2026-03-10")
+                writer.WriteLine()
+
+            let connDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "LargeSales"
+                  Kind = ConnectorKind.Csv
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = csvPath |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let! regResp = Handlers.dispatch (registerConnectionRequest "reg-100k" connDef)
+            Assert.True(regResp.Error.IsNone)
+            Handlers.waitForPendingGeneration ()
+
+            let docUri = Path.Combine(tmp, "large_test.fsqnb")
+
+            // 1. Evaluate direct table reference `Connections.csv.LargeSales`
+            let evalDirect = notebookCellRequest "eval-100k-direct" "Connections.csv.LargeSales" docUri
+            let! respDirect = Handlers.dispatch evalDirect
+            Assert.True(respDirect.Error.IsNone, (match respDirect.Error with Some e -> e.Message | None -> ""))
+            let envDirect = JsonSerializer.Deserialize<ResultEnvelope>(respDirect.Result.Value.GetRawText(), Serialization.options)
+            Assert.Equal(ResultKind.Table, envDirect.Kind)
+            Assert.Equal(500, envDirect.Rows.Length)
+            Assert.True(envDirect.IsTruncated)
+            Assert.Equal<string list>(
+                [ "Id"; "Customer"; "Quantity"; "Amount"; "Active"; "OrderDate" ],
+                envDirect.Schema |> List.map (fun c -> c.Name)
+            )
+
+            // 2. Evaluate LINQ IQueryable query over >100,000 rows (matches 200 initial rows + 104 rows where i % 1000 = 2 = 304 rows)
+            let linqCode = """
+query {
+    for r in Connections.csv.LargeSales do
+    where (r.Amount >= 150.0M)
+    select {|
+        Id = r.Id
+        Customer = r.Customer
+        Quantity = r.Quantity
+        Amount = r.Amount
+    |}
+}"""
+            let evalLinq = notebookCellRequest "eval-100k-linq" linqCode docUri
+            let! respLinq = Handlers.dispatch evalLinq
+            Assert.True(respLinq.Error.IsNone, (match respLinq.Error with Some e -> e.Message | None -> ""))
+            let envLinq = JsonSerializer.Deserialize<ResultEnvelope>(respLinq.Result.Value.GetRawText(), Serialization.options)
+            Assert.Equal(ResultKind.Table, envLinq.Kind)
+            Assert.Equal(304, envLinq.Rows.Length)
+            Assert.False(envLinq.IsTruncated)
+            Assert.Equal<string list>([ "Amount"; "Customer"; "Id"; "Quantity" ], envLinq.Schema |> List.map (fun c -> c.Name) |> List.sort)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
+[<Fact>]
+let ``evaluating an Excel workbook with >1,000 rows, a Data sheet name, and messy cells past row 200 projects to ResultKind.Table`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-large-xlsx-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let xlsxPath = Path.Combine(tmp, "large_workbook.xlsx")
+            do
+                use wb = new ClosedXML.Excel.XLWorkbook()
+                let ws = wb.Worksheets.Add("Data")
+                ws.Cell(1, 1).Value <- "Id"
+                ws.Cell(1, 2).Value <- "Region"
+                ws.Cell(1, 3).Value <- "Units"
+                ws.Cell(1, 4).Value <- "Revenue"
+                for i = 1 to 1200 do
+                    let rowIdx = i + 1
+                    ws.Cell(rowIdx, 1).Value <- i
+                    ws.Cell(rowIdx, 2).Value <- $"Region_{i % 5}"
+                    if i <= 200 then
+                        ws.Cell(rowIdx, 3).Value <- 10
+                        ws.Cell(rowIdx, 4).Value <- 250.50
+                    elif i = 250 then
+                        // Blank cells after row 200
+                        ()
+                    elif i = 300 then
+                        // Text sentinel and float in integer column after row 200
+                        ws.Cell(rowIdx, 3).Value <- "N/A"
+                        ws.Cell(rowIdx, 4).Value <- "invalid"
+                    else
+                        ws.Cell(rowIdx, 3).Value <- 20
+                        ws.Cell(rowIdx, 4).Value <- 500.75
+                wb.SaveAs(xlsxPath)
+
+            let connDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "LargeExcel"
+                  Kind = ConnectorKind.Excel
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = xlsxPath |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let! regResp = Handlers.dispatch (registerConnectionRequest "reg-xlsx" connDef)
+            Assert.True(regResp.Error.IsNone)
+            Handlers.waitForPendingGeneration ()
+
+            let docUri = Path.Combine(tmp, "large_excel_test.fsqnb")
+            let linqCode = """
+query {
+    for r in Connections.excel.LargeExcel.Data do
+    where (r.Id > 220)
+    select r
+}"""
+            let evalLinq = notebookCellRequest "eval-xlsx-linq" linqCode docUri
+            let! respLinq = Handlers.dispatch evalLinq
+            Assert.True(respLinq.Error.IsNone, (match respLinq.Error with Some e -> e.Message | None -> ""))
+            let envLinq = JsonSerializer.Deserialize<ResultEnvelope>(respLinq.Result.Value.GetRawText(), Serialization.options)
+            Assert.Equal(ResultKind.Table, envLinq.Kind)
+            Assert.Equal(500, envLinq.Rows.Length)
+            Assert.True(envLinq.IsTruncated)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
 
 
