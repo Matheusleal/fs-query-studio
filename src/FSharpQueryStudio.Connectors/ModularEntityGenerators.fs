@@ -123,7 +123,7 @@ type ExcelEntityGenerator() =
                             sb.AppendLine($"                {CodeGenerationHelpers.escapeIdent col}: {colType}") |> ignore
                     sb.AppendLine("            }") |> ignore
                     sb.AppendLine() |> ignore
-                    sb.AppendLine($"        let rows () : System.Linq.IQueryable<Row> = (FSharpQueryStudio.Connectors.Connections.queryExcelSheet<Row> (\"{connectionName}\") (Some \"{sheetName}\") None).AsQueryable()") |> ignore
+                    sb.AppendLine($"        let rows () : System.Linq.IQueryable<Row> = (FSharpQueryStudio.Connectors.Connections.getExcelConnection(\"{connectionName}\")).SheetQueryable<Row>(\"{sheetName}\")") |> ignore
                     sb.AppendLine() |> ignore
 
                 sb.AppendLine("    type Data(conn: FSharpQueryStudio.Connectors.Connections.ExcelConnection) =") |> ignore
@@ -151,6 +151,11 @@ type ExcelEntityGenerator() =
                     sb.AppendLine("            member _.GetEnumerator() = (defaultQueryable :> System.Collections.IEnumerable).GetEnumerator()") |> ignore
                 | [] -> ()
                 sb.AppendLine() |> ignore
+                match sheetEntries with
+                | (_, _, firstModIdent) :: _ ->
+                    let escMod = CodeGenerationHelpers.escapeIdent firstModIdent
+                    sb.AppendLine($"    let rows () : System.Linq.IQueryable<{escMod}.Row> = (Data()).Rows") |> ignore
+                | [] -> ()
                 sb.AppendLine("    let data () : Data = Data()") |> ignore
                 sb.ToString()
             | _ -> ""

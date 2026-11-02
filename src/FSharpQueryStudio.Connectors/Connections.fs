@@ -901,15 +901,33 @@ module Connections =
             let eng = getEngine ()
             let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows(?maxRows = maxRows)))
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName) :> IQueryable<'T>
+        member this.PushdownQueryable<'T>(?maxRows: int) : SqlPushdownQueryable<'T> =
+            let eng = getEngine ()
+            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows(?maxRows = maxRows)))
+            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
         member this.SheetQueryable<'T>(sheetName: string, ?maxRows: int) : IQueryable<'T> =
             let eng = getEngine ()
-            let tableKey = $"{name}_{sheetName}"
-            let cleanTableName = eng.EnsureStaged(tableKey, connector.FilePath, (fun () -> connector.ReadRows(sheetName = sheetName, ?maxRows = maxRows)))
+            let compoundKey = $"{name}_{sheetName}"
+            let cleanTableName =
+                if eng.IsStagedAndCurrent(compoundKey, connector.FilePath) then
+                    compoundKey
+                elif eng.IsStagedAndCurrent(name, connector.FilePath) && (String.Equals(name, sheetName, StringComparison.OrdinalIgnoreCase) || maxRows.IsNone) then
+                    name
+                else
+                    let key = if String.Equals(name, sheetName, StringComparison.OrdinalIgnoreCase) then name else compoundKey
+                    eng.EnsureStaged(key, connector.FilePath, (fun () -> connector.ReadRows(sheetName = sheetName, ?maxRows = maxRows)))
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName) :> IQueryable<'T>
         member this.SheetPushdownQueryable<'T>(sheetName: string, ?maxRows: int) : SqlPushdownQueryable<'T> =
             let eng = getEngine ()
-            let tableKey = $"{name}_{sheetName}"
-            let cleanTableName = eng.EnsureStaged(tableKey, connector.FilePath, (fun () -> connector.ReadRows(sheetName = sheetName, ?maxRows = maxRows)))
+            let compoundKey = $"{name}_{sheetName}"
+            let cleanTableName =
+                if eng.IsStagedAndCurrent(compoundKey, connector.FilePath) then
+                    compoundKey
+                elif eng.IsStagedAndCurrent(name, connector.FilePath) && (String.Equals(name, sheetName, StringComparison.OrdinalIgnoreCase) || maxRows.IsNone) then
+                    name
+                else
+                    let key = if String.Equals(name, sheetName, StringComparison.OrdinalIgnoreCase) then name else compoundKey
+                    eng.EnsureStaged(key, connector.FilePath, (fun () -> connector.ReadRows(sheetName = sheetName, ?maxRows = maxRows)))
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
         member _.Raw(?maxRows: int) : ConnectorQueryResult = readExcelRaw name maxRows
 
@@ -1015,11 +1033,37 @@ module Connections =
                         let filePath = excelConn.FilePath
                         let fullPath = if System.IO.Path.IsPathRooted filePath then filePath else System.IO.Path.Combine(workspaceDir, filePath)
                         if System.IO.File.Exists fullPath then
-                            if eng.IsStagedAndCurrent(connDef.Name, fullPath) then
-                                skippedCount <- skippedCount + 1
-                            else
-                                eng.EnsureStaged(connDef.Name, fullPath, (fun () -> excelConn.ReadRows())) |> ignore
-                                stagedCount <- stagedCount + 1
+                            let tables =
+                                try
+                                    (excelConn :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
+                                with ex ->
+                                    Log.Warning("FS Query Studio: Could not discover worksheets for Excel connection '{Name}': {Error}", connDef.Name, ex.Message)
+                                    []
+
+                            let isSingleSheet = tables.Length = 1
+
+                            for tbl in tables do
+                                let sheetName = tbl.Name
+                                let compoundKey = $"{connDef.Name}_{sheetName}"
+                                let isSameName = String.Equals(connDef.Name, sheetName, StringComparison.OrdinalIgnoreCase)
+
+                                if eng.IsStagedAndCurrent(compoundKey, fullPath) then
+                                    skippedCount <- skippedCount + 1
+                                else
+                                    eng.EnsureStaged(compoundKey, fullPath, (fun () -> excelConn.ReadRows(sheetName = sheetName))) |> ignore
+                                    stagedCount <- stagedCount + 1
+
+                                if isSameName || isSingleSheet || (not (List.isEmpty tables) && sheetName = (List.head tables).Name) then
+                                    if not (eng.IsStagedAndCurrent(connDef.Name, fullPath)) then
+                                        eng.EnsureStaged(connDef.Name, fullPath, (fun () -> excelConn.ReadRows(sheetName = sheetName))) |> ignore
+                                        stagedCount <- stagedCount + 1
+
+                            if List.isEmpty tables then
+                                if eng.IsStagedAndCurrent(connDef.Name, fullPath) then
+                                    skippedCount <- skippedCount + 1
+                                else
+                                    eng.EnsureStaged(connDef.Name, fullPath, (fun () -> excelConn.ReadRows())) |> ignore
+                                    stagedCount <- stagedCount + 1
                     | _ -> ()
                 with ex ->
                     Log.Warning("FS Query Studio: Background staging failed for connection '{Name}': {Error}", connDef.Name, ex.Message)

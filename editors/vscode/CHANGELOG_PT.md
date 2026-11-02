@@ -8,6 +8,7 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ### Adicionado
 
+- **Paridade Total de Mapeamento e Pushdown de Excel com CSV** — Planilhas Excel (`.xlsx`, `.xls`) agora seguem exatamente o mesmo comportamento de mapeamento e staging assíncrono antecipado dos arquivos CSV: todas as abas (`<Conn>_<Sheet>` e `<Conn>`) são pré-carregadas e indexadas no banco persistente `.fsqs/cache/engine.db` logo no momento da descoberta ou sincronização. Acessar `Connections.excel.<Conn>.<Sheet>`, `<Conn>.<Sheet>.rows()` ou `<Conn>.rows()` agora executa em 0ms direto no cache SQLite com pushdown completo e índices B-tree, eliminando o consumo excessivo de memória RAM e a lentidão no primeiro acesso que ocorria ao abrir o arquivo via ClosedXML em tempo de execução.
 - **Observador de Arquivos em Tempo Real para `data_sources/`** — Monitoramento ativo do sistema de arquivos (`vscode.workspace.createFileSystemWatcher("**/data_sources/**")`) que detecta quando arquivos são criados, movidos, modificados ou excluídos dentro de `data_sources/`. Dispara automaticamente a importação com debounce, atualiza `workspace.json`, remove conexões órfãs quando arquivos são excluídos e sincroniza o cache SQLite persistente com feedback visual na barra de status.
 - **Auto-Descoberta na Inicialização** — Ao ativar a extensão, verifica automaticamente as pastas do workspace em busca de `data_sources/` e executa a descoberta inicial e aquecimento de cache em segundo plano.
 

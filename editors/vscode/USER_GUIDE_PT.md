@@ -260,7 +260,7 @@ O módulo `Connections` fornece a interface programática principal dentro dos s
 |---|---|---|
 | `Connections.sql.<Conn>` | `DatabaseConnection` | Acesso às tabelas relacionais e execução isolada de `.rawQuery "..." [ ... ]`. |
 | `Connections.csv.<Conn>` | `CsvConnector.Data` | Acesso às linhas fortemente tipadas do CSV (implementa `IQueryable<'Row>`) e `.Raw()`. |
-| `Connections.excel.<Conn>` | `ExcelConnector.Data` | Acesso às planilhas fortemente tipadas do Excel e `.Raw()`. |
+| `Connections.excel.<Conn>` | `ExcelConnector.Data` | Acesso às abas fortemente tipadas do Excel (implementa `IQueryable<'Row>`), pushdown `SheetQueryable` e `.Raw()`. |
 | `Connections.rest.<Conn>` | `RestConnector.Data` | Acesso aos itens tipados da REST API e `.SendAsync()`. |
 | `Connections.getConnectionString` | `string -> string` | Retorna a connection string resolvida com as credenciais seguras injetadas. |
 

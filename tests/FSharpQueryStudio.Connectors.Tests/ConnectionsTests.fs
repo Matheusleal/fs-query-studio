@@ -495,3 +495,57 @@ let ``Connections.queryExcelSheet streams >100,000 rows with blanks, error-like 
         Assert.Equal(rowCount, rows.[rowCount - 1].Id)
     finally
         try File.Delete path with _ -> ()
+
+[<Fact>]
+let ``syncDataSourcesAsync pre-stages all worksheets of Excel connection into SQLite engine`` () =
+    task {
+        BuiltinConnectors.registerDefaults ()
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-excel-sync-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory tmp |> ignore
+        try
+            let xlsxPath = Path.Combine(tmp, "multi_sheet.xlsx")
+            do
+                use wb = new ClosedXML.Excel.XLWorkbook()
+                let ws1 = wb.Worksheets.Add("Targets")
+                ws1.Cell(1, 1).Value <- "Id"
+                ws1.Cell(1, 2).Value <- "Title"
+                ws1.Cell(2, 1).Value <- 1
+                ws1.Cell(2, 2).Value <- "Target Alpha"
+
+                let ws2 = wb.Worksheets.Add("Budgets")
+                ws2.Cell(1, 1).Value <- "Id"
+                ws2.Cell(1, 2).Value <- "Title"
+                ws2.Cell(2, 1).Value <- 10
+                ws2.Cell(2, 2).Value <- "Budget 2026"
+                wb.SaveAs(xlsxPath)
+
+            let connDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "CompanyData"
+                  Kind = ConnectorKind.Excel
+                  Configuration = System.Text.Json.JsonDocument.Parse($"""{{"filePath": "{xlsxPath.Replace("\\", "/")}", "hasHeader": true}}""").RootElement
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let secretStore = FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
+
+            let! summary = Connections.syncDataSourcesAsync tmp [ connDef ] secretStore
+            Assert.True(summary.StagedCount >= 2, $"Expected at least 2 staged sheets, got {summary.StagedCount}")
+
+            let cacheDb = Path.Combine(tmp, ".fsqs", "cache", "engine.db")
+            Assert.True(File.Exists cacheDb)
+
+            let eng = FileSqliteEngine(cacheDb)
+            // Both individual sheets and the default connection name should be staged and current
+            Assert.True(eng.IsStagedAndCurrent("CompanyData_Targets", xlsxPath))
+            Assert.True(eng.IsStagedAndCurrent("CompanyData_Budgets", xlsxPath))
+            Assert.True(eng.IsStagedAndCurrent("CompanyData", xlsxPath))
+
+            // Re-syncing without file changes skips all tables
+            let! summary2 = Connections.syncDataSourcesAsync tmp [ connDef ] secretStore
+            Assert.Equal(0, summary2.StagedCount)
+            Assert.True(summary2.SkippedCount >= 2)
+        finally
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+            try Directory.Delete(tmp, true) with _ -> ()
+    }

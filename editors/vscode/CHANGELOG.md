@@ -10,6 +10,7 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ### Added
 
+- **Full Excel Staging & Pushdown Parity with CSV** — Excel workbooks (`.xlsx`, `.xls`) now follow the exact same eager asynchronous mapping and staging behavior as CSV: all worksheets (`<Conn>_<Sheet>` and `<Conn>`) are pre-staged and indexed into `.fsqs/cache/engine.db` upon discovery or synchronization. Accessing `Connections.excel.<Conn>.<Sheet>`, `<Conn>.<Sheet>.rows()`, or `<Conn>.rows()` now executes with 0ms delay against the persistent SQLite cache with full SQL pushdown and composite B-tree indexing, eliminating the RAM spikes and first-access latency of runtime ClosedXML parsing.
 - **Real-Time `data_sources/` File System Watcher** — Active file system watcher (`vscode.workspace.createFileSystemWatcher("**/data_sources/**")`) that detects when files are created, moved, modified, or deleted inside `data_sources/`. Automatically triggers debounced auto-import, updates `workspace.json`, prunes orphaned connections when files are removed, and syncs the SQLite persistent cache with visual status bar feedback.
 - **Automatic Startup Auto-Discovery** — On extension activation, automatically inspects workspace folders for `data_sources/` and runs initial discovery and cache pre-warming seamlessly.
 

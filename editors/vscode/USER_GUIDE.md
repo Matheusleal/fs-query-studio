@@ -260,7 +260,7 @@ The `Connections` module provides the core programmatic interface inside your no
 |---|---|---|
 | `Connections.sql.<Conn>` | `DatabaseConnection` | Accesses relational database tables and scoped `.rawQuery "..." [ ... ]`. |
 | `Connections.csv.<Conn>` | `CsvConnector.Data` | Accesses strongly-typed CSV rows (implements `IQueryable<'Row>`) and `.Raw()`. |
-| `Connections.excel.<Conn>` | `ExcelConnector.Data` | Accesses strongly-typed Excel sheets and `.Raw()`. |
+| `Connections.excel.<Conn>` | `ExcelConnector.Data` | Accesses strongly-typed Excel sheets (implements `IQueryable<'Row>`), pushdown `SheetQueryable`, and `.Raw()`. |
 | `Connections.rest.<Conn>` | `RestConnector.Data` | Accesses strongly-typed REST items and `.SendAsync()`. |
 | `Connections.getConnectionString` | `string -> string` | Returns the resolved connection string with stored credentials injected. |
 
