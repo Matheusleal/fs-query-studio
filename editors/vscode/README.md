@@ -102,6 +102,18 @@ query {
 }
 ```
 
+### Custom Column Mappings & Transformation Formulas
+Excel sheets and CSV files frequently contain messy data formats: localized comma-separated decimals (`1.234,56`), currency symbols, percentages, or high-precision decimals that might get truncated. F# Query Studio provides a built-in pre-processing pipeline configurable via **Add/Edit Connection** in VS Code or in `.fsqs/connections.json`:
+
+- **`columnTypes`**: Explicitly override inferred F# types (`decimal`, `double`, `int`, `int64`, `bool`, `DateTime`, `string`). E.g. `"UnitPrice=decimal, Quantity=int"`.
+- **`columnTransforms`**: Apply cleaning formulas before staging into SQLite:
+  - `replace('from', 'to')`: Replaces characters or substrings (e.g. `replace(',', '.')`).
+  - Chained replacements: `replace('.', '').replace(',', '.')` (normalizes localized `"1.234,56"` to `"1234.56"`).
+  - `trim`: Strips whitespace.
+  - `multiply(factor)` / `divide(divisor)`: Multiplies or divides values by numeric factors (e.g. `divide(100)` for percentages).
+
+See the [User Guide (Custom Column Types & Formula Transformations)](USER_GUIDE.md#custom-column-types--formula-transformations-excel--csv) for in-depth examples and real-world scenarios.
+
 ### Auto-Discovery via `data_sources/` Directory
 
 Drop your SQLite databases (`.db`, `.sqlite`), CSV files (`.csv`), or Excel spreadsheets (`.xlsx`) into a `data_sources/` folder in your project root. Click **Auto-Import Sources** in the Connections view toolbar or run **F# Query Studio: Auto-Import Data Sources Directory** to register them all automatically.

@@ -224,20 +224,140 @@ Evite configurações manuais organizando seus arquivos na pasta `data_sources`:
 2. **Observador em Tempo Real**: Uma vez ativado, a extensão monitora continuamente a pasta `data_sources/`. Sempre que você mover, colar, editar ou excluir arquivos `.csv`, `.xlsx`, `.db` ou `.sqlite`, o F# Query Studio detecta as alterações automaticamente, registra novas conexões, remove arquivos excluídos, atualiza a árvore de conexões e sincroniza os dados no cache SQLite em disco com feedback visual (`$(sync~spin)`).
 3. **Botão de Pausa e Play (`$(debug-pause)` / `$(play)`)**: Um botão dedicado na barra de ferramentas da visão de Conexões (e no item da barra de status) permite pausar todos os observadores e encerrar imediatamente o processo worker em segundo plano a qualquer momento, liberando 100% da RAM e CPU até que você decida retomar ou executar uma célula de notebook.
 
-### Tipos de Coluna Personalizados & Transformações com Fórmulas
+### Tipos de Coluna Personalizados & Transformações com Fórmulas (Excel & CSV)
 
-Ao importar planilhas Excel ou arquivos CSV, o F# Query Studio oferece controle total sobre os tipos de dados e tratamento de colunas:
+Ao trabalhar com arquivos tabulares (planilhas Excel `.xlsx` e arquivos CSV), dados brutos frequentemente contêm inconsistências de formatação: separadores decimais e de milhar localizados (`1.234,56`), símbolos de moeda (`R$`, `$`, `€`), percentuais, zeros à esquerda ou números decimais longos que poderiam ser truncados para inteiro. O F# Query Studio inclui um pipeline integrado de transformações que trata e converte os dados **antes** da inferência de tipos e da sincronização no SQLite, proporcionando total controle sobre os tipos F# e o esquema do banco de dados.
 
-- **Descoberta Precisa de Tipos na Árvore & Entidades**: As colunas de planilhas Excel e arquivos CSV são analisadas por amostragem e recebem tipos F# reais (`int`, `decimal`, `double`, `bool`, `DateTime`, etc.), em vez de serem mapeadas genericamente como `string`.
-- **Sobrescrita de Tipos (`columnTypes`)**: Defina explicitamente o tipo de dado desejado para colunas específicas. Por exemplo:
-  - `"UnitPrice=decimal, Quantity=int, IsActive=bool"`
-  - Ou como objeto JSON: `{ "UnitPrice": "decimal", "Quantity": "int" }`
-- **Fórmulas & Substituições (`columnTransforms`)**: Trate e transforme os dados antes da conversão de tipo e sincronização no SQLite:
-  - `replace('de', 'para')`: Substitui caracteres ou trechos de texto (ex: `replace(',', '.')`).
-  - Substituições encadeadas: `replace('.', '').replace(',', '.')` (perfeito para números/moedas no formato brasileiro como `"1.234,56"` para `"1234.56"`).
-  - `trim`: Remove espaços em branco do início e fim.
-  - `multiply(x)` / `divide(x)`: Multiplica ou divide valores por um fator numérico.
-- **Garantia de Precisão Decimal**: Números com muitas casas decimais e separador `.` (ex: `1234567.890123456` ou coordenadas) são mapeados diretamente para `NUMERIC` no SQLite e `decimal`/`double` no F#, preservando todas as casas sem arredondamento para inteiro ou perda de precisão.
+#### 1. Como e Onde Configurar
+
+Você pode configurar a sobrescrita de tipos e as fórmulas de transformação de duas maneiras:
+
+##### Opção A: Pela Interface do VS Code (GUI)
+1. No painel lateral **Connections**, clique em **Add Connection** (`+`) e escolha **CSV** ou **Excel** (ou clique com o botão direito em uma conexão existente e selecione **Edit Connection**).
+2. Preencha o caminho do arquivo e as opções de conexão.
+3. No campo **Column Types Override (optional)**, informe os tipos F# desejados (ex: `PrecoUnitario=decimal, Quantidade=int`).
+4. No campo **Column Transforms / Formulas (optional)**, informe as fórmulas de limpeza (ex: `PrecoUnitario=replace('.', '').replace(',', '.'), Codigo=trim`).
+5. Clique em **Create Connection** (ou **Save**). O esquema tipado e o cache SQLite serão imediatamente atualizados com os dados tratados e os registros F# gerados.
+
+##### Opção B: No Arquivo `.fsqs/connections.json` do Workspace
+Todas as conexões do workspace são armazenadas em `.fsqs/connections.json`. Você pode editar esse arquivo diretamente. Ambas as sintaxes (texto delimitado por vírgulas ou objeto JSON estruturado) são suportadas:
+
+```json
+{
+  "connections": [
+    {
+      "name": "RelatorioFinanceiro",
+      "kind": "Excel",
+      "configuration": {
+        "filePath": "data_sources/relatorio_financeiro.xlsx",
+        "sheetName": "Receitas_Q4",
+        "columnTypes": {
+          "Receita": "decimal",
+          "TaxaCambio": "double",
+          "UnidadesVendidas": "int",
+          "AliquotaImposto": "double",
+          "CodigoConta": "string"
+        },
+        "columnTransforms": {
+          "Receita": "replace('R$', '').replace('.', '').replace(',', '.').trim",
+          "TaxaCambio": "replace(',', '.')",
+          "AliquotaImposto": "divide(100)",
+          "CodigoConta": "trim"
+        }
+      }
+    },
+    {
+      "name": "PedidosCsv",
+      "kind": "Csv",
+      "configuration": {
+        "filePath": "data_sources/pedidos.csv",
+        "delimiter": ";",
+        "columnTypes": "ValorTotal=decimal, Desconto=double, IdPedido=int64",
+        "columnTransforms": "ValorTotal=replace('.', '').replace(',', '.'), Desconto=divide(100)"
+      }
+    }
+  ]
+}
+```
+
+#### 2. Tipos F# Suportados em `columnTypes`
+
+| Tipo Alvo | Tipo .NET / F# | Descrição & Caso de Uso Recomendado |
+|---|---|---|
+| `decimal` | `System.Decimal` | **Alta precisão (128-bit, 28-29 dígitos significativos)**. Obrigatório para moedas, finanças e números com muitas casas decimais (ex: `1234567.890123456`). Impede arredondamento indevido ou truncamento para inteiro. |
+| `double` / `float` | `System.Double` | Ponto flutuante IEEE de 64 bits. Ideal para coordenadas (GPS latitude/longitude), medições científicas ou taxas contínuas. |
+| `int` | `System.Int32` | Inteiro com sinal de 32 bits (`-2.147.483.648` a `2.147.483.647`). |
+| `int64` | `System.Int64` | Inteiro com sinal de 64 bits (para IDs grandes, carimbos de tempo em milissegundos ou contadores de grande escala). |
+| `bool` | `System.Boolean` | Valores lógicos booleanos. Reconhece `true`/`false`, `1`/`0`, `sim`/`nao`, `yes`/`no`. |
+| `System.DateTime` | `System.DateTime` | Datas e carimbos de tempo formatados (`YYYY-MM-DD`, ISO 8601 ou formatos regionais). |
+| `string` | `System.String` | Texto literal. Útil para preservar zeros à esquerda em CEPs, CPFs/CNPJs ou códigos de produto (ex: `"0042"`). |
+| `<tipo> option` | `Option<'T>` | Permite explicitamente valores nulos, vazios ou marcadores sentinela (`N/A`, `-`, `null`). Ex: `decimal option`, `int option`. |
+
+#### 3. Funções e Fórmulas em `columnTransforms`
+
+As fórmulas podem ser aplicadas por coluna e encadeadas usando a sintaxe de ponto (`.`):
+
+| Expressão da Fórmula | Descrição | Exemplo de Entrada | Saída Resultante |
+|---|---|---|---|
+| `replace('de', 'para')` | Substitui todas as ocorrências de um caractere ou texto por outro. Aspas simples (`'`) e duplas (`"`) são aceitas. | `replace(',', '.')` em `"12,50"` | `"12.50"` |
+| `replace('f1', 't1').replace('f2', 't2')` | **Substituições encadeadas**: aplica as transformações sequencialmente da esquerda para a direita. | `replace('.', '').replace(',', '.')` em `"1.234,56"` | `"1234.56"` |
+| `trim` | Remove espaços em branco do início e do final da string. | `trim` em `"  ABC123  "` | `"ABC123"` |
+| `multiply(fator)` | Multiplica o valor numérico pelo fator informado (aceita decimais). | `multiply(100)` em `"0.15"` | `"15"` |
+| `divide(divisor)` | Divide o valor numérico pelo divisor informado (ex: conversão de percentual para taxa fracionária). | `divide(100)` em `"25"` | `"0.25"` |
+| `decimal` / `double` | Normaliza vírgulas para ponto decimal (`replace(',', '.')`). | `decimal` em `"99,99"` | `"99.99"` |
+| `string` / `toString` | Trata o valor estritamente como texto sem conversão. | `string` em `0123` | `"0123"` |
+
+#### 4. Cenários Práticos do Dia a Dia
+
+##### Cenário 1: Formato Brasileiro de Moeda e Números (`"1.234,56"`)
+No padrão brasileiro, o ponto (`.`) separa milhares e a vírgula (`,`) separa casas decimais. Leitores convencionais podem se perder com múltiplos pontos e vírgulas:
+```json
+{
+  "columnTypes": "ValorTotal=decimal, Saldo=decimal",
+  "columnTransforms": "ValorTotal=replace('.', '').replace(',', '.'), Saldo=replace('R$', '').replace('.', '').replace(',', '.').trim"
+}
+```
+
+##### Cenário 2: Preservação de Precisão em Números com Muitas Casas Decimais
+Quando o Excel ou CSV armazena números com muitas casas decimais (como `1234567.890123456789`), definir `columnTypes` garante que o F# Query Studio crie uma coluna `NUMERIC` no SQLite e um campo F# `decimal`, eliminando o risco de conversão incorreta para inteiro:
+```json
+{
+  "columnTypes": "LeituraSensor=decimal, Latitude=double, Longitude=double",
+  "columnTransforms": "LeituraSensor=trim, Latitude=replace(',', '.'), Longitude=replace(',', '.')"
+}
+```
+
+##### Cenário 3: Conversão de Percentuais em Frações Numéricas
+Se uma planilha contém percentuais informados como `15` ou `15%`, você pode remover o símbolo `%` e dividir por 100:
+```json
+{
+  "columnTypes": "TaxaImposto=double, DescontoPercentual=double",
+  "columnTransforms": "TaxaImposto=replace('%', '').divide(100), DescontoPercentual=divide(100)"
+}
+```
+
+##### Cenário 4: Preservação de Zeros à Esquerda em Códigos e Identificadores
+Se um CSV contém códigos de produtos, CPFs ou CEPs com zeros à esquerda (ex: `001234`):
+```json
+{
+  "columnTypes": "Cep=string, Sku=string",
+  "columnTransforms": "Cep=trim, Sku=trim"
+}
+```
+
+#### 5. Utilizando as Colunas Tipadas em Consultas F#
+
+Após configuradas, o F# Query Studio gera tipos fortes e inteligência de código (`autocomplete` e verificação em tempo de compilação) que refletem os tipos sobrescritos em `Connections.csv.<Conn>` e `Connections.excel.<Conn>`:
+
+```fsharp
+query {
+    for pedido in Connections.excel.RelatorioFinanceiro.Receitas_Q4 do
+    // pedido.Receita é tipado como System.Decimal, pedido.TaxaCambio como double
+    where (pedido.Receita > 1000.0M && pedido.AliquotaImposto <= 0.20)
+    sortByDescending pedido.Receita
+    select {| Conta = pedido.CodigoConta; Receita = pedido.Receita; ReceitaLiquida = pedido.Receita * (1.0M - decimal pedido.AliquotaImposto) |}
+}
+```
 
 ---
 

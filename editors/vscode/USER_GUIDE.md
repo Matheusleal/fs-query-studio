@@ -224,20 +224,140 @@ Skip manual connection configuration by organizing your files in a `data_sources
 2. **Automatic Real-Time Watcher**: Once activated, the extension continuously monitors the `data_sources/` directory. Whenever you move, copy, modify, or delete `.csv`, `.xlsx`, `.db`, or `.sqlite` files, F# Query Studio automatically detects the changes, registers new connections, cleans up removed files, refreshes the connections tree, and stages the data into SQLite disk cache with visual status feedback (`$(sync~spin)`).
 3. **Pause & Resume Button (`$(debug-pause)` / `$(play)`)**: A dedicated Pause/Resume button on the Connections view header toolbar (and the status bar item) lets you pause background watchers and immediately terminate the worker process at any time, freeing 100% of background RAM and CPU until resumed or until you run a notebook cell.
 
-### Custom Column Types & Formula Transformations
+### Custom Column Types & Formula Transformations (Excel & CSV)
 
-When importing CSV or Excel sheets, F# Query Studio provides full control over data types and column cleanup:
+When working with tabular files (Excel `.xlsx` and CSV), raw data frequently contains formatting inconsistencies: localized decimal separators (`1.234,56`), currency symbols (`$`, `R$`, `€`), percentages, leading zeros, or floating-point numbers truncated to integers. F# Query Studio provides a built-in transformation pipeline that cleans and transforms data **before** type conversion and database staging, giving you full control over F# types and SQLite schema mapping.
 
-- **Accurate Type Discovery in Tree View & Entities**: Columns in Excel workbooks and CSV files are analyzed across sample rows and assigned real F# types (`int`, `decimal`, `double`, `bool`, `DateTime`, etc.) rather than flattening to generic `string`.
-- **Column Types Override (`columnTypes`)**: Explicitly specify the target data type for specific columns. For example:
-  - `"UnitPrice=decimal, Quantity=int, IsActive=bool"`
-  - Or as a JSON object: `{ "UnitPrice": "decimal", "Quantity": "int" }`
-- **Formulas & Replacements (`columnTransforms`)**: Clean and transform raw data before type conversion and database staging:
-  - `replace('from', 'to')`: Replaces characters or substrings (e.g. `replace(',', '.')`).
-  - Chained replacements: `replace('.', '').replace(',', '.')` (ideal for converting localized numbers/currencies like `"1.234,56"` to `"1234.56"`).
-  - `trim`: Strips leading and trailing whitespace.
-  - `multiply(x)` / `divide(x)`: Scales values by a numeric factor.
-- **Decimal Precision Guarantee**: High-precision numbers with multiple decimal places (e.g. `1234567.890123456` or coordinates) are mapped directly to SQLite `NUMERIC` / F# `decimal` and `double`, preserving all fractional digits without truncation or integer rounding.
+#### 1. How and Where to Configure
+
+You can configure column type overrides and transformation formulas in two ways:
+
+##### Option A: Via VS Code User Interface (GUI)
+1. In the **Connections** sidebar, click **Add Connection** (`+`) and select **CSV** or **Excel** (or right-click an existing connection and select **Edit Connection**).
+2. Fill in the file path and connection details.
+3. In the **Column Types Override (optional)** field, provide the target F# types (e.g. `UnitPrice=decimal, Quantity=int`).
+4. In the **Column Transforms / Formulas (optional)** field, define your cleanup formulas (e.g. `UnitPrice=replace('.', '').replace(',', '.'), Sku=trim`).
+5. Click **Create Connection** (or **Save**). The schema and SQLite cache immediately update with the transformed data and typed F# records.
+
+##### Option B: In Workspace `.fsqs/connections.json`
+All workspace connections are stored in `.fsqs/connections.json`. You can edit this file directly. Both string-delimited and structured JSON object syntax are supported:
+
+```json
+{
+  "connections": [
+    {
+      "name": "FinancialReport",
+      "kind": "Excel",
+      "configuration": {
+        "filePath": "data_sources/financial_report.xlsx",
+        "sheetName": "Q4_Revenue",
+        "columnTypes": {
+          "Revenue": "decimal",
+          "ExchangeRate": "double",
+          "UnitsSold": "int",
+          "TaxRate": "double",
+          "AccountCode": "string"
+        },
+        "columnTransforms": {
+          "Revenue": "replace('$', '').replace(',', '').trim",
+          "ExchangeRate": "replace(',', '.')",
+          "TaxRate": "divide(100)",
+          "AccountCode": "trim"
+        }
+      }
+    },
+    {
+      "name": "OrdersCsv",
+      "kind": "Csv",
+      "configuration": {
+        "filePath": "data_sources/orders.csv",
+        "delimiter": ";",
+        "columnTypes": "TotalAmount=decimal, Discount=double, OrderId=int64",
+        "columnTransforms": "TotalAmount=replace('.', '').replace(',', '.'), Discount=divide(100)"
+      }
+    }
+  ]
+}
+```
+
+#### 2. Supported F# Types in `columnTypes`
+
+| Target Type | .NET / F# Type | Description & Best Use Case |
+|---|---|---|
+| `decimal` | `System.Decimal` | **High precision (128-bit, 28-29 significant digits)**. Mandatory for currency, finances, and long decimals with many fractional digits (e.g., `1234567.890123456`). Prevents loss of precision or integer truncation. |
+| `double` / `float` | `System.Double` | 64-bit IEEE floating-point. Best for coordinates (GPS latitude/longitude), scientific measurements, or continuous ratios. |
+| `int` | `System.Int32` | 32-bit signed integer (`-2,147,483,648` to `2,147,483,647`). |
+| `int64` | `System.Int64` | 64-bit signed integer (for large identifiers, timestamps in milliseconds, or big counters). |
+| `bool` | `System.Boolean` | Boolean flags. Recognizes `true`/`false`, `1`/`0`, `sim`/`nao`, `yes`/`no`. |
+| `System.DateTime` | `System.DateTime` | Formatted calendar dates and timestamps (`YYYY-MM-DD`, ISO 8601, or local culture dates). |
+| `string` | `System.String` | Raw text. Useful to preserve leading zeros in postal codes, tax IDs (CPF/CNPJ), or product SKUs (e.g. `"0042"`). |
+| `<type> option` | `Option<'T>` | Explicitly allows null, empty, or sentinel values (`N/A`, `-`, `null`). E.g.: `decimal option`, `int option`. |
+
+#### 3. Transformation Functions & Formulas in `columnTransforms`
+
+Formulas can be applied to individual columns and chained together using dot notation (`.`):
+
+| Formula Expression | Description | Example Input | Output |
+|---|---|---|---|
+| `replace('from', 'to')` | Replaces all occurrences of a string or character with another. Both single (`'`) and double (`"`) quotes are supported. | `replace(',', '.')` on `"12,50"` | `"12.50"` |
+| `replace('f1', 't1').replace('f2', 't2')` | **Chained replacement**: applies transformations sequentially from left to right. | `replace('.', '').replace(',', '.')` on `"1.234,56"` | `"1234.56"` |
+| `trim` | Removes leading and trailing whitespace characters. | `trim` on `"  ABC123  "` | `"ABC123"` |
+| `multiply(factor)` | Multiplies the numeric value by a factor (supports floating-point factor). | `multiply(100)` on `"0.15"` | `"15"` |
+| `divide(divisor)` | Divides the numeric value by a divisor (e.g. converting percentages to fractions). | `divide(100)` on `"25"` | `"0.25"` |
+| `decimal` / `double` | Normalizes commas to decimal points (`replace(',', '.')`). | `decimal` on `"99,99"` | `"99.99"` |
+| `string` / `toString` | Treats the value strictly as text without conversion. | `string` on `0123` | `"0123"` |
+
+#### 4. Real-World Practical Scenarios
+
+##### Scenario 1: Brazilian / European Currency & Number Formats (`"1.234,56"`)
+In European and Brazilian locales, the dot (`.`) is a thousands separator and the comma (`,`) is the decimal separator. By default, raw parsers can get confused by multiple separators:
+```json
+{
+  "columnTypes": "ValorTotal=decimal, Saldo=decimal",
+  "columnTransforms": "ValorTotal=replace('.', '').replace(',', '.'), Saldo=replace('R$', '').replace('.', '').replace(',', '.').trim"
+}
+```
+
+##### Scenario 2: Preserving Precision on High-Digit Floating-Point Numbers
+When Excel stores floating numbers with many decimal places (such as `1234567.890123456789`), setting `columnTypes` guarantees that F# Query Studio creates a SQLite `NUMERIC` column and an F# `decimal` field, completely avoiding integer truncations:
+```json
+{
+  "columnTypes": "SensorReading=decimal, Latitude=double, Longitude=double",
+  "columnTransforms": "SensorReading=trim, Latitude=replace(',', '.'), Longitude=replace(',', '.')"
+}
+```
+
+##### Scenario 3: Converting Percentage Columns to Ratios
+If a spreadsheet contains percentage values like `15` or `15%`, you can strip the `%` symbol and divide by 100:
+```json
+{
+  "columnTypes": "TaxRate=double, DiscountPercent=double",
+  "columnTransforms": "TaxRate=replace('%', '').divide(100), DiscountPercent=divide(100)"
+}
+```
+
+##### Scenario 4: Preserving Leading Zeros in Identifiers
+If a CSV contains product SKUs or ZIP codes with leading zeros (e.g. `001234`):
+```json
+{
+  "columnTypes": "ZipCode=string, Sku=string",
+  "columnTransforms": "ZipCode=trim, Sku=trim"
+}
+```
+
+#### 5. Using the Typed Columns in F# Queries
+
+Once configured, F# Query Studio generates strongly-typed records matching your overrides in `Connections.csv.<Conn>` and `Connections.excel.<Conn>`:
+
+```fsharp
+query {
+    for order in Connections.excel.FinancialReport.Q4_Revenue do
+    // order.Revenue is typed as System.Decimal, order.TaxRate is double
+    where (order.Revenue > 1000.0M && order.TaxRate <= 0.20)
+    sortByDescending order.Revenue
+    select {| Account = order.AccountCode; Revenue = order.Revenue; NetRevenue = order.Revenue * (1.0M - decimal order.TaxRate) |}
+}
+```
 
 ---
 

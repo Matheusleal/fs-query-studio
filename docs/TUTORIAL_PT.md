@@ -216,6 +216,28 @@ query {
 }
 ```
 
+### Mapeamento Customizado de Colunas & Fórmulas de Transformação
+Ao importar arquivos CSV ou planilhas Excel com moedas (`R$ 1.234,56`), separadores decimais regionais, percentuais ou números com muitas casas decimais, configure a conexão pelo **painel lateral de Conexões** (*Add Connection* / *Edit Connection*) ou no arquivo `.fsqs/connections.json`:
+
+- **`columnTypes`**: Força o tipo F# de destino, como `decimal`, `double`, `int`, `int64`, `bool`, `DateTime` ou `string`. Exemplo: `"ValorTotal=decimal, Aliquota=double"`.
+- **`columnTransforms`**: Aplica fórmulas de tratamento antes da sincronização no SQLite:
+  - `replace('.', '').replace(',', '.')`: Converte números/moedas no padrão brasileiro para ponto decimal.
+  - `replace('R$', '').trim`: Remove símbolos de moeda e espaços em branco.
+  - `multiply(100)` ou `divide(100)`: Multiplica ou divide valores por fatores numéricos.
+
+```json
+{
+  "name": "RelatorioVendas",
+  "kind": "Excel",
+  "configuration": {
+    "filePath": "data_sources/vendas.xlsx",
+    "sheetName": "Plan1",
+    "columnTypes": "Receita=decimal, Unidades=int",
+    "columnTransforms": "Receita=replace('R$', '').replace('.', '').replace(',', '.').trim"
+  }
+}
+```
+
 ---
 
 ## 9. Conexões SQL Server, PostgreSQL e MySQL

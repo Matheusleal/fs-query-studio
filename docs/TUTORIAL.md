@@ -280,6 +280,28 @@ query {
 }
 ```
 
+### Custom Column Mappings & Transformation Formulas
+When importing messy CSVs or Excel spreadsheets with localized currency (`R$ 1.234,56`), custom percentage scales, or high-precision decimals, customize the connection either in the **Connections sidebar** (via *Add Connection* / *Edit Connection*) or in `.fsqs/connections.json`:
+
+- **`columnTypes`**: Force target types like `decimal`, `double`, `int`, `int64`, `bool`, `DateTime`, or `string`. E.g.: `"TotalAmount=decimal, TaxRate=double"`.
+- **`columnTransforms`**: Apply cleaning formulas:
+  - `replace('.', '').replace(',', '.')`: Normalize Brazilian/European comma decimals to standard dots.
+  - `replace('$', '').trim`: Strip currency symbols.
+  - `multiply(100)` or `divide(100)`: Scale numeric values.
+
+```json
+{
+  "name": "SalesReport",
+  "kind": "Excel",
+  "configuration": {
+    "filePath": "data_sources/sales.xlsx",
+    "sheetName": "Sheet1",
+    "columnTypes": "Revenue=decimal, Units=int",
+    "columnTransforms": "Revenue=replace('$', '').replace(',', '').trim"
+  }
+}
+```
+
 ---
 
 ## 9. SQL Server and PostgreSQL connections

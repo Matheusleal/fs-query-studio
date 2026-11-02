@@ -102,6 +102,18 @@ query {
 }
 ```
 
+### Mapeamentos Customizados e Fórmulas de Transformação
+Planilhas Excel e arquivos CSV frequentemente contêm dados formatados de forma irregular: números com vírgula decimal no padrão brasileiro (`1.234,56`), símbolos monetários (`R$`), percentuais ou números decimais longos. O F# Query Studio oferece um pipeline integrado de pré-processamento configurável via **Add/Edit Connection** no VS Code ou no arquivo `.fsqs/connections.json`:
+
+- **`columnTypes`**: Sobrescreve explicitamente os tipos F# inferidos (`decimal`, `double`, `int`, `int64`, `bool`, `DateTime`, `string`). Exemplo: `"PrecoUnitario=decimal, Quantidade=int"`.
+- **`columnTransforms`**: Aplica fórmulas de tratamento e limpeza antes do armazenamento no SQLite:
+  - `replace('de', 'para')`: Substitui caracteres ou trechos de texto (ex: `replace(',', '.')`).
+  - Substituições encadeadas: `replace('.', '').replace(',', '.')` (converte `"1.234,56"` para `"1234.56"`).
+  - `trim`: Remove espaços em branco do início e fim.
+  - `multiply(fator)` / `divide(divisor)`: Multiplica ou divide valores por fatores numéricos (ex: `divide(100)` para percentuais).
+
+Consulte o [Guia do Usuário (Tipos de Coluna Personalizados & Transformações com Fórmulas)](USER_GUIDE_PT.md#tipos-de-coluna-personalizados--transformações-com-fórmulas-excel--csv) para exemplos práticos e cenários do dia a dia.
+
 ### Descoberta Automática via Pasta `data_sources/`
 
 Basta colocar seus bancos SQLite (`.db`, `.sqlite`), arquivos CSV (`.csv`) ou planilhas Excel (`.xlsx`) em uma pasta chamada `data_sources/` na raiz do projeto. Clique em **Auto-Import Sources** na barra de ferramentas do painel Connections ou execute **F# Query Studio: Auto-Import Data Sources Directory** para registrá-los instantaneamente.
