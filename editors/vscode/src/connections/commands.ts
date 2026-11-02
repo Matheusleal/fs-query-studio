@@ -51,6 +51,7 @@ export interface ConnectionFeatureDeps {
   getWorker: () => Promise<WorkerLike>;
   secrets: vscode.SecretStorage;
   log: (line: string) => void;
+  isPaused?: () => boolean;
 }
 
 export interface ConnectionsApi {
@@ -76,6 +77,9 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
     getWorkspaceDir: getPrimaryWorkspaceDir,
   });
   const refresh = () => {
+    if (deps.isPaused?.()) {
+      return;
+    }
     schemaCache.clear();
     tree.refresh();
   };

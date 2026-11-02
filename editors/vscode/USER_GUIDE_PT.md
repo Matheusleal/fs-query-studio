@@ -220,9 +220,9 @@ Ao cadastrar ou importar arquivos planos (`.csv`, `.xlsx`), o F# Query Studio pr
 ### Descoberta Automática & Observador em Tempo Real via Pasta `data_sources`
 
 Evite configurações manuais organizando seus arquivos na pasta `data_sources`:
-1. Mova ou copie seus arquivos `.csv`, `.xlsx`, `.db` ou `.sqlite` para dentro da pasta `data_sources/` na raiz do seu projeto.
-2. **Observador em Tempo Real Automático**: A extensão monitora ativamente a pasta `data_sources/`. Sempre que você mover, colar, editar ou excluir arquivos, o F# Query Studio detecta as alterações automaticamente, registra novas conexões, remove arquivos excluídos, atualiza a árvore de conexões e sincroniza os dados no cache SQLite em disco com feedback visual (`$(sync~spin)`).
-3. **Disparo Manual (Opcional)**: Você também pode clicar no botão **Auto-Import Data Sources** na barra lateral ou usar o comando `F# Query Studio: Auto-Import Data Sources Directory` (`Ctrl+Shift+P`) a qualquer momento.
+1. **Ativação Sob Demanda**: Para evitar consumo desnecessário de CPU e memória RAM enquanto a extensão não estiver em uso ativo, a detecção automática na pasta `data_sources/` é inicializada somente após selecionar a opção **Auto-Import Data Sources** (`$(folder-library)`) no menu principal da visão de Conexões, na tela inicial de boas-vindas ou via comando `F# Query Studio: Auto-Import Data Sources Directory`.
+2. **Observador em Tempo Real**: Uma vez ativado, a extensão monitora continuamente a pasta `data_sources/`. Sempre que você mover, colar, editar ou excluir arquivos `.csv`, `.xlsx`, `.db` ou `.sqlite`, o F# Query Studio detecta as alterações automaticamente, registra novas conexões, remove arquivos excluídos, atualiza a árvore de conexões e sincroniza os dados no cache SQLite em disco com feedback visual (`$(sync~spin)`).
+3. **Botão de Pausa e Play (`$(debug-pause)` / `$(play)`)**: Um botão dedicado na barra de ferramentas da visão de Conexões (e no item da barra de status) permite pausar todos os observadores e encerrar imediatamente o processo worker em segundo plano a qualquer momento, liberando 100% da RAM e CPU até que você decida retomar ou executar uma célula de notebook.
 
 ### Tipos de Coluna Personalizados & Transformações com Fórmulas
 

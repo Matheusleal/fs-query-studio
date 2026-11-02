@@ -109,6 +109,24 @@
         "icon": "$(folder-library)"
       },
       {
+        "command": "fs-query-studio.pauseWatchersAndWorkers",
+        "title": "F# Query Studio: Pause Watchers and Workers",
+        "shortTitle": "Pause Background",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "fs-query-studio.resumeWatchersAndWorkers",
+        "title": "F# Query Studio: Resume Watchers and Workers",
+        "shortTitle": "Resume Background",
+        "icon": "$(play)"
+      },
+      {
+        "command": "fs-query-studio.togglePauseResume",
+        "title": "F# Query Studio: Toggle Pause/Resume Background Watchers and Workers",
+        "shortTitle": "Toggle Pause/Resume",
+        "icon": "$(debug-pause)"
+      },
+      {
         "command": "fs-query-studio.syncDataSources",
         "title": "F# Query Studio: Sync Data Sources Cache",
         "shortTitle": "Sync Sources",
@@ -190,9 +208,27 @@
         {
           "command": "fs-query-studio.newNotebookHere",
           "when": "false"
+        },
+        {
+          "command": "fs-query-studio.pauseWatchersAndWorkers",
+          "when": "!fs-query-studio.isPaused"
+        },
+        {
+          "command": "fs-query-studio.resumeWatchersAndWorkers",
+          "when": "fs-query-studio.isPaused"
         }
       ],
       "view/title": [
+        {
+          "command": "fs-query-studio.pauseWatchersAndWorkers",
+          "when": "view == fsQueryStudioConnections && !fs-query-studio.isPaused",
+          "group": "navigation@5"
+        },
+        {
+          "command": "fs-query-studio.resumeWatchersAndWorkers",
+          "when": "view == fsQueryStudioConnections && fs-query-studio.isPaused",
+          "group": "navigation@5"
+        },
         {
           "command": "fs-query-studio.openDocs",
           "when": "view == fsQueryStudioConnections",

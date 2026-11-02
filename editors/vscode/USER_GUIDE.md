@@ -220,9 +220,9 @@ When you register or auto-import flat files (`.csv`, `.xlsx`), F# Query Studio i
 ### Automatic Discovery & Real-Time Watching via `data_sources` Directory
 
 Skip manual connection configuration by organizing your files in a `data_sources` folder:
-1. Place or drag your `.csv`, `.xlsx`, `.db`, or `.sqlite` files inside the `data_sources/` folder in your project root.
-2. **Automatic Real-Time Watcher**: The extension continuously monitors the `data_sources/` directory. Whenever you move, copy, modify, or delete files, F# Query Studio automatically detects the changes, registers new connections, cleans up removed files, refreshes the connections tree, and stages the data into SQLite disk cache with visual status feedback (`$(sync~spin)`).
-3. **Manual Trigger (Optional)**: You can also click **Auto-Import Data Sources** in the sidebar toolbar or run `F# Query Studio: Auto-Import Data Sources Directory` from the Command Palette at any time.
+1. **On-Demand Activation**: To prevent unwanted CPU and RAM consumption while the extension is not actively in use, real-time file detection starts only when you click **Auto-Import Data Sources** (`$(folder-library)`) from the Connections view toolbar, the Welcome view, or run `F# Query Studio: Auto-Import Data Sources Directory` from the Command Palette.
+2. **Automatic Real-Time Watcher**: Once activated, the extension continuously monitors the `data_sources/` directory. Whenever you move, copy, modify, or delete `.csv`, `.xlsx`, `.db`, or `.sqlite` files, F# Query Studio automatically detects the changes, registers new connections, cleans up removed files, refreshes the connections tree, and stages the data into SQLite disk cache with visual status feedback (`$(sync~spin)`).
+3. **Pause & Resume Button (`$(debug-pause)` / `$(play)`)**: A dedicated Pause/Resume button on the Connections view header toolbar (and the status bar item) lets you pause background watchers and immediately terminate the worker process at any time, freeing 100% of background RAM and CPU until resumed or until you run a notebook cell.
 
 ### Custom Column Types & Formula Transformations
 

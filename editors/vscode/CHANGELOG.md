@@ -8,6 +8,11 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+### Added
+
+- **Watchers & Workers Pause/Resume Control** — Added dedicated Pause (`$(debug-pause)`) and Play/Resume (`$(play)`) buttons in the Connections view toolbar and status bar item, with commands `fs-query-studio.pauseWatchersAndWorkers`, `fs-query-studio.resumeWatchersAndWorkers`, and `fs-query-studio.togglePauseResume`. Pausing disposes the background F# worker process and stops file watchers, immediately releasing 100% of background memory and CPU until resumed or on-demand query execution.
+- **On-Demand `data_sources/` Watcher Initialization** — Real-time automatic file watching on the `data_sources/` folder is now initialized strictly when the user selects the Auto-Import option from the Connections menu, Welcome view, or Command Palette. Opening a project in VS Code no longer spawns background workers or consumes CPU/RAM when the extension is not in active use.
+
 ## [0.4.0-rc4] — 2026-11-02
 
 ### Added

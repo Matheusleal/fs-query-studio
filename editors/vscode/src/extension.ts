@@ -93,6 +93,15 @@ export async function runHealthCheck(deps: HealthCheckDeps): Promise<HealthCheck
 
 export interface FsQueryStudioApi {
   connections: ConnectionsApi;
+  background?: {
+    isPaused: () => boolean;
+    isDataSourcesWatcherActive: () => boolean;
+    pause: (silent?: boolean) => Promise<void>;
+    resume: (silent?: boolean) => Promise<void>;
+    toggle: () => Promise<void>;
+    startDataSourcesWatcher: () => void;
+    stopDataSourcesWatcher: () => void;
+  };
 }
 
 let outputChannel: vscode.OutputChannel | undefined;
@@ -297,6 +306,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     }
   };
 
+  let isPaused = false;
+  let dataSourcesWatcherActive = false;
+  let dataSourcesWatcher: vscode.Disposable | undefined;
+  let lastRegisteredClient: unknown = undefined;
+
+  void vscode.commands.executeCommand("setContext", "fs-query-studio.isPaused", false);
+
   const isDataSourcesCandidate = (filePath: string): boolean => {
     const baseName = path.basename(filePath);
     if (baseName.startsWith(".") || baseName.startsWith("~$") || baseName.toLowerCase() === "readme.txt") {
@@ -308,6 +324,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
 
   let dataSourcesDebounceTimer: NodeJS.Timeout | undefined;
   const onDataSourcesFileChanged = (uri: vscode.Uri) => {
+    if (isPaused) {
+      return;
+    }
     if (!isDataSourcesCandidate(uri.fsPath)) {
       return;
     }
@@ -316,6 +335,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     }
     dataSourcesDebounceTimer = setTimeout(async () => {
       dataSourcesDebounceTimer = undefined;
+      if (isPaused) {
+        return;
+      }
       const wsFolder = vscode.workspace.getWorkspaceFolder(uri);
       let targetDir = wsFolder?.uri.fsPath;
       if (!targetDir) {
@@ -332,20 +354,111 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     }, 600);
   };
 
-  const dataSourcesWatcher = vscode.workspace.createFileSystemWatcher("**/data_sources/**");
-  dataSourcesWatcher.onDidCreate(onDataSourcesFileChanged);
-  dataSourcesWatcher.onDidChange(onDataSourcesFileChanged);
-  dataSourcesWatcher.onDidDelete(onDataSourcesFileChanged);
+  const startDataSourcesWatcher = () => {
+    if (dataSourcesWatcher) {
+      return;
+    }
+    dataSourcesWatcherActive = true;
+    const watcher = vscode.workspace.createFileSystemWatcher("**/data_sources/**");
+    const d1 = watcher.onDidCreate(onDataSourcesFileChanged);
+    const d2 = watcher.onDidChange(onDataSourcesFileChanged);
+    const d3 = watcher.onDidDelete(onDataSourcesFileChanged);
+    dataSourcesWatcher = {
+      dispose() {
+        d1.dispose();
+        d2.dispose();
+        d3.dispose();
+        watcher.dispose();
+      },
+    };
+    log("[Watcher] Automatic detection for 'data_sources' initialized and active.");
+  };
 
-  let bridgeRegistered = false;
+  const stopDataSourcesWatcher = () => {
+    if (dataSourcesDebounceTimer) {
+      clearTimeout(dataSourcesDebounceTimer);
+      dataSourcesDebounceTimer = undefined;
+    }
+    if (dataSourcesWatcher) {
+      dataSourcesWatcher.dispose();
+      dataSourcesWatcher = undefined;
+      log("[Watcher] Automatic detection for 'data_sources' stopped.");
+    }
+  };
+
+  const pauseWatchersAndWorkers = async (silent = false): Promise<void> => {
+    if (isPaused) return;
+    isPaused = true;
+    await vscode.commands.executeCommand("setContext", "fs-query-studio.isPaused", true);
+    stopDataSourcesWatcher();
+    disposeWorkerSession();
+    lastRegisteredClient = undefined;
+    log("[Host] Watchers and workers paused; worker session disposed and RAM/CPU released.");
+
+    statusBar.text = "$(play) F# Query: Paused";
+    statusBar.tooltip = "F# Query Studio: Watchers and workers paused (RAM and CPU released). Click to resume.";
+    statusBar.command = "fs-query-studio.resumeWatchersAndWorkers";
+    statusBar.show();
+
+    if (!silent) {
+      const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+      const msg = isPt
+        ? "F# Query Studio: Watchers e workers pausados. O processo em background foi encerrado e a memória liberada."
+        : "F# Query Studio: Watchers and workers paused. Background process terminated and memory released.";
+      void vscode.window.showInformationMessage(msg);
+    }
+  };
+
+  const resumeWatchersAndWorkers = async (silent = false): Promise<void> => {
+    if (!isPaused) return;
+    isPaused = false;
+    await vscode.commands.executeCommand("setContext", "fs-query-studio.isPaused", false);
+
+    statusBar.text = "$(database) F# Query Studio";
+    statusBar.tooltip = "F# Query Studio: Show Output Logs";
+    statusBar.command = "fs-query-studio.showOutput";
+    statusBar.show();
+
+    log("[Host] Watchers and workers resumed.");
+
+    if (dataSourcesWatcherActive) {
+      startDataSourcesWatcher();
+      for (const folder of vscode.workspace.workspaceFolders ?? []) {
+        void autoImportAndSyncDataSources(folder.uri.fsPath, true);
+      }
+    }
+
+    await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
+
+    if (!silent) {
+      const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+      const msg = isPt
+        ? "F# Query Studio: Watchers e workers retomados com sucesso."
+        : "F# Query Studio: Watchers and workers resumed successfully.";
+      void vscode.window.showInformationMessage(msg);
+    }
+  };
+
+  const togglePauseResume = async (): Promise<void> => {
+    if (isPaused) {
+      await resumeWatchersAndWorkers();
+    } else {
+      await pauseWatchersAndWorkers();
+    }
+  };
+
   const getWorker = async () => {
+    if (isPaused) {
+      log("[Host] Resuming paused worker for incoming request.");
+      await resumeWatchersAndWorkers(true);
+    }
     const session = await getWorkerSession({
       extensionRoot: context.extensionPath,
       env: process.env,
       log,
     });
-    if (!bridgeRegistered) {
-      bridgeRegistered = true;
+    if (lastRegisteredClient !== session.client) {
+      lastRegisteredClient = session.client;
       registerSecretBridge({
         client: session.client,
         secrets: context.secrets,
@@ -366,6 +479,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     getWorker,
     secrets: context.secrets,
     log,
+    isPaused: () => isPaused,
   });
 
   const languageFeatures = registerLanguageFeatures({
@@ -780,20 +894,23 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
           `[Workspace] Auto-import completed: ${data.importedCount} imported, ${data.skippedCount} skipped in ${data.dataSourcesDir}`,
         );
 
+        // Start real-time automatic detection watcher for data_sources
+        startDataSourcesWatcher();
+
         await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
 
         const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
         if (data.importedCount > 0) {
           const names = data.imported.map((x) => x.name).join(", ");
           const msg = isPt
-            ? `${data.importedCount} fonte(s) de dados importada(s) automaticamente da pasta 'data_sources': ${names}.`
-            : `Auto-imported ${data.importedCount} data source(s) from 'data_sources': ${names}.`;
+            ? `${data.importedCount} fonte(s) de dados importada(s) automaticamente da pasta 'data_sources': ${names}. Detecção automática em tempo real ativada.`
+            : `Auto-imported ${data.importedCount} data source(s) from 'data_sources': ${names}. Real-time automatic detection is now active.`;
           void runSyncDataSources(targetDir, true);
           void vscode.window.showInformationMessage(msg);
         } else {
           const msg = isPt
-            ? `Pasta 'data_sources' pronta em '${data.dataSourcesDir}'. Adicione arquivos .csv, .xlsx, .db ou .sqlite nela e execute o Auto-Import novamente.`
-            : `Folder 'data_sources' is ready at '${data.dataSourcesDir}'. Place your .csv, .xlsx, or .sqlite files there and run Auto-Import again to register them.`;
+            ? `Pasta 'data_sources' pronta em '${data.dataSourcesDir}'. Detecção automática ativada: qualquer arquivo .csv, .xlsx, .db ou .sqlite adicionado nela será detectado e sincronizado automaticamente.`
+            : `Folder 'data_sources' is ready at '${data.dataSourcesDir}'. Real-time detection active: place your .csv, .xlsx, or .sqlite files there and they will be auto-imported.`;
           const actionText = isPt ? "Mostrar no Explorador" : "Reveal in Explorer";
           const choice = await vscode.window.showInformationMessage(msg, actionText);
           if (choice === actionText) {
@@ -906,47 +1023,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     },
   );
 
-  // Automatic upgrade check and background cache sync for open workspace folders on startup
-  const wsFolders = vscode.workspace.workspaceFolders;
-  if (wsFolders && wsFolders.length > 0) {
-    (async () => {
-      try {
-        const worker = await getWorker();
-        for (const folder of wsFolders) {
-          // Check if data_sources folder exists, if so auto-import any pending files right away
-          const dataSourcesUri = vscode.Uri.joinPath(folder.uri, "data_sources");
-          try {
-            const stat = await vscode.workspace.fs.stat(dataSourcesUri);
-            if (stat.type === vscode.FileType.Directory) {
-              void autoImportAndSyncDataSources(folder.uri.fsPath, true);
-            }
-          } catch {
-            // folder doesn't exist yet, that's fine
-          }
+  const pauseCommand = vscode.commands.registerCommand(
+    "fs-query-studio.pauseWatchersAndWorkers",
+    () => pauseWatchersAndWorkers(),
+  );
 
-          const res = await worker.send({
-            id: randomUUID(),
-            method: "workspace/upgrade",
-            params: { workspaceDir: folder.uri.fsPath },
-          });
-          if (!res.error && res.result) {
-            const report = res.result as { upgraded: boolean; currentVersion: number; actions: string[] };
-            if (report.upgraded) {
-              log(`[Workspace] Auto-upgraded ${folder.name} to Schema v${report.currentVersion}: ${report.actions.join("; ")}`);
-              void vscode.window.showInformationMessage(
-                `F# Query Studio: Auto-upgraded ${folder.name} to Schema v${report.currentVersion}.`,
-              );
-              await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
-            }
-          }
-          // Pre-warm data sources cache in background
-          void runSyncDataSources(folder.uri.fsPath, true);
-        }
-      } catch {
-        // non-blocking on startup
-      }
-    })();
-  }
+  const resumeCommand = vscode.commands.registerCommand(
+    "fs-query-studio.resumeWatchersAndWorkers",
+    () => resumeWatchersAndWorkers(),
+  );
+
+  const togglePauseResumeCommand = vscode.commands.registerCommand(
+    "fs-query-studio.togglePauseResume",
+    () => togglePauseResume(),
+  );
 
   context.subscriptions.push(
     command,
@@ -963,14 +1053,32 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     initEmptyProjectCommand,
     upgradeProjectCommand,
     openDocsCommand,
+    pauseCommand,
+    resumeCommand,
+    togglePauseResumeCommand,
     languageFeatures,
     connections.disposable,
     outputChannel,
     statusBar,
-    dataSourcesWatcher,
+    {
+      dispose: () => {
+        stopDataSourcesWatcher();
+      },
+    },
   );
 
-  return { connections: connections.api };
+  return {
+    connections: connections.api,
+    background: {
+      isPaused: () => isPaused,
+      isDataSourcesWatcherActive: () => dataSourcesWatcherActive,
+      pause: pauseWatchersAndWorkers,
+      resume: resumeWatchersAndWorkers,
+      toggle: togglePauseResume,
+      startDataSourcesWatcher,
+      stopDataSourcesWatcher,
+    },
+  };
 }
 
 export async function deactivate(): Promise<void> {
