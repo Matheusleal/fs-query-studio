@@ -448,17 +448,37 @@ module Projection =
         let env, _, _ = projectWithCursor value elapsedMs
         env
 
+    let rec unwrapException (ex: exn) : exn =
+        match ex with
+        | :? System.Reflection.TargetInvocationException as tie when not (isNull tie.InnerException) ->
+            unwrapException tie.InnerException
+        | :? System.AggregateException as ae when not (isNull ae.InnerException) ->
+            unwrapException ae.InnerException
+        | other -> other
+
     /// An uncaught script exception becomes a structured Error result —
     /// see Section 9 — never an unhandled worker crash.
     let projectError (ex: exn) (elapsedMs: int64) : ResultEnvelope =
+        let unwrapped = unwrapException ex
+        let msg =
+            if not (isNull unwrapped.InnerException) && not (String.IsNullOrWhiteSpace unwrapped.InnerException.Message) then
+                $"{unwrapped.Message}\nCause: {unwrapped.InnerException.Message}"
+            else
+                unwrapped.Message
         { emptyEnvelope ResultKind.Error elapsedMs with
-            DisplayText = Some ex.Message }
+            DisplayText = Some msg }
 
     let projectErrorWithDetails (ex: exn) (details: string option) (elapsedMs: int64) : ResultEnvelope =
+        let unwrapped = unwrapException ex
         let msg =
             match details with
-            | Some d when not (String.IsNullOrWhiteSpace d) && ex.Message.Contains("Operation could not be completed due to earlier error") -> d
-            | _ -> ex.Message
+            | Some d when not (String.IsNullOrWhiteSpace d) && (ex.Message.Contains("Operation could not be completed") || unwrapped.Message.Contains("Operation could not be completed")) -> d
+            | Some d when not (String.IsNullOrWhiteSpace d) -> $"{unwrapped.Message}\n\nDetails:\n{d}"
+            | _ ->
+                if not (isNull unwrapped.InnerException) && not (String.IsNullOrWhiteSpace unwrapped.InnerException.Message) then
+                    $"{unwrapped.Message}\nCause: {unwrapped.InnerException.Message}"
+                else
+                    unwrapped.Message
         { emptyEnvelope ResultKind.Error elapsedMs with
             DisplayText = Some msg }
 

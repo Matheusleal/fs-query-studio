@@ -465,3 +465,120 @@ let ``FileSqliteEngine executes multi-property SelectMany join with where condit
     finally
         try if File.Exists txCsvPath then File.Delete txCsvPath with _ -> ()
         try if File.Exists targetCsvPath then File.Delete targetCsvPath with _ -> ()
+
+[<CLIMutable>]
+type ThreeWayOrderRecord = {
+    Id: int
+    customer_id: int
+    product_id: int
+    Amount: decimal
+}
+
+[<Fact>]
+let ``Cross-file relational join between two CSVs and an Excel worksheet executes natively via SQLite pushdown`` () =
+    use db = new TempDb()
+    use ordersCsv = new TempFile()
+    use customersCsv = new TempFile()
+    use catalogXlsx = new TempFile()
+    let ordersPath = ordersCsv.Path + ".csv"
+    let customersPath = customersCsv.Path + ".csv"
+    let catalogPath = catalogXlsx.Path + ".xlsx"
+
+    try
+        // 1. Customers CSV
+        File.WriteAllLines(customersPath, [|
+            "Id,Name,City"
+            "1,Alice,Sao Paulo"
+            "2,Bob,Rio de Janeiro"
+            "3,Charlie,Curitiba"
+        |])
+
+        // 2. Orders CSV
+        File.WriteAllLines(ordersPath, [|
+            "Id,customer_id,product_id,Amount"
+            "101,1,10,150.0"
+            "102,2,20,250.0"
+            "103,1,30,350.0"
+            "104,3,10,5.0"
+        |])
+
+        // 3. Products Excel workbook
+        do
+            use wb = new XLWorkbook()
+            let ws = wb.Worksheets.Add("Products")
+            ws.Cell(1, 1).Value <- "Id"
+            ws.Cell(1, 2).Value <- "Title"
+            ws.Cell(1, 3).Value <- "Price"
+            ws.Cell(2, 1).Value <- 10
+            ws.Cell(2, 2).Value <- "Laptop"
+            ws.Cell(2, 3).Value <- XLCellValue.op_Implicit 3000.0M
+            ws.Cell(3, 1).Value <- 20
+            ws.Cell(3, 2).Value <- "Mouse"
+            ws.Cell(3, 3).Value <- XLCellValue.op_Implicit 50.0M
+            ws.Cell(4, 1).Value <- 30
+            ws.Cell(4, 2).Value <- "Keyboard"
+            ws.Cell(4, 3).Value <- XLCellValue.op_Implicit 120.0M
+            wb.SaveAs(catalogPath)
+
+        let engine = FileSqliteEngine(db.Path)
+        Connections.setEngine(engine)
+
+        let ordersConnector = CsvConnector(ordersPath)
+        let customersConnector = CsvConnector(customersPath)
+        let catalogConnector = ExcelConnector(catalogPath)
+
+        let ordersConn = Connections.CsvConnection("Orders", ordersConnector)
+        let customersConn = Connections.CsvConnection("Customers", customersConnector)
+        let catalogConn = Connections.ExcelConnection("Catalog", catalogConnector)
+
+        let orders = ordersConn.Queryable<ThreeWayOrderRecord>()
+        let customers = customersConn.Queryable<CustomerCsvRecord>()
+        let products = catalogConn.SheetQueryable<ProductExcelRecord>("Products")
+
+        let q =
+            query {
+                for o in orders do
+                join c in customers on (o.customer_id = c.Id)
+                join p in products on (o.product_id = p.Id)
+                where (o.Amount > 10.0M)
+                select {| OrderId = o.Id; CustomerName = c.Name; Product = p.Title; Amount = o.Amount |}
+            }
+
+        let expr = (q :> IQueryable).Expression
+        let plan = ExpressionPushdownTranslator.extractPlanFromExpression expr "Orders" [] SqlDialect.Sqlite
+        let sql = plan.BuildSql(SqlDialect.Sqlite)
+
+        // Verify native SQL join pushdown on 3 tables without nested loop fallback
+        Assert.Contains("INNER JOIN Customers _t1 ON _t0.customer_id = _t1.Id", sql)
+        Assert.Contains("INNER JOIN Catalog_Products _t2 ON _t0.product_id = _t2.Id", sql)
+        Assert.Contains("WHERE (_t0.Amount > @p0)", sql)
+        Assert.Contains("_t0.Id AS OrderId", sql)
+        Assert.Contains("_t1.Name AS CustomerName", sql)
+        Assert.Contains("_t2.Title AS Product", sql)
+        Assert.Contains("_t0.Amount AS Amount", sql)
+
+        let sw = Stopwatch.StartNew()
+        let results = q |> Seq.toList
+        sw.Stop()
+
+        Assert.True(sw.ElapsedMilliseconds < 1000L, $"3-way join pushdown took {sw.ElapsedMilliseconds}ms, expected fast execution")
+        Assert.Equal(3, results.Length) // Orders 101, 102, 103 (104 has Amount 5.0 <= 10.0)
+
+        let o101 = results |> List.find (fun r -> r.OrderId = 101)
+        Assert.Equal("Alice", o101.CustomerName)
+        Assert.Equal("Laptop", o101.Product)
+        Assert.Equal(150.0M, o101.Amount)
+
+        let o102 = results |> List.find (fun r -> r.OrderId = 102)
+        Assert.Equal("Bob", o102.CustomerName)
+        Assert.Equal("Mouse", o102.Product)
+        Assert.Equal(250.0M, o102.Amount)
+
+        let o103 = results |> List.find (fun r -> r.OrderId = 103)
+        Assert.Equal("Alice", o103.CustomerName)
+        Assert.Equal("Keyboard", o103.Product)
+        Assert.Equal(350.0M, o103.Amount)
+    finally
+        try if File.Exists ordersPath then File.Delete ordersPath with _ -> ()
+        try if File.Exists customersPath then File.Delete customersPath with _ -> ()
+        try if File.Exists catalogPath then File.Delete catalogPath with _ -> ()

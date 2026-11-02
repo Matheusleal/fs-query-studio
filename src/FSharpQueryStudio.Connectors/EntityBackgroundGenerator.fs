@@ -220,33 +220,15 @@ module EntityBackgroundGenerator =
             try
                 let existing = File.ReadAllText targetPath
                 if existing.Contains("// No connections registered.") then
-                    true
+                    not (List.isEmpty connections)
                 else
                     let deduped = deduplicateByName connections
                     deduped
                     |> List.exists (fun def ->
-                        let hasBinding = existing.Contains($"(\"{def.Name}\")")
-                        if not hasBinding then
-                            true
-                        else
-                            let cleanName = cleanIdentifier def.Name
-                            let kindId = ConnectorRegistry.KindIdOf def.Kind
-                            if String.Equals(kindId, "Sqlite", StringComparison.OrdinalIgnoreCase) then
-                                // Verify that a SQLite connection's module actually has PushdownQueryable table members
-                                let modHeader = $"module {cleanName}Db ="
-                                let modIdx = existing.IndexOf(modHeader, StringComparison.Ordinal)
-                                if modIdx < 0 then
-                                    true
-                                else
-                                    let nextModIdx = existing.IndexOf("\nmodule ", modIdx + modHeader.Length, StringComparison.Ordinal)
-                                    let slice =
-                                        if nextModIdx > modIdx then existing.Substring(modIdx, nextModIdx - modIdx)
-                                        else existing.Substring(modIdx)
-                                    not (slice.Contains("PushdownQueryable<"))
-                            else
-                                false)
+                        let cleanName = cleanIdentifier def.Name
+                        not (existing.Contains($"(\"{def.Name}\")") || existing.Contains($"(\"{cleanName}\")")))
             with _ ->
-                true
+                false
 
     /// Ensures generated entities exist, generating synchronously when missing or stale.
     let ensureGenerated

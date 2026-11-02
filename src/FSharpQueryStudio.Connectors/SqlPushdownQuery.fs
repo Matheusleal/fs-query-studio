@@ -747,7 +747,12 @@ type PushdownQueryPlan = {
         let selectCols =
             match this.Projection with
             | Some proj -> proj
-            | None -> if this.Joins.Count > 0 then $"{this.BaseAlias}.*" else "*"
+            | None ->
+                if this.Joins.Count > 0 then
+                    let joinedCols = this.Joins |> Seq.map (fun j -> $"{j.Alias}.*") |> String.concat ", "
+                    $"{this.BaseAlias}.*, {joinedCols}"
+                else
+                    "*"
 
         match dialect with
         | SqlDialect.SqlServer ->
@@ -871,26 +876,101 @@ module ExpressionPushdownTranslator =
         | :? UnaryExpression as u when u.NodeType = ExpressionType.Quote -> unwrapQuote u.Operand
         | _ -> expr
 
+    let rec private getTupleDepth (t: Type) : int =
+        if not (isNull t) && t.IsGenericType && (t.Name.StartsWith("Tuple`") || t.Name.StartsWith("ValueTuple`")) then
+            let args = t.GetGenericArguments()
+            if args.Length = 2 then
+                1 + getTupleDepth args.[0]
+            else
+                args.Length - 1
+        else
+            0
+
+    /// Resolves a member expression (possibly navigating a nested tuple hierarchy from multi-table joins)
+    /// into an optional table alias and the column name.
+    let resolveMemberRef (plan: PushdownQueryPlan) (expr: Expression) : (string option * string) =
+        let unwrapped = unwrapQuote expr
+        match unwrapped with
+        | :? MemberExpression as m ->
+            let path = ResizeArray<string>()
+            let mutable curr: Expression = m.Expression
+            let colName = m.Member.Name
+            let mutable rootParam: ParameterExpression option = None
+
+            let mutable keepWalking = true
+            while keepWalking && not (isNull curr) do
+                match curr with
+                | :? MemberExpression as parentM ->
+                    path.Add(parentM.Member.Name)
+                    curr <- parentM.Expression
+                | :? ParameterExpression as p ->
+                    rootParam <- Some p
+                    keepWalking <- false
+                | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ->
+                    curr <- u.Operand
+                | _ ->
+                    keepWalking <- false
+
+            path.Reverse()
+
+            if path.Count = 0 then
+                (None, colName)
+            else
+                let tupleItems = path |> Seq.filter (fun s -> s.StartsWith("Item")) |> Seq.toList
+                if not (List.isEmpty tupleItems) then
+                    if tupleItems.Length = 1 then
+                        // Flat tuple / AnonymousObject: root.Item{X}
+                        let itemStr = tupleItems.[0].Substring(4)
+                        match Int32.TryParse(itemStr) with
+                        | true, n when n >= 1 ->
+                            let tableIdx = n - 1
+                            let alias = if tableIdx = 0 then plan.BaseAlias else sprintf "_t%d" tableIdx
+                            (Some alias, colName)
+                        | _ ->
+                            (None, colName)
+                    else
+                        // Nested left-associative tuple tree: root.Item1.Item2...
+                        let k =
+                            match rootParam with
+                            | Some p ->
+                                let d = getTupleDepth p.Type
+                                if d > 0 then d else plan.Joins.Count
+                            | None -> plan.Joins.Count
+
+                        let leadingOnes =
+                            let mutable count = 0
+                            let mutable stopped = false
+                            for item in tupleItems do
+                                if not stopped then
+                                    if item = "Item1" then count <- count + 1
+                                    else stopped <- true
+                            count
+
+                        let hasItem2 = tupleItems |> List.exists (fun s -> s = "Item2")
+                        let tableIdx =
+                            if not hasItem2 then 0
+                            else max 0 (k - leadingOnes)
+
+                        let alias = if tableIdx = 0 then plan.BaseAlias else sprintf "_t%d" tableIdx
+                        (Some alias, colName)
+                else
+                    (None, colName)
+        | _ ->
+            (None, unwrapped.ToString())
+
     let rec extractColumnNameWithAlias (plan: PushdownQueryPlan) (expr: Expression) : string =
         let unwrapped = unwrapQuote expr
         match unwrapped with
         | :? LambdaExpression as l -> extractColumnNameWithAlias plan l.Body
         | :? MemberExpression as m ->
-            match m.Expression with
-            | :? MemberExpression as parentM when parentM.Member.Name.StartsWith("Item") ->
-                let itemStr = parentM.Member.Name.Substring(4)
-                match Int32.TryParse(itemStr) with
-                | true, idx when idx >= 1 ->
-                    let alias = sprintf "_t%d" (idx - 1)
-                    $"{alias}.{m.Member.Name}"
-                | _ -> m.Member.Name
-            | :? ParameterExpression ->
-                if plan.Joins.Count > 0 then
-                    $"{plan.BaseAlias}.{m.Member.Name}"
+            let aliasOpt, colName = resolveMemberRef plan m
+            match aliasOpt with
+            | Some alias -> $"{alias}.{colName}"
+            | None ->
+                if plan.Joins.Count > 0 && not (colName.Contains ".") then
+                    $"{plan.BaseAlias}.{colName}"
                 else
-                    m.Member.Name
-            | _ ->
-                m.Member.Name
+                    colName
         | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ->
             extractColumnNameWithAlias plan u.Operand
         | _ ->
@@ -907,28 +987,33 @@ module ExpressionPushdownTranslator =
         | _ ->
             expr.ToString()
 
-    let rec extractKeyColumns (param: ParameterExpression) (expr: Expression) : string list =
+    let rec extractKeyColumns (plan: PushdownQueryPlan) (fallbackAlias: string) (param: ParameterExpression) (expr: Expression) : string list =
         let unwrapped = unwrapQuote expr
         match unwrapped with
-        | :? MemberExpression as m when isNull m.Expression || m.Expression = (param :> Expression) || (m.Expression :? MemberExpression) ->
-            [ m.Member.Name ]
+        | :? MemberExpression as m ->
+            let aliasOpt, colName = resolveMemberRef plan m
+            let alias = defaultArg aliasOpt fallbackAlias
+            [ $"{alias}.{colName}" ]
         | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ->
-            extractKeyColumns param u.Operand
+            extractKeyColumns plan fallbackAlias param u.Operand
         | :? NewExpression as ne ->
             [ for arg in ne.Arguments do
-                yield! extractKeyColumns param arg ]
+                yield! extractKeyColumns plan fallbackAlias param arg ]
         | :? MemberInitExpression as mie ->
             [ for binding in mie.Bindings do
                 match binding with
                 | :? MemberAssignment as ma ->
-                    yield! extractKeyColumns param ma.Expression
+                    yield! extractKeyColumns plan fallbackAlias param ma.Expression
                 | _ -> () ]
         | :? MethodCallExpression as mc when mc.Method.Name = "Create" && (mc.Method.DeclaringType = typeof<Tuple> || mc.Method.DeclaringType.Name.StartsWith("Tuple")) ->
             [ for arg in mc.Arguments do
-                yield! extractKeyColumns param arg ]
+                yield! extractKeyColumns plan fallbackAlias param arg ]
         | _ ->
             let single = extractColumnName param unwrapped
-            if not (String.IsNullOrWhiteSpace single) && not (single.Contains "(") && not (single.Contains " ") then [ single ] else []
+            if not (String.IsNullOrWhiteSpace single) && not (single.Contains "(") && not (single.Contains " ") then
+                let ref = if single.Contains(".") then single else $"{fallbackAlias}.{single}"
+                [ ref ]
+            else []
 
     let rec translatePredicate (param: ParameterExpression) (plan: PushdownQueryPlan) (expr: Expression) : string option =
         match expr with
@@ -1053,24 +1138,19 @@ module ExpressionPushdownTranslator =
             else
                 Some (Convert.ToString(c.Value, CultureInfo.InvariantCulture))
         | :? MemberExpression as m ->
-            match m.Expression with
-            | :? MemberExpression as parentM when parentM.Member.Name.StartsWith("Item") ->
-                let itemStr = parentM.Member.Name.Substring(4)
-                match Int32.TryParse(itemStr) with
-                | true, idx when idx >= 1 ->
-                    let alias = sprintf "_t%d" (idx - 1)
-                    Some $"{alias}.{m.Member.Name}"
-                | _ -> Some m.Member.Name
-            | :? ParameterExpression ->
-                if plan.Joins.Count > 0 then
-                    Some $"{plan.BaseAlias}.{m.Member.Name}"
-                else
-                    Some m.Member.Name
-            | null ->
-                let v = evaluateClientValue expr
-                translateScalarExpr dialect plan (Expression.Constant(v, expr.Type))
-            | _ ->
-                Some (extractColumnNameWithAlias plan expr)
+            let aliasOpt, colName = resolveMemberRef plan m
+            match aliasOpt with
+            | Some alias -> Some $"{alias}.{colName}"
+            | None ->
+                match m.Expression with
+                | null ->
+                    let v = evaluateClientValue expr
+                    translateScalarExpr dialect plan (Expression.Constant(v, expr.Type))
+                | _ ->
+                    if plan.Joins.Count > 0 && not (colName.Contains ".") then
+                        Some $"{plan.BaseAlias}.{colName}"
+                    else
+                        Some colName
         | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ->
             translateScalarExpr dialect plan u.Operand
         | :? BinaryExpression as b ->
@@ -1122,23 +1202,46 @@ module ExpressionPushdownTranslator =
                 None
         | _ -> None
 
-    let rec tryExtractQueryableInfo (expr: Expression) : (string * IQueryableConnector) option =
-        let unwrapped = unwrapQuote expr
-        match unwrapped with
-        | :? ConstantExpression as c when not (isNull c.Value) ->
-            let valType = c.Value.GetType()
+    let rec tryExtractFromValue (value: obj) : (string * IQueryableConnector) option =
+        if isNull value then None
+        else
+            let valType = value.GetType()
             let isPushdown = valType.Name.StartsWith("SqlPushdownQueryable")
             if isPushdown then
                 let planProp = valType.GetProperty("Plan")
                 let connProp = valType.GetProperty("Connector")
                 if not (isNull planProp) && not (isNull connProp) then
-                    let p = planProp.GetValue(c.Value) :?> PushdownQueryPlan
-                    let conn = connProp.GetValue(c.Value) :?> IQueryableConnector
+                    let p = planProp.GetValue(value) :?> PushdownQueryPlan
+                    let conn = connProp.GetValue(value) :?> IQueryableConnector
                     Some (p.BaseSql, conn)
                 else
                     None
+            elif typeof<IQueryable>.IsAssignableFrom(valType) then
+                let q = value :?> IQueryable
+                if not (isNull q.Expression) then
+                    match q.Expression with
+                    | :? ConstantExpression as ce when obj.ReferenceEquals(ce.Value, value) ->
+                        None
+                    | otherExpr ->
+                        tryExtractQueryableInfo otherExpr
+                else
+                    None
             else
-                None
+                let props = valType.GetProperties()
+                let qProp = props |> Array.tryFind (fun p -> typeof<IQueryable>.IsAssignableFrom(p.PropertyType))
+                match qProp with
+                | Some p ->
+                    try
+                        let propVal = p.GetValue(value)
+                        tryExtractFromValue propVal
+                    with _ -> None
+                | None -> None
+
+    and tryExtractQueryableInfo (expr: Expression) : (string * IQueryableConnector) option =
+        let unwrapped = unwrapQuote expr
+        match unwrapped with
+        | :? ConstantExpression as c when not (isNull c.Value) ->
+            tryExtractFromValue c.Value
         | :? MemberExpression as m ->
             try
                 let target =
@@ -1154,22 +1257,24 @@ module ExpressionPushdownTranslator =
                     | :? System.Reflection.FieldInfo as fi -> fi.GetValue(target)
                     | :? System.Reflection.PropertyInfo as pi -> pi.GetValue(target)
                     | _ -> null
-                if not (isNull value) then
-                    let valType = value.GetType()
-                    let isPushdown = valType.Name.StartsWith("SqlPushdownQueryable")
-                    if isPushdown then
-                        let planProp = valType.GetProperty("Plan")
-                        let connProp = valType.GetProperty("Connector")
-                        if not (isNull planProp) && not (isNull connProp) then
-                            let p = planProp.GetValue(value) :?> PushdownQueryPlan
-                            let conn = connProp.GetValue(value) :?> IQueryableConnector
-                            Some (p.BaseSql, conn)
-                        else None
-                    else None
-                else None
+                tryExtractFromValue value
             with _ -> None
         | :? MethodCallExpression as mc ->
-            if mc.Arguments.Count > 0 then
+            if typeof<IQueryable>.IsAssignableFrom(mc.Type) then
+                try
+                    let lambda = Expression.Lambda(mc)
+                    let res = lambda.Compile().DynamicInvoke()
+                    match tryExtractFromValue res with
+                    | Some info -> Some info
+                    | None ->
+                        if mc.Arguments.Count > 0 then
+                            tryExtractQueryableInfo mc.Arguments.[0]
+                        else None
+                with _ ->
+                    if mc.Arguments.Count > 0 then
+                        tryExtractQueryableInfo mc.Arguments.[0]
+                    else None
+            elif mc.Arguments.Count > 0 then
                 tryExtractQueryableInfo mc.Arguments.[0]
             else
                 None
@@ -1243,23 +1348,20 @@ module ExpressionPushdownTranslator =
                 | Some (innerTable, _) ->
                     let nextIdx = plan.Joins.Count + 1
                     let innerAlias = sprintf "_t%d" nextIdx
-                    let outerAlias = if plan.Joins.Count = 0 then plan.BaseAlias else sprintf "_t%d" plan.Joins.Count
+                    let defaultOuterAlias = if plan.Joins.Count = 0 then plan.BaseAlias else sprintf "_t%d" plan.Joins.Count
                     let outerKeyL = unwrapQuote mc.Arguments.[2] :?> LambdaExpression
                     let innerKeyL = unwrapQuote mc.Arguments.[3] :?> LambdaExpression
-                    let outerCols = extractKeyColumns outerKeyL.Parameters.[0] outerKeyL.Body
-                    let innerCols = extractKeyColumns innerKeyL.Parameters.[0] innerKeyL.Body
+                    let outerCols = extractKeyColumns plan defaultOuterAlias outerKeyL.Parameters.[0] outerKeyL.Body
+                    let innerCols = extractKeyColumns plan innerAlias innerKeyL.Parameters.[0] innerKeyL.Body
                     let onClause =
                         if outerCols.Length > 0 && outerCols.Length = innerCols.Length then
                             List.zip outerCols innerCols
-                            |> List.map (fun (oCol, iCol) ->
-                                let oRef = if oCol.Contains(".") then oCol else $"{outerAlias}.{oCol}"
-                                let iRef = if iCol.Contains(".") then iCol else $"{innerAlias}.{iCol}"
-                                $"{oRef} = {iRef}")
+                            |> List.map (fun (oRef, iRef) -> $"{oRef} = {iRef}")
                             |> String.concat " AND "
                         else
                             let outerCol = extractColumnName outerKeyL.Parameters.[0] outerKeyL.Body
                             let innerCol = extractColumnName innerKeyL.Parameters.[0] innerKeyL.Body
-                            let outerColRef = if outerCol.Contains(".") then outerCol else $"{outerAlias}.{outerCol}"
+                            let outerColRef = if outerCol.Contains(".") then outerCol else $"{defaultOuterAlias}.{outerCol}"
                             let innerColRef = if innerCol.Contains(".") then innerCol else $"{innerAlias}.{innerCol}"
                             $"{outerColRef} = {innerColRef}"
 
@@ -1361,7 +1463,6 @@ module ExpressionPushdownTranslator =
                     | Some sqlExpr ->
                         colParts.Add($"{sqlExpr} AS {alias}")
                     | None ->
-                        failwith $"FAILED TO TRANSLATE ARG[{idx}] '{alias}': {arg} (Type: {arg.GetType().Name})"
                         ok <- false
                 if ok && colParts.Count > 0 then
                     plan.Projection <- Some (String.concat ", " colParts)
