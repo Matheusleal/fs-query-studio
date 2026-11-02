@@ -92,8 +92,15 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
         const codeCells = doc.cells.filter((c) => c.kind === "code");
         expect(codeCells.length).toBe(11);
 
-        // VS Code on Windows formats document URIs like: file:///${path} with %3A
-        const vscodeUriEn = `file:///${data.notebookPath.replace(/\\/g, "/").replace(":", "%3A")}`;
+        const toVscodeUri = (filePath: string) => {
+          const normalized = filePath.replace(/\\/g, "/");
+          return normalized.startsWith("/")
+            ? `file://${normalized}`
+            : `file:///${normalized.replace(":", "%3A")}`;
+        };
+
+        // VS Code formats document URIs: file:///${path} on Windows (with %3A), file://${path} on Linux/macOS
+        const vscodeUriEn = toVscodeUri(data.notebookPath);
 
         const expectedEnRowCounts = [2, 8, 6, 4, 5, 3, 6, 5, 4, 8, 6];
 
@@ -135,7 +142,7 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
         const codeCellsPt = docPt.cells.filter((c) => c.kind === "code");
         expect(codeCellsPt.length).toBe(11);
 
-        const vscodeUriPt = `file:///${data.notebookPtPath!.replace(/\\/g, "/").replace(":", "%3A")}`;
+        const vscodeUriPt = toVscodeUri(data.notebookPtPath!);
 
         const expectedPtRowCounts = [2, 8, 6, 4, 5, 3, 6, 5, 4, 8, 6];
 

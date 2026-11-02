@@ -39,8 +39,20 @@ module Prologue =
                         elif pathPart.StartsWith("//") then pathPart.Substring(1)
                         else pathPart
                     elif unescaped.StartsWith("file:", System.StringComparison.OrdinalIgnoreCase) then
-                        let uri = System.Uri(unescaped)
-                        uri.LocalPath
+                        try
+                            let uri = System.Uri(unescaped)
+                            let p = uri.LocalPath
+                            let parentDir = System.IO.Path.GetDirectoryName p
+                            if not (System.String.IsNullOrEmpty parentDir) && System.IO.Directory.Exists parentDir then
+                                p
+                            else
+                                let stripped = unescaped.Substring("file:".Length).TrimStart('/')
+                                if stripped.Length >= 2 && System.Char.IsLetter(stripped.[0]) && stripped.[1] = ':' then stripped
+                                else "/" + stripped
+                        with _ ->
+                            let stripped = unescaped.Substring("file:".Length).TrimStart('/')
+                            if stripped.Length >= 2 && System.Char.IsLetter(stripped.[0]) && stripped.[1] = ':' then stripped
+                            else "/" + stripped
                     else
                         let colonIdx = unescaped.IndexOf(':')
                         let pathPart = if colonIdx >= 0 then unescaped.Substring(colonIdx + 1) else unescaped
