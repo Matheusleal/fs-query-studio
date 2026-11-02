@@ -582,3 +582,94 @@ let ``Cross-file relational join between two CSVs and an Excel worksheet execute
         try if File.Exists ordersPath then File.Delete ordersPath with _ -> ()
         try if File.Exists customersPath then File.Delete customersPath with _ -> ()
         try if File.Exists catalogPath then File.Delete catalogPath with _ -> ()
+
+[<Fact>]
+let ``FileSqliteEngine handles concurrent EnsureStaged operations across threads on the same database without SQLite locks`` () =
+    use db = new TempDb()
+    let fileCount = 6
+    let tempFiles = [ for _ in 1 .. fileCount -> new TempFile() ]
+    try
+        let filePaths =
+            tempFiles
+            |> List.mapi (fun i tf ->
+                let p = tf.Path + $"-{i}.csv"
+                File.WriteAllLines(p, [|
+                    yield "Id,Code,Value"
+                    for j in 1 .. 100 -> $"{j},CODE_{i}_{j},{j * 10}"
+                |])
+                p
+            )
+
+        // Launch concurrent staging across multiple threads using separate FileSqliteEngine instances
+        let tasks =
+            [ for i in 0 .. filePaths.Length - 1 ->
+                let path = filePaths.[i]
+                let tableName = $"Table_{i}"
+                System.Threading.Tasks.Task.Run(fun () ->
+                    let engine = FileSqliteEngine(db.Path)
+                    let connector = CsvConnector(path)
+                    let res = engine.EnsureStaged(tableName, path, (fun () -> connector.ReadRows()), currentIndex = (i + 1), totalCount = fileCount)
+                    Assert.Equal(tableName, res)
+                )
+            ]
+
+        System.Threading.Tasks.Task.WaitAll(tasks |> List.toArray)
+
+        // Verify all 6 tables exist and have 100 rows each in the staging database
+        let verifyEngine = FileSqliteEngine(db.Path)
+        for i in 0 .. filePaths.Length - 1 do
+            let tableName = $"Table_{i}"
+            let queryRes = verifyEngine.ExecuteQuery($"SELECT count(*) FROM \"{tableName}\";")
+            let count = Convert.ToInt32((queryRes.Rows |> Seq.head).[0])
+            Assert.Equal(100, count)
+    finally
+        for tf in tempFiles do
+            (tf :> IDisposable).Dispose()
+
+[<Fact>]
+let ``FileSqliteEngine emits granular staging progress events for Reading, Writing, Indexing, and Completed`` () =
+    use db = new TempDb()
+    use csvFile = new TempFile()
+    let csvPath = csvFile.Path + ".csv"
+    try
+        File.WriteAllLines(csvPath, [|
+            "Id,Name,Score"
+            "1,Alice,95"
+            "2,Bob,88"
+            "3,Charlie,92"
+        |])
+
+        let engine = FileSqliteEngine(db.Path)
+        let connector = CsvConnector(csvPath)
+        let events = System.Collections.Concurrent.ConcurrentBag<StagingProgressEvent>()
+
+        let staged =
+            engine.EnsureStaged(
+                "Students",
+                csvPath,
+                (fun () -> connector.ReadRows()),
+                currentIndex = 1,
+                totalCount = 1,
+                onProgress = events.Add
+            )
+
+        Assert.Equal("Students", staged)
+
+        let eventList = events |> Seq.toList
+        let phases = eventList |> List.map (fun e -> e.Phase)
+
+        Assert.Contains("Reading", phases)
+        Assert.Contains("Writing", phases)
+        Assert.Contains("Indexing", phases)
+        Assert.Contains("Completed", phases)
+
+        let writingEv = eventList |> List.find (fun e -> e.Phase = "Writing")
+        Assert.Equal(Some 3, writingEv.RowCount)
+        Assert.Equal(Some 1, writingEv.CurrentIndex)
+        Assert.Equal(Some 1, writingEv.TotalCount)
+
+        let completedEv = eventList |> List.find (fun e -> e.Phase = "Completed")
+        Assert.Equal(Some 3, completedEv.RowCount)
+        Assert.True(completedEv.ElapsedMs.IsSome)
+    finally
+        try if File.Exists csvPath then File.Delete csvPath with _ -> ()

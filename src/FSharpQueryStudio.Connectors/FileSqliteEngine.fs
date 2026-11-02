@@ -8,13 +8,35 @@ open Microsoft.Data.Sqlite
 open FSharpQueryStudio.Protocol
 open Serilog
 
+/// Event data reported during file staging and cache population phases.
+type StagingProgressEvent =
+    { TableName: string
+      FilePath: string
+      Phase: string // "Reading" | "Writing" | "Indexing" | "Completed" | "Skipped" | "Failed"
+      RowCount: int option
+      CurrentIndex: int option
+      TotalCount: int option
+      ElapsedMs: int64 option
+      Message: string option }
+
 /// Manages an embedded SQLite staging database for tabular file formats (CSV, Excel)
 /// to enable relational joins, B-tree indexes, and SQL pushdown across workspace files.
 type FileSqliteEngine(dbPath: string) =
-    let connStr = SqliteConnectionStringBuilder(DataSource = dbPath, Pooling = false).ToString()
+    let connStr =
+        let csb = SqliteConnectionStringBuilder(DataSource = dbPath, Pooling = false)
+        csb.DefaultTimeout <- 60
+        csb.ToString()
+
     let connector = SqliteConnector(dbPath)
-    let stagingLock = obj()
     let stagedTables = ConcurrentDictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+
+    static let dbLocks = ConcurrentDictionary<string, System.Threading.SemaphoreSlim>(StringComparer.OrdinalIgnoreCase)
+
+    static let getDbLock (path: string) =
+        let fullPath =
+            try Path.GetFullPath(path)
+            with _ -> path
+        dbLocks.GetOrAdd(fullPath, fun _ -> new System.Threading.SemaphoreSlim(1, 1))
 
     let isMissingOrSentinel (s: string) : bool =
         if String.IsNullOrWhiteSpace s then true
@@ -36,11 +58,11 @@ type FileSqliteEngine(dbPath: string) =
         if not (String.IsNullOrWhiteSpace dir) && not (Directory.Exists dir) then
             Directory.CreateDirectory(dir) |> ignore
 
-        // Ensure database and tracking table exist
+        // Ensure database and tracking table exist with high busy_timeout
         use conn = new SqliteConnection(connStr)
         conn.Open()
         use pragmaCmd = conn.CreateCommand()
-        pragmaCmd.CommandText <- "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -64000; PRAGMA temp_store = MEMORY;"
+        pragmaCmd.CommandText <- "PRAGMA busy_timeout = 60000; PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA cache_size = -64000; PRAGMA temp_store = MEMORY;"
         pragmaCmd.ExecuteNonQuery() |> ignore
 
         use tableCmd = conn.CreateCommand()
@@ -54,6 +76,9 @@ type FileSqliteEngine(dbPath: string) =
         );
         """
         tableCmd.ExecuteNonQuery() |> ignore
+
+    static member val GlobalProgressCallback : (StagingProgressEvent -> unit) option = None with get, set
+    member val ProgressCallback : (StagingProgressEvent -> unit) option = None with get, set
 
     /// The underlying SqliteConnector pointing to this staging database.
     member _.Connector : SqliteConnector = connector
@@ -116,6 +141,10 @@ type FileSqliteEngine(dbPath: string) =
 
                 use conn = new SqliteConnection(connStr)
                 conn.Open()
+                use pragmaCmd = conn.CreateCommand()
+                pragmaCmd.CommandText <- "PRAGMA busy_timeout = 60000;"
+                pragmaCmd.ExecuteNonQuery() |> ignore
+
                 use cmd = conn.CreateCommand()
                 cmd.CommandText <- "SELECT last_write_time_utc, file_size FROM _fqs_file_cache WHERE table_name = @t;"
                 cmd.Parameters.AddWithValue("@t", tableName) |> ignore
@@ -139,216 +168,336 @@ type FileSqliteEngine(dbPath: string) =
 
     /// Ensures that the specified CSV or Excel file is staged into the SQLite database as `tableName`.
     /// If the table is already staged and the file on disk has not changed, this returns immediately (0ms).
-    /// Supports optional explicit column type overrides via `columnTypes`.
-    member this.EnsureStaged(tableName: string, filePath: string, readRows: unit -> ConnectorQueryResult, ?columnTypes: Map<string, string>) : string =
+    /// Supports optional explicit column type overrides via `columnTypes`, progress reporting, and process-wide serialization.
+    member this.EnsureStaged
+        (
+            tableName: string,
+            filePath: string,
+            readRows: unit -> ConnectorQueryResult,
+            ?columnTypes: Map<string, string>,
+            ?currentIndex: int,
+            ?totalCount: int,
+            ?onProgress: StagingProgressEvent -> unit
+        ) : string =
         let cleanTableName =
             let clean = CodeGenerationHelpers.cleanIdentifier tableName
             if String.IsNullOrWhiteSpace clean then "StagedFile" else clean
 
+        let report (ev: StagingProgressEvent) =
+            try
+                match onProgress with
+                | Some cb -> cb ev
+                | None ->
+                    match this.ProgressCallback with
+                    | Some cb -> cb ev
+                    | None ->
+                        match FileSqliteEngine.GlobalProgressCallback with
+                        | Some cb -> cb ev
+                        | None -> ()
+            with ex ->
+                Log.Warning("FS Query Studio: Error reporting staging progress: {Error}", ex.Message)
+
         if stagedTables.ContainsKey cleanTableName && this.IsStagedAndCurrent(cleanTableName, filePath) then
+            report {
+                TableName = cleanTableName
+                FilePath = filePath
+                Phase = "Skipped"
+                RowCount = None
+                CurrentIndex = currentIndex
+                TotalCount = totalCount
+                ElapsedMs = Some 0L
+                Message = Some $"Table '{cleanTableName}' is up-to-date in cache"
+            }
             cleanTableName
         else
-            lock stagingLock (fun () ->
+            let sem = getDbLock dbPath
+            sem.Wait()
+            try
                 if this.IsStagedAndCurrent(cleanTableName, filePath) then
                     stagedTables.[cleanTableName] <- true
+                    report {
+                        TableName = cleanTableName
+                        FilePath = filePath
+                        Phase = "Skipped"
+                        RowCount = None
+                        CurrentIndex = currentIndex
+                        TotalCount = totalCount
+                        ElapsedMs = Some 0L
+                        Message = Some $"Table '{cleanTableName}' is up-to-date in cache"
+                    }
                     cleanTableName
                 else
-                    let sw = System.Diagnostics.Stopwatch.StartNew()
-                    let data = readRows()
-                    let rawColumns = data.Columns
-                    let sanitizedColumns = CodeGenerationHelpers.sanitizeColumns rawColumns
+                    let rec executeWithRetry attempt maxAttempts =
+                        try
+                            let sw = System.Diagnostics.Stopwatch.StartNew()
+                            report {
+                                TableName = cleanTableName
+                                FilePath = filePath
+                                Phase = "Reading"
+                                RowCount = None
+                                CurrentIndex = currentIndex
+                                TotalCount = totalCount
+                                ElapsedMs = None
+                                Message = Some $"Reading '{Path.GetFileName filePath}'..."
+                            }
 
-                    let fi = if File.Exists filePath then FileInfo(filePath) else null
-                    let mtime = if not (isNull fi) then fi.LastWriteTimeUtc.Ticks else 0L
-                    let size = if not (isNull fi) then fi.Length else 0L
+                            let data = readRows()
+                            let rawColumns = data.Columns
+                            let sanitizedColumns = CodeGenerationHelpers.sanitizeColumns rawColumns
 
-                    use conn = new SqliteConnection(connStr)
-                    conn.Open()
+                            let fi = if File.Exists filePath then FileInfo(filePath) else null
+                            let mtime = if not (isNull fi) then fi.LastWriteTimeUtc.Ticks else 0L
+                            let size = if not (isNull fi) then fi.Length else 0L
 
-                    use pragmaCmd = conn.CreateCommand()
-                    pragmaCmd.CommandText <- """
-                    PRAGMA journal_mode = WAL;
-                    PRAGMA synchronous = NORMAL;
-                    PRAGMA cache_size = -64000;
-                    PRAGMA temp_store = MEMORY;
-                    """
-                    pragmaCmd.ExecuteNonQuery() |> ignore
+                            use conn = new SqliteConnection(connStr)
+                            conn.Open()
 
-                    use tx = conn.BeginTransaction()
+                            use pragmaCmd = conn.CreateCommand()
+                            pragmaCmd.CommandText <- """
+                            PRAGMA busy_timeout = 60000;
+                            PRAGMA journal_mode = WAL;
+                            PRAGMA synchronous = NORMAL;
+                            PRAGMA cache_size = -64000;
+                            PRAGMA temp_store = MEMORY;
+                            """
+                            pragmaCmd.ExecuteNonQuery() |> ignore
 
-                    // Drop table if exists
-                    use dropCmd = conn.CreateCommand()
-                    dropCmd.Transaction <- tx
-                    dropCmd.CommandText <- $"DROP TABLE IF EXISTS \"{cleanTableName}\";"
-                    dropCmd.ExecuteNonQuery() |> ignore
+                            use tx = conn.BeginTransaction()
 
-                    let effectiveCols =
-                        if List.isEmpty sanitizedColumns then [ "Value" ] else sanitizedColumns
+                            // Drop table if exists
+                            use dropCmd = conn.CreateCommand()
+                            dropCmd.Transaction <- tx
+                            dropCmd.CommandText <- $"DROP TABLE IF EXISTS \"{cleanTableName}\";"
+                            dropCmd.ExecuteNonQuery() |> ignore
 
-                    let sampleRows = data.Rows |> Seq.truncate 500 |> Seq.toList
-                    let typesMap = defaultArg columnTypes Map.empty
-                    let affinities =
-                        effectiveCols
-                        |> List.mapi (fun i colName ->
-                            let overrideType =
-                                match typesMap.TryFind colName with
-                                | Some t -> Some t
-                                | None ->
-                                    if i < rawColumns.Length then typesMap.TryFind rawColumns.[i] else None
-                            FileSqliteEngine.InferAffinity(sampleRows |> Seq.map (fun r -> if i < r.Length then r.[i] else null), ?columnTypeOverride = overrideType)
-                        )
+                            let effectiveCols =
+                                if List.isEmpty sanitizedColumns then [ "Value" ] else sanitizedColumns
 
-                    // Create table with explicit type affinities
-                    let colDefs =
-                        List.zip effectiveCols affinities
-                        |> List.map (fun (c, aff) -> $"\"{c}\" {aff}")
-                        |> String.concat ", "
-                    use createCmd = conn.CreateCommand()
-                    createCmd.Transaction <- tx
-                    createCmd.CommandText <- $"CREATE TABLE \"{cleanTableName}\" ({colDefs});"
-                    createCmd.ExecuteNonQuery() |> ignore
+                            let rows = data.Rows |> Seq.toArray
+                            let sampleRows = rows |> Seq.truncate 500 |> Seq.toList
+                            let typesMap = defaultArg columnTypes Map.empty
+                            let affinities =
+                                effectiveCols
+                                |> List.mapi (fun i colName ->
+                                    let overrideType =
+                                        match typesMap.TryFind colName with
+                                        | Some t -> Some t
+                                        | None ->
+                                            if i < rawColumns.Length then typesMap.TryFind rawColumns.[i] else None
+                                    FileSqliteEngine.InferAffinity(sampleRows |> Seq.map (fun r -> if i < r.Length then r.[i] else null), ?columnTypeOverride = overrideType)
+                                )
 
-                    // Fast parameterized row insertion
-                    let placeholders =
-                        [ for i in 0 .. effectiveCols.Length - 1 -> $"@p{i}" ]
-                        |> String.concat ", "
-                    let insertSql = $"INSERT INTO \"{cleanTableName}\" VALUES ({placeholders});"
+                            // Create table with explicit type affinities
+                            let colDefs =
+                                List.zip effectiveCols affinities
+                                |> List.map (fun (c, aff) -> $"\"{c}\" {aff}")
+                                |> String.concat ", "
+                            use createCmd = conn.CreateCommand()
+                            createCmd.Transaction <- tx
+                            createCmd.CommandText <- $"CREATE TABLE \"{cleanTableName}\" ({colDefs});"
+                            createCmd.ExecuteNonQuery() |> ignore
 
-                    use insertCmd = conn.CreateCommand()
-                    insertCmd.Transaction <- tx
-                    insertCmd.CommandText <- insertSql
-                    let paramArray = [|
-                        for i in 0 .. effectiveCols.Length - 1 do
-                            let p = insertCmd.CreateParameter()
-                            p.ParameterName <- $"@p{i}"
-                            insertCmd.Parameters.Add(p) |> ignore
-                            yield p
-                    |]
+                            report {
+                                TableName = cleanTableName
+                                FilePath = filePath
+                                Phase = "Writing"
+                                RowCount = Some rows.Length
+                                CurrentIndex = currentIndex
+                                TotalCount = totalCount
+                                ElapsedMs = None
+                                Message = Some $"Writing {rows.Length} rows into '{cleanTableName}'..."
+                            }
 
-                    let mutable rowCount = 0
-                    for row in data.Rows do
-                        rowCount <- rowCount + 1
-                        for i in 0 .. effectiveCols.Length - 1 do
-                            let p = paramArray.[i]
-                            if i < row.Length && not (isNull row.[i]) && not (Convert.IsDBNull(row.[i])) then
-                                let raw = row.[i]
-                                let aff = affinities.[i]
-                                match raw with
-                                | :? string as s ->
-                                    let clean = s.Trim().Trim('"', '\'')
-                                    if isMissingOrSentinel clean then
+                            // Fast parameterized row insertion
+                            let placeholders =
+                                [ for i in 0 .. effectiveCols.Length - 1 -> $"@p{i}" ]
+                                |> String.concat ", "
+                            let insertSql = $"INSERT INTO \"{cleanTableName}\" VALUES ({placeholders});"
+
+                            use insertCmd = conn.CreateCommand()
+                            insertCmd.Transaction <- tx
+                            insertCmd.CommandText <- insertSql
+                            let paramArray = [|
+                                for i in 0 .. effectiveCols.Length - 1 do
+                                    let p = insertCmd.CreateParameter()
+                                    p.ParameterName <- $"@p{i}"
+                                    insertCmd.Parameters.Add(p) |> ignore
+                                    yield p
+                            |]
+
+                            let mutable rowCount = 0
+                            for row in rows do
+                                rowCount <- rowCount + 1
+                                for i in 0 .. effectiveCols.Length - 1 do
+                                    let p = paramArray.[i]
+                                    if i < row.Length && not (isNull row.[i]) && not (Convert.IsDBNull(row.[i])) then
+                                        let raw = row.[i]
+                                        let aff = affinities.[i]
+                                        match raw with
+                                        | :? string as s ->
+                                            let clean = s.Trim().Trim('"', '\'')
+                                            if isMissingOrSentinel clean then
+                                                p.Value <- DBNull.Value
+                                            elif aff = "INTEGER" then
+                                                match Int64.TryParse(clean, System.Globalization.NumberStyles.Integer ||| System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture) with
+                                                | true, v -> p.Value <- box v
+                                                | false, _ ->
+                                                    match Double.TryParse(clean.Replace(",", "."), System.Globalization.NumberStyles.Float ||| System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture) with
+                                                    | true, d when Double.IsFinite d ->
+                                                        if d % 1.0 = 0.0 then p.Value <- box (int64 d)
+                                                        else p.Value <- box d // Do not truncate decimals!
+                                                    | _ -> p.Value <- DBNull.Value
+                                            elif aff = "NUMERIC" then
+                                                match Double.TryParse(clean.Replace(",", "."), System.Globalization.NumberStyles.Float ||| System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture) with
+                                                | true, v when Double.IsFinite v -> p.Value <- box v
+                                                | _ -> p.Value <- DBNull.Value
+                                            else
+                                                p.Value <- box clean
+                                        | :? double as d ->
+                                            if Double.IsFinite d then
+                                                if aff = "INTEGER" && d % 1.0 = 0.0 && d >= float Int64.MinValue && d <= float Int64.MaxValue then
+                                                    p.Value <- box (int64 d)
+                                                else
+                                                    p.Value <- box d
+                                            else p.Value <- DBNull.Value
+                                        | :? decimal as dec ->
+                                            if aff = "INTEGER" && dec % 1.0M = 0.0M && dec >= decimal Int64.MinValue && dec <= decimal Int64.MaxValue then
+                                                p.Value <- box (int64 dec)
+                                            else
+                                                p.Value <- box (double dec)
+                                        | :? single as f ->
+                                            if Single.IsFinite f then p.Value <- box (double f)
+                                            else p.Value <- DBNull.Value
+                                        | _ ->
+                                            p.Value <- raw
+                                    else
                                         p.Value <- DBNull.Value
-                                    elif aff = "INTEGER" then
-                                        match Int64.TryParse(clean, System.Globalization.NumberStyles.Integer ||| System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture) with
-                                        | true, v -> p.Value <- box v
-                                        | false, _ ->
-                                            match Double.TryParse(clean.Replace(",", "."), System.Globalization.NumberStyles.Float ||| System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture) with
-                                            | true, d when Double.IsFinite d ->
-                                                if d % 1.0 = 0.0 then p.Value <- box (int64 d)
-                                                else p.Value <- box d // Do not truncate decimals!
-                                            | _ -> p.Value <- DBNull.Value
-                                    elif aff = "NUMERIC" then
-                                        match Double.TryParse(clean.Replace(",", "."), System.Globalization.NumberStyles.Float ||| System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture) with
-                                        | true, v when Double.IsFinite v -> p.Value <- box v
-                                        | _ -> p.Value <- DBNull.Value
-                                    else
-                                        p.Value <- box clean
-                                | :? double as d ->
-                                    if Double.IsFinite d then
-                                        if aff = "INTEGER" && d % 1.0 = 0.0 && d >= float Int64.MinValue && d <= float Int64.MaxValue then
-                                            p.Value <- box (int64 d)
-                                        else
-                                            p.Value <- box d
-                                    else p.Value <- DBNull.Value
-                                | :? decimal as dec ->
-                                    if aff = "INTEGER" && dec % 1.0M = 0.0M && dec >= decimal Int64.MinValue && dec <= decimal Int64.MaxValue then
-                                        p.Value <- box (int64 dec)
-                                    else
-                                        p.Value <- box (double dec)
-                                | :? single as f ->
-                                    if Single.IsFinite f then p.Value <- box (double f)
-                                    else p.Value <- DBNull.Value
-                                | _ ->
-                                    p.Value <- raw
-                            else
-                                p.Value <- DBNull.Value
-                        insertCmd.ExecuteNonQuery() |> ignore
+                                insertCmd.ExecuteNonQuery() |> ignore
 
-                    // Auto-index key, code, and relation columns for instant join performance
-                    let keyCols =
-                        effectiveCols
-                        |> List.filter (fun col ->
-                            col.Equals("Id", StringComparison.OrdinalIgnoreCase)
-                            || col.EndsWith("Id", StringComparison.OrdinalIgnoreCase)
-                            || col.EndsWith("_id", StringComparison.OrdinalIgnoreCase)
-                            || col.EndsWith("Code", StringComparison.OrdinalIgnoreCase)
-                            || col.EndsWith("_code", StringComparison.OrdinalIgnoreCase)
-                            || col.EndsWith("Key", StringComparison.OrdinalIgnoreCase)
-                            || col.EndsWith("_key", StringComparison.OrdinalIgnoreCase)
-                            || col.Equals("Region", StringComparison.OrdinalIgnoreCase)
-                            || col.Equals("Category", StringComparison.OrdinalIgnoreCase)
-                            || col.Equals("Sku", StringComparison.OrdinalIgnoreCase)
-                        )
+                            report {
+                                TableName = cleanTableName
+                                FilePath = filePath
+                                Phase = "Indexing"
+                                RowCount = Some rowCount
+                                CurrentIndex = currentIndex
+                                TotalCount = totalCount
+                                ElapsedMs = None
+                                Message = Some $"Creating indexes for '{cleanTableName}'..."
+                            }
 
-                    for col in keyCols do
-                        try
-                            use idxCmd = conn.CreateCommand()
-                            idxCmd.Transaction <- tx
-                            idxCmd.CommandText <- $"CREATE INDEX IF NOT EXISTS \"ix_{cleanTableName}_{col}\" ON \"{cleanTableName}\" (\"{col}\");"
-                            idxCmd.ExecuteNonQuery() |> ignore
-                        with ex ->
-                            Log.Warning("FS Query Studio: Could not create index on {Col} for {Table}: {Error}", col, cleanTableName, ex.Message)
+                            // Auto-index key, code, and relation columns for instant join performance
+                            let keyCols =
+                                effectiveCols
+                                |> List.filter (fun col ->
+                                    col.Equals("Id", StringComparison.OrdinalIgnoreCase)
+                                    || col.EndsWith("Id", StringComparison.OrdinalIgnoreCase)
+                                    || col.EndsWith("_id", StringComparison.OrdinalIgnoreCase)
+                                    || col.EndsWith("Code", StringComparison.OrdinalIgnoreCase)
+                                    || col.EndsWith("_code", StringComparison.OrdinalIgnoreCase)
+                                    || col.EndsWith("Key", StringComparison.OrdinalIgnoreCase)
+                                    || col.EndsWith("_key", StringComparison.OrdinalIgnoreCase)
+                                    || col.Equals("Region", StringComparison.OrdinalIgnoreCase)
+                                    || col.Equals("Category", StringComparison.OrdinalIgnoreCase)
+                                    || col.Equals("Sku", StringComparison.OrdinalIgnoreCase)
+                                )
 
-                    // Composite index on pairs of key columns for multi-property joins
-                    if keyCols.Length >= 2 then
-                        try
-                            let c1 = keyCols.[0]
-                            let c2 = keyCols.[1]
-                            use compIdxCmd = conn.CreateCommand()
-                            compIdxCmd.Transaction <- tx
-                            compIdxCmd.CommandText <- $"CREATE INDEX IF NOT EXISTS \"ix_{cleanTableName}_{c1}_{c2}\" ON \"{cleanTableName}\" (\"{c1}\", \"{c2}\");"
-                            compIdxCmd.ExecuteNonQuery() |> ignore
-                        with ex ->
-                            Log.Warning("FS Query Studio: Could not create composite index on ({C1}, {C2}) for {Table}: {Error}", keyCols.[0], keyCols.[1], cleanTableName, ex.Message)
+                            for col in keyCols do
+                                try
+                                    use idxCmd = conn.CreateCommand()
+                                    idxCmd.Transaction <- tx
+                                    idxCmd.CommandText <- $"CREATE INDEX IF NOT EXISTS \"ix_{cleanTableName}_{col}\" ON \"{cleanTableName}\" (\"{col}\");"
+                                    idxCmd.ExecuteNonQuery() |> ignore
+                                with ex ->
+                                    Log.Warning("FS Query Studio: Could not create index on {Col} for {Table}: {Error}", col, cleanTableName, ex.Message)
 
-                    // Update _fqs_file_cache
-                    use ensureCacheCmd = conn.CreateCommand()
-                    ensureCacheCmd.Transaction <- tx
-                    ensureCacheCmd.CommandText <- """
-                    CREATE TABLE IF NOT EXISTS _fqs_file_cache (
-                        table_name TEXT PRIMARY KEY,
-                        file_path TEXT NOT NULL,
-                        last_write_time_utc INTEGER NOT NULL,
-                        file_size INTEGER NOT NULL,
-                        staged_at_utc TEXT NOT NULL
-                    );
-                    """
-                    ensureCacheCmd.ExecuteNonQuery() |> ignore
+                            // Composite index on pairs of key columns for multi-property joins
+                            if keyCols.Length >= 2 then
+                                try
+                                    let c1 = keyCols.[0]
+                                    let c2 = keyCols.[1]
+                                    use compIdxCmd = conn.CreateCommand()
+                                    compIdxCmd.Transaction <- tx
+                                    compIdxCmd.CommandText <- $"CREATE INDEX IF NOT EXISTS \"ix_{cleanTableName}_{c1}_{c2}\" ON \"{cleanTableName}\" (\"{c1}\", \"{c2}\");"
+                                    compIdxCmd.ExecuteNonQuery() |> ignore
+                                with ex ->
+                                    Log.Warning("FS Query Studio: Could not create composite index on ({C1}, {C2}) for {Table}: {Error}", keyCols.[0], keyCols.[1], cleanTableName, ex.Message)
 
-                    use cacheCmd = conn.CreateCommand()
-                    cacheCmd.Transaction <- tx
-                    cacheCmd.CommandText <- """
-                    INSERT OR REPLACE INTO _fqs_file_cache (table_name, file_path, last_write_time_utc, file_size, staged_at_utc)
-                    VALUES (@tbl, @path, @mtime, @size, @stagedAt);
-                    """
-                    cacheCmd.Parameters.AddWithValue("@tbl", cleanTableName) |> ignore
-                    cacheCmd.Parameters.AddWithValue("@path", filePath) |> ignore
-                    cacheCmd.Parameters.AddWithValue("@mtime", mtime) |> ignore
-                    cacheCmd.Parameters.AddWithValue("@size", size) |> ignore
-                    cacheCmd.Parameters.AddWithValue("@stagedAt", DateTime.UtcNow.ToString("o")) |> ignore
-                    cacheCmd.ExecuteNonQuery() |> ignore
+                            // Update _fqs_file_cache
+                            use ensureCacheCmd = conn.CreateCommand()
+                            ensureCacheCmd.Transaction <- tx
+                            ensureCacheCmd.CommandText <- """
+                            CREATE TABLE IF NOT EXISTS _fqs_file_cache (
+                                table_name TEXT PRIMARY KEY,
+                                file_path TEXT NOT NULL,
+                                last_write_time_utc INTEGER NOT NULL,
+                                file_size INTEGER NOT NULL,
+                                staged_at_utc TEXT NOT NULL
+                            );
+                            """
+                            ensureCacheCmd.ExecuteNonQuery() |> ignore
 
-                    tx.Commit()
-                    sw.Stop()
+                            use cacheCmd = conn.CreateCommand()
+                            cacheCmd.Transaction <- tx
+                            cacheCmd.CommandText <- """
+                            INSERT OR REPLACE INTO _fqs_file_cache (table_name, file_path, last_write_time_utc, file_size, staged_at_utc)
+                            VALUES (@tbl, @path, @mtime, @size, @stagedAt);
+                            """
+                            cacheCmd.Parameters.AddWithValue("@tbl", cleanTableName) |> ignore
+                            cacheCmd.Parameters.AddWithValue("@path", filePath) |> ignore
+                            cacheCmd.Parameters.AddWithValue("@mtime", mtime) |> ignore
+                            cacheCmd.Parameters.AddWithValue("@size", size) |> ignore
+                            cacheCmd.Parameters.AddWithValue("@stagedAt", DateTime.UtcNow.ToString("o")) |> ignore
+                            cacheCmd.ExecuteNonQuery() |> ignore
 
-                    Log.Information(
-                        "FileSqliteEngine: Staged {RowCount} rows into table '{Table}' from '{FilePath}' in {ElapsedMs}ms",
-                        rowCount,
-                        cleanTableName,
-                        filePath,
-                        sw.ElapsedMilliseconds
-                    )
-                    stagedTables.[cleanTableName] <- true
-                    cleanTableName
-            )
+                            tx.Commit()
+                            sw.Stop()
+
+                            Log.Information(
+                                "FileSqliteEngine: Staged {RowCount} rows into table '{Table}' from '{FilePath}' in {ElapsedMs}ms",
+                                rowCount,
+                                cleanTableName,
+                                filePath,
+                                sw.ElapsedMilliseconds
+                            )
+
+                            report {
+                                TableName = cleanTableName
+                                FilePath = filePath
+                                Phase = "Completed"
+                                RowCount = Some rowCount
+                                CurrentIndex = currentIndex
+                                TotalCount = totalCount
+                                ElapsedMs = Some sw.ElapsedMilliseconds
+                                Message = Some $"Cached '{cleanTableName}' ({rowCount} rows in {sw.ElapsedMilliseconds}ms)"
+                            }
+
+                            stagedTables.[cleanTableName] <- true
+                            cleanTableName
+                        with
+                        | :? SqliteException as ex when ex.SqliteErrorCode = 5 && attempt < maxAttempts ->
+                            Log.Warning(
+                                "FS Query Studio: SQLite lock encountered for '{Table}' (attempt {Attempt}/{Max}): {Message}. Retrying...",
+                                cleanTableName,
+                                attempt,
+                                maxAttempts,
+                                ex.Message
+                            )
+                            System.Threading.Thread.Sleep(150 * attempt + Random.Shared.Next(20, 100))
+                            executeWithRetry (attempt + 1) maxAttempts
+                        | ex ->
+                            report {
+                                TableName = cleanTableName
+                                FilePath = filePath
+                                Phase = "Failed"
+                                RowCount = None
+                                CurrentIndex = currentIndex
+                                TotalCount = totalCount
+                                ElapsedMs = None
+                                Message = Some $"Failed staging '{cleanTableName}': {ex.Message}"
+                            }
+                            reraise ()
+
+                    executeWithRetry 1 5
+            finally
+                sem.Release() |> ignore
 

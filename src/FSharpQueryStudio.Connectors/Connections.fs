@@ -997,8 +997,12 @@ module Connections =
           Total: int
           ElapsedMs: int64 }
 
-    /// Asynchronously synchronizes and pre-stages all CSV and Excel connections for a workspace into the persistent SQLite disk cache.
-    let syncDataSourcesAsync (workspaceDir: string) (connections: ConnectionDefinition list) (secretStore: FSharpQueryStudio.Security.ISecretStore) : Task<DataSourcesSyncSummary> =
+    /// Asynchronously synchronizes and pre-stages all CSV and Excel connections for a workspace into the persistent SQLite disk cache with progress reporting.
+    let syncDataSourcesAsyncWithProgress
+        (workspaceDir: string)
+        (connections: ConnectionDefinition list)
+        (secretStore: FSharpQueryStudio.Security.ISecretStore)
+        (onProgress: (StagingProgressEvent -> unit) option) : Task<DataSourcesSyncSummary> =
         task {
             let sw = Stopwatch.StartNew()
             let baseDir = ConnectorDescriptor.projectRootOf workspaceDir
@@ -1006,7 +1010,13 @@ module Connections =
             if not (System.IO.Directory.Exists cacheDir) then
                 System.IO.Directory.CreateDirectory cacheDir |> ignore
             let dbPath = System.IO.Path.Combine(cacheDir, "engine.db")
-            let eng = FileSqliteEngine(dbPath)
+            let eng =
+                match engine with
+                | Some e when String.Equals(System.IO.Path.GetFullPath(e.DatabasePath), System.IO.Path.GetFullPath(dbPath), StringComparison.OrdinalIgnoreCase) -> e
+                | _ ->
+                    let e = FileSqliteEngine(dbPath)
+                    engine <- Some e
+                    e
 
             let mutable stagedCount = 0
             let mutable skippedCount = 0
@@ -1014,7 +1024,11 @@ module Connections =
                 connections
                 |> List.filter (fun c -> c.Kind.Id = "Csv" || c.Kind.Id = "Excel")
 
-            for connDef in fileConns do
+            let total = fileConns.Length
+
+            for i in 0 .. fileConns.Length - 1 do
+                let connDef = fileConns.[i]
+                let currentIdx = i + 1
                 try
                     let conn: IConnector = ConnectorRegistry.Instance.Resolve(connDef, secretStore, Some baseDir)
                     match connDef.Kind.Id with
@@ -1025,8 +1039,29 @@ module Connections =
                         if System.IO.File.Exists fullPath then
                             if eng.IsStagedAndCurrent(connDef.Name, fullPath) then
                                 skippedCount <- skippedCount + 1
+                                match onProgress with
+                                | Some cb ->
+                                    cb {
+                                        TableName = connDef.Name
+                                        FilePath = fullPath
+                                        Phase = "Skipped"
+                                        RowCount = None
+                                        CurrentIndex = Some currentIdx
+                                        TotalCount = Some total
+                                        ElapsedMs = Some 0L
+                                        Message = Some $"'{connDef.Name}' is up-to-date in cache"
+                                    }
+                                | None -> ()
                             else
-                                eng.EnsureStaged(connDef.Name, fullPath, (fun () -> csvConn.ReadRows()), ?columnTypes = (if csvConn.Options.ColumnTypes.IsEmpty then None else Some csvConn.Options.ColumnTypes)) |> ignore
+                                eng.EnsureStaged(
+                                    connDef.Name,
+                                    fullPath,
+                                    (fun () -> csvConn.ReadRows()),
+                                    ?columnTypes = (if csvConn.Options.ColumnTypes.IsEmpty then None else Some csvConn.Options.ColumnTypes),
+                                    currentIndex = currentIdx,
+                                    totalCount = total,
+                                    ?onProgress = onProgress
+                                ) |> ignore
                                 stagedCount <- stagedCount + 1
                     | "Excel" ->
                         let excelConn = conn :?> ExcelConnector
@@ -1049,20 +1084,70 @@ module Connections =
 
                                 if eng.IsStagedAndCurrent(compoundKey, fullPath) then
                                     skippedCount <- skippedCount + 1
+                                    match onProgress with
+                                    | Some cb ->
+                                        cb {
+                                            TableName = compoundKey
+                                            FilePath = fullPath
+                                            Phase = "Skipped"
+                                            RowCount = None
+                                            CurrentIndex = Some currentIdx
+                                            TotalCount = Some total
+                                            ElapsedMs = Some 0L
+                                            Message = Some $"'{compoundKey}' is up-to-date in cache"
+                                        }
+                                    | None -> ()
                                 else
-                                    eng.EnsureStaged(compoundKey, fullPath, (fun () -> excelConn.ReadRows(sheetName = sheetName)), ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes)) |> ignore
+                                    eng.EnsureStaged(
+                                        compoundKey,
+                                        fullPath,
+                                        (fun () -> excelConn.ReadRows(sheetName = sheetName)),
+                                        ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes),
+                                        currentIndex = currentIdx,
+                                        totalCount = total,
+                                        ?onProgress = onProgress
+                                    ) |> ignore
                                     stagedCount <- stagedCount + 1
 
                                 if isSameName || isSingleSheet || (not (List.isEmpty tables) && sheetName = (List.head tables).Name) then
                                     if not (eng.IsStagedAndCurrent(connDef.Name, fullPath)) then
-                                        eng.EnsureStaged(connDef.Name, fullPath, (fun () -> excelConn.ReadRows(sheetName = sheetName)), ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes)) |> ignore
+                                        eng.EnsureStaged(
+                                            connDef.Name,
+                                            fullPath,
+                                            (fun () -> excelConn.ReadRows(sheetName = sheetName)),
+                                            ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes),
+                                            currentIndex = currentIdx,
+                                            totalCount = total,
+                                            ?onProgress = onProgress
+                                        ) |> ignore
                                         stagedCount <- stagedCount + 1
 
                             if List.isEmpty tables then
                                 if eng.IsStagedAndCurrent(connDef.Name, fullPath) then
                                     skippedCount <- skippedCount + 1
+                                    match onProgress with
+                                    | Some cb ->
+                                        cb {
+                                            TableName = connDef.Name
+                                            FilePath = fullPath
+                                            Phase = "Skipped"
+                                            RowCount = None
+                                            CurrentIndex = Some currentIdx
+                                            TotalCount = Some total
+                                            ElapsedMs = Some 0L
+                                            Message = Some $"'{connDef.Name}' is up-to-date in cache"
+                                        }
+                                    | None -> ()
                                 else
-                                    eng.EnsureStaged(connDef.Name, fullPath, (fun () -> excelConn.ReadRows()), ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes)) |> ignore
+                                    eng.EnsureStaged(
+                                        connDef.Name,
+                                        fullPath,
+                                        (fun () -> excelConn.ReadRows()),
+                                        ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes),
+                                        currentIndex = currentIdx,
+                                        totalCount = total,
+                                        ?onProgress = onProgress
+                                    ) |> ignore
                                     stagedCount <- stagedCount + 1
                     | _ -> ()
                 with ex ->
@@ -1075,6 +1160,13 @@ module Connections =
                   Total = fileConns.Length
                   ElapsedMs = sw.ElapsedMilliseconds }
         }
+
+    /// Asynchronously synchronizes and pre-stages all CSV and Excel connections for a workspace into the persistent SQLite disk cache.
+    let syncDataSourcesAsync (workspaceDir: string) (connections: ConnectionDefinition list) (secretStore: FSharpQueryStudio.Security.ISecretStore) : Task<DataSourcesSyncSummary> =
+        syncDataSourcesAsyncWithProgress workspaceDir connections secretStore None
+
+    /// Synchronizes and pre-stages all CSV and Excel connections without progress callback.
+    let syncDataSources = syncDataSourcesAsync
 
     /// Triggers fire-and-forget background pre-staging of tabular files into the persistent disk cache.
     let triggerBackgroundSync (workspaceDir: string) (connections: ConnectionDefinition list) (secretStore: FSharpQueryStudio.Security.ISecretStore) : unit =

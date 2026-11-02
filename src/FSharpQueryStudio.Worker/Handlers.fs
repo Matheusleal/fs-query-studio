@@ -98,6 +98,21 @@ module Handlers =
                 | EntityBackgroundGenerator.EntityMappingStatus.Failed _ -> "failed"
             ch.Request("entityMapping/status", {| status = statusStr |}) |> ignore
         )
+        FileSqliteEngine.GlobalProgressCallback <- Some (fun ev ->
+            ch.Request(
+                "staging/progress",
+                {|
+                    tableName = ev.TableName
+                    filePath = ev.FilePath
+                    phase = ev.Phase
+                    rowCount = (match ev.RowCount with Some n -> box n | None -> null)
+                    currentIndex = (match ev.CurrentIndex with Some n -> box n | None -> null)
+                    totalCount = (match ev.TotalCount with Some n -> box n | None -> null)
+                    elapsedMs = (match ev.ElapsedMs with Some n -> box n | None -> null)
+                    message = (match ev.Message with Some m -> m | None -> "")
+                |}
+            ) |> ignore
+        )
 
     let private busyResponse (id: string) : WorkerResponseFrame =
         { Id = id
@@ -1155,7 +1170,7 @@ module Handlers =
             try
                 let targetDir = tryGetWorkspaceDir request.Params
                 let connections = Workspace.readConnections targetDir
-                let! summary = Connections.syncDataSourcesAsync targetDir connections secretStore
+                let! summary = Connections.syncDataSources targetDir connections secretStore
                 let result : SyncDataSourcesResult =
                     { TargetDir = targetDir
                       StagedCount = summary.StagedCount

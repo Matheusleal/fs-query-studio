@@ -14,7 +14,7 @@ import { FSQUERY_RENDERER_ID } from "./renderer/types";
 import { getWorkerSession, disposeWorkerSession } from "./worker/session";
 import { registerLanguageFeatures } from "./lang/providers";
 import { registerConnectionFeatures, type ConnectionsApi } from "./connections/commands";
-import { registerSecretBridge } from "./secrets/bridge";
+import { registerSecretBridge, type StagingProgressEvent } from "./secrets/bridge";
 
 export interface HealthCheckDeps {
   extensionRoot: string;
@@ -183,6 +183,88 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
         statusBar.text = "$(database) F# Query Studio";
         statusBar.tooltip = "F# Query Studio: Show Output Logs";
       }, 5000);
+    }
+  };
+
+  let resetStagingStatusTimer: NodeJS.Timeout | undefined;
+  const updateStagingProgress = (event: StagingProgressEvent) => {
+    const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+    const progressPrefix = event.currentIndex && event.totalCount
+      ? `[${event.currentIndex}/${event.totalCount}] `
+      : "";
+    const name = event.tableName || (event.filePath ? path.basename(event.filePath) : "Data");
+
+    if (resetStagingStatusTimer) {
+      clearTimeout(resetStagingStatusTimer);
+      resetStagingStatusTimer = undefined;
+    }
+
+    switch (event.phase) {
+      case "Reading": {
+        const text = isPt
+          ? `$(sync~spin) ${progressPrefix}Lendo ${name}...`
+          : `$(sync~spin) ${progressPrefix}Reading ${name}...`;
+        statusBar.text = text;
+        statusBar.tooltip = `F# Query Studio: ${event.message || text}`;
+        statusBar.show();
+        log(`[Cache] [Reading] ${progressPrefix}${name}: ${event.filePath || ""}`);
+        break;
+      }
+      case "Writing": {
+        const rowsText = typeof event.rowCount === "number" ? ` (${event.rowCount.toLocaleString()} rows)` : "";
+        const text = isPt
+          ? `$(sync~spin) ${progressPrefix}Gravando ${name}${rowsText}...`
+          : `$(sync~spin) ${progressPrefix}Writing ${name}${rowsText}...`;
+        statusBar.text = text;
+        statusBar.tooltip = `F# Query Studio: ${event.message || text}`;
+        statusBar.show();
+        log(`[Cache] [Writing] ${progressPrefix}${name}: ${event.rowCount ?? 0} rows`);
+        break;
+      }
+      case "Indexing": {
+        const text = isPt
+          ? `$(sync~spin) ${progressPrefix}Indexando ${name}...`
+          : `$(sync~spin) ${progressPrefix}Indexing ${name}...`;
+        statusBar.text = text;
+        statusBar.tooltip = `F# Query Studio: ${event.message || text}`;
+        statusBar.show();
+        log(`[Cache] [Indexing] ${progressPrefix}${name}: creating B-tree indexes`);
+        break;
+      }
+      case "Completed": {
+        const rowsText = typeof event.rowCount === "number" ? ` (${event.rowCount.toLocaleString()} rows)` : "";
+        const elapsedText = typeof event.elapsedMs === "number" ? ` in ${event.elapsedMs}ms` : "";
+        const text = isPt
+          ? `$(check) ${progressPrefix}Pronto: ${name}${rowsText}`
+          : `$(check) ${progressPrefix}Ready: ${name}${rowsText}`;
+        statusBar.text = text;
+        statusBar.tooltip = `F# Query Studio: Staged ${name}${rowsText}${elapsedText}`;
+        statusBar.show();
+        log(`[Cache] [Completed] ${progressPrefix}${name}${rowsText}${elapsedText}`);
+        resetStagingStatusTimer = setTimeout(() => {
+          statusBar.text = "$(database) F# Query Studio";
+          statusBar.tooltip = "F# Query Studio: Show Output Logs";
+        }, 3500);
+        break;
+      }
+      case "Skipped": {
+        log(`[Cache] [Skipped] ${progressPrefix}${name}: up-to-date in cache`);
+        break;
+      }
+      case "Failed": {
+        const text = isPt
+          ? `$(error) ${progressPrefix}Falha: ${name}`
+          : `$(error) ${progressPrefix}Failed: ${name}`;
+        statusBar.text = text;
+        statusBar.tooltip = `F# Query Studio: ${event.message || text}`;
+        statusBar.show();
+        log(`[Cache] [Failed] ${progressPrefix}${name}: ${event.message}`);
+        resetStagingStatusTimer = setTimeout(() => {
+          statusBar.text = "$(database) F# Query Studio";
+          statusBar.tooltip = "F# Query Studio: Show Output Logs";
+        }, 5000);
+        break;
+      }
     }
   };
 
@@ -463,6 +545,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
         client: session.client,
         secrets: context.secrets,
         onEntityMappingStatus: updateEntityMappingStatus,
+        onStagingProgress: updateStagingProgress,
       });
     }
     return session.client;
