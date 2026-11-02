@@ -19,6 +19,10 @@ the query translator shall compile the join into a native SQL `INNER JOIN` with 
 When a projection expression contains simple scalar operations (such as string concatenation or basic arithmetic),
 the query translator shall translate the expression into native dialect syntax (`||` for SQLite and PostgreSQL, `+` for SQL Server) or fallback to post-projection client evaluation when unsupported natively.
 
+### [REQ-PUSHDOWN-005] Inspeção Pré-Execução de Queries via `ResultKind.toRawSql`
+When the user invokes `ResultKind.toRawSql`, `toRawSql`, or `.ToRawSql()` on a pushdown query,
+the system shall extract and return the generated SQL statement and formatted parameter bindings as text without executing the command or dispatching queries to the database.
+
 ### [REQ-ENGINE-001] Staging Transacional de Arquivos Locais no SQLite
 Where a workspace contains registered tabular file connections (CSV or Excel),
 the workspace file engine shall stage file tables into a dedicated SQLite database located in `.fsqs/cache/engine.db` using high-performance batch transactions with Write-Ahead Logging (`WAL`) enabled.

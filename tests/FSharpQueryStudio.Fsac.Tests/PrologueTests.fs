@@ -8,9 +8,10 @@ let ``build emits real #r lines for Connectors, Results and SQLProvider and open
     let text = Prologue.build ()
     Assert.Contains("#r \"", text)
     Assert.Contains("open FSharpQueryStudio.Connectors", text)
+    Assert.Contains("open FSharpQueryStudio.Protocol", text)
     Assert.Contains("open FSharp.Data.Sql", text)
     Assert.DoesNotContain("open FSharpQueryStudio.Results", text)
-    Assert.Equal(5, (text.Split('\n') |> Array.filter (fun l -> l.StartsWith("#r ")) |> Array.length))
+    Assert.Equal(6, (text.Split('\n') |> Array.filter (fun l -> l.StartsWith("#r ")) |> Array.length))
 
 [<Fact>]
 let ``lineCount matches the number of real lines build() occupies`` () =

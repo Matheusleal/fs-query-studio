@@ -76,3 +76,13 @@
   - Todos os testes .NET e vitest rodam e passam com 100% de sucesso.
   - `sample_demo.fsqnb` e `sample_demo_pt.fsqnb` continuam funcionando perfeitamente.
 
+### [TASK-008] Inspeção Pré-Execução de Queries via `ResultKind.toRawSql`
+- **Status**: `[x] Completed`
+- **Goal**: Implementar o método `ResultKind.toRawSql` para permitir visualizar a query SQL final gerada e seus parâmetros antes do envio ao banco de dados ou staging engine.
+- **Related Requirements**: `[REQ-PUSHDOWN-005]`
+- **Done When**:
+  - `ResultKind.toRawSql` extrai o plano e o SQL gerado de `SqlPushdownQueryable<'T>` e `IQueryable` sem executar contra o banco de dados.
+  - Formata parâmetros de forma legível (`-- Parameters: ...`).
+  - Disponível como `ResultKind.toRawSql`, `toRawSql` e `.ToRawSql()`.
+  - Testes unitários validam a extração pré-execução sem chamadas à base.
+

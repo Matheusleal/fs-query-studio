@@ -972,6 +972,24 @@ module Connections =
         | :? RestConnector as c -> RestConnection(name, c)
         | other -> unsupported name "Connections.rest" other
 
+    /// Displays the raw generated SQL query for a queryable or SQL expression without executing it against the database.
+    let toRawSql (query: obj) : string = ResultKind.toRawSql query
+
+    /// Returns the raw generated SQL query and parameter bindings without executing it against the database.
+    let toRawSqlWithParameters (query: obj) : string * (string * obj) list = ResultKind.toRawSqlWithParameters query
+
+[<AutoOpen>]
+module QueryInspectionExtensions =
+    type ResultKind = FSharpQueryStudio.Protocol.ResultKind
+
+    do
+        ResultKind.RegisterRawSqlExtractor(SqlPushdownQuery.extractRawSql, SqlPushdownQuery.extractSqlWithParameters)
+
+    /// Displays the raw generated SQL query for a queryable or SQL expression without executing it against the database.
+    let toRawSql (query: obj) : string = ResultKind.toRawSql query
+
+    /// Returns the raw generated SQL query and parameter bindings without executing it against the database.
+    let toRawSqlWithParameters (query: obj) : string * (string * obj) list = ResultKind.toRawSqlWithParameters query
 
 [<AutoOpen>]
 module ConnectorQueryResultExtensions =

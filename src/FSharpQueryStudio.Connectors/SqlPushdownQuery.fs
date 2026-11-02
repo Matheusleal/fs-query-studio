@@ -631,6 +631,26 @@ type JoinPlan = {
     OnClause: string
 }
 
+module SqlPushdownFormatting =
+    let formatSqlAndParameters (sql: string) (parameters: (string * obj) list) : string =
+        if List.isEmpty parameters then
+            sql
+        else
+            let paramLines =
+                parameters
+                |> List.map (fun (name, value) ->
+                    let formattedVal =
+                        if isNull value || Convert.IsDBNull(value) then "NULL"
+                        else
+                            match value with
+                            | :? string as s -> sprintf "'%s'" s
+                            | :? DateTime as dt -> sprintf "'%s'" (dt.ToString("yyyy-MM-dd HH:mm:ss"))
+                            | :? bool as b -> if b then "1" else "0"
+                            | other -> string other
+                    sprintf "--   %s = %s" name formattedVal)
+                |> String.concat "\n"
+            $"-- Parameters:\n{paramLines}\n{sql}"
+
 /// Represents the planned SQL pushdown query and any in-memory fallback predicates.
 type PushdownQueryPlan = {
     BaseSql: string
@@ -671,6 +691,11 @@ type PushdownQueryPlan = {
         p.Projection <- this.Projection
         p.FallbackPredicates.AddRange(this.FallbackPredicates)
         p
+
+    member this.BuildRawSql(dialect: SqlDialect) : string =
+        let sql = this.BuildSql(dialect)
+        let allParams = (this.BaseParameters @ (this.Parameters |> List.ofSeq))
+        SqlPushdownFormatting.formatSqlAndParameters sql allParams
 
     member this.BuildSql(dialect: SqlDialect) : string =
         let isTableOnly =
@@ -1319,6 +1344,25 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
     member _.BaseParameters = baseParameters
     member _.Dialect = dialect
 
+    member this.ExtractPlan(expression: Expression, ?seedPlan: PushdownQueryPlan) : PushdownQueryPlan =
+        match seedPlan with
+        | Some sp ->
+            let cloned = sp.Clone()
+            ExpressionPushdownTranslator.mergeExpressionIntoPlan expression cloned dialect
+            cloned
+        | None ->
+            ExpressionPushdownTranslator.extractPlanFromExpression expression baseSql baseParameters dialect
+
+    member this.ToSqlWithParameters(expression: Expression, ?seedPlan: PushdownQueryPlan) : string * (string * obj) list =
+        let plan = this.ExtractPlan(expression, ?seedPlan = seedPlan)
+        let sql = plan.BuildSql(dialect)
+        let allParams = (plan.BaseParameters @ (plan.Parameters |> List.ofSeq))
+        sql, allParams
+
+    member this.ToRawSql(expression: Expression, ?seedPlan: PushdownQueryPlan) : string =
+        let sql, allParams = this.ToSqlWithParameters(expression, ?seedPlan = seedPlan)
+        SqlPushdownFormatting.formatSqlAndParameters sql allParams
+
     member this.ExecutePlanOrStream<'T>(expression: Expression, ?seedPlan: PushdownQueryPlan) : 'T seq =
         let isJoin = ExpressionPushdownTranslator.hasJoin expression
         let canPushdown = if isJoin then ExpressionPushdownTranslator.canPushdownAllJoins expression connector else true
@@ -1449,6 +1493,18 @@ and SqlPushdownQueryable<'T>(
         newPlan.Take <- Some validSize
         SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
 
+    /// Extracts the raw SQL query generated for this queryable without executing it against the database.
+    member this.ToRawSql() : string =
+        let p = provider :?> SqlPushdownQueryProvider
+        let expr = (this :> IQueryable<'T>).Expression
+        p.ToRawSql(expr, plan)
+
+    /// Extracts the raw SQL query and parameter bindings for this queryable without executing it against the database.
+    member this.ToSqlWithParameters() : string * (string * obj) list =
+        let p = provider :?> SqlPushdownQueryProvider
+        let expr = (this :> IQueryable<'T>).Expression
+        p.ToSqlWithParameters(expr, plan)
+
     interface IQueryable<'T> with
         member _.Provider = provider
         member this.Expression = if isNull expression || (match expression with :? ConstantExpression as c -> isNull c.Value | _ -> false) then Expression.Constant(this, typeof<IQueryable<'T>>) :> Expression else expression
@@ -1466,5 +1522,65 @@ and SqlPushdownQueryable<'T>(
     interface IEnumerable with
         member this.GetEnumerator() =
             (this :> IEnumerable<'T>).GetEnumerator() :> IEnumerator
+
+module SqlPushdownQuery =
+    open SqlPushdownFormatting
+
+    let rec tryFindPushdownSource (expr: Expression) : (IQueryable * PushdownQueryPlan option) option =
+        match expr with
+        | null -> None
+        | :? ConstantExpression as c when not (isNull c.Value) ->
+            match c.Value with
+            | :? IQueryable as iq when not (isNull iq.Provider) && iq.Provider.GetType() = typeof<SqlPushdownQueryProvider> ->
+                let t = c.Value.GetType()
+                let planProp = t.GetProperty("Plan")
+                let plan = if isNull planProp then None else Some (planProp.GetValue(c.Value) :?> PushdownQueryPlan)
+                Some (iq, plan)
+            | _ -> None
+        | :? MethodCallExpression as m ->
+            m.Arguments
+            |> Seq.tryPick tryFindPushdownSource
+            |> Option.orElseWith (fun () -> tryFindPushdownSource m.Object)
+        | :? UnaryExpression as u ->
+            tryFindPushdownSource u.Operand
+        | _ -> None
+
+    let extractSqlWithParameters (query: obj) : string * (string * obj) list =
+        match query with
+        | null -> ("", [])
+        | :? string as s -> (s, [])
+        | :? PushdownQueryPlan as plan ->
+            let sql = plan.BuildSql(SqlDialect.Sqlite)
+            let parms = plan.BaseParameters @ (plan.Parameters |> List.ofSeq)
+            (sql, parms)
+        | :? IQueryable as iq ->
+            if not (isNull iq.Provider) && iq.Provider.GetType() = typeof<SqlPushdownQueryProvider> then
+                let provider = iq.Provider :?> SqlPushdownQueryProvider
+                let planProp = iq.GetType().GetProperty("Plan")
+                let seedPlan = if isNull planProp then None else Some (planProp.GetValue(iq) :?> PushdownQueryPlan)
+                provider.ToSqlWithParameters(iq.Expression, ?seedPlan = seedPlan)
+            else
+                match tryFindPushdownSource iq.Expression with
+                | Some (sourceIq, seedPlan) ->
+                    let provider = sourceIq.Provider :?> SqlPushdownQueryProvider
+                    provider.ToSqlWithParameters(iq.Expression, ?seedPlan = seedPlan)
+                | None ->
+                    (string iq, [])
+        | other ->
+            let t = other.GetType()
+            let toRawSqlMethod = t.GetMethod("ToRawSql", Type.EmptyTypes)
+            if not (isNull toRawSqlMethod) then
+                let res = toRawSqlMethod.Invoke(other, [||]) :?> string
+                (res, [])
+            else
+                (string other, [])
+
+    let extractRawSql (query: obj) : string =
+        let sql, parms = extractSqlWithParameters query
+        formatSqlAndParameters sql parms
+
+    do
+        ResultKind.RegisterRawSqlExtractor(extractRawSql, extractSqlWithParameters)
+
 
 

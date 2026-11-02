@@ -1974,3 +1974,60 @@ let ``connections registered with relative file paths resolve against the worksp
             Handlers.setWorkspaceDirForTests None
             cleanTempDir tmp
     }
+
+[<Fact>]
+let ``evaluating a cell with ResultKind.toRawSql renders the generated query as text before database execution`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-rawsql-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tmp) |> ignore
+        Handlers.setWorkspaceDirForTests (Some tmp)
+
+        try
+            let dbPath = Path.Combine(tmp, "store.db")
+            do
+                use c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=false")
+                c.Open()
+                use cmd = c.CreateCommand()
+                cmd.CommandText <- "CREATE TABLE Items (Id INTEGER PRIMARY KEY, Name TEXT, Price NUMERIC); INSERT INTO Items VALUES (1, 'Widget', 19.99);"
+                cmd.ExecuteNonQuery() |> ignore
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
+            let dbDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "RawSqlDb"
+                  Kind = ConnectorKind.Sqlite
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = dbPath |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let! r = Handlers.dispatch (registerConnectionRequest "reg-rawsql-db" dbDef)
+            Assert.True(r.Error.IsNone)
+            Handlers.waitForPendingGeneration ()
+
+            let docUri = Path.Combine(tmp, "rawsql_test.fsqnb")
+
+            // Evaluate with ResultKind.toRawSql
+            let cellSource =
+                "query {\n" +
+                "    for item in Connections.sql.RawSqlDb.Items do\n" +
+                "    where (item.Price > 10.0M)\n" +
+                "    select item.Name\n" +
+                "}\n" +
+                "|> ResultKind.toRawSql"
+
+            let! resp = Handlers.dispatch (notebookCellRequest "eval-rawsql" cellSource docUri)
+            Assert.True(resp.Error.IsNone, (match resp.Error with Some e -> e.Message | None -> ""))
+            let env = JsonSerializer.Deserialize<ResultEnvelope>(resp.Result.Value.GetRawText(), Serialization.options)
+
+            Assert.Equal(ResultKind.Text, env.Kind)
+            Assert.True(env.DisplayText.IsSome)
+            let text = env.DisplayText.Value
+            Assert.Contains("SELECT", text)
+            Assert.Contains("Name", text)
+            Assert.Contains("FROM Items", text)
+            Assert.Contains("-- Parameters:", text)
+            Assert.Contains("@p0 = 10", text)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }

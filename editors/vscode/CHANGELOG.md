@@ -16,6 +16,7 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 - **Ultra-Fast Cross-File Joins** — Complex multi-file relational joins on datasets exceeding 200,000 rows execute natively in SQLite in sub-second times (~768 ms).
 - **Direct SQL Execution on Workspace Engine** — Exposed `Connections.queryEngine(sqlText, ?parameters)` and `Connections.sql.query(sqlText, ?parameters)` returning tabular results.
 - **Clean Entity Generation** — `DatabaseConnection.GenerateEntities` emits clean dynamic table references (`conn.Table<...>("TableName")`) rather than hardcoded full-column SELECT queries.
+- **Pre-Execution Query Inspection (`ResultKind.toRawSql`)** — Added `ResultKind.toRawSql`, `toRawSql`, and `.ToRawSql()` allowing users to inspect the exact SQL query and parameter list (`-- Parameters: ...`) generated for any pushdown or LINQ query before sending it to the database.
 
 ### Fixed
 

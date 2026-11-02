@@ -306,4 +306,73 @@ let ``SqlPushdownQueryable projects tuples without in-memory reflection failure`
     Assert.Single(result) |> ignore
     Assert.Equal((2, "Mouse"), result.[0])
 
+[<Fact>]
+let ``ResultKind.toRawSql extracts SQL query and parameters before database execution`` () =
+    use db = new TempSqliteDb()
+    let connector = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(connector, "Products")
+
+    let q =
+        query {
+            for p in products do
+            where (p.Price > 50.0M)
+            select (p.Name, p.Price)
+        }
+
+    // Call ResultKind.toRawSql without touching the database
+    let rawSql = ResultKind.toRawSql q
+
+    Assert.Contains("-- Parameters:", rawSql)
+    Assert.Contains("@p0 = 50", rawSql)
+    Assert.Contains("SELECT", rawSql)
+    Assert.Contains("Name", rawSql)
+    Assert.Contains("Price", rawSql)
+    Assert.Contains("FROM Products", rawSql)
+    Assert.Contains("WHERE", rawSql)
+
+[<Fact>]
+let ``toRawSql and ToRawSql methods extract matching SQL on projected queries`` () =
+    use db = new TempSqliteDb()
+    let connector = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(connector, "Products")
+
+    let q =
+        query {
+            for p in products do
+            where (p.Category = "Electronics")
+            select {| Item = p.Name |}
+        }
+
+    let sql1 = ResultKind.toRawSql q
+    let sql2 = toRawSql q
+    let (sql3, parms) = ResultKind.toRawSqlWithParameters q
+
+    Assert.Equal(sql1, sql2)
+    Assert.Contains("SELECT", sql3)
+    Assert.Contains("Name AS Item", sql3)
+    Assert.Contains("FROM Products", sql3)
+    Assert.Single(parms) |> ignore
+    Assert.Equal("@p0", fst parms.[0])
+    Assert.Equal(box "Electronics", snd parms.[0])
+
+[<Fact>]
+let ``ResultKind.toRawSql on relational join displays full joined SQL without database round-trip`` () =
+    use db = new TempSqliteDb()
+    let connector = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(connector, "Products")
+
+    let q =
+        query {
+            for p1 in products do
+            join p2 in products on (p1.Category = p2.Category)
+            where (p1.Id <> p2.Id)
+            select {| LeftName = p1.Name; RightName = p2.Name |}
+        }
+
+    let rawSql = ResultKind.toRawSql q
+    Assert.Contains("INNER JOIN Products _t1 ON _t0.Category = _t1.Category", rawSql)
+    Assert.Contains("_t0.Name AS LeftName", rawSql)
+    Assert.Contains("_t1.Name AS RightName", rawSql)
+
+
 

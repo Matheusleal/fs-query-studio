@@ -121,7 +121,7 @@ module FsiSession =
             |> String.concat "\n"
 
         let basePrologue =
-            $"{allRefs}\nopen System.Linq\nopen FSharpQueryStudio.Connectors\n"
+            $"{allRefs}\nopen System.Linq\nopen FSharpQueryStudio.Protocol\nopen FSharpQueryStudio.Connectors\n"
 
         fsi.EvalInteractionNonThrowing(basePrologue) |> ignore
 
