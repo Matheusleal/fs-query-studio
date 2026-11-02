@@ -240,18 +240,42 @@ type FileSqliteEngine(dbPath: string) =
                                 p.Value <- DBNull.Value
                         insertCmd.ExecuteNonQuery() |> ignore
 
-                    // Auto-index Id and *_id columns
-                    for col in effectiveCols do
-                        if col.Equals("Id", StringComparison.OrdinalIgnoreCase)
-                           || col.EndsWith("Id", StringComparison.OrdinalIgnoreCase)
-                           || col.EndsWith("_id", StringComparison.OrdinalIgnoreCase) then
-                            try
-                                use idxCmd = conn.CreateCommand()
-                                idxCmd.Transaction <- tx
-                                idxCmd.CommandText <- $"CREATE INDEX IF NOT EXISTS \"ix_{cleanTableName}_{col}\" ON \"{cleanTableName}\" (\"{col}\");"
-                                idxCmd.ExecuteNonQuery() |> ignore
-                            with ex ->
-                                Log.Warning("FS Query Studio: Could not create index on {Col} for {Table}: {Error}", col, cleanTableName, ex.Message)
+                    // Auto-index key, code, and relation columns for instant join performance
+                    let keyCols =
+                        effectiveCols
+                        |> List.filter (fun col ->
+                            col.Equals("Id", StringComparison.OrdinalIgnoreCase)
+                            || col.EndsWith("Id", StringComparison.OrdinalIgnoreCase)
+                            || col.EndsWith("_id", StringComparison.OrdinalIgnoreCase)
+                            || col.EndsWith("Code", StringComparison.OrdinalIgnoreCase)
+                            || col.EndsWith("_code", StringComparison.OrdinalIgnoreCase)
+                            || col.EndsWith("Key", StringComparison.OrdinalIgnoreCase)
+                            || col.EndsWith("_key", StringComparison.OrdinalIgnoreCase)
+                            || col.Equals("Region", StringComparison.OrdinalIgnoreCase)
+                            || col.Equals("Category", StringComparison.OrdinalIgnoreCase)
+                            || col.Equals("Sku", StringComparison.OrdinalIgnoreCase)
+                        )
+
+                    for col in keyCols do
+                        try
+                            use idxCmd = conn.CreateCommand()
+                            idxCmd.Transaction <- tx
+                            idxCmd.CommandText <- $"CREATE INDEX IF NOT EXISTS \"ix_{cleanTableName}_{col}\" ON \"{cleanTableName}\" (\"{col}\");"
+                            idxCmd.ExecuteNonQuery() |> ignore
+                        with ex ->
+                            Log.Warning("FS Query Studio: Could not create index on {Col} for {Table}: {Error}", col, cleanTableName, ex.Message)
+
+                    // Composite index on pairs of key columns for multi-property joins
+                    if keyCols.Length >= 2 then
+                        try
+                            let c1 = keyCols.[0]
+                            let c2 = keyCols.[1]
+                            use compIdxCmd = conn.CreateCommand()
+                            compIdxCmd.Transaction <- tx
+                            compIdxCmd.CommandText <- $"CREATE INDEX IF NOT EXISTS \"ix_{cleanTableName}_{c1}_{c2}\" ON \"{cleanTableName}\" (\"{c1}\", \"{c2}\");"
+                            compIdxCmd.ExecuteNonQuery() |> ignore
+                        with ex ->
+                            Log.Warning("FS Query Studio: Could not create composite index on ({C1}, {C2}) for {Table}: {Error}", keyCols.[0], keyCols.[1], cleanTableName, ex.Message)
 
                     // Update _fqs_file_cache
                     use ensureCacheCmd = conn.CreateCommand()

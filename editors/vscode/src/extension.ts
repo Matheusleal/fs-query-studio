@@ -177,6 +177,78 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     }
   };
 
+  let resetSyncStatusTimer: NodeJS.Timeout | undefined;
+  const runSyncDataSources = async (targetDir?: string, silent = false): Promise<void> => {
+    try {
+      if (resetSyncStatusTimer) {
+        clearTimeout(resetSyncStatusTimer);
+        resetSyncStatusTimer = undefined;
+      }
+      statusBar.text = "$(sync~spin) Syncing data sources...";
+      statusBar.tooltip = "F# Query Studio: Pre-staging CSV and Excel data into SQLite cache...";
+      statusBar.show();
+
+      const worker = await getWorker();
+      const res = await worker.send({
+        id: randomUUID(),
+        method: "workspace/syncDataSources",
+        params: { targetDir },
+      });
+
+      if (res.error) {
+        log(`[Workspace] Sync data sources failed: ${res.error.message}`);
+        statusBar.text = "$(error) Data sync failed";
+        statusBar.tooltip = `F# Query Studio: Data sources sync failed: ${res.error.message}`;
+        resetSyncStatusTimer = setTimeout(() => {
+          statusBar.text = "$(database) F# Query Studio";
+          statusBar.tooltip = "F# Query Studio: Show Output Logs";
+        }, 5000);
+        if (!silent) {
+          void vscode.window.showErrorMessage(`Data sources sync failed: ${res.error.message}`);
+        }
+        return;
+      }
+
+      const summary = res.result as {
+        targetDir: string;
+        stagedCount: number;
+        skippedCount: number;
+        total: number;
+        elapsedMs: number;
+      };
+
+      log(
+        `[Workspace] Data sources synced: ${summary.stagedCount} staged, ${summary.skippedCount} up-to-date (total ${summary.total}) in ${summary.elapsedMs}ms`,
+      );
+
+      statusBar.text = "$(database) Data sources ready";
+      statusBar.tooltip = `F# Query Studio: ${summary.total} sources synced (${summary.stagedCount} new/updated, ${summary.skippedCount} cached) in ${summary.elapsedMs}ms`;
+      resetSyncStatusTimer = setTimeout(() => {
+        statusBar.text = "$(database) F# Query Studio";
+        statusBar.tooltip = "F# Query Studio: Show Output Logs";
+      }, 4000);
+
+      if (!silent) {
+        const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+        const msg = isPt
+          ? `Sincronização concluída: ${summary.stagedCount} arquivo(s) carregados, ${summary.skippedCount} já atualizados em cache (${summary.elapsedMs}ms).`
+          : `Sync completed: ${summary.stagedCount} file(s) staged, ${summary.skippedCount} up-to-date in disk cache (${summary.elapsedMs}ms).`;
+        void vscode.window.showInformationMessage(msg);
+      }
+    } catch (err) {
+      const msg = (err as Error).message;
+      log(`[Workspace] Error during sync: ${msg}`);
+      statusBar.text = "$(error) Data sync error";
+      resetSyncStatusTimer = setTimeout(() => {
+        statusBar.text = "$(database) F# Query Studio";
+        statusBar.tooltip = "F# Query Studio: Show Output Logs";
+      }, 5000);
+      if (!silent) {
+        void vscode.window.showErrorMessage(`Error syncing data sources: ${msg}`);
+      }
+    }
+  };
+
   let bridgeRegistered = false;
   const getWorker = async () => {
     const session = await getWorkerSession({
@@ -400,6 +472,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
           ? "Bancos de dados SQLite ('sample_store.db', 'inventory.db'), CSVs ('sales_feed.csv', 'customers_feed.csv') e notebooks interativos ('sample_demo_pt.fsqnb', 'sample_demo.fsqnb') criados com sucesso!"
           : "Sample SQLite databases ('sample_store.db', 'inventory.db'), CSVs ('sales_feed.csv', 'customers_feed.csv'), and interactive notebooks ('sample_demo.fsqnb', 'sample_demo_pt.fsqnb') created successfully!";
 
+        void runSyncDataSources(targetDir, true);
         void vscode.window.showInformationMessage(successMsg);
       } catch (err) {
         const msg = (err as Error).message;
@@ -627,6 +700,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
           const msg = isPt
             ? `${data.importedCount} fonte(s) de dados importada(s) automaticamente da pasta 'data_sources': ${names}.`
             : `Auto-imported ${data.importedCount} data source(s) from 'data_sources': ${names}.`;
+          void runSyncDataSources(targetDir, true);
           void vscode.window.showInformationMessage(msg);
         } else {
           const msg = isPt
@@ -712,7 +786,39 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     },
   );
 
-  // Automatic upgrade check for open workspace folders on startup
+  const syncDataSourcesCommand = vscode.commands.registerCommand(
+    "fs-query-studio.syncDataSources",
+    async (resource?: vscode.Uri) => {
+      let targetDir: string | undefined;
+      if (resource && resource.fsPath) {
+        targetDir = resource.fsPath;
+      } else {
+        const wsFolders = vscode.workspace.workspaceFolders;
+        if (wsFolders && wsFolders.length === 1) {
+          targetDir = wsFolders[0].uri.fsPath;
+        } else if (wsFolders && wsFolders.length > 1) {
+          const pick = await vscode.window.showQuickPick(
+            wsFolders.map((f) => ({ label: f.name, description: f.uri.fsPath, uri: f.uri })),
+            { placeHolder: "Select a workspace folder to sync data sources cache" },
+          );
+          if (!pick) return;
+          targetDir = pick.uri.fsPath;
+        } else {
+          const picked = await vscode.window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+            openLabel: "Select Workspace Folder to Sync",
+          });
+          if (!picked || picked.length === 0) return;
+          targetDir = picked[0].fsPath;
+        }
+      }
+      await runSyncDataSources(targetDir, false);
+    },
+  );
+
+  // Automatic upgrade check and background cache sync for open workspace folders on startup
   const wsFolders = vscode.workspace.workspaceFolders;
   if (wsFolders && wsFolders.length > 0) {
     (async () => {
@@ -734,6 +840,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
               await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
             }
           }
+          // Pre-warm data sources cache in background
+          void runSyncDataSources(folder.uri.fsPath, true);
         }
       } catch {
         // non-blocking on startup
@@ -752,6 +860,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     restartCommand,
     createSampleDataCommand,
     autoImportFolderCommand,
+    syncDataSourcesCommand,
     initEmptyProjectCommand,
     upgradeProjectCommand,
     openDocsCommand,

@@ -420,6 +420,27 @@ query {
 """
 
                 mkMarkdown """
+### ⚡ Pushdown & Multi-Property Joins with SQL Preview (`toRawSql`)
+
+F# Query Studio compiles multi-property joins `on ((a.param1, a.param2) = (b.param1, b.param2))` directly to index-backed SQL `_t0.col1 = _t1.col1 AND _t0.col2 = _t1.col2`, avoiding Cartesian products and excessive memory usage.
+Use `ResultKind.toRawSql` to preview the pushdown SQL before or alongside execution!
+"""
+
+                mkCode """
+// 7.1 Preview generated pushdown SQL for relational joins before execution
+let complexJoinQuery =
+    query {
+        for o in Connections.sql.SampleStore.Orders do
+        join i in Connections.sql.SampleStore.OrderItems on (o.Id = i.OrderId)
+        where (o.TotalAmount >= 100.0f)
+        select {| OrderId = o.Id; ItemId = i.Id; Amount = o.TotalAmount |}
+    }
+
+printfn "Pushdown SQL Query:\n%s" (ResultKind.toRawSql complexJoinQuery)
+complexJoinQuery
+"""
+
+                mkMarkdown """
 ## 8. 🛡️ Safe Parameterized SQL (`SampleStore`)
 
 For complex database-specific queries, use `Connections.sql.<Conn>.rawQuery` with parameterized inputs to guard against SQL injection while maintaining raw database performance.
@@ -721,6 +742,27 @@ query {
         Satisfacao = l.Score
     |}
 }
+"""
+
+                mkMarkdown """
+### ⚡ Pushdown e Joins com Múltiplas Propriedades com Visualização SQL (`toRawSql`)
+
+O F# Query Studio traduz joins com múltiplas propriedades no formato `on ((a.param1, a.param2) = (b.param1, b.param2))` diretamente para SQL com índices (`_t0.col1 = _t1.col1 AND _t0.col2 = _t1.col2`), evitando produtos cartesianos e consumo excessivo de memória RAM.
+Use `ResultKind.toRawSql` para visualizar a query SQL gerada antes de enviá-la ao banco de dados!
+"""
+
+                mkCode """
+// 7.1 Inspeciona o SQL gerado com pushdown para joins antes da execução
+let consultaComplexa =
+    query {
+        for o in Connections.sql.SampleStore.Orders do
+        join i in Connections.sql.SampleStore.OrderItems on (o.Id = i.OrderId)
+        where (o.TotalAmount >= 100.0f)
+        select {| PedidoId = o.Id; ItemId = i.Id; ValorTotal = o.TotalAmount |}
+    }
+
+printfn "SQL Gerado pelo Pushdown:\n%s" (ResultKind.toRawSql consultaComplexa)
+consultaComplexa
 """
 
                 mkMarkdown """

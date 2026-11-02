@@ -972,6 +972,75 @@ module Connections =
         | :? RestConnector as c -> RestConnection(name, c)
         | other -> unsupported name "Connections.rest" other
 
+    /// Result of an asynchronous data sources pre-staging / sync operation.
+    type DataSourcesSyncSummary =
+        { StagedCount: int
+          SkippedCount: int
+          Total: int
+          ElapsedMs: int64 }
+
+    /// Asynchronously synchronizes and pre-stages all CSV and Excel connections for a workspace into the persistent SQLite disk cache.
+    let syncDataSourcesAsync (workspaceDir: string) (connections: ConnectionDefinition list) (secretStore: FSharpQueryStudio.Security.ISecretStore) : Task<DataSourcesSyncSummary> =
+        task {
+            let sw = Stopwatch.StartNew()
+            let baseDir = ConnectorDescriptor.projectRootOf workspaceDir
+            let cacheDir = System.IO.Path.Combine(workspaceDir, ".fsqs", "cache")
+            if not (System.IO.Directory.Exists cacheDir) then
+                System.IO.Directory.CreateDirectory cacheDir |> ignore
+            let dbPath = System.IO.Path.Combine(cacheDir, "engine.db")
+            let eng = FileSqliteEngine(dbPath)
+
+            let mutable stagedCount = 0
+            let mutable skippedCount = 0
+            let fileConns =
+                connections
+                |> List.filter (fun c -> c.Kind.Id = "Csv" || c.Kind.Id = "Excel")
+
+            for connDef in fileConns do
+                try
+                    let conn: IConnector = ConnectorRegistry.Instance.Resolve(connDef, secretStore, Some baseDir)
+                    match connDef.Kind.Id with
+                    | "Csv" ->
+                        let csvConn = conn :?> CsvConnector
+                        let filePath = csvConn.FilePath
+                        let fullPath = if System.IO.Path.IsPathRooted filePath then filePath else System.IO.Path.Combine(workspaceDir, filePath)
+                        if System.IO.File.Exists fullPath then
+                            if eng.IsStagedAndCurrent(connDef.Name, fullPath) then
+                                skippedCount <- skippedCount + 1
+                            else
+                                eng.EnsureStaged(connDef.Name, fullPath, (fun () -> csvConn.ReadRows())) |> ignore
+                                stagedCount <- stagedCount + 1
+                    | "Excel" ->
+                        let excelConn = conn :?> ExcelConnector
+                        let filePath = excelConn.FilePath
+                        let fullPath = if System.IO.Path.IsPathRooted filePath then filePath else System.IO.Path.Combine(workspaceDir, filePath)
+                        if System.IO.File.Exists fullPath then
+                            if eng.IsStagedAndCurrent(connDef.Name, fullPath) then
+                                skippedCount <- skippedCount + 1
+                            else
+                                eng.EnsureStaged(connDef.Name, fullPath, (fun () -> excelConn.ReadRows())) |> ignore
+                                stagedCount <- stagedCount + 1
+                    | _ -> ()
+                with ex ->
+                    Log.Warning("FS Query Studio: Background staging failed for connection '{Name}': {Error}", connDef.Name, ex.Message)
+
+            sw.Stop()
+            return
+                { StagedCount = stagedCount
+                  SkippedCount = skippedCount
+                  Total = fileConns.Length
+                  ElapsedMs = sw.ElapsedMilliseconds }
+        }
+
+    /// Triggers fire-and-forget background pre-staging of tabular files into the persistent disk cache.
+    let triggerBackgroundSync (workspaceDir: string) (connections: ConnectionDefinition list) (secretStore: FSharpQueryStudio.Security.ISecretStore) : unit =
+        Task.Run(fun () ->
+            try
+                (syncDataSourcesAsync workspaceDir connections secretStore).GetAwaiter().GetResult() |> ignore
+            with ex ->
+                Log.Warning("FS Query Studio: Fire-and-forget background sync failed: {Error}", ex.Message)
+        ) |> ignore
+
     /// Displays the raw generated SQL query for a queryable or SQL expression without executing it against the database.
     let toRawSql (query: obj) : string = ResultKind.toRawSql query
 

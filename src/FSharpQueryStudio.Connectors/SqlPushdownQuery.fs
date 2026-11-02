@@ -907,6 +907,29 @@ module ExpressionPushdownTranslator =
         | _ ->
             expr.ToString()
 
+    let rec extractKeyColumns (param: ParameterExpression) (expr: Expression) : string list =
+        let unwrapped = unwrapQuote expr
+        match unwrapped with
+        | :? MemberExpression as m when isNull m.Expression || m.Expression = (param :> Expression) || (m.Expression :? MemberExpression) ->
+            [ m.Member.Name ]
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ->
+            extractKeyColumns param u.Operand
+        | :? NewExpression as ne ->
+            [ for arg in ne.Arguments do
+                yield! extractKeyColumns param arg ]
+        | :? MemberInitExpression as mie ->
+            [ for binding in mie.Bindings do
+                match binding with
+                | :? MemberAssignment as ma ->
+                    yield! extractKeyColumns param ma.Expression
+                | _ -> () ]
+        | :? MethodCallExpression as mc when mc.Method.Name = "Create" && (mc.Method.DeclaringType = typeof<Tuple> || mc.Method.DeclaringType.Name.StartsWith("Tuple")) ->
+            [ for arg in mc.Arguments do
+                yield! extractKeyColumns param arg ]
+        | _ ->
+            let single = extractColumnName param unwrapped
+            if not (String.IsNullOrWhiteSpace single) && not (single.Contains "(") && not (single.Contains " ") then [ single ] else []
+
     let rec translatePredicate (param: ParameterExpression) (plan: PushdownQueryPlan) (expr: Expression) : string option =
         match expr with
         | null -> None
@@ -970,6 +993,13 @@ module ExpressionPushdownTranslator =
                         let pName = $"@p{plan.Parameters.Count}"
                         plan.Parameters.Add(pName, clientVal)
                         Some $"({col} {invOp} {pName})"
+                elif leftHasParam && rightHasParam then
+                    let leftCol = extractColumnNameWithAlias plan b.Left
+                    let rightCol = extractColumnNameWithAlias plan b.Right
+                    if not (String.IsNullOrWhiteSpace leftCol) && not (String.IsNullOrWhiteSpace rightCol) then
+                        Some $"({leftCol} {op} {rightCol})"
+                    else
+                        None
                 else
                     None
             | _ -> None
@@ -1109,6 +1139,35 @@ module ExpressionPushdownTranslator =
                     None
             else
                 None
+        | :? MemberExpression as m ->
+            try
+                let target =
+                    if isNull m.Expression then null
+                    else
+                        match m.Expression with
+                        | :? ConstantExpression as ce -> ce.Value
+                        | other ->
+                            let lambda = Expression.Lambda(other)
+                            lambda.Compile().DynamicInvoke()
+                let value =
+                    match m.Member with
+                    | :? System.Reflection.FieldInfo as fi -> fi.GetValue(target)
+                    | :? System.Reflection.PropertyInfo as pi -> pi.GetValue(target)
+                    | _ -> null
+                if not (isNull value) then
+                    let valType = value.GetType()
+                    let isPushdown = valType.Name.StartsWith("SqlPushdownQueryable")
+                    if isPushdown then
+                        let planProp = valType.GetProperty("Plan")
+                        let connProp = valType.GetProperty("Connector")
+                        if not (isNull planProp) && not (isNull connProp) then
+                            let p = planProp.GetValue(value) :?> PushdownQueryPlan
+                            let conn = connProp.GetValue(value) :?> IQueryableConnector
+                            Some (p.BaseSql, conn)
+                        else None
+                    else None
+                else None
+            with _ -> None
         | :? MethodCallExpression as mc ->
             if mc.Arguments.Count > 0 then
                 tryExtractQueryableInfo mc.Arguments.[0]
@@ -1123,7 +1182,8 @@ module ExpressionPushdownTranslator =
             match e with
             | null -> ()
             | :? MethodCallExpression as mc ->
-                if mc.Method.Name = "Join" then methodCalls.Add(mc)
+                if mc.Method.Name = "Join" || mc.Method.Name = "GroupJoin" || mc.Method.Name = "SelectMany" then
+                    methodCalls.Add(mc)
                 for a in mc.Arguments do collect a
             | :? LambdaExpression as l -> collect l.Body
             | :? UnaryExpression as u -> collect u.Operand
@@ -1133,8 +1193,22 @@ module ExpressionPushdownTranslator =
         if methodCalls.Count = 0 then true
         else
             methodCalls |> Seq.forall (fun mc ->
-                if mc.Arguments.Count >= 5 then
+                if mc.Method.Name = "Join" && mc.Arguments.Count >= 5 then
                     match tryExtractQueryableInfo mc.Arguments.[1] with
+                    | Some (_, innerConn) ->
+                        obj.ReferenceEquals(outerConn, innerConn)
+                        || (
+                            (outerConn :> IConnector).Kind = (innerConn :> IConnector).Kind
+                            && String.Equals(outerConn.ConnectionString, innerConn.ConnectionString, StringComparison.OrdinalIgnoreCase)
+                        )
+                    | None -> false
+                elif mc.Method.Name = "SelectMany" && mc.Arguments.Count >= 2 then
+                    let innerArg = unwrapQuote mc.Arguments.[1]
+                    let innerExpr =
+                        match innerArg with
+                        | :? LambdaExpression as l -> l.Body
+                        | other -> other
+                    match tryExtractQueryableInfo innerExpr with
                     | Some (_, innerConn) ->
                         obj.ReferenceEquals(outerConn, innerConn)
                         || (
@@ -1172,15 +1246,45 @@ module ExpressionPushdownTranslator =
                     let outerAlias = if plan.Joins.Count = 0 then plan.BaseAlias else sprintf "_t%d" plan.Joins.Count
                     let outerKeyL = unwrapQuote mc.Arguments.[2] :?> LambdaExpression
                     let innerKeyL = unwrapQuote mc.Arguments.[3] :?> LambdaExpression
-                    let outerCol = extractColumnName outerKeyL.Parameters.[0] outerKeyL.Body
-                    let innerCol = extractColumnName innerKeyL.Parameters.[0] innerKeyL.Body
-                    let outerColRef = if outerCol.Contains(".") then outerCol else $"{outerAlias}.{outerCol}"
-                    let innerColRef = if innerCol.Contains(".") then innerCol else $"{innerAlias}.{innerCol}"
+                    let outerCols = extractKeyColumns outerKeyL.Parameters.[0] outerKeyL.Body
+                    let innerCols = extractKeyColumns innerKeyL.Parameters.[0] innerKeyL.Body
+                    let onClause =
+                        if outerCols.Length > 0 && outerCols.Length = innerCols.Length then
+                            List.zip outerCols innerCols
+                            |> List.map (fun (oCol, iCol) ->
+                                let oRef = if oCol.Contains(".") then oCol else $"{outerAlias}.{oCol}"
+                                let iRef = if iCol.Contains(".") then iCol else $"{innerAlias}.{iCol}"
+                                $"{oRef} = {iRef}")
+                            |> String.concat " AND "
+                        else
+                            let outerCol = extractColumnName outerKeyL.Parameters.[0] outerKeyL.Body
+                            let innerCol = extractColumnName innerKeyL.Parameters.[0] innerKeyL.Body
+                            let outerColRef = if outerCol.Contains(".") then outerCol else $"{outerAlias}.{outerCol}"
+                            let innerColRef = if innerCol.Contains(".") then innerCol else $"{innerAlias}.{innerCol}"
+                            $"{outerColRef} = {innerColRef}"
+
                     plan.Joins.Add({
                         JoinType = "INNER JOIN"
                         SourceTable = innerTable
                         Alias = innerAlias
-                        OnClause = $"{outerColRef} = {innerColRef}"
+                        OnClause = onClause
+                    })
+                | None -> ()
+            | "SelectMany" when mc.Arguments.Count >= 2 ->
+                let innerArg = unwrapQuote mc.Arguments.[1]
+                let innerExpr =
+                    match innerArg with
+                    | :? LambdaExpression as l -> l.Body
+                    | other -> other
+                match tryExtractQueryableInfo innerExpr with
+                | Some (innerTable, _) ->
+                    let nextIdx = plan.Joins.Count + 1
+                    let innerAlias = sprintf "_t%d" nextIdx
+                    plan.Joins.Add({
+                        JoinType = "INNER JOIN"
+                        SourceTable = innerTable
+                        Alias = innerAlias
+                        OnClause = "1=1"
                     })
                 | None -> ()
             | "Where" when mc.Arguments.Count >= 2 ->
@@ -1284,7 +1388,7 @@ module ExpressionPushdownTranslator =
         match expr with
         | null -> false
         | :? MethodCallExpression as mc ->
-            if mc.Method.Name = "Join" || mc.Method.Name = "GroupJoin" then true
+            if mc.Method.Name = "Join" || mc.Method.Name = "GroupJoin" || mc.Method.Name = "SelectMany" then true
             else
                 (if isNull mc.Object then false else hasJoin mc.Object)
                 || (mc.Arguments |> Seq.exists hasJoin)

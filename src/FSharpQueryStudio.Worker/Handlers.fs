@@ -618,6 +618,7 @@ module Handlers =
         let updated = Workspace.registerConnection targetWs connection
         Connections.configure (WorkspaceConnectionResolver(updated, secretStore, targetWs))
         EntityBackgroundGenerator.triggerBackgroundGeneration targetWs updated secretStore
+        Connections.triggerBackgroundSync targetWs updated secretStore
 
         { Id = request.Id
           Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
@@ -861,6 +862,7 @@ module Handlers =
             with ex ->
                 Log.Warning("FS Query Studio: Entity generation after sample creation failed: {Error}", ex.Message)
 
+            Connections.triggerBackgroundSync dir updatedInDir secretStore
             SessionStore.resetAll ()
 
             let result: SampleCreateResult =
@@ -1088,6 +1090,7 @@ module Handlers =
                         (EntityBackgroundGenerator.generateForConnectionsAsync rootDir merged secretStore).GetAwaiter().GetResult() |> ignore
                     with ex ->
                         Log.Warning("FS Query Studio: Entity generation after auto-import failed: {Error}", ex.Message)
+                    Connections.triggerBackgroundSync rootDir merged secretStore
                     SessionStore.resetAll ()
                     merged
                 else
@@ -1109,6 +1112,36 @@ module Handlers =
             { Id = request.Id
               Result = None
               Error = Some { Code = "workspace/autoImportFailed"; Message = ex.Message } }
+
+    type SyncDataSourcesResult =
+        { TargetDir: string
+          StagedCount: int
+          SkippedCount: int
+          Total: int
+          ElapsedMs: int64 }
+
+    let handleSyncDataSources (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
+        task {
+            try
+                let targetDir = tryGetWorkspaceDir request.Params
+                let connections = Workspace.readConnections targetDir
+                let! summary = Connections.syncDataSourcesAsync targetDir connections secretStore
+                let result : SyncDataSourcesResult =
+                    { TargetDir = targetDir
+                      StagedCount = summary.StagedCount
+                      SkippedCount = summary.SkippedCount
+                      Total = summary.Total
+                      ElapsedMs = summary.ElapsedMs }
+                return
+                    { Id = request.Id
+                      Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                      Error = None }
+            with ex ->
+                return
+                    { Id = request.Id
+                      Result = None
+                      Error = Some { Code = "workspace/syncDataSourcesFailed"; Message = ex.Message } }
+        }
 
     let handleWorkspaceUpgrade (request: WorkerRequestFrame) : WorkerResponseFrame =
         try
@@ -1153,6 +1186,7 @@ module Handlers =
             | "workspace/createSampleData" -> return handleCreateSampleData request
             | "workspace/initProject" | "workspace/initEmptyProject" -> return handleInitEmptyProject request
             | "workspace/autoImportDataSources" | "workspace/autoImportFolder" -> return handleAutoImportDataSources request
+            | "workspace/syncDataSources" -> return! handleSyncDataSources request
             | "workspace/upgrade" -> return handleWorkspaceUpgrade request
             | unknown ->
                 return

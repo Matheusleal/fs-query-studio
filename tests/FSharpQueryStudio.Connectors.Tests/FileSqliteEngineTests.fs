@@ -37,6 +37,26 @@ type OrderItemCsvRecord = {
     Quantity: int
 }
 
+[<CLIMutable>]
+type StoreTxCsvRecord = {
+    TxId: int
+    StoreId: int
+    Region: string
+    Category: string
+    Sku: string
+    Amount: decimal
+    TxDate: string
+}
+
+[<CLIMutable>]
+type TargetCsvRecord = {
+    TargetId: int
+    StoreId: int
+    Region: string
+    TargetAmount: decimal
+    Manager: string
+}
+
 type private TempFile() =
     let path = Path.Combine(Path.GetTempPath(), $"fqs-test-{Guid.NewGuid():N}.tmp")
     member _.Path = path
@@ -304,3 +324,144 @@ let ``DatabaseConnection.GenerateEntities emits clean Table references and proje
     // Assert that the generated code references conn.Table<...>("Products") instead of hardcoded SELECT *
     Assert.Contains("conn.Table<``public``.Products>(\"Products\")", generatedCode)
     Assert.DoesNotContain("SELECT Id, Name, Price, Category FROM Products", generatedCode)
+
+[<Fact>]
+let ``FileSqliteEngine executes multi-property tuple join on CSVs with 5000 rows in milliseconds using pushdown`` () =
+    use db = new TempDb()
+    use txFile = new TempFile()
+    use targetFile = new TempFile()
+    let txCsvPath = txFile.Path + ".csv"
+    let targetCsvPath = targetFile.Path + ".csv"
+
+    try
+        // Generate 5,000 transactions across 10 stores and 4 regions
+        let regions = [| "North"; "South"; "East"; "West" |]
+        let categories = [| "Electronics"; "Apparel"; "Home"; "Grocery" |]
+        let txLines = System.Collections.Generic.List<string>()
+        txLines.Add("TxId,StoreId,Region,Category,Sku,Amount,TxDate")
+        for i in 1 .. 5000 do
+            let storeId = (i % 10) + 1
+            let region = regions.[i % regions.Length]
+            let cat = categories.[i % categories.Length]
+            let sku = $"SKU-{cat.Substring(0, 3).ToUpper()}-{storeId}"
+            let amount = decimal (10 + (i % 500)) + 0.50M
+            let date = $"2026-03-{((i % 28) + 1):D2}"
+            txLines.Add($"{i},{storeId},{region},{cat},{sku},{amount},{date}")
+        File.WriteAllLines(txCsvPath, txLines)
+
+        // Generate 40 targets (10 stores x 4 regions)
+        let targetLines = System.Collections.Generic.List<string>()
+        targetLines.Add("TargetId,StoreId,Region,TargetAmount,Manager")
+        let mutable targetId = 1
+        for storeId in 1 .. 10 do
+            for region in regions do
+                let targetAmount = decimal (storeId * 10000)
+                let manager = $"Manager_{region}_{storeId}"
+                targetLines.Add($"{targetId},{storeId},{region},{targetAmount},{manager}")
+                targetId <- targetId + 1
+        File.WriteAllLines(targetCsvPath, targetLines)
+
+        let engine = FileSqliteEngine(db.Path)
+        Connections.setEngine(engine)
+
+        let txConnector = CsvConnector(txCsvPath)
+        let targetConnector = CsvConnector(targetCsvPath)
+
+        let txConn = Connections.CsvConnection("Transactions", txConnector)
+        let targetConn = Connections.CsvConnection("Targets", targetConnector)
+
+        let txs = txConn.Queryable<StoreTxCsvRecord>()
+        let targets = targetConn.Queryable<TargetCsvRecord>()
+
+        // F# tuple multi-property join
+        let q =
+            query {
+                for tx in txs do
+                join tgt in targets on ((tx.StoreId, tx.Region) = (tgt.StoreId, tgt.Region))
+                where (tx.Amount >= 250.0M)
+                select {| TxId = tx.TxId; Store = tx.StoreId; Region = tx.Region; Amount = tx.Amount; Target = tgt.TargetAmount; Manager = tgt.Manager |}
+            }
+
+        // 1. Verify pushdown SQL translation without Cartesian product
+        let rawSql = ResultKind.toRawSql q
+        Assert.Contains("INNER JOIN Targets _t1 ON _t0.StoreId = _t1.StoreId AND _t0.Region = _t1.Region", rawSql)
+        Assert.Contains("_t0.Amount >= @p0", rawSql)
+
+        // 2. Measure execution time with pushdown and composite index
+        let sw = Stopwatch.StartNew()
+        let results = q |> Seq.toList
+        sw.Stop()
+
+        // 5000 rows join must complete in well under 1500ms (typically < 100ms)
+        Assert.True(sw.ElapsedMilliseconds < 1500L, $"Multi-property join took too long: {sw.ElapsedMilliseconds}ms")
+        Assert.True(results.Length > 0, "Expected matched rows from join")
+        for r in results |> Seq.truncate 10 do
+            Assert.True(r.Amount >= 250.0M)
+            Assert.Equal($"Manager_{r.Region}_{r.Store}", r.Manager)
+    finally
+        try if File.Exists txCsvPath then File.Delete txCsvPath with _ -> ()
+        try if File.Exists targetCsvPath then File.Delete targetCsvPath with _ -> ()
+
+[<Fact>]
+let ``FileSqliteEngine executes multi-property SelectMany join with where condition on large CSVs`` () =
+    use db = new TempDb()
+    use txFile = new TempFile()
+    use targetFile = new TempFile()
+    let txCsvPath = txFile.Path + ".csv"
+    let targetCsvPath = targetFile.Path + ".csv"
+
+    try
+        let regions = [| "North"; "South"; "East"; "West" |]
+        let txLines = System.Collections.Generic.List<string>()
+        txLines.Add("TxId,StoreId,Region,Category,Sku,Amount,TxDate")
+        for i in 1 .. 2000 do
+            let storeId = (i % 5) + 1
+            let region = regions.[i % regions.Length]
+            let amount = decimal (50 + (i % 100))
+            txLines.Add($"{i},{storeId},{region},Cat,SKU,{amount},2026-03-01")
+        File.WriteAllLines(txCsvPath, txLines)
+
+        let targetLines = System.Collections.Generic.List<string>()
+        targetLines.Add("TargetId,StoreId,Region,TargetAmount,Manager")
+        let mutable targetId = 1
+        for storeId in 1 .. 5 do
+            for region in regions do
+                targetLines.Add($"{targetId},{storeId},{region},50000.0,Boss_{storeId}")
+                targetId <- targetId + 1
+        File.WriteAllLines(targetCsvPath, targetLines)
+
+        let engine = FileSqliteEngine(db.Path)
+        Connections.setEngine(engine)
+
+        let txConnector = CsvConnector(txCsvPath)
+        let targetConnector = CsvConnector(targetCsvPath)
+
+        let txConn = Connections.CsvConnection("Transactions", txConnector)
+        let targetConn = Connections.CsvConnection("Targets", targetConnector)
+
+        let txs = txConn.Queryable<StoreTxCsvRecord>()
+        let targets = targetConn.Queryable<TargetCsvRecord>()
+
+        // SelectMany with composite Where
+        let q =
+            query {
+                for tx in txs do
+                for tgt in targets do
+                where ((tx.StoreId = tgt.StoreId) && (tx.Region = tgt.Region) && (tx.Amount >= 100.0M))
+                select {| TxId = tx.TxId; Store = tx.StoreId; Manager = tgt.Manager |}
+            }
+
+        let rawSql = ResultKind.toRawSql q
+        Assert.Contains("INNER JOIN Targets _t1 ON 1=1", rawSql)
+        Assert.Contains("_t0.StoreId = _t1.StoreId", rawSql)
+        Assert.Contains("_t0.Region = _t1.Region", rawSql)
+
+        let sw = Stopwatch.StartNew()
+        let results = q |> Seq.toList
+        sw.Stop()
+
+        Assert.True(sw.ElapsedMilliseconds < 1500L, $"SelectMany join took too long: {sw.ElapsedMilliseconds}ms")
+        Assert.True(results.Length > 0)
+    finally
+        try if File.Exists txCsvPath then File.Delete txCsvPath with _ -> ()
+        try if File.Exists targetCsvPath then File.Delete targetCsvPath with _ -> ()
