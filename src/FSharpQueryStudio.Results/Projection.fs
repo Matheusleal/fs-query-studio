@@ -123,6 +123,298 @@ module Projection =
     let private recordRow (t: Type) (value: obj) : obj array =
         (getRecordReader t) value
 
+    /// Global cache to preserve declared anonymous record property orders across notebook cells.
+    let private anonymousRecordFieldSetCache = ConcurrentDictionary<Set<string>, string list>()
+
+    /// Fast lexical scanner that extracts all `{| ... |}` blocks from F# source code
+    /// and returns the property names declared at depth 0 of each block in order.
+    let extractAnonymousRecordBlocks (source: string) : string list list =
+        if String.IsNullOrWhiteSpace(source) then []
+        else
+            let len = source.Length
+            let blocks = ResizeArray<string list>()
+
+            let isKeyword (word: string) =
+                match word with
+                | "let" | "let!" | "use" | "use!" | "do" | "do!"
+                | "if" | "then" | "else" | "elif"
+                | "match" | "with" | "fun" | "function"
+                | "type" | "val" | "member" | "static" | "override" | "default"
+                | "open" | "module" | "namespace"
+                | "for" | "in" | "while" | "to" | "downto"
+                | "try" | "finally" | "yield" | "yield!" | "return" | "return!"
+                | "select" | "where" | "join" | "on" | "into" | "groupBy" | "sortBy"
+                | "true" | "false" | "null" | "struct" | "base" -> true
+                | _ -> false
+
+            let isIdentStart (c: char) =
+                System.Char.IsLetter(c) || c = '_'
+
+            let isIdentChar (c: char) =
+                System.Char.IsLetterOrDigit(c) || c = '_' || c = '\''
+
+            let mutable i = 0
+
+            let skipLineComment () =
+                while i < len && source.[i] <> '\n' do
+                    i <- i + 1
+
+            let skipBlockComment () =
+                let mutable depth = 1
+                i <- i + 2
+                while i < len && depth > 0 do
+                    if i + 1 < len && source.[i] = '(' && source.[i + 1] = '*' then
+                        depth <- depth + 1
+                        i <- i + 2
+                    elif i + 1 < len && source.[i] = '*' && source.[i + 1] = ')' then
+                        depth <- depth - 1
+                        i <- i + 2
+                    else
+                        i <- i + 1
+
+            let skipTripleQuoteString () =
+                i <- i + 3
+                while i + 2 < len && not (source.[i] = '"' && source.[i + 1] = '"' && source.[i + 2] = '"') do
+                    i <- i + 1
+                if i + 2 < len then i <- i + 3
+
+            let skipRegularString () =
+                i <- i + 1
+                while i < len && source.[i] <> '"' do
+                    if source.[i] = '\\' && i + 1 < len then
+                        i <- i + 2
+                    else
+                        i <- i + 1
+                if i < len then i <- i + 1
+
+            let skipVerbatimString () =
+                i <- i + 2
+                while i < len do
+                    if source.[i] = '"' then
+                        if i + 1 < len && source.[i + 1] = '"' then
+                            i <- i + 2
+                        else
+                            i <- i + 1
+                    else
+                        i <- i + 1
+
+            let recordStack = ResizeArray<ResizeArray<string>>()
+            let mutable parenDepth = 0
+            let mutable bracketDepth = 0
+            let mutable braceDepth = 0
+            let mutable canStartProp = false
+
+            while i < len do
+                if i + 1 < len && source.[i] = '/' && source.[i + 1] = '/' then
+                    skipLineComment ()
+                    if recordStack.Count > 0 && parenDepth = 0 && bracketDepth = 0 && braceDepth = 0 then
+                        canStartProp <- true
+                elif i + 1 < len && source.[i] = '(' && source.[i + 1] = '*' then
+                    skipBlockComment ()
+                elif i + 2 < len && source.[i] = '"' && source.[i + 1] = '"' && source.[i + 2] = '"' then
+                    skipTripleQuoteString ()
+                elif i + 1 < len && source.[i] = '@' && source.[i + 1] = '"' then
+                    skipVerbatimString ()
+                elif source.[i] = '"' then
+                    skipRegularString ()
+                elif i + 1 < len && source.[i] = '{' && source.[i + 1] = '|' then
+                    recordStack.Add(ResizeArray<string>())
+                    canStartProp <- true
+                    i <- i + 2
+                elif i + 1 < len && source.[i] = '|' && source.[i + 1] = '}' then
+                    if recordStack.Count > 0 then
+                        let completed = recordStack.[recordStack.Count - 1]
+                        recordStack.RemoveAt(recordStack.Count - 1)
+                        if completed.Count > 0 then
+                            blocks.Add(completed |> Seq.toList)
+                    canStartProp <- false
+                    i <- i + 2
+                elif recordStack.Count > 0 then
+                    if source.[i] = '(' then
+                        parenDepth <- parenDepth + 1
+                        i <- i + 1
+                    elif source.[i] = ')' then
+                        if parenDepth > 0 then parenDepth <- parenDepth - 1
+                        i <- i + 1
+                    elif source.[i] = '[' then
+                        bracketDepth <- bracketDepth + 1
+                        i <- i + 1
+                    elif source.[i] = ']' then
+                        if bracketDepth > 0 then bracketDepth <- bracketDepth - 1
+                        i <- i + 1
+                    elif source.[i] = '{' then
+                        braceDepth <- braceDepth + 1
+                        i <- i + 1
+                    elif source.[i] = '}' then
+                        if braceDepth > 0 then braceDepth <- braceDepth - 1
+                        i <- i + 1
+                    elif source.[i] = '\n' || source.[i] = ';' || source.[i] = ',' then
+                        if parenDepth = 0 && bracketDepth = 0 && braceDepth = 0 then
+                            canStartProp <- true
+                        i <- i + 1
+                    elif System.Char.IsWhiteSpace(source.[i]) then
+                        i <- i + 1
+                    else
+                        if parenDepth = 0 && bracketDepth = 0 && braceDepth = 0 then
+                            if i + 1 < len && source.[i] = '`' && source.[i + 1] = '`' then
+                                let startIdx = i + 2
+                                let endIdx = source.IndexOf("``", startIdx, StringComparison.Ordinal)
+                                if endIdx > 0 then
+                                    let name = source.Substring(startIdx, endIdx - startIdx)
+                                    i <- endIdx + 2
+                                    let saveI = i
+                                    while i < len && System.Char.IsWhiteSpace(source.[i]) && source.[i] <> '\n' do
+                                        i <- i + 1
+                                    if canStartProp && i < len && source.[i] = '=' && (i + 1 = len || (source.[i + 1] <> '=' && source.[i + 1] <> '>')) then
+                                        recordStack.[recordStack.Count - 1].Add(name)
+                                        canStartProp <- false
+                                        i <- i + 1
+                                    else
+                                        i <- saveI
+                                        canStartProp <- false
+                                else
+                                    i <- i + 2
+                            elif isIdentStart source.[i] then
+                                let startIdx = i
+                                while i < len && isIdentChar source.[i] do
+                                    i <- i + 1
+                                let ident = source.Substring(startIdx, i - startIdx)
+                                if isKeyword ident then
+                                    canStartProp <- false
+                                elif canStartProp then
+                                    let saveI = i
+                                    while i < len && System.Char.IsWhiteSpace(source.[i]) && source.[i] <> '\n' do
+                                        i <- i + 1
+                                    if i < len && source.[i] = '=' && (i + 1 = len || (source.[i + 1] <> '=' && source.[i + 1] <> '>')) then
+                                        recordStack.[recordStack.Count - 1].Add(ident)
+                                        canStartProp <- false
+                                        i <- i + 1
+                                    else
+                                        i <- saveI
+                                        canStartProp <- false
+                                else
+                                    ()
+                            else
+                                canStartProp <- false
+                                i <- i + 1
+                        else
+                            i <- i + 1
+                else
+                    i <- i + 1
+
+            blocks |> Seq.toList
+
+    let tryFindMatchingPropertyOrder (blocks: string list list) (targetFields: Set<string>) : string list option =
+        if targetFields.IsEmpty || blocks.IsEmpty then None
+        else
+            let exactMatch =
+                blocks
+                |> List.rev
+                |> List.tryFind (fun block ->
+                    let bSet = Set.ofList block
+                    bSet.Count = targetFields.Count && Set.forall targetFields.Contains bSet)
+            match exactMatch with
+            | Some block -> Some block
+            | None ->
+                let partialMatch =
+                    blocks
+                    |> List.rev
+                    |> List.tryFind (fun block ->
+                        let bSet = Set.ofList block
+                        Set.forall (fun f -> bSet.Contains f) targetFields)
+                match partialMatch with
+                | Some block ->
+                    let ordered = block |> List.filter targetFields.Contains
+                    Some ordered
+                | None -> None
+
+    let registerSourceCode (source: string) : unit =
+        if not (String.IsNullOrWhiteSpace source) then
+            try
+                let blocks = extractAnonymousRecordBlocks source
+                for b in blocks do
+                    let bSet = Set.ofList b
+                    if bSet.Count = b.Length && b.Length > 0 then
+                        anonymousRecordFieldSetCache.[bSet] <- b
+            with _ -> ()
+
+    let tryGetOrExtractRecordOrder (t: Type) (sourceCodeOpt: string option) : string list option =
+        let fields =
+            FSharpType.GetRecordFields(t, recordBindingFlags)
+            |> Array.map (fun p -> p.Name)
+            |> Set.ofArray
+
+        let mutable found = Unchecked.defaultof<string list>
+        if anonymousRecordFieldSetCache.TryGetValue(fields, &found) then
+            Some found
+        else
+            match sourceCodeOpt with
+            | Some src when not (String.IsNullOrWhiteSpace src) ->
+                let blocks = extractAnonymousRecordBlocks src
+                for b in blocks do
+                    let bSet = Set.ofList b
+                    if bSet.Count = b.Length && b.Length > 0 then
+                        anonymousRecordFieldSetCache.[bSet] <- b
+
+                match tryFindMatchingPropertyOrder blocks fields with
+                | Some order ->
+                    anonymousRecordFieldSetCache.[fields] <- order
+                    Some order
+                | None ->
+                    if anonymousRecordFieldSetCache.TryGetValue(fields, &found) then
+                        Some found
+                    else
+                        None
+            | _ -> None
+
+    let private reorderTable (columns: Column list) (dataRows: obj array array) (preferredOrder: string list) : Column list * obj array array =
+        let colMap =
+            columns
+            |> List.indexed
+            |> List.map (fun (i, c) -> (c.Name, (i, c)))
+            |> dict
+
+        let seenIndices = HashSet<int>()
+        let reorderedCols = ResizeArray<Column>()
+        let indexMapping = ResizeArray<int>()
+
+        for name in preferredOrder do
+            let mutable found = Unchecked.defaultof<int * Column>
+            let matched =
+                if colMap.TryGetValue(name, &found) then
+                    Some found
+                else
+                    columns
+                    |> List.indexed
+                    |> List.tryFind (fun (_, c) -> String.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase))
+            match matched with
+            | Some (oldIdx, col) ->
+                if seenIndices.Add(oldIdx) then
+                    reorderedCols.Add(col)
+                    indexMapping.Add(oldIdx)
+            | None -> ()
+
+        columns
+        |> List.iteri (fun oldIdx col ->
+            if seenIndices.Add(oldIdx) then
+                reorderedCols.Add(col)
+                indexMapping.Add(oldIdx))
+
+        if indexMapping.Count = columns.Length && columns.Length > 0 then
+            let newCols = reorderedCols |> Seq.toList
+            let mapArr = indexMapping.ToArray()
+            let newRows =
+                dataRows
+                |> Array.map (fun row ->
+                    let newRow = Array.zeroCreate mapArr.Length
+                    for newIdx in 0 .. mapArr.Length - 1 do
+                        let oldIdx = mapArr.[newIdx]
+                        newRow.[newIdx] <- if oldIdx < row.Length then row.[oldIdx] else null
+                    newRow)
+            newCols, newRows
+        else
+            columns, dataRows
+
     type private IDictionaryAccessor =
         abstract GetKeys: obj -> string list
         abstract GetValue: obj -> string -> obj
@@ -247,31 +539,36 @@ module Projection =
     /// that already fit within `PreviewRowLimit`). The cursor holds the
     /// same enumerator `project` would have discarded, so a caller that
     /// wants to keep paging never re-runs whatever produced `value`.
-    let projectWithCursor (value: obj) (elapsedMs: int64) : ResultEnvelope * PagingCursor option * RetainedTable option =
+    let projectWithCursorDetailed (value: obj) (elapsedMs: int64) (sourceCode: string option) (preferredColumnOrder: string list option) : ResultEnvelope * PagingCursor option * RetainedTable option =
         // Shared builder for the four materialized shapes (record / tuple /
         // dictionary / nested): the preview envelope is truncated to
         // `PreviewRowLimit`, but the full row set is always retained for
         // Export CSV, and the cursor is `None` (nothing to stream).
-        let materializedTable (columns: Column list) (dataRows: obj array array) : ResultEnvelope * PagingCursor option * RetainedTable option =
+        let materializedTable (columns: Column list) (dataRows: obj array array) (preferredOrder: string list option) : ResultEnvelope * PagingCursor option * RetainedTable option =
+            let cols, rows =
+                match preferredOrder with
+                | Some order when not order.IsEmpty -> reorderTable columns dataRows order
+                | _ -> columns, dataRows
+
             // Every materialized shape is made rectangular here, by
             // construction: a row matching the schema width passes through,
             // a longer one is trimmed, a shorter one is null-padded. The
             // tuple / dict / record arms feed rows that are already the
             // right width; the nested arm's rows are genuinely ragged.
-            let width = columns.Length
+            let width = cols.Length
             let padOrTruncate (row: obj array) : obj array =
                 if row.Length = width then row
                 elif row.Length > width then row.[0 .. width - 1]
                 else Array.append row (Array.create (width - row.Length) null)
 
-            let rectangular = dataRows |> Array.map padOrTruncate
+            let rectangular = rows |> Array.map padOrTruncate
             let preview = rectangular |> Array.truncate PreviewRowLimit
             let envelope =
                 { emptyEnvelope ResultKind.Table elapsedMs with
-                    Schema = columns
+                    Schema = cols
                     Rows = preview
                     IsTruncated = rectangular.Length > PreviewRowLimit }
-            envelope, None, Some { Columns = columns |> List.map (fun c -> c.Name); Rows = rectangular }
+            envelope, None, Some { Columns = cols |> List.map (fun c -> c.Name); Rows = rectangular }
 
         try
             match value with
@@ -295,7 +592,8 @@ module Projection =
                 envelope, None, Some { Columns = query.Columns; Rows = allRows }
             | v when FSharpType.IsRecord(v.GetType(), recordBindingFlags) ->
                 let t = v.GetType()
-                materializedTable (recordSchema t) [| recordRow t v |]
+                let pref = preferredColumnOrder |> Option.orElseWith (fun () -> tryGetOrExtractRecordOrder t sourceCode)
+                materializedTable (recordSchema t) [| recordRow t v |] pref
             | :? IEnumerable as items when not (value :? string) ->
                 // Peek only element 0. A flat scalar `seq` (possibly large
                 // or infinite) must stay on the lazy `PagingCursor` path —
@@ -334,6 +632,7 @@ module Projection =
                         failwith "a sequence of ConnectorQueryResult is not supported; enumerate .Rows"
                     | _ when not (isNull first) && FSharpType.IsRecord(first.GetType(), recordBindingFlags) ->
                         let recordType = first.GetType()
+                        let pref = preferredColumnOrder |> Option.orElseWith (fun () -> tryGetOrExtractRecordOrder recordType sourceCode)
                         let reader = getRecordReader recordType
                         let dataRows = ResizeArray<obj array>()
                         dataRows.Add(reader first)
@@ -358,7 +657,7 @@ module Projection =
                         finally
                             disposeEnumerator ()
 
-                        materializedTable (recordSchema recordType) (dataRows.ToArray())
+                        materializedTable (recordSchema recordType) (dataRows.ToArray()) pref
                     | _ when not (isNull first) && FSharpType.IsTuple(first.GetType()) ->
                         let tupleType = first.GetType()
                         let reader = getTupleReader tupleType
@@ -376,7 +675,7 @@ module Projection =
                                 dataRows.Add(reader curr)
                         finally
                             disposeEnumerator ()
-                        materializedTable names (dataRows.ToArray())
+                        materializedTable names (dataRows.ToArray()) None
                     | _ when not (isNull first) && isDictionary (first.GetType()) ->
                         let rows = full |> Array.ofSeq
 
@@ -402,7 +701,7 @@ module Projection =
                         let columns =
                             keysInFirstSeenOrder |> List.map (fun k -> { Name = k; DisplayType = "obj" })
 
-                        materializedTable columns dataRows
+                        materializedTable columns dataRows None
                     | :? IEnumerable when not (first :? string) ->
                         let rows = full |> Array.ofSeq
 
@@ -414,7 +713,7 @@ module Projection =
                         let columns = headers |> List.map (fun n -> { Name = n; DisplayType = "obj" })
                         // Rows 1.. can be ragged — `materializedTable` squares
                         // them to the header width.
-                        materializedTable columns rawRows.[1..]
+                        materializedTable columns rawRows.[1..] None
                     | _ ->
                         // scalar / string sequence: keep the lazy streaming
                         // path — feed the *lazy* `full` enumerator to
@@ -443,6 +742,9 @@ module Projection =
                     "<unprintable value>"
 
             { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some text }, None, None
+
+    let projectWithCursor (value: obj) (elapsedMs: int64) : ResultEnvelope * PagingCursor option * RetainedTable option =
+        projectWithCursorDetailed value elapsedMs None None
 
     let project (value: obj) (elapsedMs: int64) : ResultEnvelope =
         let env, _, _ = projectWithCursor value elapsedMs

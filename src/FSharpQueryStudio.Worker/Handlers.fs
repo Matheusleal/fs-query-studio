@@ -235,6 +235,7 @@ module Handlers =
             stopwatch.Stop()
 
             let output = Projection.toOutputLines outcome.Output outcome.ErrorOutput
+            Projection.registerSourceCode evalParams.Source
 
             let envelope =
                 match outcome.Exception with
@@ -256,7 +257,7 @@ module Handlers =
                         outcome.Value |> Option.map (fun v -> v.ReflectionValue) |> Option.toObj
 
                     let projected, cursor, retained =
-                        Projection.projectWithCursor value stopwatch.ElapsedMilliseconds
+                        Projection.projectWithCursorDetailed value stopwatch.ElapsedMilliseconds (Some evalParams.Source) None
 
                     // Export CSV targets the notebook's most recent MATERIALIZED
                     // grid. A run that produced no such table (a scalar, a
