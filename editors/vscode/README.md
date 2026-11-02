@@ -1,6 +1,6 @@
 # F# Query Studio
 
-[🇺🇸 English Guide](USER_GUIDE.md) | [🇧🇷 Guia em Português](USER_GUIDE_PT.md) | [📊 Benchmark Report](BENCHMARK_REPORT.md)
+[🇺🇸 English](README.md) | [🇧🇷 Português](README_PT.md) | [📖 User Guide (EN)](USER_GUIDE.md) | [📖 Guia do Usuário (PT)](USER_GUIDE_PT.md) | [📊 Benchmark Report](BENCHMARK_REPORT.md)
 
 Write, analyze, and run F# query scripts against SQL databases, local files, and
 REST APIs — as VS Code notebooks.
@@ -25,15 +25,12 @@ sortable grid with a schema tab and CSV export.
 2. Type F# into a code cell and run it. `let` bindings persist to later cells in
    the same notebook — it is one FSI session per notebook file. **F# Query
    Studio: Restart Notebook Session** clears it.
-3. Open the **F# Query Studio** view in the Activity Bar and **Add Connection**.
-   Pick a kind, answer the prompts. Credentials are stored in the OS keychain
-   via VS Code `SecretStorage` — never written to `workspace.json` or the
-   notebook.
+3. Open the **F# Query Studio** view in the Activity Bar and **Add Connection** (or drop files into `data_sources/` and run **Auto-Import Data Sources Directory**). Credentials are stored in the OS keychain via VS Code `SecretStorage` — never written to `workspace.json` or the notebook.
 4. Reference a connection from a cell and run it; a tabular result renders as a
    grid with a schema tab and **Export CSV**.
 
 A full hands-on walkthrough is in
-[`docs/TUTORIAL.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/TUTORIAL.md).
+[`docs/TUTORIAL.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/TUTORIAL.md) ([versão em português](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/TUTORIAL_PT.md)).
 
 ## Writing cells
 
@@ -53,20 +50,61 @@ open FSharpQueryStudio.Connectors   // the Connections.* API
 | `Connections.excel.<Conn>` | Excel (XLSX) | Typed sheets (`.<SheetName>`) and `.Raw()` |
 | `Connections.rest.<Conn>` | REST JSON | Typed items (`.Items`) and `.SendAsync()` |
 
-### LINQ Queries with Automatic Strongly-Typed Entities
+### Universal SQL Pushdown (EF-Style)
 
-F# Query Studio generates typed entities in background for all registered connections. You can query databases, CSV, Excel, and JSON files using idiomatic F# LINQ query expressions directly under each category without any intermediate setup:
+F# Query Studio translates F# LINQ query expressions directly into optimized native SQL queries across SQLite, PostgreSQL, and SQL Server. Only the requested columns and filtered rows are retrieved from the database:
 
 ```fsharp
 query {
-    for u in Connections.sql.Sales.Users do
-    where (u.Email.Contains("@") && u.IsActive)
-    sortBy u.CreatedAt
-    select (u.Name, u.Email)
+    for o in Connections.sql.Sales.Orders do
+    where (o.TotalAmount >= 100.0f && o.Status = "Completed")
+    sortByDescending o.CreatedAt
+    take 10
+    select {| OrderId = o.Id; Total = o.TotalAmount; Date = o.CreatedAt |}
 }
 ```
 
-Multi-schema PostgreSQL and SQL Server databases are mapped naturally under schema namespaces (e.g. `Connections.sql.Sales.Sales.Orders`).
+This translates directly into:
+```sql
+SELECT _t0.Id AS OrderId, _t0.TotalAmount AS Total, _t0.CreatedAt AS Date
+FROM Orders _t0
+WHERE (_t0.TotalAmount >= 100.0 AND _t0.Status = 'Completed')
+ORDER BY _t0.CreatedAt DESC
+LIMIT 10
+```
+
+### Inspecting Generated SQL (`toRawSql`)
+
+To inspect the translated SQL query and parameters before execution:
+
+```fsharp
+query {
+    for o in Connections.sql.Sales.Orders do
+    where (o.TotalAmount >= 100.0f)
+    select o
+}
+|> Connections.toRawSql
+```
+
+### High-Performance Staging Engine for CSV & Excel (`.fsqs/cache/engine.db`)
+
+CSV and Excel (`.xlsx`) files are automatically cached into an embedded SQLite staging database under `<workspace>/.fsqs/cache/engine.db`:
+- **Single-Transaction Batch Streaming**: Ingests hundreds of thousands of rows at >100,000 rows/sec.
+- **Smart MTime/Size Cache Validation**: If the source files haven't changed, queries execute immediately against the cached tables in 0 ms.
+- **Automatic Composite Indexes & Multi-Property Joins**: Joins between different files on multiple keys execute natively in SQLite with sub-second performance (~18 ms for 5,000×40 rows) without memory explosions:
+
+```fsharp
+query {
+    for t in Connections.csv.Transactions do
+    join tgt in Connections.excel.Targets.Sheet1 on ((t.StoreId, t.Region) = (tgt.StoreId, tgt.Region))
+    where (t.Amount > 1000.0M)
+    select {| Tx = t.TransactionId; Store = t.StoreId; Target = tgt.TargetAmount |}
+}
+```
+
+### Auto-Discovery via `data_sources/` Directory
+
+Drop your SQLite databases (`.db`, `.sqlite`), CSV files (`.csv`), or Excel spreadsheets (`.xlsx`) into a `data_sources/` folder in your project root. Click **Auto-Import Sources** in the Connections view toolbar or run **F# Query Studio: Auto-Import Data Sources Directory** to register them all automatically.
 
 ### Raw SQL Queries
 
@@ -106,26 +144,29 @@ To force plain structured text, end the cell with `sprintf "%A" value`.
 - **Notebook execution** — each `.fsqnb` code cell runs against a persistent,
   per-notebook FSI session; stdout / stderr stream live; cancel a running cell
   from the toolbar.
+- **Universal SQL Pushdown** — full query pushdown (`select`, `where`, `join`, `sortBy`, `take`, `skip`, `count`, `sum`) translated into SQL across all relational databases and staged files, avoiding client memory overhead.
+- **High-Performance Staging Engine** — on-disk SQLite cache (`.fsqs/cache/engine.db`) with smart timestamp validation and fast multi-key joins for large CSV and Excel files.
+- **Pre-Execution SQL Inspection** — inspect exact generated SQL and parameters via `Connections.toRawSql` before touching the database.
+- **Auto-Discovery via `data_sources`** — one-click discovery and automatic registration of all databases, CSV, and Excel files in `data_sources/`.
 - **Results grid** — virtualized table styled to match VS Code's own tables:
   right-aligned numeric columns, zebra rows, a schema tab, CSV export, and paged
-  "load more" for large results. The grid is the default view; FSI's `val … =`
-  echo and any `printf` output move to the output's "raw data" presentation.
+  "load more" for large results.
 - **In-cell F# intelligence** — completion, hover, signature help, diagnostics, and
   **Go to Definition (`F12`)** across cells and generated entity types.
 - **Categorized Connections & Autocomplete** — Access `Connections.sql.<Conn>`, `Connections.csv.<Conn>`, etc. with full IntelliSense, compile-time type safety, and scoped queries without cross-connection leakage.
 - **Connection management** — an Activity Bar tree of connections → schemas → tables →
   columns, lazily loaded; add / edit / remove via guided pickers.
-- **Built-in Documentation** — click the `$(book)` icon in the Connections view toolbar
-  or the Notebook editor title bar to open the full User Guide side-by-side.
+- **Built-in Bilingual Documentation** — click the `$(book)` icon in the Connections view toolbar
+  or the Notebook editor title bar to open the full User Guide side-by-side in English or Portuguese.
 
 ## Connection kinds
 
 | Kind | You provide | Secret |
 |---|---|---|
-| SQLite | absolute database-file path | — |
-| CSV | absolute `.csv` file path | — |
-| Excel | absolute `.xlsx` file path | — |
-| JSON | absolute `.json` file path | — |
+| SQLite | absolute or workspace-relative database-file path | — |
+| CSV | absolute or workspace-relative `.csv` file path | — |
+| Excel | absolute or workspace-relative `.xlsx` file path | — |
+| JSON | absolute or workspace-relative `.json` file path | — |
 | PostgreSQL | connection string — put `{password}` where the secret goes | optional password, prompted separately, stored in the OS keychain |
 | SQL Server | connection string — put `{password}` where the secret goes | optional password, prompted separately, stored in the OS keychain |
 | MySQL | connection string — put `{password}` where the secret goes | optional password, prompted separately, stored in the OS keychain |
@@ -143,11 +184,17 @@ RPC to the worker, and never lands in the workspace file or the notebook.
 | **F# Query Studio: Open Documentation** | Opens the comprehensive User Guide in markdown preview (icon `$(book)`). |
 | **F# Query Studio: New F# Query Notebook** | Opens a new untitled `.fsqnb` with one empty cell. |
 | **F# Query Studio: New F# Query Notebook Here** | Explorer folder context menu — writes and opens a `.fsqnb` in that folder. |
+| **F# Query Studio: Auto-Import Data Sources Directory** | Auto-detects and adds compatible files from `data_sources/` as connections. |
+| **F# Query Studio: Sync Data Sources Cache** | Triggers asynchronous background caching of CSV and Excel data sources into `.fsqs/cache/engine.db`. |
+| **F# Query Studio: Create Sample Data (SQLite & CSV)** | Generates multi-source sample files and demo notebooks (`sample_demo.fsqnb` and `sample_demo_pt.fsqnb`). |
 | **F# Query Studio: Restart Notebook Session** | Discards the active notebook's FSI session. |
 | **F# Query Studio: Check Worker** | Reports worker health and protocol version; explains what to fix if `dotnet` is missing. |
 | **F# Query Studio: Connections: Add / Edit / Remove / Refresh** | Manage the connections tree. |
+| **F# Query Studio: Initialize Empty Project** | Initializes a `.fsqs/workspace.json` project in the active workspace. |
+| **F# Query Studio: Upgrade Project Schema** | Migrates legacy workspace configurations to the latest v2 schema. |
+| **F# Query Studio: Show Output Logs** | Opens the extension's output channel showing worker and RPC logs. |
 
-For detailed examples and tutorials, see [`USER_GUIDE.md`](USER_GUIDE.md).
+For detailed examples and tutorials, see [`USER_GUIDE.md`](USER_GUIDE.md) ([Guia do Usuário em Português](USER_GUIDE_PT.md)).
 
 ## Limitations
 

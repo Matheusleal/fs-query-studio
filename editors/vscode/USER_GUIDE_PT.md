@@ -27,10 +27,12 @@ Escreva consultas com segurança de tipos em tempo de compilação, alta express
 5. [Auto-complete Inteligente de Conexões](#5-auto-complete-inteligente-de-conexões)
 6. [Consultas LINQ e Type Provider em Background](#6-consultas-linq-e-type-provider-em-background)
    - [Filtragem Básica e Projeção](#filtragem-básica-e-projeção)
-   - [Junção de Múltiplas Tabelas (Joins)](#junção-de-múltiplas-tabelas-joins)
+   - [Pushdown Completo de Consultas para SQL](#pushdown-completo-de-consultas-para-sql)
+   - [Joins Multi-Propriedades sem Explosão de Memória](#joins-multi-propriedades-sem-explosão-de-memória)
+   - [Inspeção do SQL Gerado (toRawSql)](#inspeção-do-sql-gerado-torawsql)
    - [Agrupamentos e Agregações](#agrupamentos-e-agregações)
-   - [Consultas em Arquivos CSV com LINQ](#consultas-em-arquivos-csv-com-linq)
-   - [Combinando Banco de Dados e CSV em Memória](#combinando-banco-de-dados-e-csv-em-memória)
+   - [Cache Persistente em Disco SQLite para CSV e Excel](#cache-persistente-em-disco-sqlite-para-csv-e-excel)
+   - [Descoberta Automática via Pasta data_sources](#descoberta-automática-via-pasta-data_sources)
 7. [Consultas SQL Tradicionais Parametrizadas (Raw SQL)](#7-consultas-sql-tradicionais-parametrizadas-raw-sql)
 8. [Grid Interativo de Resultados](#8-grid-interativo-de-resultados)
 9. [Recursos de Linguagem e Go to Definition (F12)](#9-recursos-de-linguagem-e-go-to-definition-f12)
@@ -153,70 +155,74 @@ query {
 }
 ```
 
-### Junção de Múltiplas Tabelas (Joins)
+### Pushdown Completo de Consultas para SQL
 
-Realize junções relacionais com segurança de tipo em tempo de compilação usando a cláusula `join`:
+Em vez de executar queries ingênuas com `SELECT *` e filtrar tudo na memória do cliente, o F# Query Studio conta com uma **Engine de Pushdown para SQL nível Entity Framework**:
+- **Projeções Específicas de Colunas**: `select {| Id = o.Id; Total = o.Total |}` gera `SELECT _t0.Id, _t0.Total FROM ...`
+- **Filtros Parametrizados**: `where (o.TotalAmount >= 100.0f)` gera `WHERE (_t0.TotalAmount >= @p0)`
+- **Ordenação e Paginação**: `sortBy`, `sortByDescending`, `take N`, `skip M` geram diretamente `ORDER BY ... LIMIT N OFFSET M`
+- **Agregações no Servidor**: `count` e `sum` traduzem diretamente para `COUNT(*)` e `SUM(...)`
+
+### Joins Multi-Propriedades sem Explosão de Memória
+
+As expressões de consulta F# suportam junções relacionais compostas usando tuplas:
 
 ```fsharp
-// Junção entre Clientes e Pedidos
+// Join tipado multi-propriedade compilado para SQL sem produtos cartesianos
 query {
-    for c in db.Customers do
-    join o in db.Orders on (c.Id = o.CustomerId)
-    where (o.Status = "Completed")
-    select (c.FullName, c.Country, o.Id, o.OrderDate, o.TotalAmount)
+    for s in Connections.sql.Transactions.Sales do
+    join t in Connections.sql.Transactions.Targets on ((s.StoreId, s.Region) = (t.StoreId, t.Region))
+    where (s.TotalAmount >= 250.0M)
+    select {| Loja = s.StoreId; Regiao = s.Region; Valor = s.TotalAmount; Gestor = t.Manager |}
 }
 ```
 
-```fsharp
-// Junção tripla: Itens de Pedido + Produtos + Categorias
-query {
-    for item in db.OrderItems do
-    join prod in db.Products on (item.ProductId = prod.Id)
-    join cat in db.Categories on (prod.CategoryId = cat.Id)
-    select (item.OrderId, prod.Name, cat.Name, item.Quantity, item.UnitPrice)
-}
+Esta query compila diretamente para a instrução SQL indexada:
+```sql
+SELECT _t0.StoreId AS Loja, _t0.Region AS Regiao, _t0.TotalAmount AS Valor, _t1.Manager AS Gestor
+FROM Transactions _t0
+INNER JOIN Targets _t1 ON _t0.StoreId = _t1.StoreId AND _t0.Region = _t1.Region
+WHERE (_t0.TotalAmount >= @p0)
 ```
 
-### Agrupamentos e Agregações
+Índices B-tree compostos automáticos (`ix_tabela_StoreId_Region`) garantem tempos de resposta inferiores a 100ms, mesmo cruzando centenas de milhares de linhas.
+
+### Inspeção do SQL Gerado (`toRawSql`)
+
+Deseja verificar o SQL parametrizado exato antes ou durante a execução contra a base de dados?
+Use `ResultKind.toRawSql` ou `Connections.toRawSql`:
 
 ```fsharp
-// Agrupamento de clientes por país com contagem
-query {
-    for c in db.Customers do
-    groupValBy c.Id into g
-    select (g.Key, count g)
-}
+let minhaQuery =
+    query {
+        for o in Connections.sql.SampleStore.Orders do
+        join c in Connections.sql.SampleStore.Customers on (o.CustomerId = c.Id)
+        where (o.Status = "Completed")
+        select {| PedidoId = o.Id; Cliente = c.FirstName + " " + c.LastName; Total = o.TotalAmount |}
+    }
+
+// Imprime o SQL parametrizado e seus parâmetros no terminal sem acessar o banco!
+printfn "SQL Gerado:\n%s" (Connections.toRawSql minhaQuery)
+
+// Executa e exibe o grid de dados interativo
+minhaQuery
 ```
 
-### Consultas em Arquivos CSV com LINQ
+### Cache Persistente em Disco SQLite para CSV e Excel
 
-Arquivos planos como CSV, Excel e JSON recebem esquemas inferidos automaticamente:
+Ao cadastrar ou importar arquivos planos (`.csv`, `.xlsx`), o F# Query Studio pré-carrega os dados de forma assíncrona em um banco SQLite em disco em:
+`<workspace>/.fsqs/cache/engine.db`
 
-```fsharp
-// Consulta LINQ direta no feed CSV de vendas via Connections.csv
-query {
-    for row in Connections.csv.SalesFeed do
-    where (row.StoreCity = "New York" && row.Quantity >= 2)
-    sortByDescending row.Total
-    select (row.TransactionId, row.Product, row.Quantity, row.Total)
-}
-```
+- **Validação Inteligente de Invalidação**: O motor verifica a data de modificação (`mtime`) e o tamanho em bytes do arquivo. Arquivos inalterados são reaproveitados instantaneamente com zero atraso nas próximas consultas.
+- **Aquecimento Assíncrono Imediato**: A sincronização começa imediatamente em segundo plano ao registrar conexões ou abrir o workspace.
+- **Feedback Visual na Barra de Status**: A barra do VS Code exibe `$(sync~spin) Sincronizando fontes de dados...` durante o carregamento e `$(database) Fontes prontas` ao finalizar. Você também pode rodar o comando **F# Query Studio: Sync Data Sources Cache** pela Command Palette.
 
-### Combinando Banco de Dados e CSV em Memória
+### Descoberta Automática via Pasta `data_sources`
 
-Como as células compartilham o mesmo estado no F# Interactive, você pode cruzar dados do banco relacional com feeds CSV usando funções funcionais do F#:
-
-```fsharp
-let dbProducts = 
-    query { for p in Connections.sql.SampleStore.Products do select (p.Name, p.UnitPrice) }
-    |> Seq.toList
-
-let csvTransactions =
-    query { for r in Connections.csv.SalesFeed do select (r.Product, r.Total) }
-    |> Seq.toList
-
-printfn "Total de produtos no banco: %d | Total de vendas no CSV: %d" dbProducts.Length csvTransactions.Length
-```
+Evite configurações manuais organizando seus arquivos na pasta `data_sources`:
+1. Coloque seus arquivos `.csv`, `.xlsx`, `.db` ou `.sqlite` dentro da pasta `data_sources/` na raiz do seu projeto.
+2. Clique no botão **Auto-Import Data Sources** na barra lateral ou use o comando `F# Query Studio: Auto-Import Data Sources Directory` (`Ctrl+Shift+P`).
+3. Todos os arquivos suportados serão registrados com nomes PascalCase amigáveis, tipos gerados e sincronizados no cache SQLite!
 
 ---
 

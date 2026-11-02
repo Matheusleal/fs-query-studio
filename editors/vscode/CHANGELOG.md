@@ -4,19 +4,27 @@ All notable changes to the **F# Query Studio** VS Code extension. The format
 follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 `package.json` `version` and map to `vscode-v<version>` git tags.
 
+[🇺🇸 English](CHANGELOG.md) | [🇧🇷 Versão em Português](CHANGELOG_PT.md)
+
 ## [Unreleased]
 
-## [0.4.0-rc2] — 2026-11-02
+## [0.4.0] — 2026-11-02
 
 ### Added
 
 - **Universal SQL Pushdown (EF-Style Projection & Relational Joins)** — Complete pushdown of `Select` projection expressions, member access, arithmetic, string concatenation (`||` / `+`), and relational `Join` across SQLite, PostgreSQL, and SQL Server, avoiding memory-bound row fetching and eliminating `SELECT *`.
 - **Dynamic Projected Record Mapper** — Dynamically maps anonymous records and projected types (`'TResult`) from SQL reader columns via compiled expression delegate mapping.
 - **Embedded File SQLite Staging Engine (`.fsqs/cache/engine.db`)** — High-performance staging engine for CSV and Excel files with single-transaction batch ingest, WAL mode, smart file hash/mtime caching (0ms reload on hits), and automatic B-tree indexing on `Id` and `*_id` keys.
-- **Ultra-Fast Cross-File Joins** — Complex multi-file relational joins on datasets exceeding 200,000 rows execute natively in SQLite in sub-second times (~768 ms).
+- **Ultra-Fast Multi-Property Relational Joins** — Joins between different files on compound keys (`on ((a.p1, a.p2) = (b.p1, b.p2))` and LINQ `SelectMany` with compound predicates) execute natively in SQLite with sub-second performance (~18 ms for 5,000×40 rows) without memory explosions, supported by automatic composite B-tree indexes.
+- **Automatic `data_sources/` Folder Discovery** — Added `fs-query-studio.autoImportFolder` command and quick toolbar button to auto-detect and register compatible files (`.csv`, `.xlsx`, `.db`, `.sqlite`) found in the `data_sources/` folder.
+- **Asynchronous Cache Synchronization & Visual Status Feedback** — Added animated status bar item (`$(sync~spin) Syncing data sources cache...` ➔ `$(database) Data sources ready`) and dedicated command `F# Query Studio: Sync Data Sources Cache` to stage flat files into disk cache asynchronously.
+- **Pre-Execution Query Inspection (`ResultKind.toRawSql`)** — Added `ResultKind.toRawSql`, `Connections.toRawSql`, and `.ToRawSql()` allowing users to inspect the exact SQL query and parameter list (`-- Parameters: ...`) generated for any pushdown or LINQ query before sending it to the database.
 - **Direct SQL Execution on Workspace Engine** — Exposed `Connections.queryEngine(sqlText, ?parameters)` and `Connections.sql.query(sqlText, ?parameters)` returning tabular results.
 - **Clean Entity Generation** — `DatabaseConnection.GenerateEntities` emits clean dynamic table references (`conn.Table<...>("TableName")`) rather than hardcoded full-column SELECT queries.
-- **Pre-Execution Query Inspection (`ResultKind.toRawSql`)** — Added `ResultKind.toRawSql`, `toRawSql`, and `.ToRawSql()` allowing users to inspect the exact SQL query and parameter list (`-- Parameters: ...`) generated for any pushdown or LINQ query before sending it to the database.
+- **Modular Connector Architecture (Backend & Frontend)** — Decoupled connectors into independent, self-contained modules (`FSharpQueryStudio.Connectors.Abstractions`, `.Sqlite`, `.SqlServer`, `.PostgreSql`, `.Csv`, `.Excel`, `.Rest`) on the backend and declarative frontend modules (`editors/vscode/src/connections/modules/*.ts`) registered via `ConnectorRegistry` and `ConnectorFrontRegistry`.
+- **Declarative Schema-Driven Connection Wizard (`connector/list`)** — Added `connector/list` RPC endpoint exposing connector descriptors and form field schemas so the VS Code extension dynamically renders connection forms, secret handling, and validation rules per connector module.
+- **Expanded Multi-Source Sample Notebooks** — Added cell 7.1 demonstrating pushdown multi-property joins and `toRawSql` SQL inspection, alongside existing Excel (`.xlsx`) and GitHub REST API queries across `sample_demo.fsqnb` and `sample_demo_pt.fsqnb`.
+- **Full Bilingual Documentation Parity** — Complete English and Portuguese documentation covering all user guides, tutorials, benchmarks, and changelogs.
 
 ### Fixed
 

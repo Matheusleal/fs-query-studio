@@ -1,5 +1,7 @@
 # Tutorial — your first F# Query Notebook
 
+[🇺🇸 English](TUTORIAL.md) | [🇧🇷 Português](TUTORIAL_PT.md)
+
 This walks you from a clean VS Code through running F#, wiring up a database
 connection, and exporting a result. It takes about fifteen minutes. Every step
 is something you type or click; nothing here is theory.
@@ -135,40 +137,47 @@ table expands to its columns. Nothing is queried until you expand a node.
 
 ---
 
-## 5. Query the connection
+## 5. Query the connection with LINQ and Full SQL Pushdown
 
-Back in the notebook, run:
-
-```fsharp
-Connections.sql "chinook" "select * from Track limit 20" []
-```
-
-(Use a table name that exists in your database.) The result renders as a grid.
-
-`Connections` is already `open` in every cell — no `#r`, no `open` needed. The
-signature is:
-
-```
-Connections.sql  <connection name>  <sql text>  <parameters>
-```
-
-`parameters` is a list of `name, value` pairs. **Never** build SQL by string
-concatenation — pass values as parameters and they are bound through the
-driver:
+Back in the notebook, you can write strongly-typed LINQ queries against your connection. Entities are generated automatically in the background under `Connections.sql.<ConnectionName>`:
 
 ```fsharp
-Connections.sql
-    "chinook"
-    "select Name, Milliseconds from Track where GenreId = @genre order by Milliseconds desc"
+query {
+    for t in Connections.sql.Chinook.Track do
+    where (t.Milliseconds > 300000)
+    sortByDescending t.Milliseconds
+    take 20
+    select {| Title = t.Name; DurationMs = t.Milliseconds; UnitPrice = t.UnitPrice |}
+}
+```
+
+### Full SQL Pushdown
+Notice what happened:
+- Only the 3 selected fields (`Name`, `Milliseconds`, `UnitPrice`) are fetched from the database (`SELECT _t0.Name AS Title, ...`).
+- Filtering (`WHERE`), sorting (`ORDER BY`), and limits (`LIMIT 20`) are executed **inside the database engine**, avoiding pulling thousands of rows into memory.
+
+### Inspect the Generated SQL with `toRawSql`
+Curious about what query is being compiled? Preview the exact parameterized SQL at any time:
+
+```fsharp
+let q =
+    query {
+        for t in Connections.sql.Chinook.Track do
+        where (t.Milliseconds > 300000)
+        select t
+    }
+
+printfn "%s" (Connections.toRawSql q)
+```
+
+### Traditional Raw Parameterized SQL
+You can also run traditional parameterized SQL directly when needed:
+
+```fsharp
+Connections.sql.Chinook.rawQuery
+    "select Name, Milliseconds from Track where GenreId = @genre order by Milliseconds desc limit 20"
     [ "genre", box 1 ]
 ```
-
-`box` turns the value into `obj` so the list is well-typed when the values have
-different types.
-
-> **Tip.** Inside the `"chinook"` string literal, completion offers your
-> registered connection names. Inside the SQL string it does not — that text is
-> opaque to the analyzer.
 
 ---
 
@@ -231,24 +240,45 @@ sprintf "%A" (Connections.sql "chinook" "select * from Album limit 3" [])
 
 ---
 
-## 8. CSV and Excel connections
+## 8. CSV and Excel Connections & Persistent Disk Caching
 
-Add a connection of kind `Csv` (or `Excel`) the same way — the prompt asks for
-an **absolute file path** to the `.csv` / `.xlsx`. Then:
+### Auto-Import via `data_sources/`
+The easiest way to register flat files is to drop them directly into your workspace's `data_sources/` folder:
+- Place any `.csv`, `.xlsx`, `.db`, or `.sqlite` files in `data_sources/`.
+- Run **F# Query Studio: Auto-Import Data Sources Directory** from the Command Palette (or click the button in the Connections sidebar).
+- Files are detected, mapped with typed record schemas, and immediately pre-staged in background into a local SQLite disk cache (`.fsqs/cache/engine.db`).
+
+### Querying Flat Files with LINQ
+Query your files directly using typed accessors:
 
 ```fsharp
-Connections.csv "my-csv"
+query {
+    for tx in Connections.csv.SalesFeed do
+    where (tx.Quantity > 2)
+    sortByDescending tx.TotalAmount
+    select (tx.OrderId, tx.Product, tx.TotalAmount)
+}
 ```
 
 ```fsharp
-// Excel takes an optional row cap
-Connections.excel "my-xlsx" (Some 500)
-// all rows:
-Connections.excel "my-xlsx" None
+// Excel sheets are exposed individually with sheet-specific records
+query {
+    for row in Connections.excel.RegionalTargets.RegionalTargets do
+    where (row.GrowthRate >= 10.0M)
+    select row
+}
 ```
 
-Both return the same `ConnectorQueryResult` shape as `Connections.sql`, so the
-grid and **Export CSV** work identically.
+### Fast Multi-Property Joins between Files
+Because tabular files are cached in SQLite with composite B-tree indexes, you can join multiple files on multiple properties without Cartesian products:
+
+```fsharp
+query {
+    for s in Connections.csv.SalesFeed do
+    join c in Connections.csv.CustomersFeed on (s.Customer = c.CustomerName)
+    select {| OrderId = s.OrderId; Customer = s.Customer; Tier = c.LoyaltyTier |}
+}
+```
 
 ---
 
