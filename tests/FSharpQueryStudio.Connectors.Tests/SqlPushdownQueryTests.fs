@@ -17,6 +17,19 @@ type TestProduct = {
     InStock: bool
 }
 
+[<CLIMutable>]
+type TestCustomer = {
+    CustomerId: int
+    CustomerName: string
+}
+
+[<CLIMutable>]
+type TestOrder = {
+    OrderId: int
+    CustomerId: int
+    Amount: decimal
+}
+
 type TempSqliteDb() =
     let path = Path.Combine(Path.GetTempPath(), $"pushdown_test_{Guid.NewGuid():N}.db")
     do
@@ -29,7 +42,15 @@ type TempSqliteDb() =
              INSERT INTO Products VALUES (2, 'Mouse', 25.00, 'Electronics', 1); \
              INSERT INTO Products VALUES (3, 'Notebook', 5.99, 'Stationery', 1); \
              INSERT INTO Products VALUES (4, 'Monitor', 299.99, 'Electronics', 0); \
-             INSERT INTO Products VALUES (5, 'Pen', 1.50, 'Stationery', 1);"
+             INSERT INTO Products VALUES (5, 'Pen', 1.50, 'Stationery', 1); \
+             CREATE TABLE Customers (CustomerId INTEGER PRIMARY KEY, CustomerName TEXT); \
+             INSERT INTO Customers VALUES (1, 'Alice'); \
+             INSERT INTO Customers VALUES (2, 'Bob'); \
+             INSERT INTO Customers VALUES (3, 'Charlie'); \
+             CREATE TABLE Orders (OrderId INTEGER PRIMARY KEY, CustomerId INTEGER, Amount NUMERIC); \
+             INSERT INTO Orders VALUES (101, 1, 150.00); \
+             INSERT INTO Orders VALUES (102, 1, 200.00); \
+             INSERT INTO Orders VALUES (103, 2, 50.00);"
         cmd.ExecuteNonQuery() |> ignore
 
     member _.Path = path
@@ -373,6 +394,122 @@ let ``ResultKind.toRawSql on relational join displays full joined SQL without da
     Assert.Contains("INNER JOIN Products _t1 ON _t0.Category = _t1.Category", rawSql)
     Assert.Contains("_t0.Name AS LeftName", rawSql)
     Assert.Contains("_t1.Name AS RightName", rawSql)
+
+[<Fact>]
+let ``SqlPushdownQueryable translates leftOuterJoin to SQL LEFT JOIN and executes correctly`` () =
+    use db = new TempSqliteDb()
+    let connector = SqliteConnector(db.Path)
+    let customers = SqlPushdownQueryable<TestCustomer>(connector, "Customers")
+    let orders = SqlPushdownQueryable<TestOrder>(connector, "Orders")
+
+    let q =
+        query {
+            for c in customers do
+            leftOuterJoin o in orders on (c.CustomerId = o.CustomerId) into g
+            for o in g.DefaultIfEmpty() do
+            select {|
+                Customer = c.CustomerName
+                Amount = (if isNull (box o) then 0.0M else o.Amount)
+            |}
+        }
+
+    let rawSql = ResultKind.toRawSql q
+    Assert.Contains("LEFT JOIN Orders", rawSql)
+    Assert.Contains("COALESCE", rawSql)
+
+    let rows = q |> Seq.toList
+    Assert.Equal(4, rows.Length)
+    let charlie = rows |> List.find (fun r -> r.Customer = "Charlie")
+    Assert.Equal(0.0M, charlie.Amount)
+
+[<Fact>]
+let ``SqlPushdownQueryable translates distinct to SELECT DISTINCT`` () =
+    use db = new TempSqliteDb()
+    let connector = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(connector, "Products")
+
+    let q =
+        query {
+            for p in products do
+            distinct
+            select p.Category
+        }
+
+    let rawSql = ResultKind.toRawSql q
+    Assert.Contains("SELECT DISTINCT", rawSql)
+    let cats = q |> Seq.toList
+    Assert.Equal(2, cats.Length)
+
+[<Fact>]
+let ``SqlPushdownQueryable translates terminal methods Count, Sum, Min, Max`` () =
+    use db = new TempSqliteDb()
+    let connector = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(connector, "Products")
+
+    let count = products.Count()
+    Assert.Equal(5, count)
+
+    let sum = products.Sum(fun p -> p.Price)
+    Assert.Equal(377.98M, sum)
+
+    let min = products.Min(fun p -> p.Price)
+    Assert.Equal(1.50M, min)
+
+    let max = products.Max(fun p -> p.Price)
+    Assert.Equal(299.99M, max)
+
+[<Fact>]
+let ``SqlPushdownQueryable translates subquery Contains to IN subselect`` () =
+    use db = new TempSqliteDb()
+    let connector = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(connector, "Products")
+
+    let expensiveIds =
+        query {
+            for p in products do
+            where (p.Price > 100.0M)
+            select p.Id
+        }
+
+    let q =
+        query {
+            for p in products do
+            where (expensiveIds.Contains(p.Id))
+            select p.Name
+        }
+
+    let rawSql = ResultKind.toRawSql q
+    Assert.Contains("IN (SELECT", rawSql)
+    let names = q |> Seq.toList
+    Assert.Single(names) |> ignore
+    Assert.Equal("Monitor", names.[0])
+
+type TestSales = { Year: int; Product: string; Sales: int }
+
+[<Fact>]
+let ``Seq.pivot performs in-memory cross-tabulation`` () =
+    let rows: TestSales list = [
+        { Year = 2024; Product = "A"; Sales = 100 }
+        { Year = 2024; Product = "B"; Sales = 200 }
+        { Year = 2025; Product = "A"; Sales = 150 }
+        { Year = 2025; Product = "B"; Sales = 250 }
+    ]
+
+    let pivoted = Seq.pivot (fun (r: TestSales) -> r.Year) (fun r -> r.Product) (fun r -> r.Sales) Seq.sum rows |> Seq.toList
+    Assert.Equal(2, pivoted.Length)
+    let (year2024, map2024) = pivoted |> List.find (fun (y, _) -> y = 2024)
+    Assert.Equal(100, map2024.["A"])
+    Assert.Equal(200, map2024.["B"])
+
+[<Fact>]
+let ``Connections.sql.buildPivotSql generates dynamic CASE WHEN aggregation SQL`` () =
+    let sql = Connections.sql.buildPivotSql("Sales", ["Year"], "Product", "Amount", ["A"; "B"])
+    Assert.Contains("SELECT Year", sql)
+    Assert.Contains("SUM(CASE WHEN Product = 'A' THEN Amount END) AS \"A\"", sql)
+    Assert.Contains("SUM(CASE WHEN Product = 'B' THEN Amount END) AS \"B\"", sql)
+    Assert.Contains("FROM Sales", sql)
+    Assert.Contains("GROUP BY Year", sql)
+
 
 
 

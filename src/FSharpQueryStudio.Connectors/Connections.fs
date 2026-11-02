@@ -948,6 +948,41 @@ module Connections =
         member _.rawQuery(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
             let p = defaultArg parameters []
             (getEngine()).ExecuteQuery(sqlText, p)
+        /// Builds dynamic SQL for cross-tabulation / pivot query given known pivot column values.
+        static member buildPivotSql(tableName: string, rowKeys: string list, pivotCol: string, valCol: string, pivotVals: string list, ?aggFunc: string) : string =
+            let agg = defaultArg aggFunc "SUM"
+            let rowKeysStr = String.concat ", " rowKeys
+            let pivotCols =
+                pivotVals
+                |> List.map (fun v ->
+                    let safeVal = v.Replace("'", "''")
+                    let safeAlias = v.Replace("\"", "\"\"")
+                    $"{agg}(CASE WHEN {pivotCol} = '{safeVal}' THEN {valCol} END) AS \"{safeAlias}\""
+                )
+                |> String.concat ",\n    "
+            if List.isEmpty pivotVals then
+                $"SELECT {rowKeysStr} FROM {tableName} GROUP BY {rowKeysStr};"
+            else
+                $"SELECT {rowKeysStr},\n    {pivotCols}\nFROM {tableName}\nGROUP BY {rowKeysStr};"
+        member this.buildPivotSql(tableName: string, rowKeys: string list, pivotCol: string, valCol: string, pivotVals: string list, ?aggFunc: string) : string =
+            SqlCategory.buildPivotSql(tableName, rowKeys, pivotCol, valCol, pivotVals, ?aggFunc = aggFunc)
+        /// Performs a dynamic SQL cross-tabulation / pivot on the staging engine.
+        /// Extracts distinct values of pivotCol and executes conditional aggregation grouped by rowKeys.
+        member this.pivot(tableName: string, rowKeys: string list, pivotCol: string, valCol: string, ?aggFunc: string) : ConnectorQueryResult =
+            let eng = getEngine ()
+            let distinctSql = $"SELECT DISTINCT {pivotCol} AS val FROM {tableName} WHERE {pivotCol} IS NOT NULL ORDER BY 1;"
+            let distinctRes = eng.ExecuteQuery(distinctSql, [])
+            let pivotVals =
+                distinctRes.Rows
+                |> Seq.choose (fun row ->
+                    if row.Length > 0 && not (isNull row.[0]) then
+                        let s = string row.[0]
+                        if not (String.IsNullOrWhiteSpace s) then Some s else None
+                    else None
+                )
+                |> Seq.toList
+            let pivotSql = this.buildPivotSql(tableName, rowKeys, pivotCol, valCol, pivotVals, ?aggFunc = aggFunc)
+            eng.ExecuteQuery(pivotSql, [])
 
     /// Category container for registered delimited CSV file connections (e.g. Connections.csv.CustomersFeed).
     type CsvCategory() = class end
@@ -1208,3 +1243,23 @@ module ConnectorQueryResultExtensions =
 
         member this.AsQueryable<'T>() : IQueryable<'T> =
             this.As<'T>().AsQueryable()
+
+[<AutoOpen>]
+module SequencePivotExtensions =
+    /// Module with pivot / cross-tabulation functions for in-memory sequences.
+    module Seq =
+        /// Performs an in-memory pivot / cross-tabulation of any sequence of records.
+        let pivot (rowKeySelector: 'T -> 'RowKey) (colKeySelector: 'T -> 'ColKey) (valSelector: 'T -> 'Value) (aggregator: 'Value seq -> 'Result) (source: 'T seq) : ('RowKey * Map<'ColKey, 'Result>) seq =
+            source
+            |> Seq.groupBy rowKeySelector
+            |> Seq.map (fun (rowKey, rowItems) ->
+                let colMap =
+                    rowItems
+                    |> Seq.groupBy colKeySelector
+                    |> Seq.map (fun (colKey, colItems) ->
+                        let vals = colItems |> Seq.map valSelector
+                        (colKey, aggregator vals)
+                    )
+                    |> Map.ofSeq
+                (rowKey, colMap)
+            )

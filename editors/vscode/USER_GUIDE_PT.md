@@ -208,6 +208,108 @@ printfn "SQL Gerado:\n%s" (Connections.toRawSql minhaQuery)
 minhaQuery
 ```
 
+### Recursos Avançados de Consulta (Joins, Agregações, Subqueries e Pivot)
+
+O F# Query Studio suporta o conjunto completo de operações analíticas relacionais compiladas diretamente para SQL nativo ou processadas em memória com alta performance:
+
+#### 1. Joins (INNER, LEFT OUTER JOIN e Encadeamento)
+Para realizar `LEFT JOIN` com múltiplas tabelas, utilize a sintaxe canônica do F# `leftOuterJoin ... in ... on ... into g` combinado com `for ... in g.DefaultIfEmpty()`:
+
+```fsharp
+query {
+    for order in csv.Orders do
+    join orderItem in csv.OrderItems on (order.order_id = orderItem.order_id)
+    join customer in csv.Customers on (order.customer_id = customer.customer_id)
+    join product in csv.Products on (orderItem.product_id = product.product_id)
+    join payment in csv.Payments on (order.order_id = payment.order_id)
+
+    // Encadeamento de múltiplos Left Outer Joins
+    leftOuterJoin shipmentGroup in csv.Shipments on (order.order_id = shipmentGroup.order_id) into shipmentGroup
+    leftOuterJoin returns in csv.Returns on (orderItem.order_item_id = returns.order_item_id) into returnGroup
+
+    for shipment in shipmentGroup.DefaultIfEmpty() do
+    for returns in returnGroup.DefaultIfEmpty() do
+
+    select {|
+        Order = order.order_id
+        Data = order.order_date
+        Status = order.status
+        Item = product.product_name
+        Qtd = orderItem.quantity
+        Total = orderItem.line_total
+        // Expressões condicionais com tratamento de nulo compiladas para COALESCE / CASE WHEN no SQL
+        Transportadora = (if isNull (box shipment) then "N/A" else shipment.carrier)
+        MotivoDevolucao = (if isNull (box returns) then "N/A" else returns.reason)
+    |}
+}
+```
+
+#### 2. Agrupamentos e Funções Agregadoras (`groupBy`, `count`, `sum`, `min`, `max`, `average`)
+Agrupamentos compilam diretamente para instruções `GROUP BY` e `HAVING` indexadas no banco:
+
+```fsharp
+query {
+    for p in csv.Products do
+    groupBy p.Category into g
+    select {|
+        Categoria = g.Key
+        Quantidade = g.Count()
+        PrecoMinimo = g.Min(fun x -> x.Price)
+        PrecoMaximo = g.Max(fun x -> x.Price)
+        Media = g.Average(fun x -> x.Price)
+        Total = g.Sum(fun x -> x.Price)
+    |}
+}
+```
+
+Métodos terminais escalares também podem ser invocados diretamente:
+```fsharp
+let totalPedidos = csv.Orders.Count()
+let faturamentoTotal = csv.OrderItems.Sum(fun i -> i.line_total)
+```
+
+#### 3. Limitadores e Paginação (`distinct`, `take`, `skip`, `head`)
+```fsharp
+query {
+    for p in csv.Products do
+    distinct
+    sortByDescending p.Price
+    skip 10
+    take 5
+    select p.Category
+}
+```
+
+#### 4. Subqueries e Subselects (`WHERE col IN (SELECT ...)`)
+Você pode compor subconsultas tipadas que são convertidas diretamente em subselects SQL nativos (`IN` e `EXISTS`):
+
+```fsharp
+let pedidosComDesconto =
+    query {
+        for item in csv.OrderItems do
+        where (item.discount > 0.0M)
+        select item.order_id
+    }
+
+query {
+    for o in csv.Orders do
+    where (pedidosComDesconto.Contains(o.order_id))
+    select o
+}
+```
+
+#### 5. Cross-tabulation e Pivot (Dinâmico e Em Memória)
+- **SQL Pivot Dinâmico (`Connections.sql.pivot`)**: Executa agregação condicional com `CASE WHEN` dinamicamente no motor SQL:
+  ```fsharp
+  Connections.sql.pivot "Vendas" ["Ano"] "Produto" "Valor" ~aggFunc:"SUM"
+  ```
+- **Pivot em Memória (`Seq.pivot` / `Connections.pivot`)**: Realiza cross-tabulation direto em coleções tipadas:
+  ```fsharp
+  let tabelaPivot =
+      dadosVendas
+      |> Seq.pivot (fun r -> r.Ano) (fun r -> r.Produto) (fun r -> r.Valor) Seq.sum
+  ```
+
 ### Cache Persistente em Disco SQLite para CSV e Excel
 
 Ao cadastrar ou importar arquivos planos (`.csv`, `.xlsx`), o F# Query Studio pré-carrega os dados de forma assíncrona em um banco SQLite em disco em:

@@ -208,6 +208,108 @@ printfn "Generated SQL:\n%s" (Connections.toRawSql myQuery)
 myQuery
 ```
 
+### Advanced Query Engine Features (Joins, Aggregations, Subqueries, and Pivot)
+
+F# Query Studio supports the full range of relational analytics compiled directly to native SQL or evaluated in-memory with extreme throughput:
+
+#### 1. Joins (INNER, Chained LEFT OUTER JOINs)
+To write left outer joins across multiple tables, use the standard F# `leftOuterJoin ... in ... on ... into g` syntax followed by `for ... in g.DefaultIfEmpty()`:
+
+```fsharp
+query {
+    for order in csv.Orders do
+    join orderItem in csv.OrderItems on (order.order_id = orderItem.order_id)
+    join customer in csv.Customers on (order.customer_id = customer.customer_id)
+    join product in csv.Products on (orderItem.product_id = product.product_id)
+    join payment in csv.Payments on (order.order_id = payment.order_id)
+
+    // Chaining multiple Left Outer Joins
+    leftOuterJoin shipmentGroup in csv.Shipments on (order.order_id = shipmentGroup.order_id) into shipmentGroup
+    leftOuterJoin returns in csv.Returns on (orderItem.order_item_id = returns.order_item_id) into returnGroup
+
+    for shipment in shipmentGroup.DefaultIfEmpty() do
+    for returns in returnGroup.DefaultIfEmpty() do
+
+    select {|
+        Order = order.order_id
+        Date = order.order_date
+        Status = order.status
+        Item = product.product_name
+        Qtt = orderItem.quantity
+        Total = orderItem.line_total
+        // Null checks and conditional logic translate natively to COALESCE / CASE WHEN in SQL
+        Carrier = (if isNull (box shipment) then "N/A" else shipment.carrier)
+        Returned = (if isNull (box returns) then "N/A" else returns.reason)
+    |}
+}
+```
+
+#### 2. Grouping & Aggregations (`groupBy`, `count`, `sum`, `min`, `max`, `average`)
+Groupings compile directly to indexed `GROUP BY` and `HAVING` queries:
+
+```fsharp
+query {
+    for p in csv.Products do
+    groupBy p.Category into g
+    select {|
+        Category = g.Key
+        Count = g.Count()
+        MinPrice = g.Min(fun x -> x.Price)
+        MaxPrice = g.Max(fun x -> x.Price)
+        AveragePrice = g.Average(fun x -> x.Price)
+        Total = g.Sum(fun x -> x.Price)
+    |}
+}
+```
+
+Terminal scalar methods can also be called directly on queries:
+```fsharp
+let totalOrders = csv.Orders.Count()
+let totalRevenue = csv.OrderItems.Sum(fun i -> i.line_total)
+```
+
+#### 3. Limiters and Paging (`distinct`, `take`, `skip`, `head`)
+```fsharp
+query {
+    for p in csv.Products do
+    distinct
+    sortByDescending p.Price
+    skip 10
+    take 5
+    select p.Category
+}
+```
+
+#### 4. Subqueries and Subselects (`WHERE col IN (SELECT ...)`)
+You can compose strongly-typed subqueries that translate directly to native SQL subselects (`IN` and `EXISTS`):
+
+```fsharp
+let discountedOrders =
+    query {
+        for item in csv.OrderItems do
+        where (item.discount > 0.0M)
+        select item.order_id
+    }
+
+query {
+    for o in csv.Orders do
+    where (discountedOrders.Contains(o.order_id))
+    select o
+}
+```
+
+#### 5. Cross-tabulation and Pivot (Dynamic & In-Memory)
+- **Dynamic SQL Pivot (`Connections.sql.pivot`)**: Runs conditional aggregation with `CASE WHEN` directly in the database engine:
+  ```fsharp
+  Connections.sql.pivot "Sales" ["Year"] "Product" "Amount" ~aggFunc:"SUM"
+  ```
+- **In-Memory Pivot (`Seq.pivot` / `Connections.pivot`)**: Performs cross-tabulation on any sequence:
+  ```fsharp
+  let pivotTable =
+      salesData
+      |> Seq.pivot (fun r -> r.Year) (fun r -> r.Product) (fun r -> r.Amount) Seq.sum
+  ```
+
 ### Persistent SQLite Disk Cache for CSV & Excel
 
 When you register or auto-import flat files (`.csv`, `.xlsx`), F# Query Studio immediately and asynchronously pre-stages them into a persistent local SQLite database located at:
