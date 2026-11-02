@@ -6,6 +6,22 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.4.0-rc2] — 2026-11-02
+
+### Added
+
+- **Universal SQL Pushdown (EF-Style Projection & Relational Joins)** — Complete pushdown of `Select` projection expressions, member access, arithmetic, string concatenation (`||` / `+`), and relational `Join` across SQLite, PostgreSQL, and SQL Server, avoiding memory-bound row fetching and eliminating `SELECT *`.
+- **Dynamic Projected Record Mapper** — Dynamically maps anonymous records and projected types (`'TResult`) from SQL reader columns via compiled expression delegate mapping.
+- **Embedded File SQLite Staging Engine (`.fsqs/cache/engine.db`)** — High-performance staging engine for CSV and Excel files with single-transaction batch ingest, WAL mode, smart file hash/mtime caching (0ms reload on hits), and automatic B-tree indexing on `Id` and `*_id` keys.
+- **Ultra-Fast Cross-File Joins** — Complex multi-file relational joins on datasets exceeding 200,000 rows execute natively in SQLite in sub-second times (~768 ms).
+- **Direct SQL Execution on Workspace Engine** — Exposed `Connections.queryEngine(sqlText, ?parameters)` and `Connections.sql.query(sqlText, ?parameters)` returning tabular results.
+- **Clean Entity Generation** — `DatabaseConnection.GenerateEntities` emits clean dynamic table references (`conn.Table<...>("TableName")`) rather than hardcoded full-column SELECT queries.
+
+### Fixed
+
+- **Relative Local File Path Resolution** — Automatically resolves relative paths for local file-based connections (SQLite, CSV, Excel) relative to workspace directories.
+
+
 ## [0.4.0-rc1] — 2026-10-30
 
 ### Added
