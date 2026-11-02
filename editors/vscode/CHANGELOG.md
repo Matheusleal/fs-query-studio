@@ -8,11 +8,20 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.4.0-rc4] — 2026-11-02
+
 ### Added
 
+- **Accurate Tabular Type Inference in Tree View & Entities** — Excel (`.xlsx`) and CSV schemas now automatically infer concrete .NET/F# types (`int`, `decimal`, `double`, `bool`, `DateTime`) by sampling worksheet rows instead of flattening all columns to `string`.
+- **Explicit Column Types Override (`columnTypes`)** — Users can explicitly declare target column types via connection configuration or wizard (e.g. `UnitPrice=decimal, Quantity=int, Active=bool` or JSON object), strictly honored across schema discovery, generated entity types, and SQLite staging.
+- **Formulas & Column Transformations (`columnTransforms`)** — Added formula evaluation supporting `replace('from', 'to')`, chained replacements (e.g. `replace('.', '').replace(',', '.')` for localized currencies), `trim`, `multiply(factor)`, and `divide(divisor)` to sanitize raw data before typing.
 - **Full Excel Staging & Pushdown Parity with CSV** — Excel workbooks (`.xlsx`, `.xls`) now follow the exact same eager asynchronous mapping and staging behavior as CSV: all worksheets (`<Conn>_<Sheet>` and `<Conn>`) are pre-staged and indexed into `.fsqs/cache/engine.db` upon discovery or synchronization. Accessing `Connections.excel.<Conn>.<Sheet>`, `<Conn>.<Sheet>.rows()`, or `<Conn>.rows()` now executes with 0ms delay against the persistent SQLite cache with full SQL pushdown and composite B-tree indexing, eliminating the RAM spikes and first-access latency of runtime ClosedXML parsing.
 - **Real-Time `data_sources/` File System Watcher** — Active file system watcher (`vscode.workspace.createFileSystemWatcher("**/data_sources/**")`) that detects when files are created, moved, modified, or deleted inside `data_sources/`. Automatically triggers debounced auto-import, updates `workspace.json`, prunes orphaned connections when files are removed, and syncs the SQLite persistent cache with visual status bar feedback.
 - **Automatic Startup Auto-Discovery** — On extension activation, automatically inspects workspace folders for `data_sources/` and runs initial discovery and cache pre-warming seamlessly.
+
+### Fixed
+
+- **Decimal Precision Guarantee & Integer Overflow Prevention** — Fixed decimal truncation where long numbers with `.` decimal separators were inadvertently rounded or stored as integers in SQLite staging; fractional numbers are now preserved with full precision as SQLite `NUMERIC` and F# `decimal`/`double`.
 
 ## [0.4.0-rc3] — 2026-11-02
 

@@ -6,11 +6,22 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ## [Não Lançado]
 
+## [Unreleased]
+
+## [0.4.0-rc4] — 2026-11-02
+
 ### Adicionado
 
+- **Inferência Precisa de Tipos Tabulares na Árvore & Entidades** — Esquemas de Excel (`.xlsx`) e CSV agora inferem automaticamente tipos .NET/F# concretos (`int`, `decimal`, `double`, `bool`, `DateTime`) por amostragem das linhas, eliminando o mapeamento genérico fixo para `string`.
+- **Sobrescrita Explícita de Tipos de Coluna (`columnTypes`)** — Usuários podem declarar explicitamente tipos customizados para colunas via configuração ou formulário (ex: `UnitPrice=decimal, Quantity=int, Active=bool` ou objeto JSON), respeitados na descoberta de esquema, geração de entidades e ingestão no SQLite.
+- **Fórmulas e Transformações de Colunas (`columnTransforms`)** — Avaliação de fórmulas com suporte a `replace('de', 'para')`, substituições encadeadas (ex: `replace('.', '').replace(',', '.')` para moedas/valores brasileiros), `trim`, `multiply(fator)` e `divide(divisor)` para higienização dos dados antes da conversão de tipo.
 - **Paridade Total de Mapeamento e Pushdown de Excel com CSV** — Planilhas Excel (`.xlsx`, `.xls`) agora seguem exatamente o mesmo comportamento de mapeamento e staging assíncrono antecipado dos arquivos CSV: todas as abas (`<Conn>_<Sheet>` e `<Conn>`) são pré-carregadas e indexadas no banco persistente `.fsqs/cache/engine.db` logo no momento da descoberta ou sincronização. Acessar `Connections.excel.<Conn>.<Sheet>`, `<Conn>.<Sheet>.rows()` ou `<Conn>.rows()` agora executa em 0ms direto no cache SQLite com pushdown completo e índices B-tree, eliminando o consumo excessivo de memória RAM e a lentidão no primeiro acesso que ocorria ao abrir o arquivo via ClosedXML em tempo de execução.
 - **Observador de Arquivos em Tempo Real para `data_sources/`** — Monitoramento ativo do sistema de arquivos (`vscode.workspace.createFileSystemWatcher("**/data_sources/**")`) que detecta quando arquivos são criados, movidos, modificados ou excluídos dentro de `data_sources/`. Dispara automaticamente a importação com debounce, atualiza `workspace.json`, remove conexões órfãs quando arquivos são excluídos e sincroniza o cache SQLite persistente com feedback visual na barra de status.
 - **Auto-Descoberta na Inicialização** — Ao ativar a extensão, verifica automaticamente as pastas do workspace em busca de `data_sources/` e executa a descoberta inicial e aquecimento de cache em segundo plano.
+
+### Corrigido
+
+- **Garantia de Precisão Decimal & Prevenção de Truncamento** — Corrigida a perda de casas decimais onde números com separador `.` eram inadvertidamente arredondados ou convertidos para inteiros no SQLite; valores fracionários agora são preservados integralmente como `NUMERIC` no SQLite e `decimal`/`double` no F#.
 
 ## [0.4.0-rc3] — 2026-11-02
 
