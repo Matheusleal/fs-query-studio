@@ -188,7 +188,7 @@ module Handlers =
             let targetWs = resolveWorkspaceForDocument evalParams.DocumentUri
             let connections = Workspace.readConnections targetWs
             ensureSampleFilesHealed connections
-            Connections.configure (WorkspaceConnectionResolver(connections, secretStore))
+            Connections.configure (WorkspaceConnectionResolver(connections, secretStore, targetWs))
             EntityBackgroundGenerator.ensureGenerated targetWs connections secretStore
 
             let session =
@@ -616,7 +616,7 @@ module Handlers =
                 Directory.CreateDirectory fsqsDir |> ignore
 
         let updated = Workspace.registerConnection targetWs connection
-        Connections.configure (WorkspaceConnectionResolver(updated, secretStore))
+        Connections.configure (WorkspaceConnectionResolver(updated, secretStore, targetWs))
         EntityBackgroundGenerator.triggerBackgroundGeneration targetWs updated secretStore
 
         { Id = request.Id
@@ -695,7 +695,7 @@ module Handlers =
         let updated = Workspace.removeConnection targetWs removeParams.Id
         if targetWs <> (workspaceDir ()) then
             Workspace.removeConnection (workspaceDir ()) removeParams.Id |> ignore
-        Connections.configure (WorkspaceConnectionResolver(updated, secretStore))
+        Connections.configure (WorkspaceConnectionResolver(updated, secretStore, targetWs))
         EntityBackgroundGenerator.triggerBackgroundGeneration targetWs updated secretStore
 
         { Id = request.Id
@@ -726,7 +726,7 @@ module Handlers =
             | Some definition ->
                 try
                     let resolver =
-                        WorkspaceConnectionResolver([ definition ], secretStore) :> IConnectionResolver
+                        WorkspaceConnectionResolver([ definition ], secretStore, targetWs) :> IConnectionResolver
 
                     let connector = resolver.Resolve(definition.Name)
                     let! tables = connector.DiscoverSchemaAsync(CancellationToken.None)
@@ -855,7 +855,7 @@ module Handlers =
             let _ = Workspace.registerConnection dir excelDef
             let updatedInDir = Workspace.registerConnection dir restDef
 
-            Connections.configure (WorkspaceConnectionResolver(updatedInDir, secretStore))
+            Connections.configure (WorkspaceConnectionResolver(updatedInDir, secretStore, dir))
             try
                 (EntityBackgroundGenerator.generateForConnectionsAsync dir updatedInDir secretStore).GetAwaiter().GetResult() |> ignore
             with ex ->

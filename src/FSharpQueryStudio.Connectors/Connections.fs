@@ -22,6 +22,10 @@ open Microsoft.FSharp.Reflection
 type IConnectionResolver =
     abstract Resolve: name: string -> IConnector
 
+/// Optional interface implemented by resolvers that know their project root folder.
+type IWorkspaceAwareResolver =
+    abstract BaseDirectory: string option
+
 /// The controlled surface `.fsx` scripts use to reach configured
 /// connections by name — Section 10:
 ///
@@ -42,8 +46,36 @@ type IConnectionResolver =
 /// on elsewhere.
 module Connections =
     let mutable private resolver: IConnectionResolver option = None
+    let mutable private engine: FileSqliteEngine option = None
 
-    let configure (newResolver: IConnectionResolver) = resolver <- Some newResolver
+    let setEngine (newEngine: FileSqliteEngine) =
+        engine <- Some newEngine
+
+    let getEngine () : FileSqliteEngine =
+        match engine with
+        | Some e -> e
+        | None ->
+            let defaultPath =
+                match resolver with
+                | Some r ->
+                    match box r with
+                    | :? IWorkspaceAwareResolver as war when war.BaseDirectory.IsSome ->
+                        System.IO.Path.Combine(war.BaseDirectory.Value, ".fsqs", "cache", "engine.db")
+                    | _ ->
+                        System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fsqs_cache", "engine.db")
+                | None ->
+                    System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fsqs_cache", "engine.db")
+            let e = FileSqliteEngine(defaultPath)
+            engine <- Some e
+            e
+
+    let configure (newResolver: IConnectionResolver) =
+        resolver <- Some newResolver
+        match box newResolver with
+        | :? IWorkspaceAwareResolver as war when war.BaseDirectory.IsSome ->
+            let dbPath = System.IO.Path.Combine(war.BaseDirectory.Value, ".fsqs", "cache", "engine.db")
+            engine <- Some (FileSqliteEngine(dbPath))
+        | _ -> ()
 
     let private resolve (name: string) : IConnector =
         match resolver with
@@ -647,6 +679,16 @@ module Connections =
     let queryJson<'T> (name: string) : 'T seq =
         queryJsonWithOptions<'T> name None
 
+    /// <summary>
+    /// Executes a SQL query directly against the workspace's FileSqliteEngine,
+    /// returning a ConnectorQueryResult (ResultKind.Table) across all staged files.
+    /// </summary>
+    let queryEngine (sqlText: string) : ConnectorQueryResult =
+        (getEngine()).ExecuteQuery(sqlText, [])
+
+    let queryEngineWith (sqlText: string) (parameters: (string * obj) list) : ConnectorQueryResult =
+        (getEngine()).ExecuteQuery(sqlText, parameters)
+
     /// Represents an active database connection with first-class query and schema discovery members for autocomplete.
     type DatabaseConnection(name: string, connector: IQueryableConnector) =
         member _.Name = name
@@ -702,6 +744,9 @@ module Connections =
         member this.PushdownQueryable<'T>(sqlText: string, ?parameters: (string * obj) list) : SqlPushdownQueryable<'T> =
             let p = defaultArg parameters []
             SqlPushdownQueryable<'T>(connector, sqlText, p)
+
+        member this.Table<'T>(tableName: string) : SqlPushdownQueryable<'T> =
+            SqlPushdownQueryable<'T>(connector, tableName, [])
 
         member _.DiscoverSchemaAsync(?ct: CancellationToken) =
             let token = defaultArg ct CancellationToken.None
@@ -792,6 +837,7 @@ module Connections =
             sb.AppendLine("        member _.rawQuery(sqlText: string, ?parameters: (string * obj) list) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.rawQuery(sqlText, ?parameters = parameters)") |> ignore
             sb.AppendLine("        member _.rawQuery(sqlText: string) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.rawQuery(sqlText)") |> ignore
             sb.AppendLine("        member _.Execute(sqlText: string, ?parameters: (string * obj) list) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.Execute(sqlText, ?parameters = parameters)") |> ignore
+            sb.AppendLine("        member _.Table<'T>(tableName: string) : FSharpQueryStudio.Connectors.SqlPushdownQueryable<'T> = conn.Table<'T>(tableName)") |> ignore
             sb.AppendLine("        member _.Connection = conn") |> ignore
             for (schema, tbls) in schemaGroups do
                 if schema = "public" || schema = "dbo" || schema = "main" then
@@ -800,9 +846,7 @@ module Connections =
                             let dotIdx = t.Name.IndexOf(".")
                             if dotIdx > 0 then t.Name.Substring(dotIdx + 1) else t.Name
                         let propName = escapeIdent rawTableName
-                        let colList = t.Columns |> List.map (fun c -> c.Name) |> String.concat ", "
-                        let sqlQuery = $"SELECT {colList} FROM {t.Name}"
-                        sb.AppendLine($"        member _.{propName} : FSharpQueryStudio.Connectors.SqlPushdownQueryable<{escapeIdent schema}.{propName}> = conn.PushdownQueryable<{escapeIdent schema}.{propName}>(\"{sqlQuery}\")") |> ignore
+                        sb.AppendLine($"        member _.{propName} : FSharpQueryStudio.Connectors.SqlPushdownQueryable<{escapeIdent schema}.{propName}> = conn.Table<{escapeIdent schema}.{propName}>(\"{t.Name}\")") |> ignore
                 sb.AppendLine($"        member _.{escapeIdent schema} =") |> ignore
                 sb.AppendLine("            {|") |> ignore
                 for t in tbls do
@@ -810,9 +854,7 @@ module Connections =
                         let dotIdx = t.Name.IndexOf(".")
                         if dotIdx > 0 then t.Name.Substring(dotIdx + 1) else t.Name
                     let propName = escapeIdent rawTableName
-                    let colList = t.Columns |> List.map (fun c -> c.Name) |> String.concat ", "
-                    let sqlQuery = $"SELECT {colList} FROM {t.Name}"
-                    sb.AppendLine($"                {propName} = conn.PushdownQueryable<{escapeIdent schema}.{propName}>(\"{sqlQuery}\")") |> ignore
+                    sb.AppendLine($"                {propName} = conn.Table<{escapeIdent schema}.{propName}>(\"{t.Name}\")") |> ignore
                 sb.AppendLine("            |}") |> ignore
                 sb.AppendLine() |> ignore
             sb.AppendLine("    let database () : Database = Database()") |> ignore
@@ -838,7 +880,14 @@ module Connections =
         member _.Connector = connector
         member _.FilePath = connector.FilePath
         member _.Rows<'T>() : 'T seq = queryCsv<'T> name
-        member this.Queryable<'T>() : IQueryable<'T> = (this.Rows<'T>()).AsQueryable()
+        member this.Queryable<'T>() : IQueryable<'T> =
+            let eng = getEngine ()
+            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows()))
+            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName) :> IQueryable<'T>
+        member this.PushdownQueryable<'T>() : SqlPushdownQueryable<'T> =
+            let eng = getEngine ()
+            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows()))
+            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
         member _.Raw() : ConnectorQueryResult = readCsvRaw name
 
     /// Represents an active Excel workbook connection with multi-sheet typed queries.
@@ -848,8 +897,20 @@ module Connections =
         member _.FilePath = connector.FilePath
         member _.Rows<'T>(?maxRows: int) : 'T seq = queryExcel<'T> name maxRows
         member _.Sheet<'T>(sheetName: string, ?maxRows: int) : 'T seq = queryExcelSheet<'T> name (Some sheetName) maxRows
-        member this.Queryable<'T>(?maxRows: int) : IQueryable<'T> = (this.Rows<'T>(?maxRows = maxRows)).AsQueryable()
-        member this.SheetQueryable<'T>(sheetName: string, ?maxRows: int) : IQueryable<'T> = (this.Sheet<'T>(sheetName, ?maxRows = maxRows)).AsQueryable()
+        member this.Queryable<'T>(?maxRows: int) : IQueryable<'T> =
+            let eng = getEngine ()
+            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows(?maxRows = maxRows)))
+            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName) :> IQueryable<'T>
+        member this.SheetQueryable<'T>(sheetName: string, ?maxRows: int) : IQueryable<'T> =
+            let eng = getEngine ()
+            let tableKey = $"{name}_{sheetName}"
+            let cleanTableName = eng.EnsureStaged(tableKey, connector.FilePath, (fun () -> connector.ReadRows(sheetName = sheetName, ?maxRows = maxRows)))
+            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName) :> IQueryable<'T>
+        member this.SheetPushdownQueryable<'T>(sheetName: string, ?maxRows: int) : SqlPushdownQueryable<'T> =
+            let eng = getEngine ()
+            let tableKey = $"{name}_{sheetName}"
+            let cleanTableName = eng.EnsureStaged(tableKey, connector.FilePath, (fun () -> connector.ReadRows(sheetName = sheetName, ?maxRows = maxRows)))
+            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
         member _.Raw(?maxRows: int) : ConnectorQueryResult = readExcelRaw name maxRows
 
     /// Represents an active REST/JSON connection with typed queries.
@@ -862,7 +923,13 @@ module Connections =
             connector.SendAsync options token
 
     /// Category container for registered relational SQL database connections (e.g. Connections.sql.SampleStore).
-    type SqlCategory() = class end
+    type SqlCategory() =
+        member _.query(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            let p = defaultArg parameters []
+            (getEngine()).ExecuteQuery(sqlText, p)
+        member _.rawQuery(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            let p = defaultArg parameters []
+            (getEngine()).ExecuteQuery(sqlText, p)
 
     /// Category container for registered delimited CSV file connections (e.g. Connections.csv.CustomersFeed).
     type CsvCategory() = class end

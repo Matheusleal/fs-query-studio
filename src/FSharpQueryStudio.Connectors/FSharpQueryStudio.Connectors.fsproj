@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <Compile Include="SqlPushdownQuery.fs" />
+    <Compile Include="FileSqliteEngine.fs" />
     <Compile Include="Connections.fs" />
     <Compile Include="ModularEntityGenerators.fs" />
     <Compile Include="BuiltinConnectors.fs" />

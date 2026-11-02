@@ -100,6 +100,84 @@ module ConnectorDescriptor =
         | Some f -> Result.Error $"Required field '{f.Name}' ({f.Label}) is missing or empty."
         | None -> Result.Ok ()
 
+    /// Normalizes a workspace location into the project root used as the base for
+    /// relative paths: a `.fsqs` directory maps to its parent folder.
+    let projectRootOf (workspaceDirectory: string) : string =
+        if String.IsNullOrWhiteSpace workspaceDirectory then
+            ""
+        else
+            let trimmed =
+                workspaceDirectory.Trim().TrimEnd(IO.Path.DirectorySeparatorChar, IO.Path.AltDirectorySeparatorChar)
+            if String.Equals(IO.Path.GetFileName trimmed, ".fsqs", StringComparison.OrdinalIgnoreCase) then
+                match IO.Path.GetDirectoryName trimmed with
+                | null -> trimmed
+                | parent -> parent
+            else
+                trimmed
+
+    /// Resolves a single local path against `baseDirectory`. Absolute paths, URIs,
+    /// and special in-memory markers are returned unchanged; `~` expands to the user home.
+    let resolvePath (baseDirectory: string) (rawPath: string) : string =
+        if String.IsNullOrWhiteSpace rawPath then
+            rawPath
+        else
+            let p = rawPath.Trim().Trim('"', '\'')
+            let isSpecial =
+                p.StartsWith(":memory:", StringComparison.OrdinalIgnoreCase)
+                || p.Contains("://")
+                || p.StartsWith("file:", StringComparison.OrdinalIgnoreCase)
+            if isSpecial then
+                p
+            elif p = "~" || p.StartsWith("~/") || p.StartsWith("~\\") then
+                let home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
+                IO.Path.GetFullPath(IO.Path.Combine(home, p.Substring(1).TrimStart('/', '\\')))
+            elif IO.Path.IsPathRooted p then
+                p
+            elif String.IsNullOrWhiteSpace baseDirectory then
+                p
+            else
+                IO.Path.GetFullPath(IO.Path.Combine(baseDirectory, p))
+
+    /// Rewrites every declared `File` form field whose value is a relative path so it
+    /// becomes absolute against `baseDirectory`. Connector-agnostic: driven only by the
+    /// descriptor's own form schema, so each connector keeps owning which fields are files.
+    let resolveRelativeFilePaths
+        (fields: ConnectorFormField list)
+        (configuration: JsonElement)
+        (baseDirectory: string)
+        : JsonElement =
+        let fileFields =
+            fields
+            |> List.filter (fun f -> f.Type = ConnectorFieldType.File)
+            |> List.map (fun f -> f.Name)
+
+        if String.IsNullOrWhiteSpace baseDirectory || List.isEmpty fileFields then
+            configuration
+        elif configuration.ValueKind = JsonValueKind.String then
+            // Bare-string configuration (legacy shape) is treated as the single file path.
+            let resolved = resolvePath baseDirectory (configuration.GetString())
+            JsonSerializer.SerializeToElement(resolved)
+        elif configuration.ValueKind <> JsonValueKind.Object then
+            configuration
+        else
+            let isFileField (name: string) =
+                fileFields |> List.exists (fun f -> String.Equals(f, name, StringComparison.OrdinalIgnoreCase))
+
+            use stream = new IO.MemoryStream()
+            do
+                use writer = new Utf8JsonWriter(stream)
+                writer.WriteStartObject()
+                for prop in configuration.EnumerateObject() do
+                    if isFileField prop.Name && prop.Value.ValueKind = JsonValueKind.String then
+                        writer.WriteString(prop.Name, resolvePath baseDirectory (prop.Value.GetString()))
+                    else
+                        writer.WritePropertyName(prop.Name)
+                        prop.Value.WriteTo(writer)
+                writer.WriteEndObject()
+                writer.Flush()
+            use doc = JsonDocument.Parse(stream.ToArray())
+            doc.RootElement.Clone()
+
     let toDto (desc: IConnectorDescriptor) : ConnectorDescriptorDto =
         { KindId = desc.KindId
           DisplayName = desc.DisplayName

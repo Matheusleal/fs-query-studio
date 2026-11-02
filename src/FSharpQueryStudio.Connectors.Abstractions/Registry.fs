@@ -42,7 +42,9 @@ type ConnectorRegistry() =
         | Some desc -> desc.ValidateConfiguration definition.Configuration
         | None -> Result.Error $"No connector descriptor registered for kind '{kindId}' (connection '{definition.Name}')."
 
-    member this.Resolve(definition: ConnectionDefinition, secretStore: ISecretStore) : IConnector =
+    /// Resolves a connection, making any relative `File` field paths absolute against
+    /// `baseDirectory` (typically the workspace/project root) before instantiation.
+    member this.Resolve(definition: ConnectionDefinition, secretStore: ISecretStore, baseDirectory: string option) : IConnector =
         let kindId = ConnectorRegistry.KindIdOf definition.Kind
         match this.TryGet kindId with
         | Some desc ->
@@ -50,9 +52,17 @@ type ConnectorRegistry() =
             | Result.Error err ->
                 failwith $"Invalid configuration for connection '{definition.Name}' (kind '{kindId}'): {err}"
             | Result.Ok () ->
-                desc.Factory.Create(definition.Configuration, secretStore, definition.SecretReference)
+                let configuration =
+                    match baseDirectory with
+                    | Some dir when not (String.IsNullOrWhiteSpace dir) ->
+                        ConnectorDescriptor.resolveRelativeFilePaths desc.FormFields definition.Configuration dir
+                    | _ -> definition.Configuration
+                desc.Factory.Create(configuration, secretStore, definition.SecretReference)
         | None ->
             failwith $"No connector descriptor registered for kind '{kindId}' (connection '{definition.Name}')."
+
+    member this.Resolve(definition: ConnectionDefinition, secretStore: ISecretStore) : IConnector =
+        this.Resolve(definition, secretStore, None)
 
     interface IConnectorRegistry with
         member this.Register(descriptor: IConnectorDescriptor) = this.Register descriptor

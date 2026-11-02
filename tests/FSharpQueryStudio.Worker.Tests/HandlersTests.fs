@@ -1837,3 +1837,140 @@ query {
 
 
 
+
+[<Fact>]
+let ``evaluating a SQLite table with >100,000 rows and messy values past row 200 projects to ResultKind.Table`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-large-sqlite-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let dbPath = Path.Combine(tmp, "big_store.db")
+            do
+                use conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}")
+                conn.Open()
+                use create = conn.CreateCommand()
+                create.CommandText <-
+                    "create table Orders (Id INTEGER, Customer TEXT, Quantity INTEGER, Amount NUMERIC, Active BOOLEAN, OrderDate DATETIME)"
+                create.ExecuteNonQuery() |> ignore
+                use tx = conn.BeginTransaction()
+                use insert = conn.CreateCommand()
+                insert.Transaction <- tx
+                insert.CommandText <- "insert into Orders values ($id, $c, $q, $a, $act, $d)"
+                let ps =
+                    [| "$id"; "$c"; "$q"; "$a"; "$act"; "$d" |]
+                    |> Array.map (fun n -> insert.Parameters.Add(n, Microsoft.Data.Sqlite.SqliteType.Text))
+                let setRow (values: obj array) =
+                    for k = 0 to values.Length - 1 do
+                        ps.[k].Value <- (if isNull values.[k] then box DBNull.Value else values.[k])
+                for i = 1 to 105_000 do
+                    if i <= 200 then setRow [| box i; box $"C_{i}"; box 3; box 199.90; box 1; box "2026-03-01" |]
+                    elif i % 1000 = 0 then setRow [| box i; box $"C_{i}"; null; null; null; null |]
+                    elif i % 1000 = 1 then setRow [| box i; box $"C_{i}"; box "N/A"; box "-"; box "null"; box "#N/A" |]
+                    elif i % 1000 = 2 then setRow [| box i; box $"C_{i}"; box 4.7; box "350,75"; box "yes"; box "invalid" |]
+                    else setRow [| box i; box $"C_{i}"; box 2; box 120.00; box 0; box "2026-03-10" |]
+                    insert.ExecuteNonQuery() |> ignore
+                tx.Commit()
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
+            let connDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "BigStore"
+                  Kind = ConnectorKind.Sqlite
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = dbPath |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let! regResp = Handlers.dispatch (registerConnectionRequest "reg-big-sqlite" connDef)
+            Assert.True(regResp.Error.IsNone)
+            Handlers.waitForPendingGeneration ()
+
+            let docUri = Path.Combine(tmp, "big_sqlite_test.fsqnb")
+
+            // 1. Direct table reference over all 105,000 rows
+            let! respDirect = Handlers.dispatch (notebookCellRequest "eval-big-sqlite-direct" "Connections.sql.BigStore.Orders" docUri)
+            Assert.True(respDirect.Error.IsNone, (match respDirect.Error with Some e -> e.Message | None -> ""))
+            let envDirect = JsonSerializer.Deserialize<ResultEnvelope>(respDirect.Result.Value.GetRawText(), Serialization.options)
+            Assert.True((envDirect.Kind = ResultKind.Table), $"Expected Table but got {envDirect.Kind}: {envDirect.DisplayText}")
+            Assert.Equal(500, envDirect.Rows.Length)
+            Assert.True(envDirect.IsTruncated)
+
+            // 2. LINQ query (pushdown) projecting an anonymous record
+            let linqCode = """
+query {
+    for o in Connections.sql.BigStore.Orders do
+    where (o.Id > 104_000)
+    select {| Id = o.Id; Quantity = o.Quantity; Amount = o.Amount; Active = o.Active |}
+}"""
+            let! respLinq = Handlers.dispatch (notebookCellRequest "eval-big-sqlite-linq" linqCode docUri)
+            Assert.True(respLinq.Error.IsNone, (match respLinq.Error with Some e -> e.Message | None -> ""))
+            let envLinq = JsonSerializer.Deserialize<ResultEnvelope>(respLinq.Result.Value.GetRawText(), Serialization.options)
+            Assert.True((envLinq.Kind = ResultKind.Table), $"Expected Table but got {envLinq.Kind}: {envLinq.DisplayText}")
+            Assert.Equal(500, envLinq.Rows.Length)
+            Assert.True(envLinq.IsTruncated)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
+[<Fact>]
+let ``connections registered with relative file paths resolve against the workspace root and evaluate to tables`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-relative-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(Path.Combine(tmp, "data")) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            File.WriteAllText(Path.Combine(tmp, "data", "people.csv"), "Id,Name\n1,Alice\n2,Bob\n3,Carol\n")
+            do
+                use conn = new Microsoft.Data.Sqlite.SqliteConnection($"""Data Source={Path.Combine(tmp, "data", "items.db")}""")
+                conn.Open()
+                use cmd = conn.CreateCommand()
+                cmd.CommandText <- "create table Items (Id INTEGER, Label TEXT); insert into Items values (1, 'a'), (2, 'b');"
+                cmd.ExecuteNonQuery() |> ignore
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
+            let csvDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "RelPeople"
+                  Kind = ConnectorKind.Csv
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = "data/people.csv" |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+            let dbDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "RelItems"
+                  Kind = ConnectorKind.Sqlite
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = "./data/items.db" |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let! r1 = Handlers.dispatch (registerConnectionRequest "reg-rel-csv" csvDef)
+            Assert.True(r1.Error.IsNone)
+            let! r2 = Handlers.dispatch (registerConnectionRequest "reg-rel-db" dbDef)
+            Assert.True(r2.Error.IsNone)
+            Handlers.waitForPendingGeneration ()
+
+            // The relative path is persisted as-is (portable workspace.json)
+            let persisted = Workspace.readConnections tmp |> List.find (fun c -> c.Name = "RelPeople")
+            Assert.Contains("data/people.csv", persisted.Configuration.GetRawText())
+
+            let docUri = Path.Combine(tmp, "relative_test.fsqnb")
+
+            let! respCsv = Handlers.dispatch (notebookCellRequest "eval-rel-csv" "Connections.csv.RelPeople" docUri)
+            Assert.True(respCsv.Error.IsNone, (match respCsv.Error with Some e -> e.Message | None -> ""))
+            let envCsv = JsonSerializer.Deserialize<ResultEnvelope>(respCsv.Result.Value.GetRawText(), Serialization.options)
+            Assert.True((envCsv.Kind = ResultKind.Table), $"Expected Table but got {envCsv.Kind}: {envCsv.DisplayText}")
+            Assert.Equal(3, envCsv.Rows.Length)
+
+            let! respDb = Handlers.dispatch (notebookCellRequest "eval-rel-db" "Connections.sql.RelItems.Items" docUri)
+            Assert.True(respDb.Error.IsNone, (match respDb.Error with Some e -> e.Message | None -> ""))
+            let envDb = JsonSerializer.Deserialize<ResultEnvelope>(respDb.Result.Value.GetRawText(), Serialization.options)
+            Assert.True((envDb.Kind = ResultKind.Table), $"Expected Table but got {envDb.Kind}: {envDb.DisplayText}")
+            Assert.Equal(2, envDb.Rows.Length)
+
+            // No stray database was created relative to the worker's transient working directory
+            Assert.False(File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "data", "items.db")))
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }

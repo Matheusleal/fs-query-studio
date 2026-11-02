@@ -345,3 +345,153 @@ let ``Connections.queryCsv streams >100,000 rows with messy cells past row 200 w
         Assert.Equal(105_000, allRows.[104_999].Id)
     finally
         try File.Delete path with _ -> ()
+
+
+// ---------------------------------------------------------------------------
+// Large SQLite / Excel sources with messy values past the first 200 rows
+// ---------------------------------------------------------------------------
+
+type LargeSqlRecord =
+    { Id: int
+      Customer: string
+      Quantity: int
+      Amount: decimal
+      Active: bool
+      OrderDate: DateTime }
+
+/// Creates a SQLite table with `rowCount` rows. SQLite is dynamically typed, so
+/// text sentinels, NULLs, REALs and comma-decimals can land in INTEGER/NUMERIC
+/// columns — exactly the dirty data that used to break the typed reader.
+let private createMessySqlite (path: string) (rowCount: int) =
+    use conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}")
+    conn.Open()
+    use create = conn.CreateCommand()
+    create.CommandText <-
+        "create table BigOrders (Id INTEGER, Customer TEXT, Quantity INTEGER, Amount NUMERIC, Active BOOLEAN, OrderDate DATETIME)"
+    create.ExecuteNonQuery() |> ignore
+    use tx = conn.BeginTransaction()
+    use insert = conn.CreateCommand()
+    insert.Transaction <- tx
+    insert.CommandText <- "insert into BigOrders values ($id, $c, $q, $a, $act, $d)"
+    let pId = insert.Parameters.Add("$id", Microsoft.Data.Sqlite.SqliteType.Integer)
+    let pC = insert.Parameters.Add("$c", Microsoft.Data.Sqlite.SqliteType.Text)
+    let pQ = insert.Parameters.Add("$q", Microsoft.Data.Sqlite.SqliteType.Text)
+    let pA = insert.Parameters.Add("$a", Microsoft.Data.Sqlite.SqliteType.Text)
+    let pAct = insert.Parameters.Add("$act", Microsoft.Data.Sqlite.SqliteType.Text)
+    let pD = insert.Parameters.Add("$d", Microsoft.Data.Sqlite.SqliteType.Text)
+    let set (p: Microsoft.Data.Sqlite.SqliteParameter) (v: obj) = p.Value <- (if isNull v then box DBNull.Value else v)
+    for i = 1 to rowCount do
+        set pId (box i)
+        set pC (box $"Customer_{i}")
+        if i <= 200 then
+            set pQ (box 3); set pA (box 199.90); set pAct (box 1); set pD (box "2026-03-01")
+        elif i % 1000 = 0 then
+            // SQL NULLs in non-option value-type columns
+            set pQ null; set pA null; set pAct null; set pD null
+        elif i % 1000 = 1 then
+            // Text sentinels in typed columns
+            set pQ (box "N/A"); set pA (box "-"); set pAct (box "null"); set pD (box "#N/A")
+        elif i % 1000 = 2 then
+            // REAL in INTEGER column, comma decimal, 'yes' boolean, garbage date
+            set pQ (box 4.7); set pA (box "350,75"); set pAct (box "yes"); set pD (box "invalid")
+        else
+            set pQ (box 2); set pA (box 120.00); set pAct (box 0); set pD (box "2026-03-10")
+        insert.ExecuteNonQuery() |> ignore
+    tx.Commit()
+
+[<Fact>]
+let ``SQLite pushdown queryable streams >100,000 rows with NULLs, sentinels and mismatched types past row 200 without throwing`` () =
+    let path = Path.Combine(Path.GetTempPath(), "fqs-large-sqlite-" + Guid.NewGuid().ToString("N") + ".db")
+    try
+        createMessySqlite path 105_000
+        let sqlite = SqliteConnector(path)
+        Connections.configure(FakeResolver(Map.ofList [ "BigDb", sqlite :> IConnector ]))
+        let db = Connections.getDatabaseConnection "BigDb"
+
+        let all =
+            db.PushdownQueryable<LargeSqlRecord>("SELECT Id, Customer, Quantity, Amount, Active, OrderDate FROM BigOrders")
+            |> Seq.toArray
+
+        Assert.Equal(105_000, all.Length)
+        Assert.Equal(199.90m, all.[0].Amount)
+        // Row 1000 (index 999): SQL NULLs -> safe defaults
+        Assert.Equal(0, all.[999].Quantity)
+        Assert.Equal(0m, all.[999].Amount)
+        Assert.False(all.[999].Active)
+        Assert.Equal(DateTime.MinValue, all.[999].OrderDate)
+        // Row 1001 (index 1000): text sentinels -> safe defaults
+        Assert.Equal(0, all.[1000].Quantity)
+        Assert.Equal(0m, all.[1000].Amount)
+        // Row 1002 (index 1001): 4.7 -> 4 (SQLite integer truncation) or 5, "350,75" -> 350.75, "yes" -> true, "invalid" -> MinValue
+        Assert.True(all.[1001].Quantity = 4 || all.[1001].Quantity = 5)
+        Assert.Equal(350.75m, all.[1001].Amount)
+        Assert.True(all.[1001].Active)
+        Assert.Equal(DateTime.MinValue, all.[1001].OrderDate)
+
+        // LINQ predicate pushed down to SQL still works over the messy table
+        let filtered =
+            query {
+                for o in db.PushdownQueryable<LargeSqlRecord>("SELECT Id, Customer, Quantity, Amount, Active, OrderDate FROM BigOrders") do
+                where (o.Id > 104_990)
+                select o
+            }
+            |> Seq.toArray
+        Assert.Equal(10, filtered.Length)
+    finally
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+        try File.Delete path with _ -> ()
+
+type LargeExcelRecord =
+    { Id: int
+      Region: string
+      Units: int
+      Revenue: double }
+
+[<Fact>]
+let ``Connections.queryExcelSheet streams >100,000 rows with blanks, error-like text and mismatched types past row 200`` () =
+    let path = Path.Combine(Path.GetTempPath(), "fqs-large-xlsx-" + Guid.NewGuid().ToString("N") + ".xlsx")
+    let rowCount = 100_500
+    try
+        do
+            use wb = new ClosedXML.Excel.XLWorkbook()
+            let ws = wb.Worksheets.Add("Data")
+            ws.Cell(1, 1).Value <- "Id"
+            ws.Cell(1, 2).Value <- "Region"
+            ws.Cell(1, 3).Value <- "Units"
+            ws.Cell(1, 4).Value <- "Revenue"
+            for i = 1 to rowCount do
+                let r = i + 1
+                ws.Cell(r, 1).Value <- i
+                ws.Cell(r, 2).Value <- $"Region_{i % 5}"
+                if i <= 200 then
+                    ws.Cell(r, 3).Value <- 10
+                    ws.Cell(r, 4).Value <- 250.50
+                elif i % 1000 = 0 then
+                    () // blank Units / Revenue
+                elif i % 1000 = 1 then
+                    ws.Cell(r, 3).Value <- "N/A"
+                    ws.Cell(r, 4).Value <- "#DIV/0!"
+                elif i % 1000 = 2 then
+                    ws.Cell(r, 3).Value <- 7.6
+                    ws.Cell(r, 4).Value <- "1250,50"
+                else
+                    ws.Cell(r, 3).Value <- 20
+                    ws.Cell(r, 4).Value <- 500.75
+            wb.SaveAs(path)
+
+        let excel = ExcelConnector(path)
+        Connections.configure(FakeResolver(Map.ofList [ "BigBook", excel :> IConnector ]))
+
+        let rows = Connections.queryExcelSheet<LargeExcelRecord> "BigBook" (Some "Data") None |> Seq.toArray
+
+        Assert.Equal(rowCount, rows.Length)
+        Assert.Equal(250.50, rows.[0].Revenue)
+        Assert.Equal(0, rows.[999].Units)
+        Assert.Equal(0.0, rows.[999].Revenue)
+        Assert.Equal(0, rows.[1000].Units)
+        Assert.Equal(0.0, rows.[1000].Revenue)
+        Assert.Equal(8, rows.[1001].Units)
+        Assert.Equal(1250.50, rows.[1001].Revenue)
+        Assert.Equal(rowCount, rows.[rowCount - 1].Id)
+    finally
+        try File.Delete path with _ -> ()
