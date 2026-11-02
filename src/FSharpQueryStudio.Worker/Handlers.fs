@@ -902,6 +902,214 @@ module Handlers =
               Result = None
               Error = Some { Code = "workspace/initFailed"; Message = ex.Message } }
 
+    type AutoImportSourceItem =
+        { Name: string
+          Kind: ConnectorKind
+          FilePath: string
+          RelativePath: string }
+
+    type AutoImportDataSourcesResult =
+        { TargetDir: string
+          DataSourcesDir: string
+          FolderCreated: bool
+          FoundFilesCount: int
+          ImportedCount: int
+          Imported: AutoImportSourceItem list
+          SkippedCount: int }
+
+    let handleAutoImportDataSources (request: WorkerRequestFrame) : WorkerResponseFrame =
+        try
+            let rawDir = tryGetWorkspaceDir request.Params
+            let rootDir, dataSourcesDir =
+                let trimmed = rawDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                let leaf = Path.GetFileName trimmed
+                if leaf.Equals("data_sources", StringComparison.OrdinalIgnoreCase) then
+                    let parent = Path.GetDirectoryName trimmed
+                    let actualRoot = if String.IsNullOrWhiteSpace parent then rawDir else parent
+                    actualRoot, rawDir
+                else
+                    rawDir, Path.Combine(rawDir, "data_sources")
+
+            let folderCreated = not (Directory.Exists dataSourcesDir)
+            if folderCreated then
+                Directory.CreateDirectory(dataSourcesDir) |> ignore
+                let readmePath = Path.Combine(dataSourcesDir, "README.txt")
+                if not (File.Exists readmePath) then
+                    File.WriteAllText(
+                        readmePath,
+                        "Place your .csv, .xlsx, .xls, or .sqlite/.db files in this directory.\nF# Query Studio will automatically detect and register them as queryable data sources.\n"
+                    )
+
+            // Ensure storage directories exist
+            let fsqsDir = Path.Combine(rootDir, ".fsqs")
+            if not (Directory.Exists fsqsDir) && not (rootDir.EndsWith(".fsqs", StringComparison.OrdinalIgnoreCase)) then
+                Directory.CreateDirectory(fsqsDir) |> ignore
+            let generatedDir = Path.Combine(fsqsDir, "generated")
+            if not (Directory.Exists generatedDir) then
+                Directory.CreateDirectory(generatedDir) |> ignore
+
+            let supportedExtensions =
+                [ ".csv", ConnectorKind("Csv")
+                  ".xlsx", ConnectorKind("Excel")
+                  ".xls", ConnectorKind("Excel")
+                  ".sqlite", ConnectorKind("Sqlite")
+                  ".sqlite3", ConnectorKind("Sqlite")
+                  ".db", ConnectorKind("Sqlite") ]
+
+            let candidateFiles =
+                if Directory.Exists dataSourcesDir then
+                    Directory.EnumerateFiles(dataSourcesDir, "*.*", SearchOption.AllDirectories)
+                    |> Seq.filter (fun file ->
+                        let fileName = Path.GetFileName file
+                        let ext = Path.GetExtension(file).ToLowerInvariant()
+                        not (fileName.StartsWith("~$", StringComparison.OrdinalIgnoreCase))
+                        && not (fileName.StartsWith(".", StringComparison.OrdinalIgnoreCase))
+                        && (supportedExtensions |> List.exists (fun (e, _) -> e = ext)))
+                    |> Seq.toList
+                else
+                    []
+
+            let existingConnections = Workspace.readConnections rootDir
+
+            let getExistingFilePath (conn: ConnectionDefinition) : string option =
+                try
+                    if conn.Configuration.ValueKind = JsonValueKind.Object then
+                        let mutable prop = Unchecked.defaultof<JsonElement>
+                        if conn.Configuration.TryGetProperty("filePath", &prop) && prop.ValueKind = JsonValueKind.String then
+                            Some (prop.GetString())
+                        else
+                            None
+                    elif conn.Configuration.ValueKind = JsonValueKind.String then
+                        Some (conn.Configuration.GetString())
+                    else
+                        None
+                with _ ->
+                    None
+
+            let isMatchingFile (registeredPath: string) (actualFile: string) : bool =
+                try
+                    let full1 = Path.GetFullPath(if Path.IsPathRooted registeredPath then registeredPath else Path.Combine(rootDir, registeredPath))
+                    let full2 = Path.GetFullPath(actualFile)
+                    String.Equals(
+                        full1,
+                        full2,
+                        (if OperatingSystem.IsWindows() then StringComparison.OrdinalIgnoreCase else StringComparison.Ordinal)
+                    )
+                with _ ->
+                    String.Equals(registeredPath, actualFile, StringComparison.OrdinalIgnoreCase)
+
+            let isAlreadyRegistered (actualFile: string) =
+                existingConnections
+                |> List.exists (fun c ->
+                    match getExistingFilePath c with
+                    | Some p -> isMatchingFile p actualFile
+                    | None -> false)
+
+            let mutable usedNames =
+                existingConnections
+                |> List.map (fun c -> c.Name)
+                |> Set.ofList
+
+            let makeUniqueName (candidate: string) : string =
+                if not (Set.contains candidate usedNames) then
+                    usedNames <- Set.add candidate usedNames
+                    candidate
+                else
+                    let mutable idx = 2
+                    while Set.contains $"{candidate}_{idx}" usedNames do
+                        idx <- idx + 1
+                    let unique = $"{candidate}_{idx}"
+                    usedNames <- Set.add unique usedNames
+                    unique
+
+            let toPascalCase (s: string) : string =
+                let parts = s.Split([| '_'; '-'; ' '; '.' |], StringSplitOptions.RemoveEmptyEntries)
+                if parts.Length = 0 then
+                    "DataSource"
+                else
+                    let capitalized =
+                        parts
+                        |> Array.map (fun part ->
+                            let clean = CodeGenerationHelpers.cleanIdentifier part
+                            if clean.Length > 0 && Char.IsLower(clean.[0]) then
+                                Char.ToUpper(clean.[0]).ToString() + clean.Substring(1)
+                            else
+                                clean)
+                        |> String.concat ""
+                    if String.IsNullOrWhiteSpace capitalized then "DataSource" else capitalized
+
+            let mutable newlyImported: AutoImportSourceItem list = []
+            let mutable newConnections: ConnectionDefinition list = []
+
+            for file in candidateFiles do
+                if not (isAlreadyRegistered file) then
+                    let ext = Path.GetExtension(file).ToLowerInvariant()
+                    let kind =
+                        supportedExtensions
+                        |> List.tryFind (fun (e, _) -> e = ext)
+                        |> Option.map snd
+                        |> Option.defaultValue ConnectorKind.Csv
+
+                    let baseName = Path.GetFileNameWithoutExtension file
+                    let connName = makeUniqueName (toPascalCase baseName)
+
+                    let relPath =
+                        try
+                            Path.GetRelativePath(rootDir, file).Replace('\\', '/')
+                        with _ ->
+                            file
+
+                    let configElement =
+                        match kind.Id with
+                        | "Excel" ->
+                            JsonSerializer.SerializeToElement({| filePath = relPath; hasHeader = true |}, Serialization.options)
+                        | "Sqlite" ->
+                            JsonSerializer.SerializeToElement({| filePath = relPath |}, Serialization.options)
+                        | _ -> // Csv
+                            JsonSerializer.SerializeToElement({| filePath = relPath |}, Serialization.options)
+
+                    let def: ConnectionDefinition =
+                        { Id = Guid.NewGuid()
+                          Name = connName
+                          Kind = kind
+                          Configuration = configElement
+                          SecretReference = None
+                          IsTrusted = true }
+
+                    newConnections <- newConnections @ [ def ]
+                    newlyImported <- newlyImported @ [ { Name = connName; Kind = kind; FilePath = file; RelativePath = relPath } ]
+
+            let updatedConnections =
+                if newConnections.Length > 0 then
+                    let merged = existingConnections @ newConnections
+                    Workspace.writeConnections rootDir merged
+                    Connections.configure (WorkspaceConnectionResolver(merged, secretStore, rootDir))
+                    try
+                        (EntityBackgroundGenerator.generateForConnectionsAsync rootDir merged secretStore).GetAwaiter().GetResult() |> ignore
+                    with ex ->
+                        Log.Warning("FS Query Studio: Entity generation after auto-import failed: {Error}", ex.Message)
+                    SessionStore.resetAll ()
+                    merged
+                else
+                    existingConnections
+
+            let result: AutoImportDataSourcesResult =
+                { TargetDir = rootDir
+                  DataSourcesDir = dataSourcesDir
+                  FolderCreated = folderCreated
+                  FoundFilesCount = candidateFiles.Length
+                  ImportedCount = newlyImported.Length
+                  Imported = newlyImported
+                  SkippedCount = candidateFiles.Length - newlyImported.Length }
+
+            { Id = request.Id
+              Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+              Error = None }
+        with ex ->
+            { Id = request.Id
+              Result = None
+              Error = Some { Code = "workspace/autoImportFailed"; Message = ex.Message } }
+
     let handleWorkspaceUpgrade (request: WorkerRequestFrame) : WorkerResponseFrame =
         try
             let rootDir = tryGetWorkspaceDir request.Params
@@ -944,6 +1152,7 @@ module Handlers =
             | "connection/schema" -> return! handleConnectionSchema request
             | "workspace/createSampleData" -> return handleCreateSampleData request
             | "workspace/initProject" | "workspace/initEmptyProject" -> return handleInitEmptyProject request
+            | "workspace/autoImportDataSources" | "workspace/autoImportFolder" -> return handleAutoImportDataSources request
             | "workspace/upgrade" -> return handleWorkspaceUpgrade request
             | unknown ->
                 return

@@ -2031,3 +2031,86 @@ let ``evaluating a cell with ResultKind.toRawSql renders the generated query as 
             Handlers.setWorkspaceDirForTests None
             cleanTempDir tmp
     }
+
+[<Fact>]
+let ``workspace/autoImportDataSources creates data_sources and discovers files automatically`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-autoimport-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tmp) |> ignore
+        Handlers.setWorkspaceDirForTests (Some tmp)
+
+        try
+            let escapedTmp = tmp.Replace("\\", "\\\\")
+
+            // 1. First run: folder does not exist yet
+            let req1: WorkerRequestFrame =
+                { Id = "auto-1"
+                  Method = "workspace/autoImportDataSources"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+            let! res1 = Handlers.dispatch req1
+            Assert.True(res1.Error.IsNone, (match res1.Error with Some e -> e.Message | None -> ""))
+            Assert.True(res1.Result.IsSome)
+
+            let r1 = res1.Result.Value
+            Assert.True(r1.GetProperty("folderCreated").GetBoolean())
+            Assert.Equal(0, r1.GetProperty("foundFilesCount").GetInt32())
+            Assert.Equal(0, r1.GetProperty("importedCount").GetInt32())
+
+            let dataSourcesDir = Path.Combine(tmp, "data_sources")
+            Assert.True(Directory.Exists dataSourcesDir)
+            Assert.True(File.Exists(Path.Combine(dataSourcesDir, "README.txt")))
+
+            // 2. Add files to data_sources: a CSV and a SQLite DB
+            let csvPath = Path.Combine(dataSourcesDir, "orders_feed.csv")
+            File.WriteAllText(csvPath, "OrderId,Product,Amount\n1,Alpha,99.5\n2,Beta,49.0\n")
+
+            let dbPath = Path.Combine(dataSourcesDir, "catalog_store.db")
+            do
+                use c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=false")
+                c.Open()
+                use cmd = c.CreateCommand()
+                cmd.CommandText <- "CREATE TABLE Items (Id INTEGER PRIMARY KEY, SKU TEXT); INSERT INTO Items VALUES (1, 'SKU-001');"
+                cmd.ExecuteNonQuery() |> ignore
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
+            // 3. Run auto-import again
+            let req2: WorkerRequestFrame =
+                { Id = "auto-2"
+                  Method = "workspace/autoImportDataSources"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+            let! res2 = Handlers.dispatch req2
+            Assert.True(res2.Error.IsNone, (match res2.Error with Some e -> e.Message | None -> ""))
+            let r2 = res2.Result.Value
+            Assert.False(r2.GetProperty("folderCreated").GetBoolean())
+            Assert.Equal(2, r2.GetProperty("foundFilesCount").GetInt32())
+            Assert.Equal(2, r2.GetProperty("importedCount").GetInt32())
+
+            // Verify connections are registered in workspace.json
+            let conns = Workspace.readConnections tmp
+            Assert.Equal(2, conns.Length)
+            let names = conns |> List.map (fun c -> c.Name) |> Set.ofList
+            Assert.Contains("OrdersFeed", names)
+            Assert.Contains("CatalogStore", names)
+
+            // Verify relative paths
+            let orderConn = conns |> List.find (fun c -> c.Name = "OrdersFeed")
+            let catConn = conns |> List.find (fun c -> c.Name = "CatalogStore")
+            Assert.Equal(ConnectorKind("Csv"), orderConn.Kind)
+            Assert.Equal(ConnectorKind("Sqlite"), catConn.Kind)
+            Assert.Equal("data_sources/orders_feed.csv", orderConn.Configuration.GetProperty("filePath").GetString())
+            Assert.Equal("data_sources/catalog_store.db", catConn.Configuration.GetProperty("filePath").GetString())
+
+            // 4. Re-running without adding new files skips already registered files
+            let req3: WorkerRequestFrame =
+                { Id = "auto-3"
+                  Method = "workspace/autoImportDataSources"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+            let! res3 = Handlers.dispatch req3
+            Assert.True(res3.Error.IsNone)
+            let r3 = res3.Result.Value
+            Assert.Equal(0, r3.GetProperty("importedCount").GetInt32())
+            Assert.Equal(2, r3.GetProperty("skippedCount").GetInt32())
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }

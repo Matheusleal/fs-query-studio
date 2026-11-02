@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { resolveDotnet, DotnetNotFoundError, DotnetTooOldError } from "./worker/dotnet";
 import { resolveWorkerDll, WorkerDllNotFoundError } from "./worker/worker-path";
@@ -549,6 +550,103 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     },
   );
 
+  const autoImportFolderCommand = vscode.commands.registerCommand(
+    "fs-query-studio.autoImportFolder",
+    async (resource?: vscode.Uri) => {
+      let targetDir: string | undefined;
+      if (resource && resource.fsPath) {
+        try {
+          const stat = await vscode.workspace.fs.stat(resource);
+          if (stat.type === vscode.FileType.Directory) {
+            targetDir = resource.fsPath;
+          } else {
+            targetDir = path.dirname(resource.fsPath);
+          }
+        } catch {
+          targetDir = resource.fsPath;
+        }
+      } else {
+        const wsFolders = vscode.workspace.workspaceFolders;
+        if (wsFolders && wsFolders.length === 1) {
+          targetDir = wsFolders[0].uri.fsPath;
+        } else if (wsFolders && wsFolders.length > 1) {
+          const pick = await vscode.window.showQuickPick(
+            wsFolders.map((f) => ({ label: f.name, description: f.uri.fsPath, uri: f.uri })),
+            { placeHolder: "Select a workspace folder to auto-import data sources" },
+          );
+          if (!pick) return;
+          targetDir = pick.uri.fsPath;
+        } else {
+          const picked = await vscode.window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+            openLabel: "Select Workspace Folder",
+            title: "Select Workspace Root Folder for Data Sources Auto-Import",
+          });
+          if (!picked || picked.length === 0) return;
+          targetDir = picked[0].fsPath;
+        }
+      }
+
+      log(`[Workspace] Auto-importing data sources in: ${targetDir}`);
+      try {
+        const worker = await getWorker();
+        const res = await worker.send({
+          id: randomUUID(),
+          method: "workspace/autoImportDataSources",
+          params: { targetDir },
+        });
+
+        if (res.error) {
+          log(`[Workspace] Failed to auto-import data sources: ${res.error.message}`);
+          outputChannel?.show(true);
+          void vscode.window.showErrorMessage(`Failed to auto-import data sources: ${res.error.message}`);
+          return;
+        }
+
+        const data = res.result as {
+          targetDir: string;
+          dataSourcesDir: string;
+          folderCreated: boolean;
+          foundFilesCount: number;
+          importedCount: number;
+          imported: Array<{ name: string; kind: string; filePath: string; relativePath: string }>;
+          skippedCount: number;
+        };
+
+        log(
+          `[Workspace] Auto-import completed: ${data.importedCount} imported, ${data.skippedCount} skipped in ${data.dataSourcesDir}`,
+        );
+
+        await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
+
+        const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+        if (data.importedCount > 0) {
+          const names = data.imported.map((x) => x.name).join(", ");
+          const msg = isPt
+            ? `${data.importedCount} fonte(s) de dados importada(s) automaticamente da pasta 'data_sources': ${names}.`
+            : `Auto-imported ${data.importedCount} data source(s) from 'data_sources': ${names}.`;
+          void vscode.window.showInformationMessage(msg);
+        } else {
+          const msg = isPt
+            ? `Pasta 'data_sources' pronta em '${data.dataSourcesDir}'. Adicione arquivos .csv, .xlsx, .db ou .sqlite nela e execute o Auto-Import novamente.`
+            : `Folder 'data_sources' is ready at '${data.dataSourcesDir}'. Place your .csv, .xlsx, or .sqlite files there and run Auto-Import again to register them.`;
+          const actionText = isPt ? "Mostrar no Explorador" : "Reveal in Explorer";
+          const choice = await vscode.window.showInformationMessage(msg, actionText);
+          if (choice === actionText) {
+            const folderUri = vscode.Uri.file(data.dataSourcesDir);
+            await vscode.commands.executeCommand("revealInExplorer", folderUri);
+          }
+        }
+      } catch (err) {
+        const msg = (err as Error).message;
+        log(`[Workspace] Error auto-importing data sources: ${msg}`);
+        void vscode.window.showErrorMessage(`Error auto-importing data sources: ${msg}`);
+      }
+    },
+  );
+
   const upgradeProjectCommand = vscode.commands.registerCommand(
     "fs-query-studio.upgradeProject",
     async (resource?: vscode.Uri) => {
@@ -653,6 +751,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     newNotebookHereCommand,
     restartCommand,
     createSampleDataCommand,
+    autoImportFolderCommand,
     initEmptyProjectCommand,
     upgradeProjectCommand,
     openDocsCommand,

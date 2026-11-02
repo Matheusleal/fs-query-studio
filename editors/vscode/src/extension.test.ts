@@ -222,6 +222,7 @@ describe("F5 activation wiring", () => {
       "fs-query-studio.connections.remove",
       "fs-query-studio.connections.refresh",
       "fs-query-studio.createSampleData",
+      "fs-query-studio.autoImportFolder",
       "fs-query-studio.openDocs",
     ]) {
       expect(vscodeStub.commands._handlers.has(id)).toBe(true);

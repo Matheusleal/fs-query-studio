@@ -45,6 +45,7 @@
     "onCommand:fs-query-studio.checkWorker",
     "onCommand:fs-query-studio.showOutput",
     "onCommand:fs-query-studio.createSampleData",
+    "onCommand:fs-query-studio.autoImportFolder",
     "onCommand:fs-query-studio.openDocs",
     "onCommand:fs-query-studio.newNotebook",
     "onCommand:fs-query-studio.newNotebookHere",
@@ -101,6 +102,12 @@
         "icon": "$(database)"
       },
       {
+        "command": "fs-query-studio.autoImportFolder",
+        "title": "F# Query Studio: Auto-Import Data Sources Directory",
+        "shortTitle": "Auto-Import Sources",
+        "icon": "$(folder-library)"
+      },
+      {
         "command": "fs-query-studio.initEmptyProject",
         "title": "F# Query Studio: Initialize Empty Project",
         "shortTitle": "Initialize Project",
@@ -145,7 +152,7 @@
     "viewsWelcome": [
       {
         "view": "fsQueryStudioConnections",
-        "contents": "No connections registered yet.\n[Add Connection](command:fs-query-studio.connections.add)\n\n[Initialize Empty Project](command:fs-query-studio.initEmptyProject)\n\n[Create Sample Data (SQLite & CSV)](command:fs-query-studio.createSampleData)\n\n[Open Documentation](command:fs-query-studio.openDocs)\n\n[Show Output Logs](command:fs-query-studio.showOutput)"
+        "contents": "No connections registered yet.\n[Add Connection](command:fs-query-studio.connections.add)\n\n[Auto-Import Data Sources Directory](command:fs-query-studio.autoImportFolder)\n\n[Initialize Empty Project](command:fs-query-studio.initEmptyProject)\n\n[Create Sample Data (SQLite & CSV)](command:fs-query-studio.createSampleData)\n\n[Open Documentation](command:fs-query-studio.openDocs)\n\n[Show Output Logs](command:fs-query-studio.showOutput)"
       }
     ],
     "menus": {
@@ -165,6 +172,11 @@
           "command": "fs-query-studio.initEmptyProject",
           "when": "explorerViewletVisible && explorerResourceIsFolder",
           "group": "navigation@31"
+        },
+        {
+          "command": "fs-query-studio.autoImportFolder",
+          "when": "explorerViewletVisible && explorerResourceIsFolder",
+          "group": "navigation@32"
         }
       ],
       "commandPalette": [
@@ -188,6 +200,11 @@
           "command": "fs-query-studio.createSampleData",
           "when": "view == fsQueryStudioConnections",
           "group": "navigation@15"
+        },
+        {
+          "command": "fs-query-studio.autoImportFolder",
+          "when": "view == fsQueryStudioConnections",
+          "group": "navigation@16"
         },
         {
           "command": "fs-query-studio.connections.add",
