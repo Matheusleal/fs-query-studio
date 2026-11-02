@@ -8,10 +8,19 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.4.0-rc5] — 2026-11-02
+
 ### Added
 
+- **Multi-Table Relational Pushdown Joins (3+ Sources)** — Full native SQLite pushdown join resolution and table alias mapping across 3 or more tabular sources (CSVs + Excel worksheets). Resolves complex LINQ multi-join tuple trees (`_t0`, `_t1`, `_t2`, etc.) natively, eliminating slow in-memory nested loops and query timeouts.
 - **Watchers & Workers Pause/Resume Control** — Added dedicated Pause (`$(debug-pause)`) and Play/Resume (`$(play)`) buttons in the Connections view toolbar and status bar item, with commands `fs-query-studio.pauseWatchersAndWorkers`, `fs-query-studio.resumeWatchersAndWorkers`, and `fs-query-studio.togglePauseResume`. Pausing disposes the background F# worker process and stops file watchers, immediately releasing 100% of background memory and CPU until resumed or on-demand query execution.
 - **On-Demand `data_sources/` Watcher Initialization** — Real-time automatic file watching on the `data_sources/` folder is now initialized strictly when the user selects the Auto-Import option from the Connections menu, Welcome view, or Command Palette. Opening a project in VS Code no longer spawns background workers or consumes CPU/RAM when the extension is not in active use.
+- **Comprehensive Custom Column Mapping & Formula Documentation** — Added extensive bilingual guides and real-world examples for `columnTypes` overrides and `columnTransforms` formulas across USER_GUIDE, TUTORIAL, and READMEs.
+
+### Fixed
+
+- **Redundant Entity Mapping on Cell Evaluation** — Fixed `needsSynchronousGeneration` falsely flagging SQLite connection modules as incomplete, which caused ClosedXML to re-parse Excel files and emit background mapping notifications on every query run.
+- **Explicit Error Cause Unwrapping in Results** — Exception projections now unwrap `TargetInvocationException` and `AggregateException` to clearly display the underlying root causes (e.g., SQLite syntax errors, missing columns) instead of generic invocation messages.
 
 ## [0.4.0-rc4] — 2026-11-02
 

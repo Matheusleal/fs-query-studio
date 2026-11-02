@@ -8,10 +8,19 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ## [Unreleased]
 
+## [0.4.0-rc5] — 2026-11-02
+
 ### Adicionado
 
+- **Pushdown Nativo de Joins Multi-Tabelas (3+ Fontes)** — Resolução e mapeamento completo de aliases de tabelas (`_t0`, `_t1`, `_t2`, etc.) em consultas LINQ com múltiplos joins entre 3 ou mais fontes (CSVs + planilhas Excel) direto no SQLite. Elimina loops lentos em memória (`Cartesian products`) e tempos de execução excessivos.
 - **Controle de Pausa/Play de Watchers e Workers** — Adicionados botões dedicados de Pausa (`$(debug-pause)`) e Retomar/Play (`$(play)`) na barra de ferramentas da visão de Conexões e na barra de status, acompanhados dos comandos `fs-query-studio.pauseWatchersAndWorkers`, `fs-query-studio.resumeWatchersAndWorkers` e `fs-query-studio.togglePauseResume`. Ao pausar, o processo do worker F# em segundo plano é encerrado e os observadores de arquivo são desativados, liberando imediatamente 100% da memória RAM e CPU em segundo plano até a retomada ou execução sob demanda de consultas.
 - **Inicialização Sob Demanda da Detecção em `data_sources/`** — O observador em tempo real da pasta `data_sources/` agora é inicializado estritamente após o usuário selecionar a opção de Auto-Import no menu principal da visão de Conexões, na tela de boas-vindas ou na Paleta de Comandos. Abrir pastas ou projetos no VS Code não mais inicia workers em segundo plano nem consome recursos enquanto a extensão não estiver em uso ativo.
+- **Documentação Abrangente de Mapeamentos e Fórmulas** — Inclusão de guias práticos bilíngues com exemplos de casos reais para sobrescrita de tipos (`columnTypes`) e catálogo de fórmulas de higienização (`columnTransforms`) em todos os manuais (USER_GUIDE, TUTORIAL e READMEs).
+
+### Corrigido
+
+- **Remapeamento Redundante de Entidades a Cada Consulta** — Corrigida a condição em `needsSynchronousGeneration` que forçava regeneração síncrona contínua e releitura de planilhas Excel pelo ClosedXML a cada execução de célula.
+- **Exibição Explícita da Causa Raiz de Erros** — Desempacotamento de exceções encapsuladas (`TargetInvocationException` e `AggregateException`) nas projeções de erro, exibindo a mensagem e detalhes reais do SQLite/compilador em vez de mensagens genéricas.
 
 ## [0.4.0-rc4] — 2026-11-02
 
