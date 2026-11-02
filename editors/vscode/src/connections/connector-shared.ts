@@ -7,10 +7,14 @@ export interface ConnectionFormInput {
   name: string;
   filePath?: string;
   delimiter?: string;
+  sheetName?: string;
+  columnTypes?: string;
+  columnTransforms?: string;
   connectionString?: string;
   password?: string;
   url?: string;
   configValues?: Record<string, unknown>;
+  [key: string]: unknown;
 }
 
 /**

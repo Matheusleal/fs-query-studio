@@ -19,14 +19,25 @@ type CsvConnectorFactory() =
                 match JsonElementHelpers.tryGetString "delimiter" configuration with
                 | Some d when not (String.IsNullOrEmpty d) -> Some d.[0]
                 | _ -> None
+            let hasHeader =
+                match JsonElementHelpers.tryGetBool "hasHeader" configuration with
+                | Some b -> b
+                | None -> true
+            let columnTypes = JsonElementHelpers.tryGetMap "columnTypes" configuration
+            let columnTransforms = JsonElementHelpers.tryGetMap "columnTransforms" configuration
 
             let cleanPath = if String.IsNullOrWhiteSpace filePath then "" else filePath.Trim().Trim('"', '\'')
-            let opts =
+            let baseOpts =
                 match delimiter with
                 | Some d -> { CsvOptions.Default with Delimiter = d }
                 | None ->
                     let autoDelim = CsvConnector.DetectDelimiter(cleanPath, Encoding.UTF8)
                     { CsvOptions.Default with Delimiter = autoDelim }
+            let opts =
+                { baseOpts with
+                    HasHeader = hasHeader
+                    ColumnTypes = columnTypes
+                    ColumnTransforms = columnTransforms }
             CsvConnector(cleanPath, opts) :> IConnector
 
 type CsvEntityGenerator() =
@@ -43,8 +54,15 @@ type CsvEntityGenerator() =
             sb.AppendLine("    type Row =") |> ignore
             sb.AppendLine("        {") |> ignore
             for idx, col in List.indexed sanitizedCols do
-                let samples = rowsSample |> Seq.map (fun r -> if idx < r.Length then string r.[idx] else "")
-                let colType = CsvTypeInference.inferType samples
+                let colType =
+                    match cc.Options.ColumnTypes.TryFind col with
+                    | Some t -> t
+                    | None ->
+                        match cc.Options.ColumnTypes.TryFind qr.Columns.[idx] with
+                        | Some t -> t
+                        | None ->
+                            let samples = rowsSample |> Seq.map (fun r -> if idx < r.Length then string r.[idx] else "")
+                            TabularTypeInference.inferType samples
                 sb.AppendLine($"            {CodeGenerationHelpers.escapeIdent col}: {colType}") |> ignore
             sb.AppendLine("        }") |> ignore
             sb.AppendLine() |> ignore
@@ -87,6 +105,20 @@ type CsvDescriptor() =
             Type = ConnectorFieldType.String
             Required = false
             Placeholder = Some "Leave blank for auto-detect (, ; \\t |)"
+            DefaultValue = None
+            SecretHandling = SecretHandling.None }
+          { Name = "columnTypes"
+            Label = "Column Types Override"
+            Type = ConnectorFieldType.String
+            Required = false
+            Placeholder = Some "Col1=decimal, Col2=int"
+            DefaultValue = None
+            SecretHandling = SecretHandling.None }
+          { Name = "columnTransforms"
+            Label = "Column Transforms / Formulas"
+            Type = ConnectorFieldType.String
+            Required = false
+            Placeholder = Some "Col1=replace(',', '.'), Col2=trim"
             DefaultValue = None
             SecretHandling = SecretHandling.None } ]
     static member Instance = instance

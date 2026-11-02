@@ -224,6 +224,21 @@ Evite configurações manuais organizando seus arquivos na pasta `data_sources`:
 2. **Observador em Tempo Real Automático**: A extensão monitora ativamente a pasta `data_sources/`. Sempre que você mover, colar, editar ou excluir arquivos, o F# Query Studio detecta as alterações automaticamente, registra novas conexões, remove arquivos excluídos, atualiza a árvore de conexões e sincroniza os dados no cache SQLite em disco com feedback visual (`$(sync~spin)`).
 3. **Disparo Manual (Opcional)**: Você também pode clicar no botão **Auto-Import Data Sources** na barra lateral ou usar o comando `F# Query Studio: Auto-Import Data Sources Directory` (`Ctrl+Shift+P`) a qualquer momento.
 
+### Tipos de Coluna Personalizados & Transformações com Fórmulas
+
+Ao importar planilhas Excel ou arquivos CSV, o F# Query Studio oferece controle total sobre os tipos de dados e tratamento de colunas:
+
+- **Descoberta Precisa de Tipos na Árvore & Entidades**: As colunas de planilhas Excel e arquivos CSV são analisadas por amostragem e recebem tipos F# reais (`int`, `decimal`, `double`, `bool`, `DateTime`, etc.), em vez de serem mapeadas genericamente como `string`.
+- **Sobrescrita de Tipos (`columnTypes`)**: Defina explicitamente o tipo de dado desejado para colunas específicas. Por exemplo:
+  - `"UnitPrice=decimal, Quantity=int, IsActive=bool"`
+  - Ou como objeto JSON: `{ "UnitPrice": "decimal", "Quantity": "int" }`
+- **Fórmulas & Substituições (`columnTransforms`)**: Trate e transforme os dados antes da conversão de tipo e sincronização no SQLite:
+  - `replace('de', 'para')`: Substitui caracteres ou trechos de texto (ex: `replace(',', '.')`).
+  - Substituições encadeadas: `replace('.', '').replace(',', '.')` (perfeito para números/moedas no formato brasileiro como `"1.234,56"` para `"1234.56"`).
+  - `trim`: Remove espaços em branco do início e fim.
+  - `multiply(x)` / `divide(x)`: Multiplica ou divide valores por um fator numérico.
+- **Garantia de Precisão Decimal**: Números com muitas casas decimais e separador `.` (ex: `1234567.890123456` ou coordenadas) são mapeados diretamente para `NUMERIC` no SQLite e `decimal`/`double` no F#, preservando todas as casas sem arredondamento para inteiro ou perda de precisão.
+
 ---
 
 ## 7. Consultas SQL Tradicionais Parametrizadas (Raw SQL)

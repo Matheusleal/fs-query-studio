@@ -882,11 +882,11 @@ module Connections =
         member _.Rows<'T>() : 'T seq = queryCsv<'T> name
         member this.Queryable<'T>() : IQueryable<'T> =
             let eng = getEngine ()
-            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows()))
+            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows()), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName) :> IQueryable<'T>
         member this.PushdownQueryable<'T>() : SqlPushdownQueryable<'T> =
             let eng = getEngine ()
-            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows()))
+            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows()), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
         member _.Raw() : ConnectorQueryResult = readCsvRaw name
 
@@ -899,11 +899,11 @@ module Connections =
         member _.Sheet<'T>(sheetName: string, ?maxRows: int) : 'T seq = queryExcelSheet<'T> name (Some sheetName) maxRows
         member this.Queryable<'T>(?maxRows: int) : IQueryable<'T> =
             let eng = getEngine ()
-            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows(?maxRows = maxRows)))
+            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows(?maxRows = maxRows)), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName) :> IQueryable<'T>
         member this.PushdownQueryable<'T>(?maxRows: int) : SqlPushdownQueryable<'T> =
             let eng = getEngine ()
-            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows(?maxRows = maxRows)))
+            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows(?maxRows = maxRows)), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
         member this.SheetQueryable<'T>(sheetName: string, ?maxRows: int) : IQueryable<'T> =
             let eng = getEngine ()
@@ -915,7 +915,7 @@ module Connections =
                     name
                 else
                     let key = if String.Equals(name, sheetName, StringComparison.OrdinalIgnoreCase) then name else compoundKey
-                    eng.EnsureStaged(key, connector.FilePath, (fun () -> connector.ReadRows(sheetName = sheetName, ?maxRows = maxRows)))
+                    eng.EnsureStaged(key, connector.FilePath, (fun () -> connector.ReadRows(sheetName = sheetName, ?maxRows = maxRows)), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName) :> IQueryable<'T>
         member this.SheetPushdownQueryable<'T>(sheetName: string, ?maxRows: int) : SqlPushdownQueryable<'T> =
             let eng = getEngine ()
@@ -927,7 +927,7 @@ module Connections =
                     name
                 else
                     let key = if String.Equals(name, sheetName, StringComparison.OrdinalIgnoreCase) then name else compoundKey
-                    eng.EnsureStaged(key, connector.FilePath, (fun () -> connector.ReadRows(sheetName = sheetName, ?maxRows = maxRows)))
+                    eng.EnsureStaged(key, connector.FilePath, (fun () -> connector.ReadRows(sheetName = sheetName, ?maxRows = maxRows)), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
         member _.Raw(?maxRows: int) : ConnectorQueryResult = readExcelRaw name maxRows
 
@@ -1026,7 +1026,7 @@ module Connections =
                             if eng.IsStagedAndCurrent(connDef.Name, fullPath) then
                                 skippedCount <- skippedCount + 1
                             else
-                                eng.EnsureStaged(connDef.Name, fullPath, (fun () -> csvConn.ReadRows())) |> ignore
+                                eng.EnsureStaged(connDef.Name, fullPath, (fun () -> csvConn.ReadRows()), ?columnTypes = (if csvConn.Options.ColumnTypes.IsEmpty then None else Some csvConn.Options.ColumnTypes)) |> ignore
                                 stagedCount <- stagedCount + 1
                     | "Excel" ->
                         let excelConn = conn :?> ExcelConnector
@@ -1050,19 +1050,19 @@ module Connections =
                                 if eng.IsStagedAndCurrent(compoundKey, fullPath) then
                                     skippedCount <- skippedCount + 1
                                 else
-                                    eng.EnsureStaged(compoundKey, fullPath, (fun () -> excelConn.ReadRows(sheetName = sheetName))) |> ignore
+                                    eng.EnsureStaged(compoundKey, fullPath, (fun () -> excelConn.ReadRows(sheetName = sheetName)), ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes)) |> ignore
                                     stagedCount <- stagedCount + 1
 
                                 if isSameName || isSingleSheet || (not (List.isEmpty tables) && sheetName = (List.head tables).Name) then
                                     if not (eng.IsStagedAndCurrent(connDef.Name, fullPath)) then
-                                        eng.EnsureStaged(connDef.Name, fullPath, (fun () -> excelConn.ReadRows(sheetName = sheetName))) |> ignore
+                                        eng.EnsureStaged(connDef.Name, fullPath, (fun () -> excelConn.ReadRows(sheetName = sheetName)), ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes)) |> ignore
                                         stagedCount <- stagedCount + 1
 
                             if List.isEmpty tables then
                                 if eng.IsStagedAndCurrent(connDef.Name, fullPath) then
                                     skippedCount <- skippedCount + 1
                                 else
-                                    eng.EnsureStaged(connDef.Name, fullPath, (fun () -> excelConn.ReadRows())) |> ignore
+                                    eng.EnsureStaged(connDef.Name, fullPath, (fun () -> excelConn.ReadRows()), ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes)) |> ignore
                                     stagedCount <- stagedCount + 1
                     | _ -> ()
                 with ex ->

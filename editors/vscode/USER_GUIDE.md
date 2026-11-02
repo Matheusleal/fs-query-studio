@@ -224,6 +224,21 @@ Skip manual connection configuration by organizing your files in a `data_sources
 2. **Automatic Real-Time Watcher**: The extension continuously monitors the `data_sources/` directory. Whenever you move, copy, modify, or delete files, F# Query Studio automatically detects the changes, registers new connections, cleans up removed files, refreshes the connections tree, and stages the data into SQLite disk cache with visual status feedback (`$(sync~spin)`).
 3. **Manual Trigger (Optional)**: You can also click **Auto-Import Data Sources** in the sidebar toolbar or run `F# Query Studio: Auto-Import Data Sources Directory` from the Command Palette at any time.
 
+### Custom Column Types & Formula Transformations
+
+When importing CSV or Excel sheets, F# Query Studio provides full control over data types and column cleanup:
+
+- **Accurate Type Discovery in Tree View & Entities**: Columns in Excel workbooks and CSV files are analyzed across sample rows and assigned real F# types (`int`, `decimal`, `double`, `bool`, `DateTime`, etc.) rather than flattening to generic `string`.
+- **Column Types Override (`columnTypes`)**: Explicitly specify the target data type for specific columns. For example:
+  - `"UnitPrice=decimal, Quantity=int, IsActive=bool"`
+  - Or as a JSON object: `{ "UnitPrice": "decimal", "Quantity": "int" }`
+- **Formulas & Replacements (`columnTransforms`)**: Clean and transform raw data before type conversion and database staging:
+  - `replace('from', 'to')`: Replaces characters or substrings (e.g. `replace(',', '.')`).
+  - Chained replacements: `replace('.', '').replace(',', '.')` (ideal for converting localized numbers/currencies like `"1.234,56"` to `"1234.56"`).
+  - `trim`: Strips leading and trailing whitespace.
+  - `multiply(x)` / `divide(x)`: Scales values by a numeric factor.
+- **Decimal Precision Guarantee**: High-precision numbers with multiple decimal places (e.g. `1234567.890123456` or coordinates) are mapped directly to SQLite `NUMERIC` / F# `decimal` and `double`, preserving all fractional digits without truncation or integer rounding.
+
 ---
 
 ## 7. Traditional Parameterized SQL (Raw SQL)

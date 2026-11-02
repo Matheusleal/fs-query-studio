@@ -26,6 +26,22 @@ const descriptor = {
       placeholder: "Leave blank for auto-detect (, ; \\t |)",
       secretHandling: "none",
     },
+    {
+      name: "columnTypes",
+      label: "Column Types Override (optional)",
+      type: "string" as const,
+      required: false,
+      placeholder: "Col1=decimal, Col2=int (or JSON object)",
+      secretHandling: "none",
+    },
+    {
+      name: "columnTransforms",
+      label: "Column Transforms / Formulas (optional)",
+      type: "string" as const,
+      required: false,
+      placeholder: "Col1=replace(',', '.'), Col2=trim",
+      secretHandling: "none",
+    },
   ],
 };
 
@@ -35,11 +51,17 @@ export const csvFrontendModule: FrontendConnectorModule = {
   completionTriggerMembers: ["csv", "connectCsv", "queryCsv"],
 
   buildConfiguration(input: ConnectionFormInput): unknown {
-    const config: { filePath: string; delimiter?: string } = {
+    const config: Record<string, unknown> = {
       filePath: ConnectorSharedUtils.cleanFilePath(input.filePath),
     };
-    if (input.delimiter && input.delimiter.trim().length > 0) {
+    if (input.delimiter && typeof input.delimiter === "string" && input.delimiter.trim().length > 0) {
       config.delimiter = input.delimiter.trim();
+    }
+    if (input.columnTypes && typeof input.columnTypes === "string" && input.columnTypes.trim().length > 0) {
+      config.columnTypes = input.columnTypes.trim();
+    }
+    if (input.columnTransforms && typeof input.columnTransforms === "string" && input.columnTransforms.trim().length > 0) {
+      config.columnTransforms = input.columnTransforms.trim();
     }
     return config;
   },

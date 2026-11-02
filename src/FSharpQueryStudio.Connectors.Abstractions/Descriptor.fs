@@ -80,6 +80,50 @@ module JsonElementHelpers =
                 else Some (p.Value.GetRawText().Trim('"')))
         else None
 
+    let tryGetBool (propName: string) (elem: JsonElement) : bool option =
+        if elem.ValueKind = JsonValueKind.Object then
+            elem.EnumerateObject()
+            |> Seq.tryFind (fun p -> String.Equals(p.Name, propName, StringComparison.OrdinalIgnoreCase))
+            |> Option.bind (fun p ->
+                match p.Value.ValueKind with
+                | JsonValueKind.True -> Some true
+                | JsonValueKind.False -> Some false
+                | JsonValueKind.String ->
+                    let s = p.Value.GetString().ToLowerInvariant()
+                    if s = "true" || s = "1" || s = "yes" then Some true
+                    elif s = "false" || s = "0" || s = "no" then Some false
+                    else None
+                | _ -> None)
+        else None
+
+    let tryGetMap (propName: string) (elem: JsonElement) : Map<string, string> =
+        if elem.ValueKind = JsonValueKind.Object then
+            elem.EnumerateObject()
+            |> Seq.tryFind (fun p -> String.Equals(p.Name, propName, StringComparison.OrdinalIgnoreCase))
+            |> Option.map (fun p ->
+                if p.Value.ValueKind = JsonValueKind.Object then
+                    p.Value.EnumerateObject()
+                    |> Seq.map (fun prop ->
+                        let v =
+                            if prop.Value.ValueKind = JsonValueKind.String then prop.Value.GetString()
+                            else prop.Value.GetRawText().Trim('"')
+                        prop.Name, v)
+                    |> Map.ofSeq
+                elif p.Value.ValueKind = JsonValueKind.String then
+                    let text = p.Value.GetString()
+                    text.Split([| ','; ';' |], StringSplitOptions.RemoveEmptyEntries)
+                    |> Seq.choose (fun pair ->
+                        let parts = pair.Split([| '='; ':' |], 2)
+                        if parts.Length = 2 then
+                            Some (parts.[0].Trim(), parts.[1].Trim())
+                        else None)
+                    |> Map.ofSeq
+                else
+                    Map.empty)
+            |> Option.defaultValue Map.empty
+        else
+            Map.empty
+
 [<CompilationRepresentation(CompilationRepresentationFlags.ModuleSuffix)>]
 module ConnectorDescriptor =
     /// Generic schema-based validation of required form fields.

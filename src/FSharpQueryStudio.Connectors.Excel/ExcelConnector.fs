@@ -19,9 +19,15 @@ module ExcelConnectorExtensions =
 /// first sheet.
 type ExcelOptions =
     { SheetName: string option
-      HasHeader: bool }
+      HasHeader: bool
+      ColumnTypes: Map<string, string>
+      ColumnTransforms: Map<string, string> }
 
-    static member Default = { SheetName = None; HasHeader = true }
+    static member Default =
+        { SheetName = None
+          HasHeader = true
+          ColumnTypes = Map.empty
+          ColumnTransforms = Map.empty }
 
 /// Reads an `IXLCell`'s value as its natural .NET type (number, boolean,
 /// date, or text) rather than always flattening to a display string.
@@ -89,17 +95,27 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
                 let lastCol = lastCell.Address.ColumnNumber
                 let colCount = lastCol - firstCol + 1
 
-                let readRowArray (row: IXLRow) : obj array =
-                    let arr = Array.zeroCreate<obj> colCount
-                    for idx = 0 to colCount - 1 do
-                        arr.[idx] <- ExcelCells.value (row.Cell(firstCol + idx))
-                    arr
-
                 let columns =
                     if options.HasHeader then
                         [ for c in firstCol .. lastCol -> firstRow.Cell(c).Value.ToString() ]
                     else
                         [ for i in 1 .. colCount -> $"Column{i}" ]
+
+                let hasTransforms = not options.ColumnTransforms.IsEmpty
+                let applyColTransform (colName: string) (valObj: obj) : obj =
+                    match options.ColumnTransforms.TryFind colName with
+                    | Some expr -> ColumnTransformation.applyTransform expr valObj
+                    | None -> valObj
+
+                let readRowArray (row: IXLRow) : obj array =
+                    let arr = Array.zeroCreate<obj> colCount
+                    for idx = 0 to colCount - 1 do
+                        let raw = ExcelCells.value (row.Cell(firstCol + idx))
+                        if hasTransforms && idx < columns.Length then
+                            arr.[idx] <- applyColTransform columns.[idx] raw
+                        else
+                            arr.[idx] <- raw
+                    arr
 
                 let limit = defaultArg maxRows System.Int32.MaxValue
                 let collected = ResizeArray<obj array>()
@@ -118,8 +134,8 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
         member _.TestConnectionAsync(_ct: CancellationToken) : Task<bool> = Task.FromResult(File.Exists cleanPath)
 
         /// Every worksheet is one table, named after the sheet, with
-        /// header-derived columns per `options.HasHeader` — Section 10's
-        /// "workbook/sheet selection" extended to schema discovery.
+        /// header-derived columns and inferred or explicitly configured
+        /// data types per `options.ColumnTypes` and `options.ColumnTransforms`.
         member _.DiscoverSchemaAsync(_ct: CancellationToken) : Task<ConnectorTable list> =
             use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 65536)
             use workbook = new XLWorkbook(fs)
@@ -127,28 +143,55 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
             let tables =
                 workbook.Worksheets
                 |> Seq.map (fun sheet ->
-                    let firstRow = sheet.FirstRowUsed()
-
-                    let columnNames =
-                        if isNull firstRow then
-                            []
+                    let rowsEnum = sheet.RowsUsed() |> Seq.truncate 200 |> Seq.toList
+                    match rowsEnum with
+                    | [] ->
+                        { Name = sheet.Name; Columns = [] }: ConnectorTable
+                    | firstRow :: dataRows ->
+                        let firstCell = firstRow.FirstCellUsed()
+                        let lastCell = firstRow.LastCellUsed()
+                        if isNull firstCell || isNull lastCell then
+                            { Name = sheet.Name; Columns = [] }: ConnectorTable
                         else
-                            let firstCell = firstRow.FirstCellUsed()
-                            let lastCell = firstRow.LastCellUsed()
-                            if isNull firstCell || isNull lastCell then
-                                []
-                            else
-                                let firstCol = firstCell.Address.ColumnNumber
-                                let lastCol = lastCell.Address.ColumnNumber
+                            let firstCol = firstCell.Address.ColumnNumber
+                            let lastCol = lastCell.Address.ColumnNumber
+                            let colCount = lastCol - firstCol + 1
+
+                            let columnNames =
                                 if options.HasHeader then
                                     [ for c in firstCol .. lastCol -> firstRow.Cell(c).Value.ToString() ]
                                 else
-                                    [ for i in 1 .. (lastCol - firstCol + 1) -> $"Column{i}" ]
+                                    [ for i in 1 .. colCount -> $"Column{i}" ]
 
-                    { Name = sheet.Name
-                      Columns =
-                        columnNames
-                        |> List.map (fun name -> ({ Name = name; DataType = "string" }: ConnectorColumn)) }: ConnectorTable)
+                            let effectiveDataRows =
+                                if options.HasHeader then dataRows
+                                else firstRow :: dataRows
+
+                            let colsWithTypes =
+                                columnNames
+                                |> List.mapi (fun idx colName ->
+                                    let explicitType = options.ColumnTypes.TryFind colName
+                                    let colType =
+                                        match explicitType with
+                                        | Some t -> t
+                                        | None ->
+                                            let transform = options.ColumnTransforms.TryFind colName
+                                            let samples =
+                                                effectiveDataRows
+                                                |> Seq.map (fun r ->
+                                                    let cellVal = ExcelCells.value (r.Cell(firstCol + idx))
+                                                    let transformed =
+                                                        match transform with
+                                                        | Some expr -> ColumnTransformation.applyTransform expr cellVal
+                                                        | None -> cellVal
+                                                    if isNull transformed then ""
+                                                    else System.Convert.ToString(transformed, System.Globalization.CultureInfo.InvariantCulture)
+                                                )
+                                            TabularTypeInference.inferType samples
+                                    { Name = colName; DataType = colType }: ConnectorColumn
+                                )
+
+                            { Name = sheet.Name; Columns = colsWithTypes }: ConnectorTable)
                 |> List.ofSeq
 
             Task.FromResult tables

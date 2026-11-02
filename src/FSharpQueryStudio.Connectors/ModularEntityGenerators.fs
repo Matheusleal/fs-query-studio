@@ -35,14 +35,21 @@ type CsvEntityGenerator() =
                     sb.AppendLine("            Value: string") |> ignore
                 else
                     for idx, col in List.indexed sanitizedCols do
-                        let samples =
-                            rowsSample
-                            |> Seq.map (fun r ->
-                                if idx < r.Length && not (isNull r.[idx]) then
-                                    Convert.ToString(r.[idx], System.Globalization.CultureInfo.InvariantCulture)
-                                else
-                                    "")
-                        let colType = CsvTypeInference.inferType samples
+                        let colType =
+                            match cc.Options.ColumnTypes.TryFind col with
+                            | Some t -> t
+                            | None ->
+                                match cc.Options.ColumnTypes.TryFind qr.Columns.[idx] with
+                                | Some t -> t
+                                | None ->
+                                    let samples =
+                                        rowsSample
+                                        |> Seq.map (fun r ->
+                                            if idx < r.Length && not (isNull r.[idx]) then
+                                                Convert.ToString(r.[idx], System.Globalization.CultureInfo.InvariantCulture)
+                                            else
+                                                "")
+                                    TabularTypeInference.inferType samples
                         sb.AppendLine($"            {CodeGenerationHelpers.escapeIdent col}: {colType}") |> ignore
                 sb.AppendLine("        }") |> ignore
                 sb.AppendLine() |> ignore
@@ -112,14 +119,21 @@ type ExcelEntityGenerator() =
                         sb.AppendLine("                Value: string") |> ignore
                     else
                         for idx, col in List.indexed sanitizedCols do
-                            let samples =
-                                rowsSample
-                                |> Seq.map (fun r ->
-                                    if idx < r.Length && not (isNull r.[idx]) then
-                                        Convert.ToString(r.[idx], System.Globalization.CultureInfo.InvariantCulture)
-                                    else
-                                        "")
-                            let colType = CsvTypeInference.inferType samples
+                            let colType =
+                                match ec.Options.ColumnTypes.TryFind col with
+                                | Some t -> t
+                                | None ->
+                                    match ec.Options.ColumnTypes.TryFind qr.Columns.[idx] with
+                                    | Some t -> t
+                                    | None ->
+                                        let samples =
+                                            rowsSample
+                                            |> Seq.map (fun r ->
+                                                if idx < r.Length && not (isNull r.[idx]) then
+                                                    Convert.ToString(r.[idx], System.Globalization.CultureInfo.InvariantCulture)
+                                                else
+                                                    "")
+                                        TabularTypeInference.inferType samples
                             sb.AppendLine($"                {CodeGenerationHelpers.escapeIdent col}: {colType}") |> ignore
                     sb.AppendLine("            }") |> ignore
                     sb.AppendLine() |> ignore

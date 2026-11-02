@@ -21,12 +21,16 @@ module CsvConnectorExtensions =
 type CsvOptions =
     { Delimiter: char
       Encoding: Encoding
-      HasHeader: bool }
+      HasHeader: bool
+      ColumnTypes: Map<string, string>
+      ColumnTransforms: Map<string, string> }
 
     static member Default =
         { Delimiter = ','
           Encoding = Encoding.UTF8
-          HasHeader = true }
+          HasHeader = true
+          ColumnTypes = Map.empty
+          ColumnTransforms = Map.empty }
 
 /// A small RFC4180 streaming parser. `StreamReader.ReadLine` can't be
 /// used directly for this: a quoted field may itself contain a raw
@@ -350,6 +354,18 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
             && record.Length = 1
             && (match record.[0] with :? string as s -> String.IsNullOrWhiteSpace s | _ -> false)
 
+        let hasTransforms = not resolvedOptions.ColumnTransforms.IsEmpty
+        let applyRowTransforms (row: obj array) : obj array =
+            if not hasTransforms then row
+            else
+                let mapped = Array.copy row
+                for i = 0 to min (columns.Length - 1) (mapped.Length - 1) do
+                    let colName = columns.[i]
+                    match resolvedOptions.ColumnTransforms.TryFind colName with
+                    | Some expr -> mapped.[i] <- ColumnTransformation.applyTransform expr mapped.[i]
+                    | None -> ()
+                mapped
+
         let rows =
             seq {
                 use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 65536)
@@ -358,7 +374,7 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
                 let first = CsvParsing.readRecordAsObjArray streamReader resolvedOptions.Delimiter sb expectedCols
 
                 match first, resolvedOptions.HasHeader with
-                | Some record, false when not (isBlankLine record) -> yield record
+                | Some record, false when not (isBlankLine record) -> yield applyRowTransforms record
                 | _ -> () // Some when HasHeader (the header itself) or None (empty file) - nothing to yield yet.
 
                 let mutable more = true
@@ -367,7 +383,7 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
                     match CsvParsing.readRecordAsObjArray streamReader resolvedOptions.Delimiter sb expectedCols with
                     | Some record ->
                         if not (isBlankLine record) then
-                            yield record
+                            yield applyRowTransforms record
                     | None -> more <- false
             }
 
@@ -379,8 +395,8 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
         member _.TestConnectionAsync(_ct: CancellationToken) : Task<bool> = Task.FromResult(File.Exists cleanPath)
 
         /// Discovers CSV schema by inspecting the header and inferring data types
-        /// across the first 200 rows. When "N/A", "-", or "null" sentinels are found,
-        /// the column is typed as an option type (e.g. `decimal option`, `string option`).
+        /// across the first 200 rows, honoring explicit ColumnTypes and ColumnTransforms.
+        /// When "N/A", "-", or "null" sentinels are found, the column is typed as an option type.
         member this.DiscoverSchemaAsync(_ct: CancellationToken) : Task<ConnectorTable list> =
             let qr = this.ReadRows()
             let rowsSample = qr.Rows |> Seq.truncate 200 |> Seq.toList
@@ -389,8 +405,13 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
             let colsWithTypes =
                 columns
                 |> List.mapi (fun idx colName ->
-                    let samples = rowsSample |> Seq.map (fun r -> if idx < r.Length then string r.[idx] else "")
-                    let colType = CsvTypeInference.inferType samples
+                    let explicitType = resolvedOptions.ColumnTypes.TryFind colName
+                    let colType =
+                        match explicitType with
+                        | Some t -> t
+                        | None ->
+                            let samples = rowsSample |> Seq.map (fun r -> if idx < r.Length then string r.[idx] else "")
+                            TabularTypeInference.inferType samples
                     { Name = colName; DataType = colType }: ConnectorColumn
                 )
 
