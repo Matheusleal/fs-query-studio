@@ -217,12 +217,12 @@ Ao cadastrar ou importar arquivos planos (`.csv`, `.xlsx`), o F# Query Studio pr
 - **Aquecimento Assíncrono Imediato**: A sincronização começa imediatamente em segundo plano ao registrar conexões ou abrir o workspace.
 - **Feedback Visual na Barra de Status**: A barra do VS Code exibe `$(sync~spin) Sincronizando fontes de dados...` durante o carregamento e `$(database) Fontes prontas` ao finalizar. Você também pode rodar o comando **F# Query Studio: Sync Data Sources Cache** pela Command Palette.
 
-### Descoberta Automática via Pasta `data_sources`
+### Descoberta Automática & Observador em Tempo Real via Pasta `data_sources`
 
 Evite configurações manuais organizando seus arquivos na pasta `data_sources`:
-1. Coloque seus arquivos `.csv`, `.xlsx`, `.db` ou `.sqlite` dentro da pasta `data_sources/` na raiz do seu projeto.
-2. Clique no botão **Auto-Import Data Sources** na barra lateral ou use o comando `F# Query Studio: Auto-Import Data Sources Directory` (`Ctrl+Shift+P`).
-3. Todos os arquivos suportados serão registrados com nomes PascalCase amigáveis, tipos gerados e sincronizados no cache SQLite!
+1. Mova ou copie seus arquivos `.csv`, `.xlsx`, `.db` ou `.sqlite` para dentro da pasta `data_sources/` na raiz do seu projeto.
+2. **Observador em Tempo Real Automático**: A extensão monitora ativamente a pasta `data_sources/`. Sempre que você mover, colar, editar ou excluir arquivos, o F# Query Studio detecta as alterações automaticamente, registra novas conexões, remove arquivos excluídos, atualiza a árvore de conexões e sincroniza os dados no cache SQLite em disco com feedback visual (`$(sync~spin)`).
+3. **Disparo Manual (Opcional)**: Você também pode clicar no botão **Auto-Import Data Sources** na barra lateral ou usar o comando `F# Query Studio: Auto-Import Data Sources Directory` (`Ctrl+Shift+P`) a qualquer momento.
 
 ---
 

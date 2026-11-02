@@ -249,6 +249,94 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     }
   };
 
+  const autoImportAndSyncDataSources = async (targetDir: string, silent = true): Promise<void> => {
+    try {
+      const worker = await getWorker();
+      const res = await worker.send({
+        id: randomUUID(),
+        method: "workspace/autoImportDataSources",
+        params: { targetDir },
+      });
+
+      if (res.error) {
+        log(`[Watcher] Auto-import error: ${res.error.message}`);
+        return;
+      }
+
+      const data = res.result as {
+        targetDir: string;
+        dataSourcesDir: string;
+        folderCreated: boolean;
+        foundFilesCount: number;
+        importedCount: number;
+        imported: Array<{ name: string; kind: string; filePath: string; relativePath: string }>;
+        removedCount?: number;
+        skippedCount: number;
+      };
+
+      const changesDetected = data.importedCount > 0 || (data.removedCount ?? 0) > 0;
+      if (changesDetected) {
+        log(
+          `[Watcher] data_sources updated: ${data.importedCount} imported, ${data.removedCount ?? 0} removed in ${data.dataSourcesDir}`,
+        );
+        await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
+
+        if (!silent) {
+          const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+          const msg = isPt
+            ? `${data.importedCount} fonte(s) importada(s) automaticamente da pasta 'data_sources'.`
+            : `Auto-imported ${data.importedCount} data source(s) from 'data_sources'.`;
+          void vscode.window.showInformationMessage(msg);
+        }
+      }
+
+      // Always trigger cache sync on file change/creation/deletion
+      await runSyncDataSources(targetDir, true);
+    } catch (err) {
+      log(`[Watcher] Error auto-syncing data sources: ${(err as Error).message}`);
+    }
+  };
+
+  const isDataSourcesCandidate = (filePath: string): boolean => {
+    const baseName = path.basename(filePath);
+    if (baseName.startsWith(".") || baseName.startsWith("~$") || baseName.toLowerCase() === "readme.txt") {
+      return false;
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    return [".csv", ".xlsx", ".xls", ".sqlite", ".sqlite3", ".db"].includes(ext);
+  };
+
+  let dataSourcesDebounceTimer: NodeJS.Timeout | undefined;
+  const onDataSourcesFileChanged = (uri: vscode.Uri) => {
+    if (!isDataSourcesCandidate(uri.fsPath)) {
+      return;
+    }
+    if (dataSourcesDebounceTimer) {
+      clearTimeout(dataSourcesDebounceTimer);
+    }
+    dataSourcesDebounceTimer = setTimeout(async () => {
+      dataSourcesDebounceTimer = undefined;
+      const wsFolder = vscode.workspace.getWorkspaceFolder(uri);
+      let targetDir = wsFolder?.uri.fsPath;
+      if (!targetDir) {
+        const parts = uri.fsPath.split(/[/\\]/);
+        const dsIdx = parts.lastIndexOf("data_sources");
+        if (dsIdx > 0) {
+          targetDir = parts.slice(0, dsIdx).join(path.sep);
+        } else {
+          targetDir = path.dirname(uri.fsPath);
+        }
+      }
+      log(`[Watcher] Change detected in data_sources (${path.basename(uri.fsPath)}). Auto-syncing: ${targetDir}`);
+      await autoImportAndSyncDataSources(targetDir, true);
+    }, 600);
+  };
+
+  const dataSourcesWatcher = vscode.workspace.createFileSystemWatcher("**/data_sources/**");
+  dataSourcesWatcher.onDidCreate(onDataSourcesFileChanged);
+  dataSourcesWatcher.onDidChange(onDataSourcesFileChanged);
+  dataSourcesWatcher.onDidDelete(onDataSourcesFileChanged);
+
   let bridgeRegistered = false;
   const getWorker = async () => {
     const session = await getWorkerSession({
@@ -825,6 +913,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
       try {
         const worker = await getWorker();
         for (const folder of wsFolders) {
+          // Check if data_sources folder exists, if so auto-import any pending files right away
+          const dataSourcesUri = vscode.Uri.joinPath(folder.uri, "data_sources");
+          try {
+            const stat = await vscode.workspace.fs.stat(dataSourcesUri);
+            if (stat.type === vscode.FileType.Directory) {
+              void autoImportAndSyncDataSources(folder.uri.fsPath, true);
+            }
+          } catch {
+            // folder doesn't exist yet, that's fine
+          }
+
           const res = await worker.send({
             id: randomUUID(),
             method: "workspace/upgrade",
@@ -868,6 +967,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     connections.disposable,
     outputChannel,
     statusBar,
+    dataSourcesWatcher,
   );
 
   return { connections: connections.api };

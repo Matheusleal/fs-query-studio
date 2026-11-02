@@ -8,6 +8,11 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+### Added
+
+- **Real-Time `data_sources/` File System Watcher** — Active file system watcher (`vscode.workspace.createFileSystemWatcher("**/data_sources/**")`) that detects when files are created, moved, modified, or deleted inside `data_sources/`. Automatically triggers debounced auto-import, updates `workspace.json`, prunes orphaned connections when files are removed, and syncs the SQLite persistent cache with visual status bar feedback.
+- **Automatic Startup Auto-Discovery** — On extension activation, automatically inspects workspace folders for `data_sources/` and runs initial discovery and cache pre-warming seamlessly.
+
 ## [0.4.0-rc3] — 2026-11-02
 
 ### Added

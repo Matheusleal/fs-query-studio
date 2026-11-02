@@ -6,6 +6,11 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ## [Não Lançado]
 
+### Adicionado
+
+- **Observador de Arquivos em Tempo Real para `data_sources/`** — Monitoramento ativo do sistema de arquivos (`vscode.workspace.createFileSystemWatcher("**/data_sources/**")`) que detecta quando arquivos são criados, movidos, modificados ou excluídos dentro de `data_sources/`. Dispara automaticamente a importação com debounce, atualiza `workspace.json`, remove conexões órfãs quando arquivos são excluídos e sincroniza o cache SQLite persistente com feedback visual na barra de status.
+- **Auto-Descoberta na Inicialização** — Ao ativar a extensão, verifica automaticamente as pastas do workspace em busca de `data_sources/` e executa a descoberta inicial e aquecimento de cache em segundo plano.
+
 ## [0.4.0-rc3] — 2026-11-02
 
 ### Adicionado

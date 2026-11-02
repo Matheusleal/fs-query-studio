@@ -2110,6 +2110,32 @@ let ``workspace/autoImportDataSources creates data_sources and discovers files a
             let r3 = res3.Result.Value
             Assert.Equal(0, r3.GetProperty("importedCount").GetInt32())
             Assert.Equal(2, r3.GetProperty("skippedCount").GetInt32())
+            Assert.Equal(0, r3.GetProperty("removedCount").GetInt32())
+
+            // 5. Delete orders_feed.csv from data_sources and verify auto-removal
+            let mutable deleted = false
+            let mutable retries = 0
+            while not deleted && retries < 30 do
+                try
+                    File.Delete csvPath
+                    deleted <- true
+                with :? System.IO.IOException ->
+                    do! Task.Delay 100
+                    retries <- retries + 1
+            Assert.True(deleted, "Expected orders_feed.csv to be deleted")
+
+            let req4: WorkerRequestFrame =
+                { Id = "auto-4"
+                  Method = "workspace/autoImportDataSources"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+            let! res4 = Handlers.dispatch req4
+            Assert.True(res4.Error.IsNone)
+            let r4 = res4.Result.Value
+            Assert.Equal(1, r4.GetProperty("removedCount").GetInt32())
+
+            let connsAfterDelete = Workspace.readConnections tmp
+            Assert.Equal(1, connsAfterDelete.Length)
+            Assert.Equal("CatalogStore", connsAfterDelete.[0].Name)
         finally
             Handlers.setWorkspaceDirForTests None
             cleanTempDir tmp

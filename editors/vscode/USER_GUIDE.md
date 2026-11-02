@@ -217,12 +217,12 @@ When you register or auto-import flat files (`.csv`, `.xlsx`), F# Query Studio i
 - **Immediate Async Pre-warming**: Staging starts automatically in the background upon connection registration or workspace open.
 - **Visual Status Bar Feedback**: The VS Code status bar displays `$(sync~spin) Syncing data sources...` during staging and `$(database) Data sources ready` when complete. You can also run the Command Palette command **F# Query Studio: Sync Data Sources Cache** at any time.
 
-### Automatic Discovery via `data_sources` Directory
+### Automatic Discovery & Real-Time Watching via `data_sources` Directory
 
 Skip manual connection configuration by organizing your files in a `data_sources` folder:
-1. Place your `.csv`, `.xlsx`, `.db`, or `.sqlite` files inside the `data_sources/` folder in your project root.
-2. Click **Auto-Import Data Sources** in the sidebar welcome view or run `F# Query Studio: Auto-Import Data Sources Directory` from the Command Palette.
-3. All compatible files are instantly registered with clean PascalCase identifiers, typed records, and pre-staged into the disk cache!
+1. Place or drag your `.csv`, `.xlsx`, `.db`, or `.sqlite` files inside the `data_sources/` folder in your project root.
+2. **Automatic Real-Time Watcher**: The extension continuously monitors the `data_sources/` directory. Whenever you move, copy, modify, or delete files, F# Query Studio automatically detects the changes, registers new connections, cleans up removed files, refreshes the connections tree, and stages the data into SQLite disk cache with visual status feedback (`$(sync~spin)`).
+3. **Manual Trigger (Optional)**: You can also click **Auto-Import Data Sources** in the sidebar toolbar or run `F# Query Studio: Auto-Import Data Sources Directory` from the Command Palette at any time.
 
 ---
 

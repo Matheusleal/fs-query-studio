@@ -917,6 +917,7 @@ module Handlers =
           FoundFilesCount: int
           ImportedCount: int
           Imported: AutoImportSourceItem list
+          RemovedCount: int
           SkippedCount: int }
 
     let handleAutoImportDataSources (request: WorkerRequestFrame) : WorkerResponseFrame =
@@ -1081,9 +1082,37 @@ module Handlers =
                     newConnections <- newConnections @ [ def ]
                     newlyImported <- newlyImported @ [ { Name = connName; Kind = kind; FilePath = file; RelativePath = relPath } ]
 
+            let missingDataSourcesConnections =
+                existingConnections
+                |> List.filter (fun conn ->
+                    match getExistingFilePath conn with
+                    | Some pathStr ->
+                        let norm = pathStr.Replace('\\', '/')
+                        let isUnderDataSources =
+                            norm.StartsWith("data_sources/", StringComparison.OrdinalIgnoreCase)
+                            || norm.Contains("/data_sources/")
+                            || (try
+                                    let full = Path.GetFullPath(if Path.IsPathRooted pathStr then pathStr else Path.Combine(rootDir, pathStr))
+                                    let dsFull = Path.GetFullPath(dataSourcesDir)
+                                    full.StartsWith(dsFull, StringComparison.OrdinalIgnoreCase)
+                                with _ -> false)
+                        if isUnderDataSources then
+                            let full = if Path.IsPathRooted pathStr then pathStr else Path.Combine(rootDir, pathStr)
+                            not (File.Exists full)
+                        else
+                            false
+                    | None -> false)
+
+            let remainingConnections =
+                if missingDataSourcesConnections.Length > 0 then
+                    let missingIds = missingDataSourcesConnections |> List.map (fun c -> c.Id) |> Set.ofList
+                    existingConnections |> List.filter (fun c -> not (Set.contains c.Id missingIds))
+                else
+                    existingConnections
+
             let updatedConnections =
-                if newConnections.Length > 0 then
-                    let merged = existingConnections @ newConnections
+                if newConnections.Length > 0 || missingDataSourcesConnections.Length > 0 then
+                    let merged = remainingConnections @ newConnections
                     Workspace.writeConnections rootDir merged
                     Connections.configure (WorkspaceConnectionResolver(merged, secretStore, rootDir))
                     try
@@ -1103,6 +1132,7 @@ module Handlers =
                   FoundFilesCount = candidateFiles.Length
                   ImportedCount = newlyImported.Length
                   Imported = newlyImported
+                  RemovedCount = missingDataSourcesConnections.Length
                   SkippedCount = candidateFiles.Length - newlyImported.Length }
 
             { Id = request.Id

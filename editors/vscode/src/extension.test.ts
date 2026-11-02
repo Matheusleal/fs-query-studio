@@ -209,11 +209,12 @@ describe("F5 activation wiring", () => {
         store: async () => {},
         delete: async () => {},
       },
-    } as never;
+    };
   }
 
-  it("activate returns a connections API and registers the four commands", async () => {
-    const api = await activate(makeFakeContext());
+  it("activate returns a connections API and registers the commands and data_sources watcher", async () => {
+    const context = makeFakeContext();
+    const api = await activate(context as never);
     expect(api).toBeDefined();
     expect(typeof api.connections.list).toBe("function");
     for (const id of [
@@ -223,10 +224,13 @@ describe("F5 activation wiring", () => {
       "fs-query-studio.connections.refresh",
       "fs-query-studio.createSampleData",
       "fs-query-studio.autoImportFolder",
+      "fs-query-studio.syncDataSources",
       "fs-query-studio.openDocs",
     ]) {
       expect(vscodeStub.commands._handlers.has(id)).toBe(true);
     }
+    // Verify subscriptions include file watcher and commands
+    expect(context.subscriptions.length).toBeGreaterThan(15);
     await deactivate();
   });
 });
