@@ -369,7 +369,7 @@ module FsacBridge =
 
             do! syncDocument client documentUri version checkedSource
 
-            let! winner = Task.WhenAny(tcs.Task :> Task, Task.Delay(TimeSpan.FromSeconds 10.0))
+            let! winner = Task.WhenAny(tcs.Task :> Task, Task.Delay(TimeSpan.FromSeconds 30.0))
 
             if winner = (tcs.Task :> Task) then
                 let! diagnostics = tcs.Task
@@ -385,7 +385,7 @@ module FsacBridge =
                 // caller's silent "nothing came back" gets one warning, not
                 // zero or five duplicated ones.
                 Log.Warning(
-                    "Timed out after 10s waiting for FSAC to finish parsing {DocumentUri} (version {Version})",
+                    "Timed out after 30s waiting for FSAC to finish parsing {DocumentUri} (version {Version})",
                     documentUri,
                     version
                 )
@@ -396,13 +396,13 @@ module FsacBridge =
     /// A reasonable upper bound on how long a live-but-stuck `fsautocomplete`
     /// (one that hasn't crashed — `HasExited` still `false` — but also isn't
     /// answering) is allowed to leave a request pending, consistent with
-    /// `awaitDocumentAnalyzed`'s own 10s bound and `FsacProcess.EnsureClient`'s
-    /// 15s handshake bound just above it in the same pipeline. A crashed
+    /// `awaitDocumentAnalyzed`'s own bound and `FsacProcess.EnsureClient`'s
+    /// handshake bound just above it in the same pipeline. A crashed
     /// process is already handled without this (the reader loop detects
     /// stdout EOF and resolves every pending request with `LspFail` as soon
     /// as it happens); this bound only ever matters for a process that's
     /// alive but unresponsive.
-    let private requestTimeout = TimeSpan.FromSeconds 15.0
+    let private requestTimeout = TimeSpan.FromSeconds 30.0
 
     /// Wraps `client.SendRequest` with `requestTimeout` so a hung-but-alive
     /// FSAC can't leave a caller waiting forever - the five methods below
