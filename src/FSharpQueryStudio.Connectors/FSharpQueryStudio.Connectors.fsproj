@@ -5,6 +5,9 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="SqlDialect.fs" />
+    <Compile Include="SqlPushdownPlan.fs" />
+    <Compile Include="RecordReaders.fs" />
     <Compile Include="SqlPushdownQuery.fs" />
     <Compile Include="FileSqliteEngine.fs" />
     <Compile Include="Connections.fs" />
