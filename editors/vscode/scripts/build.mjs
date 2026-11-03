@@ -4,7 +4,7 @@
 //
 //   node scripts/build.mjs [--skip-worker] [--worker-only] [--configuration Release|Debug]
 
-import { existsSync, copyFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { existsSync, copyFileSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { parseArgs, run, extDir, repoRoot, workerOutDir, workerProject } from "./lib.mjs";
@@ -29,6 +29,55 @@ export function sanitizeWorkerDirectory(dir) {
     }
   }
   return removed;
+}
+
+/**
+ * Synchronize and ensure all required documentation files are available
+ * for VS Code extension packaging and runtime.
+ * @param {string} extDir
+ * @param {string} repoRoot
+ */
+export function ensureDocsAvailable(extDir, repoRoot) {
+  const docsDir = join(extDir, "docs");
+  if (!existsSync(docsDir)) {
+    mkdirSync(docsDir, { recursive: true });
+  }
+
+  // 1. Sync repository root benchmarks into editors/vscode/docs/
+  const benchmarkSrc = join(repoRoot, "docs", "BENCHMARK_REPORT.md");
+  const benchmarkDest = join(docsDir, "BENCHMARK_REPORT.md");
+  if (existsSync(benchmarkSrc)) {
+    copyFileSync(benchmarkSrc, benchmarkDest);
+  }
+
+  const benchmarkPtSrc = join(repoRoot, "docs", "BENCHMARK_REPORT_PT.md");
+  const benchmarkPtDest = join(docsDir, "BENCHMARK_REPORT_PT.md");
+  if (existsSync(benchmarkPtSrc)) {
+    copyFileSync(benchmarkPtSrc, benchmarkPtDest);
+  }
+
+  // 2. Ensure root documentation required by vsce package & marketplace is available in extDir
+  const docsReadme = join(docsDir, "README.md");
+  const rootReadme = join(extDir, "README.md");
+  if (existsSync(docsReadme)) {
+    let content = readFileSync(docsReadme, "utf8");
+    // Rewrite sibling links in the root README copy so they point into docs/
+    content = content
+      .replaceAll("(USER_GUIDE.md", "(docs/USER_GUIDE.md")
+      .replaceAll("(USER_GUIDE_PT.md", "(docs/USER_GUIDE_PT.md")
+      .replaceAll("(BENCHMARK_REPORT.md", "(docs/BENCHMARK_REPORT.md")
+      .replaceAll("(BENCHMARK_REPORT_PT.md", "(docs/BENCHMARK_REPORT_PT.md")
+      .replaceAll("(README_PT.md", "(docs/README_PT.md");
+    writeFileSync(rootReadme, content, "utf8");
+  }
+
+  const docsChangelog = join(docsDir, "CHANGELOG.md");
+  const rootChangelog = join(extDir, "CHANGELOG.md");
+  if (existsSync(docsChangelog)) {
+    let content = readFileSync(docsChangelog, "utf8");
+    content = content.replaceAll("(CHANGELOG_PT.md", "(docs/CHANGELOG_PT.md");
+    writeFileSync(rootChangelog, content, "utf8");
+  }
 }
 
 /**
@@ -72,11 +121,7 @@ export function build(opts = {}) {
     return;
   }
 
-  const benchmarkSrc = join(repoRoot, "docs", "BENCHMARK_REPORT.md");
-  const benchmarkDest = join(extDir, "BENCHMARK_REPORT.md");
-  if (existsSync(benchmarkSrc)) {
-    copyFileSync(benchmarkSrc, benchmarkDest);
-  }
+  ensureDocsAvailable(extDir, repoRoot);
 
   run("npm", ["run", "compile"], { cwd: extDir });
   console.log("\x1b[32m✓\x1b[0m build complete");
