@@ -8,6 +8,18 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ## [Unreleased]
 
+## [0.4.0-rc6] — 2026-11-03
+
+### Adicionado
+
+- **Preservação da Ordem de Colunas na Tabela e Exportação CSV** — A grade de visualização de resultados, a exportação para CSV e o mapeamento de registros agora preservam com precisão a ordem declarada das propriedades em anonymous records e projeções explícitas (`select {| A = ...; B = ... |}`), eliminando a reordenação alfabética compulsória.
+- **Pushdown de Formatação de Texto e Datas (`.ToString`)** — Suporte a tradução nativa em SQL pushdown para `.ToString()` (`CAST` para texto) e `.ToString("formato")` com máscaras de data/hora (ex.: `"dd-MM-yyyy"`, `"yyyy-MM-dd HH:mm:ss"`), traduzidas para `strftime` no SQLite, `FORMAT` no SQL Server e `to_char` no PostgreSQL.
+- **Funções Escalares e Propriedades de Data Expandidas no Pushdown** — Suporte nativo a `String.Substring`, `String.Replace`, `Math.Abs`, `Math.Round` e propriedades de componentes de `DateTime`/`DateOnly` (`Year`, `Month`, `Day`, `Date`, `Hour`, `Minute`, `Second`).
+
+### Corrigido
+
+- **Desalinhamento de Valores de Colunas em Projeções Customizadas** — Corrigida anomalia onde expressões de projeção não traduzidas faziam o mapeador de registros recorrer ao índice posicional bruto das colunas da tabela de origem, causando inversão e desalinhamento entre o cabeçalho e os valores das células.
+
 ## [0.4.0-rc5] — 2026-11-02
 
 ### Adicionado

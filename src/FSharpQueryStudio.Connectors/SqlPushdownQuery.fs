@@ -1487,6 +1487,48 @@ module ExpressionPushdownTranslator =
                 Some $"'{dtStr}'"
             else
                 Some (Convert.ToString(c.Value, CultureInfo.InvariantCulture))
+        | :? MemberExpression as m when not (isNull m.Expression) && (m.Expression.Type = typeof<DateTime> || m.Expression.Type = typeof<DateOnly>) &&
+                                         (m.Member.Name = "Date" || m.Member.Name = "Year" || m.Member.Name = "Month" || m.Member.Name = "Day" || m.Member.Name = "Hour" || m.Member.Name = "Minute" || m.Member.Name = "Second") ->
+            match translateScalarExpr dialect plan m.Expression with
+            | Some o ->
+                match m.Member.Name with
+                | "Year" ->
+                    match dialect with
+                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%Y', {o}) AS INTEGER)"
+                    | SqlDialect.SqlServer -> Some $"YEAR({o})"
+                    | SqlDialect.PostgreSql -> Some $"EXTRACT(YEAR FROM {o})"
+                | "Month" ->
+                    match dialect with
+                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%m', {o}) AS INTEGER)"
+                    | SqlDialect.SqlServer -> Some $"MONTH({o})"
+                    | SqlDialect.PostgreSql -> Some $"EXTRACT(MONTH FROM {o})"
+                | "Day" ->
+                    match dialect with
+                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%d', {o}) AS INTEGER)"
+                    | SqlDialect.SqlServer -> Some $"DAY({o})"
+                    | SqlDialect.PostgreSql -> Some $"EXTRACT(DAY FROM {o})"
+                | "Date" ->
+                    match dialect with
+                    | SqlDialect.Sqlite -> Some $"date({o})"
+                    | SqlDialect.SqlServer -> Some $"CAST({o} AS DATE)"
+                    | SqlDialect.PostgreSql -> Some $"CAST({o} AS DATE)"
+                | "Hour" ->
+                    match dialect with
+                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%H', {o}) AS INTEGER)"
+                    | SqlDialect.SqlServer -> Some $"DATEPART(HOUR, {o})"
+                    | SqlDialect.PostgreSql -> Some $"EXTRACT(HOUR FROM {o})"
+                | "Minute" ->
+                    match dialect with
+                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%M', {o}) AS INTEGER)"
+                    | SqlDialect.SqlServer -> Some $"DATEPART(MINUTE, {o})"
+                    | SqlDialect.PostgreSql -> Some $"EXTRACT(MINUTE FROM {o})"
+                | "Second" ->
+                    match dialect with
+                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%S', {o}) AS INTEGER)"
+                    | SqlDialect.SqlServer -> Some $"DATEPART(SECOND, {o})"
+                    | SqlDialect.PostgreSql -> Some $"EXTRACT(SECOND FROM {o})"
+                | _ -> None
+            | None -> None
         | :? MemberExpression as m ->
             let aliasOpt, colName = resolveMemberRef plan m
             match aliasOpt with
@@ -1626,6 +1668,104 @@ module ExpressionPushdownTranslator =
                     | Some col -> Some $"AVG({col})"
                     | None -> None
                 else None
+            elif mc.Method.Name = "ToString" then
+                let objExpr =
+                    if not (isNull mc.Object) then
+                        translateScalarExpr dialect plan mc.Object
+                    elif mc.Arguments.Count > 0 then
+                        translateScalarExpr dialect plan mc.Arguments.[0]
+                    else None
+
+                match objExpr with
+                | Some o ->
+                    let formatArg =
+                        if not (isNull mc.Object) && mc.Arguments.Count > 0 then
+                            match unwrapQuote mc.Arguments.[0] with
+                            | :? ConstantExpression as ce when not (isNull ce.Value) -> Some (string ce.Value)
+                            | _ -> None
+                        elif isNull mc.Object && mc.Arguments.Count > 1 then
+                            match unwrapQuote mc.Arguments.[1] with
+                            | :? ConstantExpression as ce when not (isNull ce.Value) -> Some (string ce.Value)
+                            | _ -> None
+                        else None
+
+                    match formatArg with
+                    | Some fmt ->
+                        match dialect with
+                        | SqlDialect.Sqlite ->
+                            let sqliteFmt =
+                                fmt.Replace("yyyy", "%Y")
+                                   .Replace("YYYY", "%Y")
+                                   .Replace("yy", "%Y")
+                                   .Replace("MM", "%m")
+                                   .Replace("dd", "%d")
+                                   .Replace("DD", "%d")
+                                   .Replace("HH", "%H")
+                                   .Replace("hh", "%H")
+                                   .Replace("mm", "%M")
+                                   .Replace("ss", "%S")
+                                   .Replace("SS", "%S")
+                            if sqliteFmt.Contains("%") then
+                                Some $"strftime('{sqliteFmt}', {o})"
+                            else
+                                Some $"CAST({o} AS TEXT)"
+                        | SqlDialect.SqlServer ->
+                            Some $"FORMAT({o}, '{fmt}')"
+                        | SqlDialect.PostgreSql ->
+                            let pgFmt =
+                                fmt.Replace("yyyy", "YYYY")
+                                   .Replace("YYYY", "YYYY")
+                                   .Replace("yy", "YY")
+                                   .Replace("MM", "MM")
+                                   .Replace("dd", "DD")
+                                   .Replace("DD", "DD")
+                                   .Replace("HH", "HH24")
+                                   .Replace("hh", "HH12")
+                                   .Replace("mm", "MI")
+                                   .Replace("ss", "SS")
+                                   .Replace("SS", "SS")
+                            Some $"to_char({o}, '{pgFmt}')"
+                    | None ->
+                        match dialect with
+                        | SqlDialect.Sqlite -> Some $"CAST({o} AS TEXT)"
+                        | SqlDialect.SqlServer -> Some $"CAST({o} AS NVARCHAR(MAX))"
+                        | SqlDialect.PostgreSql -> Some $"CAST({o} AS TEXT)"
+                | None -> None
+            elif mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "Substring" then
+                match translateScalarExpr dialect plan mc.Object with
+                | Some o ->
+                    let startArg = if mc.Arguments.Count > 0 then translateScalarExpr dialect plan mc.Arguments.[0] else None
+                    let lenArg = if mc.Arguments.Count > 1 then translateScalarExpr dialect plan mc.Arguments.[1] else None
+                    match startArg, lenArg with
+                    | Some s, Some l ->
+                        match dialect with
+                        | SqlDialect.SqlServer -> Some $"SUBSTRING({o}, ({s}) + 1, {l})"
+                        | _ -> Some $"SUBSTR({o}, ({s}) + 1, {l})"
+                    | Some s, None ->
+                        match dialect with
+                        | SqlDialect.SqlServer -> Some $"SUBSTRING({o}, ({s}) + 1, LEN({o}))"
+                        | _ -> Some $"SUBSTR({o}, ({s}) + 1)"
+                    | _ -> None
+                | None -> None
+            elif mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "Replace" && mc.Arguments.Count = 2 then
+                match translateScalarExpr dialect plan mc.Object, translateScalarExpr dialect plan mc.Arguments.[0], translateScalarExpr dialect plan mc.Arguments.[1] with
+                | Some o, Some oldVal, Some newVal -> Some $"REPLACE({o}, {oldVal}, {newVal})"
+                | _ -> None
+            elif mc.Method.DeclaringType = typeof<Math> && mc.Method.Name = "Round" then
+                match mc.Arguments.Count with
+                | 1 ->
+                    match translateScalarExpr dialect plan mc.Arguments.[0] with
+                    | Some v -> Some $"ROUND({v})"
+                    | None -> None
+                | 2 ->
+                    match translateScalarExpr dialect plan mc.Arguments.[0], translateScalarExpr dialect plan mc.Arguments.[1] with
+                    | Some v, Some digits -> Some $"ROUND({v}, {digits})"
+                    | _ -> None
+                | _ -> None
+            elif mc.Method.DeclaringType = typeof<Math> && mc.Method.Name = "Abs" && mc.Arguments.Count = 1 then
+                match translateScalarExpr dialect plan mc.Arguments.[0] with
+                | Some v -> Some $"ABS({v})"
+                | None -> None
             else
                 None
         | _ -> None

@@ -510,6 +510,166 @@ let ``Connections.sql.buildPivotSql generates dynamic CASE WHEN aggregation SQL`
     Assert.Contains("FROM Sales", sql)
     Assert.Contains("GROUP BY Year", sql)
 
+[<CLIMutable>]
+type TestUserOrder = { order_id: int; customer_id: int; order_date: DateTime; status: string; currency: string }
+[<CLIMutable>]
+type TestUserOrderItem = { order_item_id: int; order_id: int; product_id: int; quantity: int; line_total: decimal }
+[<CLIMutable>]
+type TestUserCustomer = { customer_id: int; customer_name: string }
+[<CLIMutable>]
+type TestUserProduct = { product_id: int; product_name: string }
+[<CLIMutable>]
+type TestUserPayment = { payment_id: int; order_id: int; amount: decimal }
+[<CLIMutable>]
+type TestUserShipment = { shipment_id: int; order_id: int; carrier: string }
+[<CLIMutable>]
+type TestUserReturn = { return_id: int; order_item_id: int; reason: string }
+
+[<Fact>]
+let ``Reproduce user query column order and content matching`` () =
+    let dbPath = Path.Combine(Path.GetTempPath(), $"user_query_test_{Guid.NewGuid():N}.db")
+    try
+        use conn = new SqliteConnection($"Data Source={dbPath}")
+        conn.Open()
+        use cmd = conn.CreateCommand()
+        cmd.CommandText <-
+            "CREATE TABLE Orders (order_id INTEGER PRIMARY KEY, customer_id INTEGER, order_date TEXT, status TEXT, currency TEXT); \
+             CREATE TABLE OrderItems (order_item_id INTEGER PRIMARY KEY, order_id INTEGER, product_id INTEGER, quantity INTEGER, line_total NUMERIC); \
+             CREATE TABLE Customers (customer_id INTEGER PRIMARY KEY, customer_name TEXT); \
+             CREATE TABLE Products (product_id INTEGER PRIMARY KEY, product_name TEXT); \
+             CREATE TABLE Payments (payment_id INTEGER PRIMARY KEY, order_id INTEGER, amount NUMERIC); \
+             CREATE TABLE Shipments (shipment_id INTEGER PRIMARY KEY, order_id INTEGER, carrier TEXT); \
+             CREATE TABLE Returns (return_id INTEGER PRIMARY KEY, order_item_id INTEGER, reason TEXT); \
+             INSERT INTO Orders VALUES (1001, 1, '2026-03-01 10:00:00', 'Shipped', 'USD'); \
+             INSERT INTO OrderItems VALUES (501, 1001, 10, 2, 99.50); \
+             INSERT INTO Customers VALUES (1, 'Alice'); \
+             INSERT INTO Products VALUES (10, 'Wireless Mouse'); \
+             INSERT INTO Payments VALUES (201, 1001, 99.50); \
+             INSERT INTO Shipments VALUES (301, 1001, 'DHL'); \
+             INSERT INTO Returns VALUES (401, 501, 'Defective');"
+        cmd.ExecuteNonQuery() |> ignore
+
+        let connector = SqliteConnector(dbPath)
+        let orders = SqlPushdownQueryable<TestUserOrder>(connector, "Orders")
+        let orderItems = SqlPushdownQueryable<TestUserOrderItem>(connector, "OrderItems")
+        let customers = SqlPushdownQueryable<TestUserCustomer>(connector, "Customers")
+        let products = SqlPushdownQueryable<TestUserProduct>(connector, "Products")
+        let payments = SqlPushdownQueryable<TestUserPayment>(connector, "Payments")
+        let shipments = SqlPushdownQueryable<TestUserShipment>(connector, "Shipments")
+        let returnsTbl = SqlPushdownQueryable<TestUserReturn>(connector, "Returns")
+
+        let q =
+            query {
+                for order in orders do
+                join orderItem in orderItems on (order.order_id = orderItem.order_id)
+                join customer in customers on (order.customer_id = customer.customer_id)
+                join product in products on (orderItem.product_id = product.product_id)
+                join payment in payments on (order.order_id = payment.order_id)
+                leftOuterJoin shipmentGroup in shipments on (order.order_id = shipmentGroup.order_id) into shipmentGroup
+                leftOuterJoin returnItem in returnsTbl on (orderItem.order_item_id = returnItem.order_item_id) into returnGroup
+                for shipment in shipmentGroup.DefaultIfEmpty() do
+                for r in returnGroup.DefaultIfEmpty() do
+                select {|
+                    Order = order.order_id
+                    Date = order.order_date
+                    Status = order.status
+                    Ccy = order.currency
+                    Item = product.product_name
+                    Qtt = orderItem.quantity
+                    Total = orderItem.line_total
+                    Carrier = (if isNull (box shipment) then "N/A" else shipment.carrier)
+                    Returned = (if isNull (box r) then "N/A" else r.reason)
+                |}
+            }
+
+        let cellSource = """
+query {
+    for order in csv.Orders do
+    select {|
+        Order = order.order_id
+        Date = order.order_date
+        Status = order.status
+        Ccy = order.currency
+
+        Item = product.product_name
+
+        Qtt = orderItem.quantity
+        Total = orderItem.line_total
+
+        Carrier = (if isNull (box shipment) then "N/A" else shipment.carrier)
+        Returned = (if isNull (box returns) then "N/A" else returns.reason)
+    |}
+}
+"""
+        let pushdown = q :?> SqlPushdownQueryable<{| Carrier: string; Ccy: string; Date: DateTime; Item: string; Order: int; Qtt: int; Returned: string; Status: string; Total: decimal |}>
+        let rawSql = pushdown.ToRawSql()
+        Assert.Contains("SELECT", rawSql)
+        Assert.Contains("JOIN", rawSql)
+
+        let item = q |> Seq.head
+
+        Assert.Equal(1001, item.Order)
+        Assert.Equal("Shipped", item.Status)
+        Assert.Equal("USD", item.Ccy)
+        Assert.Equal("Wireless Mouse", item.Item)
+        Assert.Equal(2, item.Qtt)
+        Assert.Equal(99.50M, item.Total)
+        Assert.Equal("DHL", item.Carrier)
+        Assert.Equal("Defective", item.Returned)
+
+        let env, _, _ = FSharpQueryStudio.Results.Projection.projectWithCursorDetailed (box q) 0L (Some cellSource) None
+        let colNames = env.Schema |> List.map (fun c -> c.Name)
+        let firstRow = env.Rows.[0]
+
+        let expectedCols = [ "Order"; "Date"; "Status"; "Ccy"; "Item"; "Qtt"; "Total"; "Carrier"; "Returned" ]
+        Assert.Equal<string list>(expectedCols, colNames)
+        Assert.Equal(box 1001, firstRow.[0])
+        Assert.Equal(box "Shipped", firstRow.[2])
+        Assert.Equal(box "USD", firstRow.[3])
+        Assert.Equal(box "Wireless Mouse", firstRow.[4])
+        Assert.Equal(box 2, firstRow.[5])
+        Assert.Equal(box 99.50M, firstRow.[6])
+        Assert.Equal(box "DHL", firstRow.[7])
+        Assert.Equal(box "Defective", firstRow.[8])
+    finally
+        try File.Delete(dbPath) with _ -> ()
+
+[<Fact>]
+let ``SqlPushdownQueryable translates ToString and Date properties in Select`` () =
+    use db = new TempSqliteDb()
+    use conn = new SqliteConnection($"Data Source={db.Path}")
+    conn.Open()
+    use cmd = conn.CreateCommand()
+    cmd.CommandText <-
+        "CREATE TABLE TestEvents (Id INTEGER PRIMARY KEY, EventDate TEXT, Price NUMERIC); \
+         INSERT INTO TestEvents VALUES (1, '2026-04-18 22:37:25', 14.29);"
+    cmd.ExecuteNonQuery() |> ignore
+
+    let connector = SqliteConnector(db.Path)
+    let events = SqlPushdownQueryable<{| Id: int; EventDate: DateTime; Price: decimal |}>(connector, "TestEvents")
+
+    let q =
+        query {
+            for e in events do
+            select {|
+                Id = e.Id
+                FormattedDate = e.EventDate.ToString "dd-MM-yyyy"
+                Year = e.EventDate.Year
+                PriceStr = e.Price.ToString()
+            |}
+        }
+
+    let item = q |> Seq.head
+    Assert.Equal(1, item.Id)
+    Assert.Equal("18-04-2026", item.FormattedDate)
+    Assert.Equal(2026, item.Year)
+    Assert.Equal("14.29", item.PriceStr)
+
+    let sql = SqlPushdownQuery.extractRawSql (box q)
+    Assert.Contains("strftime('%d-%m-%Y'", sql)
+    Assert.Contains("CAST(strftime('%Y'", sql)
+
+
 
 
 

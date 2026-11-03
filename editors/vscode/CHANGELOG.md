@@ -8,6 +8,18 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.4.0-rc6] — 2026-11-03
+
+### Added
+
+- **Column Order Preservation in Table View and CSV Export** — Results grid view, CSV export, and record renderers now strictly preserve the declared property order of anonymous records and explicit projections (`select {| A = ...; B = ... |}`) instead of sorting columns alphabetically.
+- **Pushdown String and Date Formatting (`.ToString`)** — Added SQL pushdown translation for `.ToString()` (`CAST` as text) and `.ToString("format")` with date/time formatting patterns (e.g. `"dd-MM-yyyy"`, `"yyyy-MM-dd HH:mm:ss"`), natively mapped to SQLite `strftime`, SQL Server `FORMAT`, and PostgreSQL `to_char`.
+- **Expanded Pushdown Scalar Functions & DateTime Properties** — Added native pushdown translation for `String.Substring`, `String.Replace`, `Math.Abs`, `Math.Round`, and `DateTime`/`DateOnly` component properties (`Year`, `Month`, `Day`, `Date`, `Hour`, `Minute`, `Second`).
+
+### Fixed
+
+- **Column Value Misalignment on Custom Projections** — Fixed an issue where untranslated projection expressions caused pushdown queries to fall back to positional column index mapping, resulting in table headers and row cell contents being mismatched.
+
 ## [0.4.0-rc5] — 2026-11-02
 
 ### Added
