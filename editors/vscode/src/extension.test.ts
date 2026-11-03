@@ -203,6 +203,7 @@ describe("F5 activation wiring", () => {
   function makeFakeContext() {
     return {
       extensionPath: ".",
+      extensionUri: vscodeStub.Uri.file("."),
       subscriptions: [] as Array<{ dispose: () => void }>,
       secrets: {
         get: async () => undefined,
@@ -258,5 +259,31 @@ describe("F5 activation wiring", () => {
     // Verify subscriptions include file watcher, commands, and disposables
     expect(context.subscriptions.length).toBeGreaterThan(15);
     await deactivate();
+  });
+
+  it("openDocs resolves documentation in docs folder", async () => {
+    const context = makeFakeContext();
+    await activate(context as never);
+    const openDocsHandler = vscodeStub.commands._handlers.get("fs-query-studio.openDocs");
+    expect(openDocsHandler).toBeDefined();
+
+    let executedCommand = "";
+    let executedUri: any = null;
+    const originalExecute = vscodeStub.commands.executeCommand;
+    vscodeStub.commands.executeCommand = async (cmd: string, ...args: any[]) => {
+      executedCommand = cmd;
+      executedUri = args[0];
+      return undefined;
+    };
+
+    try {
+      await openDocsHandler!();
+      expect(executedCommand).toBe("markdown.showPreview");
+      expect(executedUri).toBeDefined();
+      expect(executedUri.fsPath).toMatch(/docs\/USER_GUIDE/);
+    } finally {
+      vscodeStub.commands.executeCommand = originalExecute;
+      await deactivate();
+    }
   });
 });

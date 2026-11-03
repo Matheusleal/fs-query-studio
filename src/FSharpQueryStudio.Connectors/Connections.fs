@@ -15,10 +15,7 @@ open System.Linq
 open System.Linq.Expressions
 open Microsoft.FSharp.Reflection
 
-/// Resolves a named, already-configured connection to its live
-/// connector instance — Section 13's workspace connection registry,
-/// abstracted so `Connections` (and its tests) don't depend on how that
-/// registry is actually built (`workspace.json` plus the secret store).
+/// Resolves a named, configured connection to its live connector instance.
 type IConnectionResolver =
     abstract Resolve: name: string -> IConnector
 
@@ -26,24 +23,8 @@ type IConnectionResolver =
 type IWorkspaceAwareResolver =
     abstract BaseDirectory: string option
 
-/// The controlled surface `.fsx` scripts use to reach configured
-/// connections by name — Section 10:
-///
-///     let rows = Connections.sql "Sales" "select * from Orders where CreatedAt >= @from" [ "from", box startDate ]
-///
-/// Every function here reaches its connector's own bound-parameter API;
-/// none of them ever build a command by concatenating a caller-supplied
-/// value into command text. That is what structurally rules out
-/// injection through this surface, regardless of what a script passes
-/// as a parameter value — a script that wants string-built SQL would
-/// have to bypass `Connections` entirely and drive a connector's own
-/// ADO.NET types directly, which the controlled API surface doesn't
-/// expose.
-///
-/// `configure` is called once by the worker before running a script
-/// (Section 9: one evaluation in flight per worker), the same
-/// single-writer assumption `Handlers.evaluationInFlight` already relies
-/// on elsewhere.
+/// Controlled surface used by .fsx scripts to reach configured connections by name.
+/// All queries use bound parameters to prevent SQL injection.
 module Connections =
     let mutable private resolver: IConnectionResolver option = None
     let mutable private engine: FileSqliteEngine option = None
@@ -87,84 +68,17 @@ module Connections =
 
     let private mapperCache = ConcurrentDictionary<Type * string, obj array -> obj>()
 
-    let private isSentinelString (s: string) : bool =
-        if String.IsNullOrWhiteSpace s then
-            true
-        else
-            let t = s.Trim().Trim('"', '\'')
-            String.IsNullOrEmpty t
-            || String.Equals(t, "n/a", StringComparison.OrdinalIgnoreCase)
-            || String.Equals(t, "na", StringComparison.OrdinalIgnoreCase)
-            || t = "-"
-            || t = "--"
-            || t = "?"
-            || String.Equals(t, "null", StringComparison.OrdinalIgnoreCase)
-            || String.Equals(t, "none", StringComparison.OrdinalIgnoreCase)
-            || String.Equals(t, "nil", StringComparison.OrdinalIgnoreCase)
-            || String.Equals(t, "undefined", StringComparison.OrdinalIgnoreCase)
-            || String.Equals(t, "nan", StringComparison.OrdinalIgnoreCase)
-            || String.Equals(t, "infinity", StringComparison.OrdinalIgnoreCase)
-            || String.Equals(t, "-infinity", StringComparison.OrdinalIgnoreCase)
-            || String.Equals(t, "tbd", StringComparison.OrdinalIgnoreCase)
-            || t.StartsWith("#", StringComparison.Ordinal)
+    let private isSentinelString (s: string) : bool = RecordReaders.IsSentinelString s
 
     let private tryParseNormalizedDecimal (clean: string) : decimal option =
-        if clean.Contains(",") && not (clean.Contains(".")) then
-            let normalized = clean.Replace(",", ".")
-            match Decimal.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-            | true, v -> Some v
-            | false, _ -> None
-        elif clean.Contains(".") && not (clean.Contains(",")) then
-            match Decimal.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-            | true, v -> Some v
-            | false, _ -> None
-        elif clean.Contains(",") && clean.Contains(".") then
-            let lastComma = clean.LastIndexOf(',')
-            let lastDot = clean.LastIndexOf('.')
-            let normalized =
-                if lastDot > lastComma then clean.Replace(",", "")
-                else clean.Replace(".", "").Replace(",", ".")
-            match Decimal.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-            | true, v -> Some v
-            | false, _ -> None
-        else
-            match Decimal.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-            | true, v -> Some v
-            | false, _ ->
-                match Decimal.TryParse(clean, NumberStyles.Number, CultureInfo.CurrentCulture) with
-                | true, v -> Some v
-                | false, _ -> None
+        match RecordReaders.TryParseNormalizedDecimal clean with
+        | true, v -> Some v
+        | false, _ -> None
 
     let private tryParseNormalizedDouble (clean: string) : double option =
-        let parsed =
-            if clean.Contains(",") && not (clean.Contains(".")) then
-                let normalized = clean.Replace(",", ".")
-                match Double.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                | true, v -> Some v
-                | false, _ -> None
-            elif clean.Contains(".") && not (clean.Contains(",")) then
-                match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                | true, v -> Some v
-                | false, _ -> None
-            elif clean.Contains(",") && clean.Contains(".") then
-                let lastComma = clean.LastIndexOf(',')
-                let lastDot = clean.LastIndexOf('.')
-                let normalized =
-                    if lastDot > lastComma then clean.Replace(",", "")
-                    else clean.Replace(".", "").Replace(",", ".")
-                match Double.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                | true, v -> Some v
-                | false, _ -> None
-            else
-                match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                | true, v -> Some v
-                | false, _ ->
-                    match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands, CultureInfo.CurrentCulture) with
-                    | true, v -> Some v
-                    | false, _ -> None
-        match parsed with
-        | Some v when Double.IsFinite v -> Some v
-        | _ -> None
+        match RecordReaders.TryParseNormalizedDouble clean with
+        | true, v -> Some v
+        | false, _ -> None
 
     let private convertValue (raw: obj) (targetType: Type) : obj =
         if isNull raw || Convert.IsDBNull(raw) then
@@ -437,10 +351,7 @@ module Connections =
             )
         fun (row: obj array) -> unbox<'T> (rawMapper row)
 
-    /// Wraps `rows` so the row count and elapsed time (Section 15's
-    /// connector-call logging: kind, elapsed time, row count — never
-    /// parameter values) are logged once the caller finishes enumerating
-    /// them, not eagerly on the call itself.
+    /// Wraps rows to log row count and elapsed duration once enumeration finishes.
     let private logOnceDrained (kind: ConnectorKind) (stopwatch: Stopwatch) (rows: obj array seq) : obj array seq =
         seq {
             let mutable rowCount = 0

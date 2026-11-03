@@ -127,12 +127,12 @@ type FsacProcess(fsautocompleteDllPath: string) =
 
                     let proc, client = spawn ()
                     let handshakeTask = initializeHandshake client
-                    let! winner = Task.WhenAny(handshakeTask, Task.Delay(TimeSpan.FromSeconds 15.0))
+                    let! winner = Task.WhenAny(handshakeTask, Task.Delay(TimeSpan.FromSeconds 30.0))
 
                     if winner <> handshakeTask then
                         killProc proc
                         current <- None
-                        return failwith "fsautocomplete did not complete the initialize handshake within 15s"
+                        return failwith "fsautocomplete did not complete the initialize handshake within 30s"
                     else
                         try
                             do! handshakeTask

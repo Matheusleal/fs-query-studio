@@ -66,7 +66,9 @@ export function preflight(opts = {}) {
     );
   }
 
-  const changelogPath = join(extDir, "CHANGELOG.md");
+  const changelogPath = existsSync(join(extDir, "docs", "CHANGELOG.md"))
+    ? join(extDir, "docs", "CHANGELOG.md")
+    : join(extDir, "CHANGELOG.md");
   if (!existsSync(changelogPath)) {
     blockers.push("CHANGELOG.md missing");
   } else {

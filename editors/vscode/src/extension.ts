@@ -781,8 +781,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
       const primaryDoc = isPt ? "USER_GUIDE_PT.md" : "USER_GUIDE.md";
       const secondaryDoc = isPt ? "USER_GUIDE.md" : "USER_GUIDE_PT.md";
       const candidates = [
+        vscode.Uri.joinPath(context.extensionUri, "docs", primaryDoc),
         vscode.Uri.joinPath(context.extensionUri, primaryDoc),
+        vscode.Uri.joinPath(context.extensionUri, "docs", secondaryDoc),
         vscode.Uri.joinPath(context.extensionUri, secondaryDoc),
+        vscode.Uri.joinPath(context.extensionUri, "docs", "README.md"),
         vscode.Uri.joinPath(context.extensionUri, "README.md"),
         vscode.Uri.joinPath(context.extensionUri, "readme.md"),
       ];

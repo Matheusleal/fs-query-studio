@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 // @ts-ignore
 import { assertVsixContents, forbiddenVsixRules } from "../scripts/lib.mjs";
 // @ts-ignore
+import { ensureDocsAvailable } from "../scripts/build.mjs";
+// @ts-ignore
 import { scanSensitiveFiles } from "../scripts/doctor.mjs";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -143,6 +145,51 @@ describe("Packaging Security Safeguards", () => {
         expect(found).not.toContain("clean.txt");
       } finally {
         fs.rmSync(tmpDir, { recursive: true, force: true });
+      }
+    });
+  });
+
+  describe("Documentation Availability Pipeline (ensureDocsAvailable)", () => {
+    it("copies and rewrites links in README.md and CHANGELOG.md, and syncs benchmarks", () => {
+      const tmpRepo = fs.mkdtempSync(path.join(os.tmpdir(), "fsqs-doc-test-"));
+      try {
+        const repoDocs = path.join(tmpRepo, "docs");
+        const extDir = path.join(tmpRepo, "editors", "vscode");
+        const extDocs = path.join(extDir, "docs");
+
+        fs.mkdirSync(repoDocs, { recursive: true });
+        fs.mkdirSync(extDocs, { recursive: true });
+
+        fs.writeFileSync(path.join(repoDocs, "BENCHMARK_REPORT.md"), "# Repo Benchmarks");
+        fs.writeFileSync(path.join(repoDocs, "BENCHMARK_REPORT_PT.md"), "# Benchmarks PT");
+
+        fs.writeFileSync(
+          path.join(extDocs, "README.md"),
+          "# Ext README\n\n[Guide](USER_GUIDE.md) | [PT](USER_GUIDE_PT.md) | [Bench](BENCHMARK_REPORT.md) | [Doc PT](README_PT.md)",
+        );
+        fs.writeFileSync(
+          path.join(extDocs, "CHANGELOG.md"),
+          "# Ext Changelog\n\n[PT](CHANGELOG_PT.md)",
+        );
+
+        ensureDocsAvailable(extDir, tmpRepo);
+
+        // Check benchmarks synced to extDocs
+        expect(fs.readFileSync(path.join(extDocs, "BENCHMARK_REPORT.md"), "utf8")).toBe("# Repo Benchmarks");
+        expect(fs.readFileSync(path.join(extDocs, "BENCHMARK_REPORT_PT.md"), "utf8")).toBe("# Benchmarks PT");
+
+        // Check root README generated with rewritten links
+        const rootReadme = fs.readFileSync(path.join(extDir, "README.md"), "utf8");
+        expect(rootReadme).toContain("[Guide](docs/USER_GUIDE.md)");
+        expect(rootReadme).toContain("[PT](docs/USER_GUIDE_PT.md)");
+        expect(rootReadme).toContain("[Bench](docs/BENCHMARK_REPORT.md)");
+        expect(rootReadme).toContain("[Doc PT](docs/README_PT.md)");
+
+        // Check root CHANGELOG generated with rewritten links
+        const rootChangelog = fs.readFileSync(path.join(extDir, "CHANGELOG.md"), "utf8");
+        expect(rootChangelog).toContain("[PT](docs/CHANGELOG_PT.md)");
+      } finally {
+        fs.rmSync(tmpRepo, { recursive: true, force: true });
       }
     });
   });
