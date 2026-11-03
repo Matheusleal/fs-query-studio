@@ -8,6 +8,24 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-03
+
+### Added
+
+- **Modular Connector Architecture** — Complete decoupling of data connectors into specialized pluggable projects (`FSharpQueryStudio.Connectors.Abstractions`, `Csv`, `Excel`, `Sqlite`, `PostgreSql`, `SqlServer`, `Rest`). Schema-driven UI forms dynamically render connection wizards based on runtime connector capabilities.
+- **Universal SQL Pushdown Engine** — High-performance native SQL translation for LINQ queries covering `where`, `select`, `sortBy`/`thenBy`, `take`/`skip`, `join`, `groupBy`, aggregations (`count`, `sum`, `avg`, `min`, `max`), scalar functions (`Substring`, `Replace`, `Math`, `DateTime`), `.ToString()` with custom date formatting, subqueries, and pivot.
+- **Persistent SQLite File Staging Engine** — Pre-stages CSV and Excel (`.xlsx`) datasets into `.fsqs/cache/engine.db` with composite B-tree indexes, enabling zero-latency multi-source joins across 3+ sources without memory pressure.
+- **Watchers and Background Worker Lifecycle Control** — Dedicated Pause/Resume controls in the Connections toolbar and Status Bar to instantly release 100% background RAM and CPU; on-demand watcher initialization for `data_sources/`.
+- **Real-Time Data Sources Auto-Discovery & File Watcher** — Automatic detection and instant synchronization of data files added to `data_sources/`.
+- **End-to-End Bilingual Sample Notebooks** — Pre-configured rich interactive sample notebooks (`sample_demo.fsqnb` and `sample_demo_pt.fsqnb`) demonstrating SQLite, CSV, Excel, and HTTPS REST data sources.
+- **Column Order Preservation** — Declared property order in anonymous records and explicit projections is strictly preserved in table results and CSV exports.
+
+### Fixed
+
+- **Memory Spikes and Timeouts on Multi-File Joins** — Eliminated in-memory nested loops by delegating multi-file joins to SQLite pushdown.
+- **Projection Value Misalignment** — Fixed positional column indexing fallbacks on custom pushdown expressions.
+- **Cross-Platform Compatibility** — Resolved cross-platform file URI resolution for Linux and macOS.
+
 ## [0.4.0-rc6] — 2026-11-03
 
 ### Added
