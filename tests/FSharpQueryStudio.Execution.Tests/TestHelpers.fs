@@ -31,7 +31,4 @@ let cleanupWorkingDirectory (dir: string) =
             Directory.Delete(dir, true)
     with _ ->
         ()
-    GC.Collect()
-    GC.WaitForPendingFinalizers()
-    GC.Collect()
 

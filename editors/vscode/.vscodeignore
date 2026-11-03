@@ -76,10 +76,11 @@ node_modules/**
 *.vsix
 **/*.vsix
 
-# 8. Extra Internal Documentation & Reports (VSIX only needs README, CHANGELOG, LICENSE)
-BENCHMARK_REPORT.md
-USER_GUIDE.md
-USER_GUIDE_PT.md
+# 8. Root Extra Documentation & Temporary Copies (source docs live in docs/)
+BENCHMARK_REPORT*.md
+USER_GUIDE*.md
+README_PT.md
+CHANGELOG_PT.md
 
 # 9. Version Control, IDE, Agent & System Metadata
 .git/**
