@@ -118,11 +118,42 @@ let publishWorker () =
 
 let compileVscode () =
     printHeader "3. COMPILING VS CODE EXTENSION"
+    let vscodeDocsDir = Path.Combine(vscodeDir, "docs")
+    if not (Directory.Exists(vscodeDocsDir)) then
+        Directory.CreateDirectory(vscodeDocsDir) |> ignore
+
     let benchmarkSrc = Path.Combine(rootDir, "docs", "BENCHMARK_REPORT.md")
-    let benchmarkDest = Path.Combine(vscodeDir, "BENCHMARK_REPORT.md")
+    let benchmarkDest = Path.Combine(vscodeDocsDir, "BENCHMARK_REPORT.md")
     if File.Exists(benchmarkSrc) then
         File.Copy(benchmarkSrc, benchmarkDest, true)
-        printInfo "Copied docs/BENCHMARK_REPORT.md to editors/vscode/BENCHMARK_REPORT.md"
+        printInfo "Copied docs/BENCHMARK_REPORT.md to editors/vscode/docs/BENCHMARK_REPORT.md"
+
+    let benchmarkPtSrc = Path.Combine(rootDir, "docs", "BENCHMARK_REPORT_PT.md")
+    let benchmarkPtDest = Path.Combine(vscodeDocsDir, "BENCHMARK_REPORT_PT.md")
+    if File.Exists(benchmarkPtSrc) then
+        File.Copy(benchmarkPtSrc, benchmarkPtDest, true)
+        printInfo "Copied docs/BENCHMARK_REPORT_PT.md to editors/vscode/docs/BENCHMARK_REPORT_PT.md"
+
+    let docsReadme = Path.Combine(vscodeDocsDir, "README.md")
+    let rootReadme = Path.Combine(vscodeDir, "README.md")
+    if File.Exists(docsReadme) then
+        let content =
+            File.ReadAllText(docsReadme)
+                .Replace("(USER_GUIDE.md", "(docs/USER_GUIDE.md")
+                .Replace("(USER_GUIDE_PT.md", "(docs/USER_GUIDE_PT.md")
+                .Replace("(BENCHMARK_REPORT.md", "(docs/BENCHMARK_REPORT.md")
+                .Replace("(BENCHMARK_REPORT_PT.md", "(docs/BENCHMARK_REPORT_PT.md")
+                .Replace("(README_PT.md", "(docs/README_PT.md")
+        File.WriteAllText(rootReadme, content)
+
+    let docsChangelog = Path.Combine(vscodeDocsDir, "CHANGELOG.md")
+    let rootChangelog = Path.Combine(vscodeDir, "CHANGELOG.md")
+    if File.Exists(docsChangelog) then
+        let content =
+            File.ReadAllText(docsChangelog)
+                .Replace("(CHANGELOG_PT.md", "(docs/CHANGELOG_PT.md")
+        File.WriteAllText(rootChangelog, content)
+
     runProcess vscodeDir "npm" "run compile"
     printSuccess "VS Code extension compiled successfully."
 

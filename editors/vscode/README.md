@@ -1,6 +1,6 @@
 # F# Query Studio
 
-[🇺🇸 English](README.md) | [🇧🇷 Português](README_PT.md) | [📖 User Guide (EN)](USER_GUIDE.md) | [📖 Guia do Usuário (PT)](USER_GUIDE_PT.md) | [📊 Benchmark Report](BENCHMARK_REPORT.md)
+[🇺🇸 English](README.md) | [🇧🇷 Português](docs/README_PT.md) | [📖 User Guide (EN)](docs/USER_GUIDE.md) | [📖 Guia do Usuário (PT)](docs/USER_GUIDE_PT.md) | [📊 Benchmark Report](docs/BENCHMARK_REPORT.md)
 
 Write, analyze, and run F# query scripts against SQL databases, local files, and
 REST APIs — as VS Code notebooks.
@@ -112,7 +112,7 @@ Excel sheets and CSV files frequently contain messy data formats: localized comm
   - `trim`: Strips whitespace.
   - `multiply(factor)` / `divide(divisor)`: Multiplies or divides values by numeric factors (e.g. `divide(100)` for percentages).
 
-See the [User Guide (Custom Column Types & Formula Transformations)](USER_GUIDE.md#custom-column-types--formula-transformations-excel--csv) for in-depth examples and real-world scenarios.
+See the [User Guide (Custom Column Types & Formula Transformations)](docs/USER_GUIDE.md#custom-column-types--formula-transformations-excel--csv) for in-depth examples and real-world scenarios.
 
 ### Auto-Discovery via `data_sources/` Directory
 
@@ -206,7 +206,7 @@ RPC to the worker, and never lands in the workspace file or the notebook.
 | **F# Query Studio: Upgrade Project Schema** | Migrates legacy workspace configurations to the latest v2 schema. |
 | **F# Query Studio: Show Output Logs** | Opens the extension's output channel showing worker and RPC logs. |
 
-For detailed examples and tutorials, see [`USER_GUIDE.md`](USER_GUIDE.md) ([Guia do Usuário em Português](USER_GUIDE_PT.md)).
+For detailed examples and tutorials, see [`USER_GUIDE.md`](docs/USER_GUIDE.md) ([Guia do Usuário em Português](docs/USER_GUIDE_PT.md)).
 
 ## Limitations
 

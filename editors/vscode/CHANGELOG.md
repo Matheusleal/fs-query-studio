@@ -4,7 +4,7 @@ All notable changes to the **F# Query Studio** VS Code extension. The format
 follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 `package.json` `version` and map to `vscode-v<version>` git tags.
 
-[🇺🇸 English](CHANGELOG.md) | [🇧🇷 Versão em Português](CHANGELOG_PT.md)
+[🇺🇸 English](CHANGELOG.md) | [🇧🇷 Versão em Português](docs/CHANGELOG_PT.md)
 
 ## [Unreleased]
 

@@ -292,5 +292,5 @@ Conforme você digita nas células, você recebe assistência completa:
 ## Próximos Passos
 
 - [`../README_PT.md`](../README_PT.md) — Visão geral da arquitetura do repositório.
-- [`../editors/vscode/USER_GUIDE_PT.md`](../editors/vscode/USER_GUIDE_PT.md) — Guia aprofundado do usuário.
+- [`../editors/vscode/docs/USER_GUIDE_PT.md`](../editors/vscode/docs/USER_GUIDE_PT.md) — Guia aprofundado do usuário.
 - [`BENCHMARK_REPORT_PT.md`](BENCHMARK_REPORT_PT.md) — Relatório detalhado de benchmarks e métricas de execução.

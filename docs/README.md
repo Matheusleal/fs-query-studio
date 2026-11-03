@@ -9,17 +9,17 @@ ship* the project and what exists as a *historical record*.
 |---|---|
 | [`../README.md`](../README.md) | Project overview, requirements, install, repo layout (English). Start here. |
 | [`../README_PT.md`](../README_PT.md) | Visão geral do projeto, requisitos, instalação e arquitetura (Português). |
-| [`../editors/vscode/USER_GUIDE.md`](../editors/vscode/USER_GUIDE.md) | Comprehensive User Guide covering LINQ, all connectors, UI and commands (English). |
-| [`../editors/vscode/USER_GUIDE_PT.md`](../editors/vscode/USER_GUIDE_PT.md) | Guia do Usuário Completo em Português cobrindo LINQ, todos os conectores e interface. |
+| [`../editors/vscode/docs/USER_GUIDE.md`](../editors/vscode/docs/USER_GUIDE.md) | Comprehensive User Guide covering LINQ, all connectors, UI and commands (English). |
+| [`../editors/vscode/docs/USER_GUIDE_PT.md`](../editors/vscode/docs/USER_GUIDE_PT.md) | Guia do Usuário Completo em Português cobrindo LINQ, todos os conectores e interface. |
 | [`BENCHMARK_REPORT.md`](BENCHMARK_REPORT.md) | Comprehensive performance benchmarks (CPU, memory, latency) and UI test coverage (English). |
 | [`BENCHMARK_REPORT_PT.md`](BENCHMARK_REPORT_PT.md) | Relatório abrangente de desempenho, consumo de recursos e cobertura de testes (Português). |
-| [`../editors/vscode/README.md`](../editors/vscode/README.md) | Full feature and API reference for the extension (also the Marketplace description). |
-| [`../editors/vscode/README_PT.md`](../editors/vscode/README_PT.md) | Referência completa de recursos e API da extensão para o VS Code (Português). |
+| [`../editors/vscode/docs/README.md`](../editors/vscode/docs/README.md) | Full feature and API reference for the extension (also the Marketplace description). |
+| [`../editors/vscode/docs/README_PT.md`](../editors/vscode/docs/README_PT.md) | Referência completa de recursos e API da extensão para o VS Code (Português). |
 | [`TUTORIAL.md`](TUTORIAL.md) | Hands-on walkthrough: first notebook → connection → pushdown query → CSV export (English). |
 | [`TUTORIAL_PT.md`](TUTORIAL_PT.md) | Tutorial prático passo a passo: primeiro notebook → conexões → consultas pushdown → exportação CSV (Português). |
 | [`vscode-extension-release.md`](vscode-extension-release.md) | The manual runbook for packaging and publishing a release. |
 | [`../editors/vscode/scripts/README.md`](../editors/vscode/scripts/README.md) | Reference for the `build` / `package` / `publish` / `doctor` npm scripts. |
-| [`../editors/vscode/CHANGELOG.md`](../editors/vscode/CHANGELOG.md) | Per-version list of user-visible changes. |
+| [`../editors/vscode/docs/CHANGELOG.md`](../editors/vscode/docs/CHANGELOG.md) | Per-version list of user-visible changes. |
 
 ## Historical — record, not documentation
 
