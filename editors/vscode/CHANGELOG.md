@@ -4,7 +4,92 @@ All notable changes to the **F# Query Studio** VS Code extension. The format
 follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 `package.json` `version` and map to `vscode-v<version>` git tags.
 
+[🇺🇸 English](CHANGELOG.md) | [🇧🇷 Versão em Português](CHANGELOG_PT.md)
+
 ## [Unreleased]
+
+## [0.4.0-rc6] — 2026-11-03
+
+### Added
+
+- **Column Order Preservation in Table View and CSV Export** — Results grid view, CSV export, and record renderers now strictly preserve the declared property order of anonymous records and explicit projections (`select {| A = ...; B = ... |}`) instead of sorting columns alphabetically.
+- **Pushdown String and Date Formatting (`.ToString`)** — Added SQL pushdown translation for `.ToString()` (`CAST` as text) and `.ToString("format")` with date/time formatting patterns (e.g. `"dd-MM-yyyy"`, `"yyyy-MM-dd HH:mm:ss"`), natively mapped to SQLite `strftime`, SQL Server `FORMAT`, and PostgreSQL `to_char`.
+- **Expanded Pushdown Scalar Functions & DateTime Properties** — Added native pushdown translation for `String.Substring`, `String.Replace`, `Math.Abs`, `Math.Round`, and `DateTime`/`DateOnly` component properties (`Year`, `Month`, `Day`, `Date`, `Hour`, `Minute`, `Second`).
+
+### Fixed
+
+- **Column Value Misalignment on Custom Projections** — Fixed an issue where untranslated projection expressions caused pushdown queries to fall back to positional column index mapping, resulting in table headers and row cell contents being mismatched.
+
+## [0.4.0-rc5] — 2026-11-02
+
+### Added
+
+- **Multi-Table Relational Pushdown Joins (3+ Sources)** — Full native SQLite pushdown join resolution and table alias mapping across 3 or more tabular sources (CSVs + Excel worksheets). Resolves complex LINQ multi-join tuple trees (`_t0`, `_t1`, `_t2`, etc.) natively, eliminating slow in-memory nested loops and query timeouts.
+- **Watchers & Workers Pause/Resume Control** — Added dedicated Pause (`$(debug-pause)`) and Play/Resume (`$(play)`) buttons in the Connections view toolbar and status bar item, with commands `fs-query-studio.pauseWatchersAndWorkers`, `fs-query-studio.resumeWatchersAndWorkers`, and `fs-query-studio.togglePauseResume`. Pausing disposes the background F# worker process and stops file watchers, immediately releasing 100% of background memory and CPU until resumed or on-demand query execution.
+- **On-Demand `data_sources/` Watcher Initialization** — Real-time automatic file watching on the `data_sources/` folder is now initialized strictly when the user selects the Auto-Import option from the Connections menu, Welcome view, or Command Palette. Opening a project in VS Code no longer spawns background workers or consumes CPU/RAM when the extension is not in active use.
+- **Comprehensive Custom Column Mapping & Formula Documentation** — Added extensive bilingual guides and real-world examples for `columnTypes` overrides and `columnTransforms` formulas across USER_GUIDE, TUTORIAL, and READMEs.
+
+### Fixed
+
+- **Redundant Entity Mapping on Cell Evaluation** — Fixed `needsSynchronousGeneration` falsely flagging SQLite connection modules as incomplete, which caused ClosedXML to re-parse Excel files and emit background mapping notifications on every query run.
+- **Explicit Error Cause Unwrapping in Results** — Exception projections now unwrap `TargetInvocationException` and `AggregateException` to clearly display the underlying root causes (e.g., SQLite syntax errors, missing columns) instead of generic invocation messages.
+
+## [0.4.0-rc4] — 2026-11-02
+
+### Added
+
+- **Accurate Tabular Type Inference in Tree View & Entities** — Excel (`.xlsx`) and CSV schemas now automatically infer concrete .NET/F# types (`int`, `decimal`, `double`, `bool`, `DateTime`) by sampling worksheet rows instead of flattening all columns to `string`.
+- **Explicit Column Types Override (`columnTypes`)** — Users can explicitly declare target column types via connection configuration or wizard (e.g. `UnitPrice=decimal, Quantity=int, Active=bool` or JSON object), strictly honored across schema discovery, generated entity types, and SQLite staging.
+- **Formulas & Column Transformations (`columnTransforms`)** — Added formula evaluation supporting `replace('from', 'to')`, chained replacements (e.g. `replace('.', '').replace(',', '.')` for localized currencies), `trim`, `multiply(factor)`, and `divide(divisor)` to sanitize raw data before typing.
+- **Full Excel Staging & Pushdown Parity with CSV** — Excel workbooks (`.xlsx`, `.xls`) now follow the exact same eager asynchronous mapping and staging behavior as CSV: all worksheets (`<Conn>_<Sheet>` and `<Conn>`) are pre-staged and indexed into `.fsqs/cache/engine.db` upon discovery or synchronization. Accessing `Connections.excel.<Conn>.<Sheet>`, `<Conn>.<Sheet>.rows()`, or `<Conn>.rows()` now executes with 0ms delay against the persistent SQLite cache with full SQL pushdown and composite B-tree indexing, eliminating the RAM spikes and first-access latency of runtime ClosedXML parsing.
+- **Real-Time `data_sources/` File System Watcher** — Active file system watcher (`vscode.workspace.createFileSystemWatcher("**/data_sources/**")`) that detects when files are created, moved, modified, or deleted inside `data_sources/`. Automatically triggers debounced auto-import, updates `workspace.json`, prunes orphaned connections when files are removed, and syncs the SQLite persistent cache with visual status bar feedback.
+- **Automatic Startup Auto-Discovery** — On extension activation, automatically inspects workspace folders for `data_sources/` and runs initial discovery and cache pre-warming seamlessly.
+
+### Fixed
+
+- **Decimal Precision Guarantee & Integer Overflow Prevention** — Fixed decimal truncation where long numbers with `.` decimal separators were inadvertently rounded or stored as integers in SQLite staging; fractional numbers are now preserved with full precision as SQLite `NUMERIC` and F# `decimal`/`double`.
+
+## [0.4.0-rc3] — 2026-11-02
+
+### Added
+
+- **Ultra-Fast Multi-Property Relational Joins** — Joins between different files on compound keys (`on ((a.p1, a.p2) = (b.p1, b.p2))` and LINQ `SelectMany` with compound predicates) execute natively in SQLite with sub-second performance (~18 ms for 5,000×40 rows) without memory explosions, supported by automatic composite B-tree indexes.
+- **Automatic `data_sources/` Folder Discovery** — Added `fs-query-studio.autoImportFolder` command and quick toolbar button to auto-detect and register compatible files (`.csv`, `.xlsx`, `.db`, `.sqlite`) found in the `data_sources/` folder.
+- **Asynchronous Cache Synchronization & Visual Status Feedback** — Added animated status bar item (`$(sync~spin) Syncing data sources cache...` ➔ `$(database) Data sources ready`) and dedicated command `F# Query Studio: Sync Data Sources Cache` to stage flat files into disk cache asynchronously with mtime validation.
+- **Pre-Execution Query Inspection (`ResultKind.toRawSql`)** — Added `ResultKind.toRawSql`, `Connections.toRawSql`, and `.ToRawSql()` allowing users to inspect the exact SQL query and parameter list (`-- Parameters: ...`) generated for any pushdown or LINQ query before sending it to the database.
+- **Expanded Multi-Source Sample Notebooks** — Added cell 7.1 demonstrating pushdown multi-property joins and `toRawSql` SQL inspection, alongside existing Excel (`.xlsx`) and GitHub REST API queries across `sample_demo.fsqnb` and `sample_demo_pt.fsqnb`.
+- **Full Bilingual Documentation Parity** — Complete English and Portuguese documentation covering all user guides, tutorials, benchmarks, and changelogs.
+
+## [0.4.0-rc2] — 2026-11-02
+
+### Added
+
+- **Universal SQL Pushdown (EF-Style Projection & Relational Joins)** — Complete pushdown of `Select` projection expressions, member access, arithmetic, string concatenation (`||` / `+`), and relational `Join` across SQLite, PostgreSQL, and SQL Server, avoiding memory-bound row fetching and eliminating `SELECT *`.
+- **Dynamic Projected Record Mapper** — Dynamically maps anonymous records and projected types (`'TResult`) from SQL reader columns via compiled expression delegate mapping.
+- **Embedded File SQLite Staging Engine (`.fsqs/cache/engine.db`)** — High-performance staging engine for CSV and Excel files with single-transaction batch ingest, WAL mode, smart file hash/mtime caching (0ms reload on hits), and automatic B-tree indexing on `Id` and `*_id` keys.
+- **Ultra-Fast Cross-File Joins** — Complex multi-file relational joins on datasets exceeding 200,000 rows execute natively in SQLite in sub-second times (~768 ms).
+- **Direct SQL Execution on Workspace Engine** — Exposed `Connections.queryEngine(sqlText, ?parameters)` and `Connections.sql.query(sqlText, ?parameters)` returning tabular results.
+- **Clean Entity Generation** — `DatabaseConnection.GenerateEntities` emits clean dynamic table references (`conn.Table<...>("TableName")`) rather than hardcoded full-column SELECT queries.
+
+### Fixed
+
+- **Relative Local File Path Resolution** — Automatically resolves relative paths for local file-based connections (SQLite, CSV, Excel) relative to workspace directories.
+
+
+## [0.4.0-rc1] — 2026-10-30
+
+### Added
+
+- **Modular Connector Architecture (Backend & Frontend)** — Decoupled connectors into independent, self-contained modules (`FSharpQueryStudio.Connectors.Abstractions`, `.Sqlite`, `.SqlServer`, `.PostgreSql`, `.Csv`, `.Excel`, `.Rest`) on the backend and declarative frontend modules (`editors/vscode/src/connections/modules/*.ts`) registered via `ConnectorRegistry` and `ConnectorFrontRegistry`.
+- **Declarative Schema-Driven Connection Wizard (`connector/list`)** — Added `connector/list` RPC endpoint exposing connector descriptors and form field schemas so the VS Code extension dynamically renders connection forms, secret handling, and validation rules per connector module.
+- **Expanded Multi-Source Sample Notebooks (`sample_demo.fsqnb` & `sample_demo_pt.fsqnb`)** — Added **Excel (`.xlsx`)** multi-sheet workbook (`RegionalTargets`) and **GitHub HTTPS REST API (`https://`)** (`GitHubFSharp`) connections and interactive LINQ query cells (11 code cells across 6 data sources: 2x SQLite, 2x CSV, Excel `.xlsx`, and GitHub HTTPS REST).
+- **External Test Execution Watcher** — Added `scripts/watch-tests.ps1`, `scripts/run-all-tests.ps1`, and `scripts/run-all-tests.sh` enforcing a strict 5-minute external timeout and process-tree cleanup across all test suites.
+
+### Fixed
+
+- **UTF-8 Encoding Preservation Across Cell & Result Grid** — Enforced UTF-8 without BOM across NDJSON stdio streams in the worker and host process, preserving accented characters (e.g., `Transações`, `São Paulo`) without mojibake.
+- **Sample Data Deduplication, Healing & FSI Entity Reloading** — Fixed duplicate connection name registration in `workspace.json`, added automatic healing for 0-byte or missing sample files, enforced synchronous entity generation when `GeneratedEntities.fs` is missing or stale, and added automatic `#load` reloading of updated entities in persistent FSI sessions.
+- **Workspace Schema v2 Field Ordering** — Placed `connections` as the last property in `.fsqs/workspace.json` for improved readability of top-level metadata (`schemaVersion`, `extensionVersion`, `updatedAt`).
 
 ## [0.3.2] — 2026-10-28
 

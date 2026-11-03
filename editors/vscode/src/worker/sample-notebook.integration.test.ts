@@ -15,13 +15,31 @@ import {
 import { deserializeFsqnb } from "../notebook/fsqnb";
 
 const extensionRoot = path.resolve(__dirname, "..", "..");
+const repoRoot = path.resolve(extensionRoot, "..", "..");
 
-let workerDll: string | undefined;
-try {
-  workerDll = resolveWorkerDll(extensionRoot, process.env);
-} catch {
-  workerDll = undefined;
+function findLatestWorkerDll(): string | undefined {
+  if (process.env.FSQS_WORKER_DLL && fs.existsSync(process.env.FSQS_WORKER_DLL)) {
+    return process.env.FSQS_WORKER_DLL;
+  }
+  const candidates = [
+    path.join(repoRoot, "src", "FSharpQueryStudio.Worker", "bin", "Release", "net10.0", "FSharpQueryStudio.Worker.dll"),
+    path.join(repoRoot, "src", "FSharpQueryStudio.Worker", "bin", "Debug", "net10.0", "FSharpQueryStudio.Worker.dll"),
+    path.join(extensionRoot, "dist", "worker", "FSharpQueryStudio.Worker.dll"),
+  ].filter((p) => fs.existsSync(p));
+
+  if (candidates.length === 0) {
+    try {
+      return resolveWorkerDll(extensionRoot, process.env);
+    } catch {
+      return undefined;
+    }
+  }
+
+  candidates.sort((a, b) => fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs);
+  return candidates[0];
 }
+
+const workerDll = findLatestWorkerDll();
 
 describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
   it(
@@ -48,6 +66,8 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
           sqlite2Path?: string;
           csvPath: string;
           csv2Path?: string;
+          excelPath?: string;
+          restUrl?: string;
           notebookPath: string;
           notebookPtPath?: string;
         };
@@ -56,6 +76,8 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
         expect(fs.existsSync(data.sqlite2Path!)).toBe(true);
         expect(fs.existsSync(data.csvPath)).toBe(true);
         expect(fs.existsSync(data.csv2Path!)).toBe(true);
+        expect(fs.existsSync(data.excelPath!)).toBe(true);
+        expect(data.restUrl).toMatch(/^https:\/\/.*github\.com/i);
         expect(fs.existsSync(data.notebookPath)).toBe(true);
         expect(fs.existsSync(data.notebookPtPath!)).toBe(true);
 
@@ -68,12 +90,19 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
         const nbContent = fs.readFileSync(data.notebookPath, "utf-8");
         const doc = deserializeFsqnb(nbContent);
         const codeCells = doc.cells.filter((c) => c.kind === "code");
-        expect(codeCells.length).toBe(9);
+        expect(codeCells.length).toBe(12);
 
-        // VS Code on Windows formats document URIs like: file:///c%3A/path/to/notebook.fsqnb
-        const vscodeUriEn = `file:///${data.notebookPath.replace(/\\/g, "/").replace(":", "%3A")}`;
+        const toVscodeUri = (filePath: string) => {
+          const normalized = filePath.replace(/\\/g, "/");
+          return normalized.startsWith("/")
+            ? `file://${normalized}`
+            : `file:///${normalized.replace(":", "%3A")}`;
+        };
 
-        const expectedEnRowCounts = [2, 8, 6, 4, 5, 3, 6, 5, 4];
+        // VS Code formats document URIs: file:///${path} on Windows (with %3A), file://${path} on Linux/macOS
+        const vscodeUriEn = toVscodeUri(data.notebookPath);
+
+        const expectedEnRowCounts = [2, 8, 6, 4, 5, 3, 6, 8, 5, 4, 8, 6];
 
         for (let i = 0; i < codeCells.length; i++) {
           const cell = codeCells[i];
@@ -99,7 +128,11 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
           }
           expect(["Table", "Scalar"]).toContain(kind);
           if (kind === "Table") {
-            expect(envelope.rows.length).toBe(expectedEnRowCounts[i]);
+            if (i === 10) {
+              expect(envelope.rows.length).toBeGreaterThanOrEqual(1);
+            } else {
+              expect(envelope.rows.length).toBe(expectedEnRowCounts[i]);
+            }
           }
         }
 
@@ -107,11 +140,11 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
         const nbPtContent = fs.readFileSync(data.notebookPtPath!, "utf-8");
         const docPt = deserializeFsqnb(nbPtContent);
         const codeCellsPt = docPt.cells.filter((c) => c.kind === "code");
-        expect(codeCellsPt.length).toBe(9);
+        expect(codeCellsPt.length).toBe(12);
 
-        const vscodeUriPt = `file:///${data.notebookPtPath!.replace(/\\/g, "/").replace(":", "%3A")}`;
+        const vscodeUriPt = toVscodeUri(data.notebookPtPath!);
 
-        const expectedPtRowCounts = [2, 8, 6, 4, 5, 3, 6, 5, 4];
+        const expectedPtRowCounts = [2, 8, 6, 4, 5, 3, 6, 8, 5, 4, 8, 6];
 
         for (let i = 0; i < codeCellsPt.length; i++) {
           const cell = codeCellsPt[i];
@@ -137,7 +170,11 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
           }
           expect(["Table", "Scalar"]).toContain(kind);
           if (kind === "Table") {
-            expect(envelope.rows.length).toBe(expectedPtRowCounts[i]);
+            if (i === 10) {
+              expect(envelope.rows.length).toBeGreaterThanOrEqual(1);
+            } else {
+              expect(envelope.rows.length).toBe(expectedPtRowCounts[i]);
+            }
           }
         }
       } finally {

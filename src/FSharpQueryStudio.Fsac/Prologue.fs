@@ -39,8 +39,20 @@ module Prologue =
                         elif pathPart.StartsWith("//") then pathPart.Substring(1)
                         else pathPart
                     elif unescaped.StartsWith("file:", System.StringComparison.OrdinalIgnoreCase) then
-                        let uri = System.Uri(unescaped)
-                        uri.LocalPath
+                        try
+                            let uri = System.Uri(unescaped)
+                            let p = uri.LocalPath
+                            let parentDir = System.IO.Path.GetDirectoryName p
+                            if not (System.String.IsNullOrEmpty parentDir) && System.IO.Directory.Exists parentDir then
+                                p
+                            else
+                                let stripped = unescaped.Substring("file:".Length).TrimStart('/')
+                                if stripped.Length >= 2 && System.Char.IsLetter(stripped.[0]) && stripped.[1] = ':' then stripped
+                                else "/" + stripped
+                        with _ ->
+                            let stripped = unescaped.Substring("file:".Length).TrimStart('/')
+                            if stripped.Length >= 2 && System.Char.IsLetter(stripped.[0]) && stripped.[1] = ':' then stripped
+                            else "/" + stripped
                     else
                         let colonIdx = unescaped.IndexOf(':')
                         let pathPart = if colonIdx >= 0 then unescaped.Substring(colonIdx + 1) else unescaped
@@ -75,7 +87,9 @@ module Prologue =
             None
 
     let buildInWorkspace (workspaceDir: string option) : string =
-        let connectorsPath = (typeof<FSharpQueryStudio.Connectors.IConnector>).Assembly.Location
+        let protocolPath = (typeof<FSharpQueryStudio.Protocol.ResultKind>).Assembly.Location
+        let abstractionsPath = (typeof<FSharpQueryStudio.Connectors.IConnector>).Assembly.Location
+        let connectorsPath = (typeof<FSharpQueryStudio.Connectors.WorkspaceConnectionResolver>).Assembly.Location
         let resultsPath = (typeof<FSharpQueryStudio.Results.PagingCursor>).Assembly.Location
         let sqlProviderCommonPath = (typeof<FSharp.Data.Sql.Common.DatabaseProviderTypes>).Assembly.Location
         let sqlProviderPath =
@@ -118,7 +132,7 @@ module Prologue =
             else
                 ""
 
-        $"#r \"{escapeForStringLiteral connectorsPath}\"\n#r \"{escapeForStringLiteral resultsPath}\"\n#r \"{escapeForStringLiteral sqlProviderCommonPath}\"\n#r \"{escapeForStringLiteral sqlProviderPath}\"\n{generatedLoad}open System.Linq\nopen FSharpQueryStudio.Connectors\nopen FSharp.Data.Sql\n"
+        $"#r \"{escapeForStringLiteral protocolPath}\"\n#r \"{escapeForStringLiteral abstractionsPath}\"\n#r \"{escapeForStringLiteral connectorsPath}\"\n#r \"{escapeForStringLiteral resultsPath}\"\n#r \"{escapeForStringLiteral sqlProviderCommonPath}\"\n#r \"{escapeForStringLiteral sqlProviderPath}\"\n{generatedLoad}open System.Linq\nopen FSharpQueryStudio.Protocol\nopen FSharpQueryStudio.Connectors\nopen FSharp.Data.Sql\n"
 
     let build () : string = buildInWorkspace None
 

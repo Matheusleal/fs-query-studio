@@ -11,10 +11,11 @@ in a bundled .NET worker process. A controlled API (`Connections.*`) reaches
 databases and files you register in the sidebar, and results render as a
 sortable grid with schema view and CSV export.
 
-> **Status:** `0.2.0`, ready for distribution. Feature-complete query & exploration
-> studio with multi-schema discovery, strongly-typed LINQ, background entity generation,
-> verified sub-millisecond execution benchmarks, and 100% UI element test coverage.
-> See [Release v0.2.0](https://github.com/Matheusleal/fs-query-studio/releases/tag/v0.2.0) and [`docs/vscode-extension-release.md`](docs/vscode-extension-release.md).
+> **Status:** `0.4.0`, ready for distribution. High-performance multi-source query & exploration
+> studio featuring full SQL pushdown translation, asynchronous SQLite disk caching with composite B-tree indexes,
+> multi-property join optimizations without memory explosions, automated `data_sources/` discovery,
+> raw SQL preview (`toRawSql`), verified sub-millisecond benchmarks, and 100% test coverage.
+> See [Release v0.4.0](https://github.com/Matheusleal/fs-query-studio/releases/tag/v0.4.0) and [`docs/vscode-extension-release.md`](docs/vscode-extension-release.md).
 
 ---
 
@@ -49,17 +50,22 @@ of building locally.
 2. **Run F#** — type into a code cell and run it. `let` bindings persist to
    later cells (one FSI session per notebook). **F# Query Studio: Restart
    Notebook Session** clears it.
-3. **Add a connection** — open the **F# Query Studio** view in the Activity Bar
-   and **Add Connection**: SQLite / CSV / Excel / JSON (file path), SQL Server /
-   PostgreSQL / MySQL (connection string), or REST JSON (URL). Secrets go to the OS
-   keychain, never to disk in the workspace.
-4. **Query it with LINQ or SQL** — either typed with LINQ:
+3. **Add or auto-import connections** — drop `.csv`, `.xlsx`, or `.db` files into the `data_sources/` folder and run **F# Query Studio: Auto-Import Data Sources Directory**, or use **Add Connection** in the Activity Bar sidebar. Tabular files are immediately and asynchronously pre-staged into a persistent SQLite disk cache (`.fsqs/cache/engine.db`) with automatic B-tree indexing.
+4. **Query with Full SQL Pushdown & LINQ** — queries are translated into database-side SQL (`SELECT`, `WHERE`, `JOIN`, `ORDER BY`, `LIMIT`, `SKIP`, `COUNT`, `SUM`) rather than pulling raw tables into memory:
    ```fsharp
-   query { for u in Connections.sql.MyConn.Users do where (u.IsActive) select u }
+   query {
+       for u in Connections.sql.MyConn.Users do
+       where (u.IsActive && u.Age >= 21)
+       sortBy u.LastName
+       select {| Name = u.FirstName + " " + u.LastName; Email = u.Email |}
+   }
    ```
-   Or with raw SQL:
-   `Connections.sql.MyConn.rawQuery "select * from Orders" []`.
-   Run the cell, and the result renders as a grid with a schema tab and **Export CSV**.
+5. **Inspect Generated SQL** — preview the exact database query and parameters without executing round-trips:
+   ```fsharp
+   printfn "%s" (Connections.toRawSql myQuery)
+   ```
+   Or run raw SQL directly: `Connections.sql.MyConn.rawQuery "select * from Orders" []`.
+   Results render in a virtualized interactive grid with schema view and **Export CSV**.
 
 Full walkthrough: **[`docs/TUTORIAL.md`](docs/TUTORIAL.md)**.
 Comprehensive User Guide: **[`editors/vscode/USER_GUIDE.md`](editors/vscode/USER_GUIDE.md)** (or click `$(book)` in VS Code).
@@ -69,12 +75,14 @@ Comprehensive User Guide: **[`editors/vscode/USER_GUIDE.md`](editors/vscode/USER
 - **Notebook execution** — every `.fsqnb` code cell runs against a persistent,
   per-notebook FSI session; stdout / stderr stream live; cancel a running cell
   from the toolbar.
+- **Full Database Query Pushdown** — Entity Framework-style query translation for relational databases and flat files. Translates projections (`select`), filters (`where`), joins (`join`), multi-property joins (`on ((a.p1, a.p2) = (b.p1, b.p2))`), sorting, slicing (`take`/`skip`), and aggregations (`count`/`sum`) into optimized native SQL queries.
+- **Asynchronous SQLite Disk Cache & Fast File Joins** — Flat files (CSV and Excel `.xlsx`) are pre-staged in the background into a persistent on-disk SQLite database (`.fsqs/cache/engine.db`). Staging validates file modification times (`mtime`) and byte sizes to skip re-importing unchanged files. Automatic composite B-tree indexes prevent Cartesian products and high RAM consumption when joining large files (200,000+ rows).
+- **Accurate Tabular Type Inference & Formulas** — Excel and CSV schemas detect genuine column types (ints, decimals, dates, bools) in both tree view and entities. Configure custom column type overrides (`columnTypes`) and formula replacements (`columnTransforms`, e.g. `replace('.', '').replace(',', '.')` or `trim`) while preserving high-precision decimals. Detailed instructions and real-world examples: [Custom Column Types & Formulas](editors/vscode/USER_GUIDE.md#custom-column-types--formula-transformations-excel--csv).
+- **SQL Preview (`toRawSql`)** — inspect the raw parameterized SQL query generated by LINQ pushdown at any time using `ResultKind.toRawSql query` or `Connections.toRawSql query`.
+- **Automatic Folder Discovery (`data_sources/`)** — drop `.csv`, `.xlsx`, `.db`, or `.sqlite` files into your workspace's `data_sources/` folder and click **Auto-Import Data Sources** to detect, configure, and generate types automatically.
 - **Strongly-typed LINQ queries** — automatic background entity generation for
   databases (PostgreSQL, SQL Server, MySQL, SQLite) and flat files (CSV, Excel, JSON).
-- **Query API** — `Connections.sql` / `csv` / `excel` / `rest` reach connections
-  directly with strongly-typed entity access and scoped `rawQuery` execution. A cell renders the
-  value of its last expression — collections become a grid, connector queries add
-  **Export CSV**, scalars print as text; no special call needed.
+- **Visual Sync Status** — animated status bar feedback (`$(sync~spin) Syncing data sources...` ➔ `$(database) Data sources ready`) indicates background caching progress and readiness in real time.
 - **Results grid** — virtualized table, schema view, CSV export, paged loading
   for large results.
 - **In-cell F# intelligence** — completion, hover, signature help, diagnostics, and

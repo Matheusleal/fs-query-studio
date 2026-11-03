@@ -69,6 +69,12 @@ export const workspace = {
       dispose: () => {},
     };
   },
+  fs: {
+    stat: async (_uri: unknown) => ({ type: 2 }),
+    readFile: async (_uri: unknown) => new Uint8Array(),
+    writeFile: async (_uri: unknown, _content: Uint8Array) => {},
+    delete: async (_uri: unknown) => {},
+  },
 };
 
 export const commands = {

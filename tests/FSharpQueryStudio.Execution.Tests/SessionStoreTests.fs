@@ -139,3 +139,4 @@ let ``reset drops a session built up via appendFragment too`` () =
     finally
         SessionStore.reset key
         cleanupWorkingDirectory workDir
+

@@ -16,7 +16,7 @@ let private tempWorkspaceDir () =
 let private sampleConnection (name: string) : ConnectionDefinition =
     { Id = Guid.NewGuid()
       Name = name
-      Kind = ConnectorKind.Sqlite
+      Kind = ConnectorKind("Sqlite")
       Configuration = JsonDocument.Parse("""{"filePath":"C:/data/sales.db"}""").RootElement
       SecretReference = Some "vault://sales-db-cred"
       IsTrusted = true }
@@ -34,7 +34,7 @@ let private assertSameConnections (expected: ConnectionDefinition list) (actual:
             Assert.Equal(e.Id, a.Id)
             Assert.Equal(e.Name, a.Name)
             Assert.Equal(e.Kind, a.Kind)
-            Assert.Equal(e.Configuration.GetRawText(), a.Configuration.GetRawText())
+            Assert.Equal(JsonSerializer.Serialize(e.Configuration), JsonSerializer.Serialize(a.Configuration))
             Assert.Equal(e.SecretReference, a.SecretReference)
             Assert.Equal(e.IsTrusted, a.IsTrusted))
         expected
@@ -72,6 +72,10 @@ let ``the written workspace.json exposes only non-secret connection metadata in 
     Assert.Equal(JsonValueKind.Object, doc.RootElement.ValueKind)
     Assert.Equal(2, doc.RootElement.GetProperty("schemaVersion").GetInt32())
     Assert.False(String.IsNullOrWhiteSpace(doc.RootElement.GetProperty("extensionVersion").GetString()))
+
+    let topLevelPropertyNames =
+        doc.RootElement.EnumerateObject() |> Seq.map (fun p -> p.Name) |> Seq.toList
+    Assert.Equal("connections", List.last topLevelPropertyNames)
 
     let element = doc.RootElement.GetProperty("connections").EnumerateArray() |> Seq.exactlyOne
 

@@ -58,6 +58,17 @@ module Workspace =
         else
             pathInTarget
 
+    let private deduplicateConnections (connections: ConnectionDefinition list) : ConnectionDefinition list =
+        let seenIds = System.Collections.Generic.HashSet<Guid>()
+        let seenNames = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        connections
+        |> List.rev
+        |> List.filter (fun c ->
+            let isNewId = seenIds.Add(c.Id)
+            let isNewName = seenNames.Add(c.Name)
+            isNewId && isNewName)
+        |> List.rev
+
     /// Reads `workspace.json` tolerating both Schema v1 (plain JSON array of connections)
     /// and Schema v2 (JSON object with schemaVersion, extensionVersion, connections).
     let readConfiguration (workspaceDir: string) : WorkspaceConfiguration =
@@ -79,6 +90,7 @@ module Workspace =
             | JsonValueKind.Array ->
                 let connections =
                     JsonSerializer.Deserialize<ConnectionDefinition list>(json, Serialization.options)
+                    |> deduplicateConnections
                 { SchemaVersion = 1
                   ExtensionVersion = "0.1.0"
                   UpdatedAt = None
@@ -109,6 +121,7 @@ module Workspace =
                     match doc.RootElement.TryGetProperty("connections") with
                     | true, el when el.ValueKind = JsonValueKind.Array ->
                         JsonSerializer.Deserialize<ConnectionDefinition list>(el.GetRawText(), Serialization.options)
+                        |> deduplicateConnections
                     | _ -> []
 
                 { SchemaVersion = schemaVersion
@@ -127,6 +140,11 @@ module Workspace =
         let config = readConfiguration workspaceDir
         config.Connections
 
+    let private storageJsonOptions =
+        let o = JsonSerializerOptions(Serialization.options)
+        o.WriteIndented <- true
+        o
+
     /// Persists the full configuration to `workspace.json` in Schema v2 format.
     let writeConfiguration (workspaceDir: string) (config: WorkspaceConfiguration) : unit =
         if not (String.IsNullOrWhiteSpace workspaceDir) && ProjectUpgrader.needsUpgrade workspaceDir then
@@ -136,13 +154,13 @@ module Workspace =
         Directory.CreateDirectory storageDir |> ignore
         let targetPath = Path.Combine(storageDir, fileName)
 
-        let payload =
-            {| schemaVersion = CurrentSchemaVersion
-               extensionVersion = if String.IsNullOrWhiteSpace config.ExtensionVersion then currentExtensionVersion () else config.ExtensionVersion
-               updatedAt = DateTimeOffset.UtcNow.ToString("o")
-               connections = config.Connections |}
+        let payload: WorkspaceJsonPayload =
+            { schemaVersion = CurrentSchemaVersion
+              extensionVersion = if String.IsNullOrWhiteSpace config.ExtensionVersion then currentExtensionVersion () else config.ExtensionVersion
+              updatedAt = DateTimeOffset.UtcNow.ToString("o")
+              connections = deduplicateConnections config.Connections }
 
-        let json = JsonSerializer.Serialize(payload, Serialization.options)
+        let json = JsonSerializer.Serialize(payload, storageJsonOptions)
         File.WriteAllText(targetPath, json)
 
     /// Persists connections to `workspace.json` wrapped in Schema v2 format.
@@ -153,17 +171,19 @@ module Workspace =
                 SchemaVersion = CurrentSchemaVersion
                 ExtensionVersion = currentExtensionVersion ()
                 UpdatedAt = Some DateTimeOffset.UtcNow
-                Connections = connections }
+                Connections = deduplicateConnections connections }
         writeConfiguration workspaceDir updated
 
     /// `connection/register` — Section 7. Adds `connection` as a new
-    /// binding, or replaces the existing one sharing its `Id`, then
+    /// binding, or replaces the existing one sharing its `Id` or `Name`, then
     /// persists the full list back to `workspace.json`. Returns the
     /// updated list.
     let registerConnection (workspaceDir: string) (connection: ConnectionDefinition) : ConnectionDefinition list =
         let updated =
             readConnections workspaceDir
-            |> List.filter (fun (c: ConnectionDefinition) -> c.Id <> connection.Id)
+            |> List.filter (fun (c: ConnectionDefinition) ->
+                c.Id <> connection.Id
+                && not (String.Equals(c.Name, connection.Name, StringComparison.OrdinalIgnoreCase)))
             |> fun rest -> rest @ [ connection ]
 
         writeConnections workspaceDir updated

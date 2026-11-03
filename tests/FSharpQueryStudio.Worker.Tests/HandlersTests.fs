@@ -6,6 +6,7 @@ open System.Text.Json
 open System.Threading.Tasks
 open Xunit
 open FSharpQueryStudio.Protocol
+open FSharpQueryStudio.Connectors
 open FSharpQueryStudio.Execution
 open FSharpQueryStudio.Storage
 open FSharpQueryStudio.Worker
@@ -758,7 +759,7 @@ let private registerConnectionRequest (id: string) (connection: ConnectionDefini
 let private testConnection (name: string) : ConnectionDefinition =
     { Id = Guid.NewGuid()
       Name = name
-      Kind = Sqlite
+      Kind = ConnectorKind("Sqlite")
       Configuration = JsonDocument.Parse("""{"FilePath":"C:\\data.db"}""").RootElement
       SecretReference = None
       IsTrusted = false }
@@ -993,7 +994,7 @@ let ``dispatch on connection/schema discovers real tables and columns for a regi
             let registered =
                 { Id = Guid.NewGuid()
                   Name = "Sales"
-                  Kind = Sqlite
+                  Kind = ConnectorKind("Sqlite")
                   Configuration = JsonSerializer.SerializeToElement({| FilePath = dbPath |}, Serialization.options)
                   SecretReference = None
                   IsTrusted = false }
@@ -1053,7 +1054,7 @@ let ``execution/evaluate resolves Connections.sql against a connection registere
                     "reg1"
                     { Id = Guid.NewGuid()
                       Name = "Sales"
-                      Kind = Sqlite
+                      Kind = ConnectorKind("Sqlite")
                       Configuration =
                         JsonSerializer.SerializeToElement({| FilePath = dbPath |}, Serialization.options)
                       SecretReference = None
@@ -1113,7 +1114,7 @@ let ``execution/evaluate committing a connector-query tail expression, then resu
                     "reg1"
                     { Id = Guid.NewGuid()
                       Name = "test1"
-                      Kind = Csv
+                      Kind = ConnectorKind.Csv
                       Configuration =
                         JsonSerializer.SerializeToElement({| FilePath = csvPath |}, Serialization.options)
                       SecretReference = None
@@ -1411,12 +1412,17 @@ let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or em
             let sqlite2 = r1.GetProperty("sqlite2Path").GetString()
             let csv1 = r1.GetProperty("csvPath").GetString()
             let csv2 = r1.GetProperty("csv2Path").GetString()
+            let excel1 = r1.GetProperty("excelPath").GetString()
+            let restUrl = r1.GetProperty("restUrl").GetString()
             let nb1 = r1.GetProperty("notebookPath").GetString()
             let nb2 = r1.GetProperty("notebookPtPath").GetString()
             Assert.True(File.Exists sqlite1, $"sqlitePath should exist: {sqlite1}")
             Assert.True(File.Exists sqlite2, $"sqlite2Path should exist: {sqlite2}")
             Assert.True(File.Exists csv1, $"csvPath should exist: {csv1}")
             Assert.True(File.Exists csv2, $"csv2Path should exist: {csv2}")
+            Assert.True(File.Exists excel1, $"excelPath should exist: {excel1}")
+            Assert.StartsWith("https://", restUrl)
+            Assert.Contains("github.com", restUrl)
             Assert.True(File.Exists nb1, $"notebookPath should exist: {nb1}")
             Assert.True(File.Exists nb2, $"notebookPtPath should exist: {nb2}")
 
@@ -1424,7 +1430,10 @@ let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or em
                 r1.GetProperty("registeredConnections").EnumerateArray()
                 |> Seq.map (fun el -> el.GetString())
                 |> Seq.toList
-            Assert.Equal<string list>([ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed" ], regConns)
+            Assert.Equal<string list>(
+                [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "GitHubFSharp" ],
+                regConns
+            )
 
             // Test 2: with targetDirectory
             let req2: WorkerRequestFrame =
@@ -1473,7 +1482,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(9, codeCells.Length)
+            Assert.Equal(12, codeCells.Length)
 
             for idx, code in List.indexed codeCells do
                 let evalReq = notebookCellRequest $"cell-{idx + 1}" code "sample_demo.fsqnb"
@@ -1486,6 +1495,8 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                     (env.Kind = ResultKind.Table || env.Kind = ResultKind.Scalar),
                     $"Cell {idx + 1} expected Table or Scalar outcome but got {env.Kind}. DisplayText: {env.DisplayText}. Output: {outputText}. Code:\n{code}"
                 )
+                if env.Kind = ResultKind.Table then
+                    Assert.NotEmpty(env.Rows)
 
             let notebookPtPath = Path.Combine(tmp, "sample_demo_pt.fsqnb")
             Assert.True(File.Exists notebookPtPath)
@@ -1496,7 +1507,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(9, codeCellsPt.Length)
+            Assert.Equal(12, codeCellsPt.Length)
 
             for idx, code in List.indexed codeCellsPt do
                 let evalReq = notebookCellRequest $"cell-pt-{idx + 1}" code "sample_demo_pt.fsqnb"
@@ -1509,10 +1520,623 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                     (env.Kind = ResultKind.Table || env.Kind = ResultKind.Scalar),
                     $"PT Cell {idx + 1} expected Table or Scalar outcome but got {env.Kind}. DisplayText: {env.DisplayText}. Output: {outputText}. Code:\n{code}"
                 )
+                if env.Kind = ResultKind.Table then
+                    Assert.NotEmpty(env.Rows)
         finally
             Handlers.setWorkspaceDirForTests None
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
             try
                 if Directory.Exists tmp then Directory.Delete(tmp, true)
             with _ -> ()
+    }
+
+[<Fact>]
+let ``re-creating sample data over a workspace with a stale empty SampleStore db and existing session heals and evaluates Customers`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-heal-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+
+            // 1. Simulate a broken/empty SampleStore connection and stale GeneratedEntities.fs
+            let brokenDbPath = Path.Combine(tmp, "broken_empty.db")
+            File.WriteAllBytes(brokenDbPath, [||])
+            let staleDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "SampleStore"
+                  Kind = ConnectorKind.Sqlite
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = brokenDbPath |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+            let _ = Workspace.registerConnection tmp staleDef
+            let! _ = EntityBackgroundGenerator.generateForConnectionsAsync tmp [ staleDef ] (FSharpQueryStudio.Security.InMemorySecretStore())
+
+            // Start a persistent session while SampleStore is still broken
+            let docUri = Path.Combine(tmp, "sample_demo_pt.fsqnb")
+            let warmupReq: WorkerRequestFrame =
+                { Id = "warmup-1"
+                  Method = "execution/evaluate"
+                  Params =
+                    JsonSerializer.SerializeToElement(
+                        { Source = "1 + 1"
+                          SessionId = Some docUri
+                          Mode = Persistent
+                          DocumentUri = docUri
+                          IsNotebookCell = true },
+                        Serialization.options
+                    ) }
+            let! _ = Handlers.dispatch warmupReq
+
+            // 2. Now run workspace/createSampleData in the same workspace
+            let escapedTmp = tmp.Replace("\\", "\\\\")
+            let createReq: WorkerRequestFrame =
+                { Id = "heal-create"
+                  Method = "workspace/createSampleData"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+            let! createRes = Handlers.dispatch createReq
+            Assert.True(createRes.Error.IsNone)
+
+            // Verify no duplicate SampleStore exists in workspace.json
+            let currentConns = Workspace.readConnections tmp
+            let sampleStoreConns = currentConns |> List.filter (fun c -> c.Name = "SampleStore")
+            Assert.Single(sampleStoreConns) |> ignore
+
+            // 3. Evaluate Cell 1 of sample_demo_pt.fsqnb on the same sessionId
+            let cell1Code = """
+query {
+    for c in Connections.sql.SampleStore.Customers do
+    where (c.Country = "Brazil")
+    sortBy c.FirstName
+    select {|
+        Id = c.Id
+        NomeCliente = c.FirstName + " " + c.LastName
+        Email = c.Email
+        Cidade = c.City
+        Pais = c.Country
+    |}
+}"""
+            let evalReq: WorkerRequestFrame =
+                { Id = "heal-eval-1"
+                  Method = "execution/evaluate"
+                  Params =
+                    JsonSerializer.SerializeToElement(
+                        { Source = cell1Code
+                          SessionId = Some docUri
+                          Mode = Persistent
+                          DocumentUri = docUri
+                          IsNotebookCell = true },
+                        Serialization.options
+                    ) }
+            let! evalRes = Handlers.dispatch evalReq
+            Assert.True(evalRes.Error.IsNone)
+            let env = JsonSerializer.Deserialize<ResultEnvelope>(evalRes.Result.Value.GetRawText(), Serialization.options)
+            Assert.Equal(ResultKind.Table, env.Kind)
+            Assert.Equal(2, env.Rows.Length)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+            try
+                if Directory.Exists tmp then Directory.Delete(tmp, true)
+            with _ -> ()
+    }
+
+[<Fact>]
+let ``connector/list returns all registered connector descriptors with form schemas`` () =
+    task {
+        let req = emptyParamsRequest "conn-list-1" "connector/list"
+        let! res = Handlers.dispatch req
+        Assert.Null(res.Error |> Option.toObj)
+        Assert.True(res.Result.IsSome)
+
+        let listResult =
+            JsonSerializer.Deserialize<ConnectorListResult>(res.Result.Value.GetRawText(), Serialization.options)
+
+        Assert.True(listResult.Connectors.Length >= 6)
+        let kindIds = listResult.Connectors |> List.map (fun c -> c.KindId) |> Set.ofList
+        Assert.True(Set.contains "Sqlite" kindIds)
+        Assert.True(Set.contains "SqlServer" kindIds)
+        Assert.True(Set.contains "PostgreSql" kindIds)
+        Assert.True(Set.contains "Csv" kindIds)
+        Assert.True(Set.contains "Excel" kindIds)
+        Assert.True(Set.contains "RestJson" kindIds)
+
+        for desc in listResult.Connectors do
+            Assert.False(String.IsNullOrWhiteSpace desc.DisplayName)
+            Assert.False(String.IsNullOrWhiteSpace desc.Category)
+            Assert.False(String.IsNullOrWhiteSpace desc.Icon)
+            Assert.NotEmpty(desc.FormFields)
+            for field in desc.FormFields do
+                Assert.False(String.IsNullOrWhiteSpace field.Name)
+                Assert.False(String.IsNullOrWhiteSpace field.Label)
+                Assert.False(String.IsNullOrWhiteSpace field.Type)
+    }
+
+[<Fact>]
+let ``evaluating table rows with UTF-8 accented characters over UTF-8 stdio stream preserves characters without mojibake`` () =
+    task {
+        let utf8NoBom = System.Text.UTF8Encoding(false)
+        let code =
+            """[
+    {| Fonte = "SalesFeed"; Tipo = "CSV (Arquivo Plano)"; TotalRegistros = 10; EntidadePrincipal = "Transações" |}
+    {| Fonte = "CustomersFeed"; Tipo = "CSV (Arquivo Plano)"; TotalRegistros = 6; EntidadePrincipal = "Perfis de Fidelidade" |}
+]"""
+        let reqFrame = evaluateRequest "utf8-eval-1" code
+        let reqJson = JsonSerializer.Serialize(reqFrame, Serialization.options) + "\n"
+        let inputBytes = utf8NoBom.GetBytes(reqJson)
+
+        use inputStream = new MemoryStream(inputBytes)
+        use outputStream = new MemoryStream()
+
+        use reader = new StreamReader(inputStream, utf8NoBom, detectEncodingFromByteOrderMarks = false, bufferSize = 4096, leaveOpen = true)
+        use writer = new StreamWriter(outputStream, utf8NoBom, bufferSize = 4096, leaveOpen = true, AutoFlush = true)
+
+        let! readReqOpt = NdjsonStream.readFrame<WorkerRequestFrame> reader
+        Assert.True(readReqOpt.IsSome)
+        let! dispatchResp = Handlers.dispatch readReqOpt.Value
+        do! NdjsonStream.writeFrame writer dispatchResp
+
+        let outputJson = utf8NoBom.GetString(outputStream.ToArray()).Trim()
+        let respFrame = JsonSerializer.Deserialize<WorkerResponseFrame>(outputJson, Serialization.options)
+        Assert.True(respFrame.Error.IsNone)
+        Assert.True(respFrame.Result.IsSome)
+
+        let envelope = JsonSerializer.Deserialize<ResultEnvelope>(respFrame.Result.Value.GetRawText(), Serialization.options)
+        Assert.Equal(ResultKind.Table, envelope.Kind)
+        Assert.Equal(2, envelope.Rows.Length)
+
+        let entColIdx = envelope.Schema |> List.findIndex (fun c -> c.Name = "EntidadePrincipal")
+        Assert.Equal("Transações", envelope.Rows.[0].[entColIdx].ToString())
+        Assert.Equal("Perfis de Fidelidade", envelope.Rows.[1].[entColIdx].ToString())
+    }
+
+[<Fact>]
+let ``evaluating a CSV with >100,000 rows and messy rows past row 200 projects to ResultKind.Table and never falls back to val IQueryable Text`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-large-csv-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let csvPath = Path.Combine(tmp, "large_sales_100k.csv")
+            do
+                use fs = new FileStream(csvPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536)
+                use writer = new StreamWriter(fs, System.Text.Encoding.UTF8, 65536)
+                writer.WriteLine("Id,Customer,Quantity,Amount,Active,OrderDate")
+                for i = 1 to 105_000 do
+                    if i <= 200 then
+                        // Clean first 200 rows so type inference infers non-option int, decimal, bool, DateTime
+                        writer.WriteLine($"{i},Customer_{i},3,199.90,true,2026-03-01")
+                    elif i % 1000 = 0 then
+                        // Empty values after row 200 in non-option columns
+                        writer.WriteLine($"{i},Customer_{i},,,,")
+                    elif i % 1000 = 1 then
+                        // Sentinels N/A, -, null, #N/A after row 200
+                        writer.WriteLine($"{i},Customer_{i},N/A,-,null,#N/A")
+                    elif i % 1000 = 2 then
+                        // Float in int column and comma decimal
+                        writer.WriteLine($"{i},Customer_{i},4.7,\"350,75\",1,2026-03-15")
+                    else
+                        writer.WriteLine($"{i},Customer_{i},2,120.00,false,2026-03-10")
+                writer.WriteLine()
+
+            let connDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "LargeSales"
+                  Kind = ConnectorKind.Csv
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = csvPath |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let! regResp = Handlers.dispatch (registerConnectionRequest "reg-100k" connDef)
+            Assert.True(regResp.Error.IsNone)
+            Handlers.waitForPendingGeneration ()
+
+            let docUri = Path.Combine(tmp, "large_test.fsqnb")
+
+            // 1. Evaluate direct table reference `Connections.csv.LargeSales`
+            let evalDirect = notebookCellRequest "eval-100k-direct" "Connections.csv.LargeSales" docUri
+            let! respDirect = Handlers.dispatch evalDirect
+            Assert.True(respDirect.Error.IsNone, (match respDirect.Error with Some e -> e.Message | None -> ""))
+            let envDirect = JsonSerializer.Deserialize<ResultEnvelope>(respDirect.Result.Value.GetRawText(), Serialization.options)
+            Assert.Equal(ResultKind.Table, envDirect.Kind)
+            Assert.Equal(500, envDirect.Rows.Length)
+            Assert.True(envDirect.IsTruncated)
+            Assert.Equal<string list>(
+                [ "Id"; "Customer"; "Quantity"; "Amount"; "Active"; "OrderDate" ],
+                envDirect.Schema |> List.map (fun c -> c.Name)
+            )
+
+            // 2. Evaluate LINQ IQueryable query over >100,000 rows (matches 200 initial rows + 104 rows where i % 1000 = 2 = 304 rows)
+            let linqCode = """
+query {
+    for r in Connections.csv.LargeSales do
+    where (r.Amount >= 150.0M)
+    select {|
+        Id = r.Id
+        Customer = r.Customer
+        Quantity = r.Quantity
+        Amount = r.Amount
+    |}
+}"""
+            let evalLinq = notebookCellRequest "eval-100k-linq" linqCode docUri
+            let! respLinq = Handlers.dispatch evalLinq
+            Assert.True(respLinq.Error.IsNone, (match respLinq.Error with Some e -> e.Message | None -> ""))
+            let envLinq = JsonSerializer.Deserialize<ResultEnvelope>(respLinq.Result.Value.GetRawText(), Serialization.options)
+            Assert.Equal(ResultKind.Table, envLinq.Kind)
+            Assert.Equal(304, envLinq.Rows.Length)
+            Assert.False(envLinq.IsTruncated)
+            Assert.Equal<string list>([ "Amount"; "Customer"; "Id"; "Quantity" ], envLinq.Schema |> List.map (fun c -> c.Name) |> List.sort)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
+[<Fact>]
+let ``evaluating an Excel workbook with >1,000 rows, a Data sheet name, and messy cells past row 200 projects to ResultKind.Table`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-large-xlsx-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let xlsxPath = Path.Combine(tmp, "large_workbook.xlsx")
+            do
+                use wb = new ClosedXML.Excel.XLWorkbook()
+                let ws = wb.Worksheets.Add("Data")
+                ws.Cell(1, 1).Value <- "Id"
+                ws.Cell(1, 2).Value <- "Region"
+                ws.Cell(1, 3).Value <- "Units"
+                ws.Cell(1, 4).Value <- "Revenue"
+                for i = 1 to 1200 do
+                    let rowIdx = i + 1
+                    ws.Cell(rowIdx, 1).Value <- i
+                    ws.Cell(rowIdx, 2).Value <- $"Region_{i % 5}"
+                    if i <= 200 then
+                        ws.Cell(rowIdx, 3).Value <- 10
+                        ws.Cell(rowIdx, 4).Value <- 250.50
+                    elif i = 250 then
+                        // Blank cells after row 200
+                        ()
+                    elif i = 300 then
+                        // Text sentinel and float in integer column after row 200
+                        ws.Cell(rowIdx, 3).Value <- "N/A"
+                        ws.Cell(rowIdx, 4).Value <- "invalid"
+                    else
+                        ws.Cell(rowIdx, 3).Value <- 20
+                        ws.Cell(rowIdx, 4).Value <- 500.75
+                wb.SaveAs(xlsxPath)
+
+            let connDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "LargeExcel"
+                  Kind = ConnectorKind.Excel
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = xlsxPath |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let! regResp = Handlers.dispatch (registerConnectionRequest "reg-xlsx" connDef)
+            Assert.True(regResp.Error.IsNone)
+            Handlers.waitForPendingGeneration ()
+
+            let docUri = Path.Combine(tmp, "large_excel_test.fsqnb")
+            let linqCode = """
+query {
+    for r in Connections.excel.LargeExcel.Data do
+    where (r.Id > 220)
+    select r
+}"""
+            let evalLinq = notebookCellRequest "eval-xlsx-linq" linqCode docUri
+            let! respLinq = Handlers.dispatch evalLinq
+            Assert.True(respLinq.Error.IsNone, (match respLinq.Error with Some e -> e.Message | None -> ""))
+            let envLinq = JsonSerializer.Deserialize<ResultEnvelope>(respLinq.Result.Value.GetRawText(), Serialization.options)
+            Assert.Equal(ResultKind.Table, envLinq.Kind)
+            Assert.Equal(500, envLinq.Rows.Length)
+            Assert.True(envLinq.IsTruncated)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
+
+
+
+[<Fact>]
+let ``evaluating a SQLite table with >100,000 rows and messy values past row 200 projects to ResultKind.Table`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-large-sqlite-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let dbPath = Path.Combine(tmp, "big_store.db")
+            do
+                use conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}")
+                conn.Open()
+                use create = conn.CreateCommand()
+                create.CommandText <-
+                    "create table Orders (Id INTEGER, Customer TEXT, Quantity INTEGER, Amount NUMERIC, Active BOOLEAN, OrderDate DATETIME)"
+                create.ExecuteNonQuery() |> ignore
+                use tx = conn.BeginTransaction()
+                use insert = conn.CreateCommand()
+                insert.Transaction <- tx
+                insert.CommandText <- "insert into Orders values ($id, $c, $q, $a, $act, $d)"
+                let ps =
+                    [| "$id"; "$c"; "$q"; "$a"; "$act"; "$d" |]
+                    |> Array.map (fun n -> insert.Parameters.Add(n, Microsoft.Data.Sqlite.SqliteType.Text))
+                let setRow (values: obj array) =
+                    for k = 0 to values.Length - 1 do
+                        ps.[k].Value <- (if isNull values.[k] then box DBNull.Value else values.[k])
+                for i = 1 to 105_000 do
+                    if i <= 200 then setRow [| box i; box $"C_{i}"; box 3; box 199.90; box 1; box "2026-03-01" |]
+                    elif i % 1000 = 0 then setRow [| box i; box $"C_{i}"; null; null; null; null |]
+                    elif i % 1000 = 1 then setRow [| box i; box $"C_{i}"; box "N/A"; box "-"; box "null"; box "#N/A" |]
+                    elif i % 1000 = 2 then setRow [| box i; box $"C_{i}"; box 4.7; box "350,75"; box "yes"; box "invalid" |]
+                    else setRow [| box i; box $"C_{i}"; box 2; box 120.00; box 0; box "2026-03-10" |]
+                    insert.ExecuteNonQuery() |> ignore
+                tx.Commit()
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
+            let connDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "BigStore"
+                  Kind = ConnectorKind.Sqlite
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = dbPath |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let! regResp = Handlers.dispatch (registerConnectionRequest "reg-big-sqlite" connDef)
+            Assert.True(regResp.Error.IsNone)
+            Handlers.waitForPendingGeneration ()
+
+            let docUri = Path.Combine(tmp, "big_sqlite_test.fsqnb")
+
+            // 1. Direct table reference over all 105,000 rows
+            let! respDirect = Handlers.dispatch (notebookCellRequest "eval-big-sqlite-direct" "Connections.sql.BigStore.Orders" docUri)
+            Assert.True(respDirect.Error.IsNone, (match respDirect.Error with Some e -> e.Message | None -> ""))
+            let envDirect = JsonSerializer.Deserialize<ResultEnvelope>(respDirect.Result.Value.GetRawText(), Serialization.options)
+            Assert.True((envDirect.Kind = ResultKind.Table), $"Expected Table but got {envDirect.Kind}: {envDirect.DisplayText}")
+            Assert.Equal(500, envDirect.Rows.Length)
+            Assert.True(envDirect.IsTruncated)
+
+            // 2. LINQ query (pushdown) projecting an anonymous record
+            let linqCode = """
+query {
+    for o in Connections.sql.BigStore.Orders do
+    where (o.Id > 104_000)
+    select {| Id = o.Id; Quantity = o.Quantity; Amount = o.Amount; Active = o.Active |}
+}"""
+            let! respLinq = Handlers.dispatch (notebookCellRequest "eval-big-sqlite-linq" linqCode docUri)
+            Assert.True(respLinq.Error.IsNone, (match respLinq.Error with Some e -> e.Message | None -> ""))
+            let envLinq = JsonSerializer.Deserialize<ResultEnvelope>(respLinq.Result.Value.GetRawText(), Serialization.options)
+            Assert.True((envLinq.Kind = ResultKind.Table), $"Expected Table but got {envLinq.Kind}: {envLinq.DisplayText}")
+            Assert.Equal(500, envLinq.Rows.Length)
+            Assert.True(envLinq.IsTruncated)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
+[<Fact>]
+let ``connections registered with relative file paths resolve against the workspace root and evaluate to tables`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-relative-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(Path.Combine(tmp, "data")) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            File.WriteAllText(Path.Combine(tmp, "data", "people.csv"), "Id,Name\n1,Alice\n2,Bob\n3,Carol\n")
+            do
+                use conn = new Microsoft.Data.Sqlite.SqliteConnection($"""Data Source={Path.Combine(tmp, "data", "items.db")}""")
+                conn.Open()
+                use cmd = conn.CreateCommand()
+                cmd.CommandText <- "create table Items (Id INTEGER, Label TEXT); insert into Items values (1, 'a'), (2, 'b');"
+                cmd.ExecuteNonQuery() |> ignore
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
+            let csvDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "RelPeople"
+                  Kind = ConnectorKind.Csv
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = "data/people.csv" |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+            let dbDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "RelItems"
+                  Kind = ConnectorKind.Sqlite
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = "./data/items.db" |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let! r1 = Handlers.dispatch (registerConnectionRequest "reg-rel-csv" csvDef)
+            Assert.True(r1.Error.IsNone)
+            let! r2 = Handlers.dispatch (registerConnectionRequest "reg-rel-db" dbDef)
+            Assert.True(r2.Error.IsNone)
+            Handlers.waitForPendingGeneration ()
+
+            // The relative path is persisted as-is (portable workspace.json)
+            let persisted = Workspace.readConnections tmp |> List.find (fun c -> c.Name = "RelPeople")
+            Assert.Contains("data/people.csv", persisted.Configuration.GetRawText())
+
+            let docUri = Path.Combine(tmp, "relative_test.fsqnb")
+
+            let! respCsv = Handlers.dispatch (notebookCellRequest "eval-rel-csv" "Connections.csv.RelPeople" docUri)
+            Assert.True(respCsv.Error.IsNone, (match respCsv.Error with Some e -> e.Message | None -> ""))
+            let envCsv = JsonSerializer.Deserialize<ResultEnvelope>(respCsv.Result.Value.GetRawText(), Serialization.options)
+            Assert.True((envCsv.Kind = ResultKind.Table), $"Expected Table but got {envCsv.Kind}: {envCsv.DisplayText}")
+            Assert.Equal(3, envCsv.Rows.Length)
+
+            let! respDb = Handlers.dispatch (notebookCellRequest "eval-rel-db" "Connections.sql.RelItems.Items" docUri)
+            Assert.True(respDb.Error.IsNone, (match respDb.Error with Some e -> e.Message | None -> ""))
+            let envDb = JsonSerializer.Deserialize<ResultEnvelope>(respDb.Result.Value.GetRawText(), Serialization.options)
+            Assert.True((envDb.Kind = ResultKind.Table), $"Expected Table but got {envDb.Kind}: {envDb.DisplayText}")
+            Assert.Equal(2, envDb.Rows.Length)
+
+            // No stray database was created relative to the worker's transient working directory
+            Assert.False(File.Exists(Path.Combine(Directory.GetCurrentDirectory(), "data", "items.db")))
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
+[<Fact>]
+let ``evaluating a cell with ResultKind.toRawSql renders the generated query as text before database execution`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-rawsql-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tmp) |> ignore
+        Handlers.setWorkspaceDirForTests (Some tmp)
+
+        try
+            let dbPath = Path.Combine(tmp, "store.db")
+            do
+                use c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=false")
+                c.Open()
+                use cmd = c.CreateCommand()
+                cmd.CommandText <- "CREATE TABLE Items (Id INTEGER PRIMARY KEY, Name TEXT, Price NUMERIC); INSERT INTO Items VALUES (1, 'Widget', 19.99);"
+                cmd.ExecuteNonQuery() |> ignore
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
+            let dbDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "RawSqlDb"
+                  Kind = ConnectorKind.Sqlite
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = dbPath |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let! r = Handlers.dispatch (registerConnectionRequest "reg-rawsql-db" dbDef)
+            Assert.True(r.Error.IsNone)
+            Handlers.waitForPendingGeneration ()
+
+            let docUri = Path.Combine(tmp, "rawsql_test.fsqnb")
+
+            // Evaluate with ResultKind.toRawSql
+            let cellSource =
+                "query {\n" +
+                "    for item in Connections.sql.RawSqlDb.Items do\n" +
+                "    where (item.Price > 10.0M)\n" +
+                "    select item.Name\n" +
+                "}\n" +
+                "|> ResultKind.toRawSql"
+
+            let! resp = Handlers.dispatch (notebookCellRequest "eval-rawsql" cellSource docUri)
+            Assert.True(resp.Error.IsNone, (match resp.Error with Some e -> e.Message | None -> ""))
+            let env = JsonSerializer.Deserialize<ResultEnvelope>(resp.Result.Value.GetRawText(), Serialization.options)
+
+            Assert.Equal(ResultKind.Text, env.Kind)
+            Assert.True(env.DisplayText.IsSome)
+            let text = env.DisplayText.Value
+            Assert.Contains("SELECT", text)
+            Assert.Contains("Name", text)
+            Assert.Contains("FROM Items", text)
+            Assert.Contains("-- Parameters:", text)
+            Assert.Contains("@p0 = 10", text)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
+[<Fact>]
+let ``workspace/autoImportDataSources creates data_sources and discovers files automatically`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-autoimport-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tmp) |> ignore
+        Handlers.setWorkspaceDirForTests (Some tmp)
+
+        try
+            let escapedTmp = tmp.Replace("\\", "\\\\")
+
+            // 1. First run: folder does not exist yet
+            let req1: WorkerRequestFrame =
+                { Id = "auto-1"
+                  Method = "workspace/autoImportDataSources"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+            let! res1 = Handlers.dispatch req1
+            Assert.True(res1.Error.IsNone, (match res1.Error with Some e -> e.Message | None -> ""))
+            Assert.True(res1.Result.IsSome)
+
+            let r1 = res1.Result.Value
+            Assert.True(r1.GetProperty("folderCreated").GetBoolean())
+            Assert.Equal(0, r1.GetProperty("foundFilesCount").GetInt32())
+            Assert.Equal(0, r1.GetProperty("importedCount").GetInt32())
+
+            let dataSourcesDir = Path.Combine(tmp, "data_sources")
+            Assert.True(Directory.Exists dataSourcesDir)
+            Assert.True(File.Exists(Path.Combine(dataSourcesDir, "README.txt")))
+
+            // 2. Add files to data_sources: a CSV and a SQLite DB
+            let csvPath = Path.Combine(dataSourcesDir, "orders_feed.csv")
+            File.WriteAllText(csvPath, "OrderId,Product,Amount\n1,Alpha,99.5\n2,Beta,49.0\n")
+
+            let dbPath = Path.Combine(dataSourcesDir, "catalog_store.db")
+            do
+                use c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=false")
+                c.Open()
+                use cmd = c.CreateCommand()
+                cmd.CommandText <- "CREATE TABLE Items (Id INTEGER PRIMARY KEY, SKU TEXT); INSERT INTO Items VALUES (1, 'SKU-001');"
+                cmd.ExecuteNonQuery() |> ignore
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
+            // 3. Run auto-import again
+            let req2: WorkerRequestFrame =
+                { Id = "auto-2"
+                  Method = "workspace/autoImportDataSources"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+            let! res2 = Handlers.dispatch req2
+            Assert.True(res2.Error.IsNone, (match res2.Error with Some e -> e.Message | None -> ""))
+            let r2 = res2.Result.Value
+            Assert.False(r2.GetProperty("folderCreated").GetBoolean())
+            Assert.Equal(2, r2.GetProperty("foundFilesCount").GetInt32())
+            Assert.Equal(2, r2.GetProperty("importedCount").GetInt32())
+
+            // Verify connections are registered in workspace.json
+            let conns = Workspace.readConnections tmp
+            Assert.Equal(2, conns.Length)
+            let names = conns |> List.map (fun c -> c.Name) |> Set.ofList
+            Assert.Contains("OrdersFeed", names)
+            Assert.Contains("CatalogStore", names)
+
+            // Verify relative paths
+            let orderConn = conns |> List.find (fun c -> c.Name = "OrdersFeed")
+            let catConn = conns |> List.find (fun c -> c.Name = "CatalogStore")
+            Assert.Equal(ConnectorKind("Csv"), orderConn.Kind)
+            Assert.Equal(ConnectorKind("Sqlite"), catConn.Kind)
+            Assert.Equal("data_sources/orders_feed.csv", orderConn.Configuration.GetProperty("filePath").GetString())
+            Assert.Equal("data_sources/catalog_store.db", catConn.Configuration.GetProperty("filePath").GetString())
+
+            // 4. Re-running without adding new files skips already registered files
+            let req3: WorkerRequestFrame =
+                { Id = "auto-3"
+                  Method = "workspace/autoImportDataSources"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+            let! res3 = Handlers.dispatch req3
+            Assert.True(res3.Error.IsNone)
+            let r3 = res3.Result.Value
+            Assert.Equal(0, r3.GetProperty("importedCount").GetInt32())
+            Assert.Equal(2, r3.GetProperty("skippedCount").GetInt32())
+            Assert.Equal(0, r3.GetProperty("removedCount").GetInt32())
+
+            // 5. Delete orders_feed.csv from data_sources and verify auto-removal
+            let mutable deleted = false
+            let mutable retries = 0
+            while not deleted && retries < 30 do
+                try
+                    File.Delete csvPath
+                    deleted <- true
+                with :? System.IO.IOException ->
+                    do! Task.Delay 100
+                    retries <- retries + 1
+            Assert.True(deleted, "Expected orders_feed.csv to be deleted")
+
+            let req4: WorkerRequestFrame =
+                { Id = "auto-4"
+                  Method = "workspace/autoImportDataSources"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+            let! res4 = Handlers.dispatch req4
+            Assert.True(res4.Error.IsNone)
+            let r4 = res4.Result.Value
+            Assert.Equal(1, r4.GetProperty("removedCount").GetInt32())
+
+            let connsAfterDelete = Workspace.readConnections tmp
+            Assert.Equal(1, connsAfterDelete.Length)
+            Assert.Equal("CatalogStore", connsAfterDelete.[0].Name)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
     }

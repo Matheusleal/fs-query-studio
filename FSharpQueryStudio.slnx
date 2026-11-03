@@ -5,6 +5,13 @@
     <File Path="docs/fs-studio-plan.md" />
   </Folder>
   <Folder Name="/src/">
+    <Project Path="src/FSharpQueryStudio.Connectors.Abstractions/FSharpQueryStudio.Connectors.Abstractions.fsproj" />
+    <Project Path="src/FSharpQueryStudio.Connectors.Sqlite/FSharpQueryStudio.Connectors.Sqlite.fsproj" />
+    <Project Path="src/FSharpQueryStudio.Connectors.SqlServer/FSharpQueryStudio.Connectors.SqlServer.fsproj" />
+    <Project Path="src/FSharpQueryStudio.Connectors.PostgreSql/FSharpQueryStudio.Connectors.PostgreSql.fsproj" />
+    <Project Path="src/FSharpQueryStudio.Connectors.Csv/FSharpQueryStudio.Connectors.Csv.fsproj" />
+    <Project Path="src/FSharpQueryStudio.Connectors.Excel/FSharpQueryStudio.Connectors.Excel.fsproj" />
+    <Project Path="src/FSharpQueryStudio.Connectors.Rest/FSharpQueryStudio.Connectors.Rest.fsproj" />
     <Project Path="src/FSharpQueryStudio.Connectors/FSharpQueryStudio.Connectors.fsproj" />
     <Project Path="src/FSharpQueryStudio.Execution/FSharpQueryStudio.Execution.fsproj" />
     <Project Path="src/FSharpQueryStudio.Fsac/FSharpQueryStudio.Fsac.fsproj" />

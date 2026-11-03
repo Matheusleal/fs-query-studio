@@ -76,4 +76,39 @@ describe("registerSecretBridge", () => {
     const resBad = await handler("entityMapping/status", { status: "invalid" });
     expect(resBad.error?.code).toBe("host/badParams");
   });
+
+  it("handles staging/progress notifications and calls onStagingProgress callback", async () => {
+    let handler!: (m: string, p: unknown) => Promise<{ result?: unknown; error?: { code: string; message: string } }>;
+    const progressEvents: unknown[] = [];
+    registerSecretBridge({
+      client: { setHostRequestHandler: (fn) => (handler = fn) },
+      secrets: { get: async () => undefined },
+      onStagingProgress: (ev) => progressEvents.push(ev),
+    });
+
+    const resReading = await handler("staging/progress", {
+      phase: "Reading",
+      tableName: "Customers",
+      currentIndex: 1,
+      totalCount: 3,
+      message: "Reading customers.csv...",
+    });
+    expect(resReading).toEqual({ result: { acknowledged: true } });
+
+    const resWriting = await handler("staging/progress", {
+      phase: "Writing",
+      tableName: "Customers",
+      rowCount: 5000,
+      currentIndex: 1,
+      totalCount: 3,
+    });
+    expect(resWriting).toEqual({ result: { acknowledged: true } });
+
+    expect(progressEvents).toHaveLength(2);
+    expect(progressEvents[0]).toMatchObject({ phase: "Reading", tableName: "Customers" });
+    expect(progressEvents[1]).toMatchObject({ phase: "Writing", rowCount: 5000 });
+
+    const resBad = await handler("staging/progress", {});
+    expect(resBad.error?.code).toBe("host/badParams");
+  });
 });

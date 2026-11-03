@@ -7,6 +7,14 @@ open System.Threading.Tasks
 open Npgsql
 open FSharpQueryStudio.Protocol
 
+[<AutoOpen>]
+module PostgreSqlConnectorExtensions =
+    type ConnectorKind with
+        static member PostgreSql = ConnectorKind("PostgreSql")
+
+    type ConnectorCategory with
+        static member Sql = ConnectorCategory("sql", "Db", "FSharpQueryStudio.Connectors.Connections.SqlCategory")
+
 /// PostgreSQL connector — Section 10, same capability shape as
 /// `SqliteConnector`: connection, parameterized commands, reader-based
 /// paging, schema discovery.

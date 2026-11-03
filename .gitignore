@@ -440,6 +440,7 @@ FodyWeavers.xsd
 .history/
 
 # Built Visual Studio Code Extensions
+.vite/
 *.vsix
 
 # Windows Installer files from build outputs
@@ -453,4 +454,5 @@ FodyWeavers.xsd
 editors/vscode/node_modules/
 editors/vscode/dist/
 editors/vscode/out/
-editors/vscode/*.vsix
+editors/vscode/.vite/
+*.vsix

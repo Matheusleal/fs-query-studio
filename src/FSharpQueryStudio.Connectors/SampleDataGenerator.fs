@@ -4,16 +4,21 @@ open System
 open System.IO
 open System.Text.Encodings.Web
 open System.Text.Json
+open ClosedXML.Excel
 open Microsoft.Data.Sqlite
 open FSharpQueryStudio.Protocol
 
 module SampleDataGenerator =
+
+    let [<Literal>] DefaultGitHubRestUrl = "https://api.github.com/orgs/fsprojects/repos?per_page=8"
 
     type SampleFilesResult =
         { SqlitePath: string
           Sqlite2Path: string
           CsvPath: string
           Csv2Path: string
+          ExcelPath: string
+          RestUrl: string
           NotebookPath: string
           NotebookPtPath: string }
 
@@ -234,6 +239,8 @@ INSERT OR IGNORE INTO Suppliers (Id, CompanyName, ContactEmail, Country, Rating)
 | **`InventoryStore`** | SQLite | Warehouse inventory & logistics | `Warehouses`, `StockLevels`, `Suppliers` |
 | **`SalesFeed`** | CSV | Flat-file transaction export | `Date`, `OrderId`, `Customer`, `Product`, `Category`, `TotalAmount`, `Status` |
 | **`CustomersFeed`** | CSV | Flat-file loyalty & satisfaction feed | `CustomerId`, `CustomerName`, `LoyaltyTier`, `TotalSpent`, `Score`, `Feedback` |
+| **`RegionalTargets`** | Excel (`.xlsx`) | Multi-sheet regional revenue targets & budgets | `RegionalTargets`, `QuarterlyBudget` |
+| **`GitHubFSharp`** | REST (`https://`) | Secure GitHub REST API (`fsprojects` repositories) | `name`, `full_name`, `language`, `stargazers_count`, `forks_count`, `html_url` |
 
 ---
 
@@ -413,6 +420,27 @@ query {
 """
 
                 mkMarkdown """
+### ⚡ Pushdown & Multi-Property Joins with SQL Preview (`toRawSql`)
+
+F# Query Studio compiles multi-property joins `on ((a.param1, a.param2) = (b.param1, b.param2))` directly to index-backed SQL `_t0.col1 = _t1.col1 AND _t0.col2 = _t1.col2`, avoiding Cartesian products and excessive memory usage.
+Use `ResultKind.toRawSql` to preview the pushdown SQL before or alongside execution!
+"""
+
+                mkCode """
+// 7.1 Preview generated pushdown SQL for relational joins before execution
+let complexJoinQuery =
+    query {
+        for o in Connections.sql.SampleStore.Orders do
+        join i in Connections.sql.SampleStore.OrderItems on (o.Id = i.OrderId)
+        where (o.TotalAmount >= 100.0f)
+        select {| OrderId = o.Id; ItemId = i.Id; Amount = o.TotalAmount |}
+    }
+
+printfn "Pushdown SQL Query:\n%s" (ResultKind.toRawSql complexJoinQuery)
+complexJoinQuery
+"""
+
+                mkMarkdown """
 ## 8. 🛡️ Safe Parameterized SQL (`SampleStore`)
 
 For complex database-specific queries, use `Connections.sql.<Conn>.rawQuery` with parameterized inputs to guard against SQL injection while maintaining raw database performance.
@@ -436,23 +464,73 @@ Connections.sql.SampleStore.rawQuery(catalogSql, [ "minPrice", box 100.0 ])
 """
 
                 mkMarkdown """
-## 9. 🌐 Cross-Database & Cross-Kind Overview: Multi-Source Pipeline
+## 9. 📊 Excel Workbook (`.xlsx`): Regional Revenue Targets (`RegionalTargets`)
 
-Because F# Query Studio executes queries in an integrated F# Interactive session, you can aggregate metadata and counts across all 4 sources simultaneously.
+Excel workbooks (`.xlsx`) are inspected per worksheet and exposed with strongly-typed sheet accessors via `Connections.excel.RegionalTargets`. You can query individual sheets (`RegionalTargets` or `QuarterlyBudget`) directly with LINQ!
 """
 
                 mkCode """
-// 9. Comprehensive summary across all 4 registered data sources
+// 9. Query the RegionalTargets worksheet from the Excel (.xlsx) workbook
+query {
+    for row in Connections.excel.RegionalTargets.RegionalTargets do
+    where (row.GrowthRate >= 10.0M)
+    sortByDescending row.AchievedRevenue
+    select {|
+        Region = row.Region
+        Country = row.Country
+        LeadManager = row.LeadManager
+        AnnualTarget = row.AnnualTarget
+        AchievedRevenue = row.AchievedRevenue
+        GrowthRatePct = row.GrowthRate
+    |}
+}
+"""
+
+                mkMarkdown """
+## 10. 🔒 Secure GitHub REST API (`https://`): F# Community Repositories (`GitHubFSharp`)
+
+REST/JSON endpoints over HTTPS are automatically sampled and mapped into strongly-typed F# records. Here we query public F# repositories from `https://api.github.com/orgs/fsprojects/repos` via `Connections.rest.GitHubFSharp`.
+"""
+
+                mkCode """
+// 10. Query public F# repositories from GitHub HTTPS REST API via Connections.rest
+query {
+    for repo in Connections.rest.GitHubFSharp do
+    sortByDescending repo.stargazers_count
+    select {|
+        Repository = repo.full_name
+        Language = repo.language
+        Stars = repo.stargazers_count
+        Forks = repo.forks_count
+        OpenIssues = repo.open_issues_count
+        DefaultBranch = repo.default_branch
+        Url = repo.html_url
+    |}
+}
+"""
+
+                mkMarkdown """
+## 11. 🌐 Cross-Database & Cross-Kind Overview: 6-Source Pipeline
+
+Because F# Query Studio executes queries in an integrated F# Interactive session, you can aggregate metadata and counts across all 6 sources (`SQLite`, `CSV`, `Excel`, and `REST/JSON`) simultaneously.
+"""
+
+                mkCode """
+// 11. Comprehensive summary across all 6 registered data sources
 let sampleStoreOrders = Connections.sql.SampleStore.Orders |> Seq.length
 let inventoryWarehouses = Connections.sql.InventoryStore.Warehouses |> Seq.length
 let salesCount = Connections.csv.SalesFeed |> Seq.length
 let loyaltyCount = Connections.csv.CustomersFeed |> Seq.length
+let excelTargetsCount = Connections.excel.RegionalTargets.RegionalTargets |> Seq.length
+let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
 
 [
-    {| Source = "SampleStore";    Kind = "SQLite (Relational)"; RecordCount = sampleStoreOrders; PrimaryEntity = "Orders" |}
-    {| Source = "InventoryStore"; Kind = "SQLite (Relational)"; RecordCount = inventoryWarehouses; PrimaryEntity = "Warehouses" |}
-    {| Source = "SalesFeed";      Kind = "CSV (Flat-File)";     RecordCount = salesCount; PrimaryEntity = "Transactions" |}
-    {| Source = "CustomersFeed";  Kind = "CSV (Flat-File)";     RecordCount = loyaltyCount; PrimaryEntity = "Loyalty Profiles" |}
+    {| Source = "SampleStore";     Kind = "SQLite (Relational)"; RecordCount = sampleStoreOrders;   PrimaryEntity = "Orders" |}
+    {| Source = "InventoryStore";  Kind = "SQLite (Relational)"; RecordCount = inventoryWarehouses; PrimaryEntity = "Warehouses" |}
+    {| Source = "SalesFeed";       Kind = "CSV (Flat-File)";     RecordCount = salesCount;          PrimaryEntity = "Transactions" |}
+    {| Source = "CustomersFeed";   Kind = "CSV (Flat-File)";     RecordCount = loyaltyCount;        PrimaryEntity = "Loyalty Profiles" |}
+    {| Source = "RegionalTargets"; Kind = "Excel (.xlsx)";       RecordCount = excelTargetsCount;   PrimaryEntity = "RegionalTargets" |}
+    {| Source = "GitHubFSharp";    Kind = "REST JSON (HTTPS)";   RecordCount = githubReposCount;    PrimaryEntity = "GitHub Repositories" |}
 ]
 """
 
@@ -486,6 +564,8 @@ let loyaltyCount = Connections.csv.CustomersFeed |> Seq.length
 | **`InventoryStore`** | SQLite | Gestão de armazéns e logística | `Warehouses`, `StockLevels`, `Suppliers` |
 | **`SalesFeed`** | CSV | Feed diário de transações de vendas | `Date`, `OrderId`, `Customer`, `Product`, `Category`, `TotalAmount`, `Status` |
 | **`CustomersFeed`** | CSV | Feed de fidelidade e avaliação de clientes | `CustomerId`, `CustomerName`, `LoyaltyTier`, `TotalSpent`, `Score`, `Feedback` |
+| **`RegionalTargets`** | Excel (`.xlsx`) | Planilha multi-abas de metas regionais e orçamento | `RegionalTargets`, `QuarterlyBudget` |
+| **`GitHubFSharp`** | REST (`https://`) | API REST segura do GitHub (`fsprojects` repos) | `name`, `full_name`, `language`, `stargazers_count`, `forks_count`, `html_url` |
 
 ---
 
@@ -665,6 +745,27 @@ query {
 """
 
                 mkMarkdown """
+### ⚡ Pushdown e Joins com Múltiplas Propriedades com Visualização SQL (`toRawSql`)
+
+O F# Query Studio traduz joins com múltiplas propriedades no formato `on ((a.param1, a.param2) = (b.param1, b.param2))` diretamente para SQL com índices (`_t0.col1 = _t1.col1 AND _t0.col2 = _t1.col2`), evitando produtos cartesianos e consumo excessivo de memória RAM.
+Use `ResultKind.toRawSql` para visualizar a query SQL gerada antes de enviá-la ao banco de dados!
+"""
+
+                mkCode """
+// 7.1 Inspeciona o SQL gerado com pushdown para joins antes da execução
+let consultaComplexa =
+    query {
+        for o in Connections.sql.SampleStore.Orders do
+        join i in Connections.sql.SampleStore.OrderItems on (o.Id = i.OrderId)
+        where (o.TotalAmount >= 100.0f)
+        select {| PedidoId = o.Id; ItemId = i.Id; ValorTotal = o.TotalAmount |}
+    }
+
+printfn "SQL Gerado pelo Pushdown:\n%s" (ResultKind.toRawSql consultaComplexa)
+consultaComplexa
+"""
+
+                mkMarkdown """
 ## 8. 🛡️ Consultas SQL Parametrizadas Seguras (`SampleStore`)
 
 Para queries complexas ou instruções SQL nativas, use `Connections.sql.<Conn>.rawQuery` com passagem segura de parâmetros nomeados para evitar injeção de SQL.
@@ -688,23 +789,73 @@ Connections.sql.SampleStore.rawQuery(sqlCatalogo, [ "precoMinimo", box 100.0 ])
 """
 
                 mkMarkdown """
-## 9. 🌐 Visão Consolidada Multi-Fontes: SQLite + CSV
+## 9. 📊 Planilha Excel (`.xlsx`): Metas Regionais de Receita (`RegionalTargets`)
 
-Como as consultas no F# Query Studio rodam em uma sessão FSI unificada, você pode cruzar e comparar dados das 4 fontes simultaneamente:
+Arquivos Excel (`.xlsx`) têm suas abas (worksheets) inspecionadas e tipadas automaticamente via `Connections.excel.RegionalTargets`. Você pode consultar cada aba (`RegionalTargets` ou `QuarterlyBudget`) diretamente com LINQ!
 """
 
                 mkCode """
-// 9. Resumo consolidado das 4 fontes de dados registradas
+// 9. Consulta a aba RegionalTargets da planilha Excel (.xlsx) diretamente via Connections.excel
+query {
+    for row in Connections.excel.RegionalTargets.RegionalTargets do
+    where (row.GrowthRate >= 10.0M)
+    sortByDescending row.AchievedRevenue
+    select {|
+        Regiao = row.Region
+        Pais = row.Country
+        Responsavel = row.LeadManager
+        MetaAnual = row.AnnualTarget
+        ReceitaRealizada = row.AchievedRevenue
+        TaxaCrescimentoPct = row.GrowthRate
+    |}
+}
+"""
+
+                mkMarkdown """
+## 10. 🔒 API REST Segura do GitHub (`https://`): Repositórios da Comunidade F# (`GitHubFSharp`)
+
+Endpoints REST/JSON em páginas seguras (`https://`) são inspecionados e mapeados em registros F# fortemente tipados. Aqui consultamos os repositórios públicos de F# em `https://api.github.com/orgs/fsprojects/repos` via `Connections.rest.GitHubFSharp`.
+"""
+
+                mkCode """
+// 10. Consulta repositórios públicos da comunidade F# via API HTTPS do GitHub em Connections.rest
+query {
+    for repo in Connections.rest.GitHubFSharp do
+    sortByDescending repo.stargazers_count
+    select {|
+        Repositorio = repo.full_name
+        Linguagem = repo.language
+        Estrelas = repo.stargazers_count
+        Forks = repo.forks_count
+        IssuesAbertas = repo.open_issues_count
+        BranchPadrao = repo.default_branch
+        Url = repo.html_url
+    |}
+}
+"""
+
+                mkMarkdown """
+## 11. 🌐 Visão Consolidada Multi-Fontes: SQLite + CSV + Excel + REST
+
+Como as consultas no F# Query Studio rodam em uma sessão FSI unificada, você pode cruzar e comparar dados das 6 fontes simultaneamente:
+"""
+
+                mkCode """
+// 11. Resumo consolidado das 6 fontes de dados registradas
 let sampleStoreOrders = Connections.sql.SampleStore.Orders |> Seq.length
 let inventoryWarehouses = Connections.sql.InventoryStore.Warehouses |> Seq.length
 let salesCount = Connections.csv.SalesFeed |> Seq.length
 let loyaltyCount = Connections.csv.CustomersFeed |> Seq.length
+let excelTargetsCount = Connections.excel.RegionalTargets.RegionalTargets |> Seq.length
+let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
 
 [
-    {| Fonte = "SampleStore";    Tipo = "SQLite (Relacional)"; TotalRegistros = sampleStoreOrders; EntidadePrincipal = "Orders" |}
-    {| Fonte = "InventoryStore"; Tipo = "SQLite (Relacional)"; TotalRegistros = inventoryWarehouses; EntidadePrincipal = "Warehouses" |}
-    {| Fonte = "SalesFeed";      Tipo = "CSV (Arquivo Plano)"; TotalRegistros = salesCount; EntidadePrincipal = "Transações" |}
-    {| Fonte = "CustomersFeed";  Tipo = "CSV (Arquivo Plano)"; TotalRegistros = loyaltyCount; EntidadePrincipal = "Perfis de Fidelidade" |}
+    {| Fonte = "SampleStore";     Tipo = "SQLite (Relacional)"; TotalRegistros = sampleStoreOrders;   EntidadePrincipal = "Orders" |}
+    {| Fonte = "InventoryStore";  Tipo = "SQLite (Relacional)"; TotalRegistros = inventoryWarehouses; EntidadePrincipal = "Warehouses" |}
+    {| Fonte = "SalesFeed";       Tipo = "CSV (Arquivo Plano)"; TotalRegistros = salesCount;          EntidadePrincipal = "Transações" |}
+    {| Fonte = "CustomersFeed";   Tipo = "CSV (Arquivo Plano)"; TotalRegistros = loyaltyCount;        EntidadePrincipal = "Perfis de Fidelidade" |}
+    {| Fonte = "RegionalTargets"; Tipo = "Excel (.xlsx)";       TotalRegistros = excelTargetsCount;   EntidadePrincipal = "RegionalTargets" |}
+    {| Fonte = "GitHubFSharp";    Tipo = "REST JSON (HTTPS)";   TotalRegistros = githubReposCount;    EntidadePrincipal = "Repositórios GitHub" |}
 ]
 """
 
@@ -772,6 +923,57 @@ let loyaltyCount = Connections.csv.CustomersFeed |> Seq.length
 
         File.WriteAllText(filePath, sampleCustomersCsvContent)
 
+    let createSampleExcelWorkbook (filePath: string) : unit =
+        let dir = Path.GetDirectoryName(filePath)
+        if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
+            Directory.CreateDirectory(dir) |> ignore
+
+        use workbook = new XLWorkbook()
+
+        let targetsSheet = workbook.Worksheets.Add("RegionalTargets")
+        let targetHeaders = [| "Region"; "Country"; "AnnualTarget"; "AchievedRevenue"; "GrowthRate"; "LeadManager" |]
+        for colIdx in 0 .. targetHeaders.Length - 1 do
+            targetsSheet.Cell(1, colIdx + 1).Value <- targetHeaders.[colIdx]
+
+        let targetRows: (string * string * decimal * decimal * decimal * string) array =
+            [| ("LATAM", "Brazil", 850000.00M, 912400.50M, 14.5M, "Camila Rocha")
+               ("EMEA", "UK", 620000.00M, 645800.25M, 9.2M, "Oliver Grant")
+               ("NA", "USA", 1200000.00M, 1185000.75M, 11.8M, "Sarah Jenkins")
+               ("EMEA", "Spain", 410000.00M, 438900.10M, 12.4M, "Diego Morales")
+               ("APAC", "Japan", 530000.00M, 559200.40M, 10.6M, "Kenji Sato") |]
+
+        for rowIdx in 0 .. targetRows.Length - 1 do
+            let region, country, target, achieved, growth, manager = targetRows.[rowIdx]
+            let r = rowIdx + 2
+            targetsSheet.Cell(r, 1).Value <- region
+            targetsSheet.Cell(r, 2).Value <- country
+            targetsSheet.Cell(r, 3).Value <- target
+            targetsSheet.Cell(r, 4).Value <- achieved
+            targetsSheet.Cell(r, 5).Value <- growth
+            targetsSheet.Cell(r, 6).Value <- manager
+
+        let budgetSheet = workbook.Worksheets.Add("QuarterlyBudget")
+        let budgetHeaders = [| "Quarter"; "Department"; "AllocatedBudget"; "ActualSpend"; "Status" |]
+        for colIdx in 0 .. budgetHeaders.Length - 1 do
+            budgetSheet.Cell(1, colIdx + 1).Value <- budgetHeaders.[colIdx]
+
+        let budgetRows: (string * string * decimal * decimal * string) array =
+            [| ("2026-Q1", "Engineering", 320000.00M, 312500.00M, "On Track")
+               ("2026-Q1", "Cloud Infrastructure", 145000.00M, 141200.50M, "Optimized")
+               ("2026-Q2", "Data Analytics", 210000.00M, 198400.25M, "Under Budget")
+               ("2026-Q2", "Developer Relations", 95000.00M, 94100.75M, "On Track") |]
+
+        for rowIdx in 0 .. budgetRows.Length - 1 do
+            let quarter, dept, allocated, actual, status = budgetRows.[rowIdx]
+            let r = rowIdx + 2
+            budgetSheet.Cell(r, 1).Value <- quarter
+            budgetSheet.Cell(r, 2).Value <- dept
+            budgetSheet.Cell(r, 3).Value <- allocated
+            budgetSheet.Cell(r, 4).Value <- actual
+            budgetSheet.Cell(r, 5).Value <- status
+
+        workbook.SaveAs(filePath)
+
     let createSampleDemoNotebook (filePath: string) : unit =
         let dir = Path.GetDirectoryName(filePath)
         if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
@@ -795,6 +997,7 @@ let loyaltyCount = Connections.csv.CustomersFeed |> Seq.length
         let db2Path = Path.Combine(sampleDir, "inventory.db")
         let csvPath = Path.Combine(sampleDir, "sales_feed.csv")
         let csv2Path = Path.Combine(sampleDir, "customers_feed.csv")
+        let excelPath = Path.Combine(sampleDir, "regional_targets.xlsx")
         let notebookPath = Path.Combine(targetDir, "sample_demo.fsqnb")
         let notebookPtPath = Path.Combine(targetDir, "sample_demo_pt.fsqnb")
 
@@ -802,6 +1005,7 @@ let loyaltyCount = Connections.csv.CustomersFeed |> Seq.length
         createInventoryDatabase db2Path
         createSampleCsv csvPath
         createSampleCustomersCsv csv2Path
+        createSampleExcelWorkbook excelPath
         createSampleDemoNotebook notebookPath
         createSampleDemoNotebookPt notebookPtPath
 
@@ -809,5 +1013,7 @@ let loyaltyCount = Connections.csv.CustomersFeed |> Seq.length
           Sqlite2Path = db2Path
           CsvPath = csvPath
           Csv2Path = csv2Path
+          ExcelPath = excelPath
+          RestUrl = DefaultGitHubRestUrl
           NotebookPath = notebookPath
           NotebookPtPath = notebookPtPath }

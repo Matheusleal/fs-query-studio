@@ -4,6 +4,8 @@ import {
   type ConnectionDefinition,
   type ConnectionListResult,
   type ConnectionSchemaResult,
+  type ConnectorDescriptorDto,
+  type ConnectorListResult,
   type SchemaTable,
 } from "../protocol";
 import { SchemaCache } from "./schema-cache";
@@ -16,32 +18,50 @@ import {
   runAddConnection,
   runEditConnection,
   runRemoveConnection,
+  DEFAULT_CONNECTOR_DESCRIPTORS,
   type ConnectionUi,
 } from "./add";
 
-// `connectorKind` (not `kind`) — `vscode.QuickPickItem` reserves `kind` for
-// `QuickPickItemKind`, so a `kind: ConnectorKindName` field breaks the overload.
-const KIND_PICKS: Array<{ label: string; connectorKind: import("../protocol").ConnectorKindName }> = [
-  { label: "SQL Server", connectorKind: "SqlServer" },
-  { label: "PostgreSQL", connectorKind: "PostgreSql" },
-  { label: "SQLite", connectorKind: "Sqlite" },
-  { label: "CSV", connectorKind: "Csv" },
-  { label: "Excel", connectorKind: "Excel" },
-  { label: "REST (JSON)", connectorKind: "RestJson" },
-];
+let cachedDescriptors: ConnectorDescriptorDto[] | undefined;
+
+export async function getConnectorDescriptors(
+  getWorker: () => Promise<WorkerLike>,
+): Promise<ConnectorDescriptorDto[]> {
+  if (cachedDescriptors && cachedDescriptors.length > 0) {
+    return cachedDescriptors;
+  }
+  try {
+    const worker = await getWorker();
+    const frame = await worker.send({
+      id: newRequestId(),
+      method: "connector/list",
+      params: {},
+    });
+    if (frame.result && Array.isArray((frame.result as ConnectorListResult).connectors)) {
+      cachedDescriptors = (frame.result as ConnectorListResult).connectors;
+      return cachedDescriptors;
+    }
+  } catch {
+    // Fallback to defaults
+  }
+  return DEFAULT_CONNECTOR_DESCRIPTORS;
+}
 
 export interface ConnectionFeatureDeps {
   getWorker: () => Promise<WorkerLike>;
   secrets: vscode.SecretStorage;
   log: (line: string) => void;
+  isPaused?: () => boolean;
 }
 
 export interface ConnectionsApi {
   list(): Promise<ConnectionDefinition[]>;
+  connectors(): Promise<ConnectorDescriptorDto[]>;
   schema(id: string): Promise<SchemaTable[]>;
   addFromInput(input: ConnectionFormInput, existing?: ConnectionDefinition): Promise<void>;
   remove(id: string): Promise<void>;
 }
+
 
 export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
   disposable: vscode.Disposable;
@@ -57,6 +77,9 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
     getWorkspaceDir: getPrimaryWorkspaceDir,
   });
   const refresh = () => {
+    if (deps.isPaused?.()) {
+      return;
+    }
     schemaCache.clear();
     tree.refresh();
   };
@@ -80,12 +103,23 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
   };
 
   const ui: ConnectionUi = {
-    async pickKind() {
-      const picked = await vscode.window.showQuickPick(KIND_PICKS, {
+    async pickKind(descriptors) {
+      const list =
+        descriptors && descriptors.length > 0
+          ? descriptors
+          : await getConnectorDescriptors(deps.getWorker);
+      const items = list.map((d) => ({
+        label: `$(${d.icon || "database"}) ${d.displayName}`,
+        description: d.category,
+        connectorKind: d.kindId as import("../protocol").ConnectorKindName,
+        descriptor: d,
+      }));
+      const picked = await vscode.window.showQuickPick(items, {
         placeHolder: "Connector type",
       });
       return picked?.connectorKind;
     },
+
     async pickSqlServerAuth() {
       interface AuthPickItem extends vscode.QuickPickItem {
         authType: import("./add").SqlServerAuthType;
@@ -175,6 +209,7 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
     refresh,
     log: deps.log,
     getWorkspaceFolders,
+    getDescriptors: () => getConnectorDescriptors(deps.getWorker),
   };
 
   const view = vscode.window.registerTreeDataProvider("fsQueryStudioConnections", tree);
@@ -206,7 +241,11 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
       if (frame.error) throw new Error(frame.error.message);
       return (frame.result as ConnectionListResult).connections ?? [];
     },
+    async connectors() {
+      return getConnectorDescriptors(deps.getWorker);
+    },
     async schema(id) {
+
       const wsDir = getPrimaryWorkspaceDir();
       const params = wsDir ? { id, workspaceDir: wsDir } : { id };
       const frame = await send("connection/schema", params);

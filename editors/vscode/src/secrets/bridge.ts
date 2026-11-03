@@ -17,10 +17,22 @@ export interface HostRequestClient {
   ): void;
 }
 
+export interface StagingProgressEvent {
+  tableName?: string;
+  filePath?: string;
+  phase: "Reading" | "Writing" | "Indexing" | "Completed" | "Skipped" | "Failed";
+  rowCount?: number | null;
+  currentIndex?: number | null;
+  totalCount?: number | null;
+  elapsedMs?: number | null;
+  message?: string;
+}
+
 export function registerSecretBridge(deps: {
   client: HostRequestClient;
   secrets: SecretReader;
   onEntityMappingStatus?: (status: "started" | "completed" | "failed") => void;
+  onStagingProgress?: (event: StagingProgressEvent) => void;
 }): void {
   deps.client.setHostRequestHandler(async (method, params) => {
     if (method === "entityMapping/status") {
@@ -30,6 +42,14 @@ export function registerSecretBridge(deps: {
         return { result: { acknowledged: true } };
       }
       return { error: { code: "host/badParams", message: "status must be 'started', 'completed', or 'failed'" } };
+    }
+    if (method === "staging/progress") {
+      const event = params as StagingProgressEvent | null;
+      if (event && typeof event.phase === "string") {
+        deps.onStagingProgress?.(event);
+        return { result: { acknowledged: true } };
+      }
+      return { error: { code: "host/badParams", message: "staging/progress requires an event with 'phase'" } };
     }
     if (method !== "secret/get") {
       return { error: { code: "host/unknownMethod", message: `Unsupported host method: ${method}` } };

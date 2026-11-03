@@ -17,10 +17,14 @@ module Evaluation =
           Exception: exn option }
 
     let evaluate (session: FsiSession.Session) (source: string) : EvaluationOutcome =
+        System.Console.SetOut(session.Output)
+        System.Console.SetError(session.Errors)
+        System.Console.SetIn(new System.IO.StringReader(""))
         session.Output.GetStringBuilder().Clear() |> ignore
         session.Errors.GetStringBuilder().Clear() |> ignore
 
-        let result, diagnostics = session.Fsi.EvalInteractionNonThrowing(source)
+        let normalizedSource = if source.EndsWith("\n") then source else source + "\n"
+        let result, diagnostics = session.Fsi.EvalInteractionNonThrowing(normalizedSource)
 
         let value, exn =
             match result with

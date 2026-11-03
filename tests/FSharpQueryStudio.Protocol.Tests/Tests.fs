@@ -52,7 +52,7 @@ let ``ConnectionDefinition round-trips through JSON, including a None SecretRefe
     let original: ConnectionDefinition =
         { Id = System.Guid.Parse("11111111-1111-1111-1111-111111111111")
           Name = "Sales"
-          Kind = ConnectorKind.Sqlite
+          Kind = ConnectorKind("Sqlite")
           Configuration = JsonDocument.Parse("""{"filePath":"C:/data/sales.db"}""").RootElement
           SecretReference = None
           IsTrusted = true }
@@ -73,12 +73,12 @@ let ``ConnectionDefinition round-trips through JSON, including a None SecretRefe
 [<Fact>]
 let ``ConnectionDefinition round-trips a Some SecretReference and every ConnectorKind`` () =
     let kinds =
-        [ ConnectorKind.SqlServer
-          ConnectorKind.PostgreSql
-          ConnectorKind.Sqlite
-          ConnectorKind.Csv
-          ConnectorKind.Excel
-          ConnectorKind.RestJson ]
+        [ ConnectorKind("SqlServer")
+          ConnectorKind("PostgreSql")
+          ConnectorKind("Sqlite")
+          ConnectorKind("Csv")
+          ConnectorKind("Excel")
+          ConnectorKind("RestJson") ]
 
     for kind in kinds do
         let original: ConnectionDefinition =
@@ -149,3 +149,46 @@ let ``deserializing a WorkerRequestFrame with an unknown extra field does not th
 
     Assert.Equal("x1", frame.Id)
     Assert.Equal("worker/health", frame.Method)
+
+[<Fact>]
+let ``ConnectorKind Custom round-trips through JSON`` () =
+    let custom = ConnectorKind.Custom "DuckDb"
+    let json = JsonSerializer.Serialize(custom, Serialization.options)
+    let roundTripped = JsonSerializer.Deserialize<ConnectorKind>(json, Serialization.options)
+    Assert.Equal(custom, roundTripped)
+    Assert.Contains("\"DuckDb\"", json)
+
+[<Fact>]
+let ``ConnectorKind deserializes from case object or raw string`` () =
+    let objJson = """{"Case":"MyCustomStore"}"""
+    let fromObj = JsonSerializer.Deserialize<ConnectorKind>(objJson, Serialization.options)
+    Assert.Equal(ConnectorKind.Custom "MyCustomStore", fromObj)
+
+    let strJson = "\"MyCustomStore\""
+    let fromStr = JsonSerializer.Deserialize<ConnectorKind>(strJson, Serialization.options)
+    Assert.Equal(ConnectorKind.Custom "MyCustomStore", fromStr)
+
+[<Fact>]
+let ``ConnectorListResult round-trips through JSON`` () =
+    let dto: ConnectorListResult =
+        { Connectors =
+            [ { KindId = "Sqlite"
+                DisplayName = "SQLite"
+                Category = "sql"
+                Icon = "database"
+                FormFields =
+                    [ { Name = "filePath"
+                        Label = "Database Path"
+                        Type = "file"
+                        Required = true
+                        Placeholder = Some "/path/to/db.sqlite"
+                        DefaultValue = None
+                        Options = None
+                        SecretHandling = "none" } ] } ] }
+
+    let json = JsonSerializer.Serialize(dto, Serialization.options)
+    let roundTripped = JsonSerializer.Deserialize<ConnectorListResult>(json, Serialization.options)
+    Assert.Equal(1, roundTripped.Connectors.Length)
+    Assert.Equal("Sqlite", roundTripped.Connectors.[0].KindId)
+    Assert.Equal("SQLite", roundTripped.Connectors.[0].DisplayName)
+    Assert.Equal("file", roundTripped.Connectors.[0].FormFields.[0].Type)

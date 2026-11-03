@@ -98,6 +98,21 @@ module Handlers =
                 | EntityBackgroundGenerator.EntityMappingStatus.Failed _ -> "failed"
             ch.Request("entityMapping/status", {| status = statusStr |}) |> ignore
         )
+        FileSqliteEngine.GlobalProgressCallback <- Some (fun ev ->
+            ch.Request(
+                "staging/progress",
+                {|
+                    tableName = ev.TableName
+                    filePath = ev.FilePath
+                    phase = ev.Phase
+                    rowCount = (match ev.RowCount with Some n -> box n | None -> null)
+                    currentIndex = (match ev.CurrentIndex with Some n -> box n | None -> null)
+                    totalCount = (match ev.TotalCount with Some n -> box n | None -> null)
+                    elapsedMs = (match ev.ElapsedMs with Some n -> box n | None -> null)
+                    message = (match ev.Message with Some m -> m | None -> "")
+                |}
+            ) |> ignore
+        )
 
     let private busyResponse (id: string) : WorkerResponseFrame =
         { Id = id
@@ -156,6 +171,28 @@ module Handlers =
         Prologue.resolveWorkspaceForDocument docUriStr
         |> Option.defaultValue (workspaceDir ())
 
+    let private ensureSampleFilesHealed (connections: ConnectionDefinition list) : unit =
+        for def in connections do
+            try
+                if def.Configuration.ValueKind = JsonValueKind.Object then
+                    let mutable fpProp = Unchecked.defaultof<JsonElement>
+                    if def.Configuration.TryGetProperty("filePath", &fpProp) && fpProp.ValueKind = JsonValueKind.String then
+                        let fp = fpProp.GetString()
+                        if not (String.IsNullOrWhiteSpace fp) then
+                            let isMissingOrEmpty = not (File.Exists fp) || (FileInfo(fp).Length = 0L)
+                            if isMissingOrEmpty then
+                                if String.Equals(def.Name, "SampleStore", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.createSampleStoreDatabase fp
+                                elif String.Equals(def.Name, "InventoryStore", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.createInventoryDatabase fp
+                                elif String.Equals(def.Name, "SalesFeed", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.createSampleCsv fp
+                                elif String.Equals(def.Name, "CustomersFeed", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.createSampleCustomersCsv fp
+                                elif String.Equals(def.Name, "RegionalTargets", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.createSampleExcelWorkbook fp
+            with _ -> ()
+
     let runEvaluate (request: WorkerRequestFrame) (workDir: string) : WorkerResponseFrame =
         try
             let evalParams =
@@ -165,7 +202,8 @@ module Handlers =
 
             let targetWs = resolveWorkspaceForDocument evalParams.DocumentUri
             let connections = Workspace.readConnections targetWs
-            Connections.configure (WorkspaceConnectionResolver(connections, secretStore))
+            ensureSampleFilesHealed connections
+            Connections.configure (WorkspaceConnectionResolver(connections, secretStore, targetWs))
             EntityBackgroundGenerator.ensureGenerated targetWs connections secretStore
 
             let session =
@@ -197,6 +235,7 @@ module Handlers =
             stopwatch.Stop()
 
             let output = Projection.toOutputLines outcome.Output outcome.ErrorOutput
+            Projection.registerSourceCode evalParams.Source
 
             let envelope =
                 match outcome.Exception with
@@ -218,7 +257,7 @@ module Handlers =
                         outcome.Value |> Option.map (fun v -> v.ReflectionValue) |> Option.toObj
 
                     let projected, cursor, retained =
-                        Projection.projectWithCursor value stopwatch.ElapsedMilliseconds
+                        Projection.projectWithCursorDetailed value stopwatch.ElapsedMilliseconds (Some evalParams.Source) None
 
                     // Export CSV targets the notebook's most recent MATERIALIZED
                     // grid. A run that produced no such table (a scalar, a
@@ -266,6 +305,14 @@ module Handlers =
         finally
             currentWorkDir <- None
             Interlocked.Exchange(evaluationInFlight, 0) |> ignore
+            try
+                Directory.SetCurrentDirectory(Path.GetTempPath())
+                if Directory.Exists workDir then
+                    Directory.Delete(workDir, true)
+            with _ ->
+                ()
+            GC.Collect()
+
 
     /// Convenience wrapper (reserve, then run, both synchronous) for
     /// callers that don't need the two steps split — direct/unit-test use.
@@ -585,8 +632,9 @@ module Handlers =
                 Directory.CreateDirectory fsqsDir |> ignore
 
         let updated = Workspace.registerConnection targetWs connection
-        Connections.configure (WorkspaceConnectionResolver(updated, secretStore))
+        Connections.configure (WorkspaceConnectionResolver(updated, secretStore, targetWs))
         EntityBackgroundGenerator.triggerBackgroundGeneration targetWs updated secretStore
+        Connections.triggerBackgroundSync targetWs updated secretStore
 
         { Id = request.Id
           Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
@@ -594,21 +642,18 @@ module Handlers =
 
     let private cleanLeakedGlobalSampleConnections (globalWs: string) : ConnectionDefinition list =
         let conns = Workspace.readConnections globalWs
-        let sampleNames = set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed" ]
+        let sampleNames = set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "GitHubFSharp" ]
         let isLeakedSample (c: ConnectionDefinition) =
             sampleNames.Contains c.Name && (
-                match c.Kind with
-                | ConnectorKind.Sqlite | ConnectorKind.Csv | ConnectorKind.Excel ->
-                    try
-                        let doc = JsonDocument.Parse(c.Configuration.GetRawText())
-                        let mutable fpProp = Unchecked.defaultof<JsonElement>
-                        if doc.RootElement.TryGetProperty("filePath", &fpProp) && fpProp.ValueKind = JsonValueKind.String then
-                            let fp = fpProp.GetString()
-                            not (File.Exists fp) || not (fp.StartsWith(globalWs, StringComparison.OrdinalIgnoreCase))
-                        else
-                            true
-                    with _ -> true
-                | _ -> false
+                try
+                    let doc = JsonDocument.Parse(c.Configuration.GetRawText())
+                    let mutable fpProp = Unchecked.defaultof<JsonElement>
+                    if doc.RootElement.ValueKind = JsonValueKind.Object && doc.RootElement.TryGetProperty("filePath", &fpProp) && fpProp.ValueKind = JsonValueKind.String then
+                        let fp = fpProp.GetString()
+                        not (File.Exists fp) || not (fp.StartsWith(globalWs, StringComparison.OrdinalIgnoreCase))
+                    else
+                        false
+                with _ -> false
             )
         let leaked = conns |> List.filter isLeakedSample
         if not (List.isEmpty leaked) then
@@ -639,6 +684,23 @@ module Handlers =
           Result = Some(JsonSerializer.SerializeToElement({| connections = connections |}, Serialization.options))
           Error = None }
 
+    /// `connector/list` — returns all registered connector descriptors and their declarative form schemas.
+    let handleConnectorList (request: WorkerRequestFrame) : WorkerResponseFrame =
+        try
+            BuiltinConnectors.registerDefaults ()
+            let descriptors =
+                ConnectorRegistry.Instance.AllDescriptors()
+                |> List.map ConnectorDescriptor.toDto
+            let result: ConnectorListResult = { Connectors = descriptors }
+            { Id = request.Id
+              Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+              Error = None }
+        with ex ->
+            { Id = request.Id
+              Result = None
+              Error = Some { Code = "connector/listFailed"; Message = ex.Message } }
+
+
     /// `connection/remove` — drops the connection with the given `Id`
     /// from `workspace.json` via `Workspace.removeConnection` and returns
     /// the updated full list.
@@ -650,7 +712,7 @@ module Handlers =
         let updated = Workspace.removeConnection targetWs removeParams.Id
         if targetWs <> (workspaceDir ()) then
             Workspace.removeConnection (workspaceDir ()) removeParams.Id |> ignore
-        Connections.configure (WorkspaceConnectionResolver(updated, secretStore))
+        Connections.configure (WorkspaceConnectionResolver(updated, secretStore, targetWs))
         EntityBackgroundGenerator.triggerBackgroundGeneration targetWs updated secretStore
 
         { Id = request.Id
@@ -681,12 +743,12 @@ module Handlers =
             | Some definition ->
                 try
                     let resolver =
-                        WorkspaceConnectionResolver([ definition ], secretStore) :> IConnectionResolver
+                        WorkspaceConnectionResolver([ definition ], secretStore, targetWs) :> IConnectionResolver
 
                     let connector = resolver.Resolve(definition.Name)
                     let! tables = connector.DiscoverSchemaAsync(CancellationToken.None)
 
-                    EntityBackgroundGenerator.triggerBackgroundGeneration (workspaceDir ()) connections secretStore
+                    EntityBackgroundGenerator.triggerBackgroundGeneration targetWs connections secretStore
 
                     let result: ConnectionSchemaResult =
                         { Tables =
@@ -718,6 +780,8 @@ module Handlers =
           Sqlite2Path: string
           CsvPath: string
           Csv2Path: string
+          ExcelPath: string
+          RestUrl: string
           NotebookPath: string
           NotebookPtPath: string
           RegisteredConnections: string list }
@@ -779,25 +843,54 @@ module Handlers =
                   SecretReference = None
                   IsTrusted = true }
 
+            let excelDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "RegionalTargets"
+                  Kind = ConnectorKind.Excel
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = files.ExcelPath; hasHeader = true |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let restDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "GitHubFSharp"
+                  Kind = ConnectorKind.RestJson
+                  Configuration =
+                      JsonSerializer.SerializeToElement(
+                          {| url = files.RestUrl
+                             method = "GET"
+                             headers = [ ("Accept", "application/vnd.github+json"); ("User-Agent", "FSharpQueryStudio/1.0") ] |},
+                          Serialization.options
+                      )
+                  SecretReference = None
+                  IsTrusted = true }
+
             let _ = Workspace.registerConnection dir sqliteDef
             let _ = Workspace.registerConnection dir sqlite2Def
             let _ = Workspace.registerConnection dir csvDef
-            let updatedInDir = Workspace.registerConnection dir csv2Def
+            let _ = Workspace.registerConnection dir csv2Def
+            let _ = Workspace.registerConnection dir excelDef
+            let updatedInDir = Workspace.registerConnection dir restDef
 
-            Connections.configure (WorkspaceConnectionResolver(updatedInDir, secretStore))
+            Connections.configure (WorkspaceConnectionResolver(updatedInDir, secretStore, dir))
             try
                 (EntityBackgroundGenerator.generateForConnectionsAsync dir updatedInDir secretStore).GetAwaiter().GetResult() |> ignore
             with ex ->
                 Log.Warning("FS Query Studio: Entity generation after sample creation failed: {Error}", ex.Message)
+
+            Connections.triggerBackgroundSync dir updatedInDir secretStore
+            SessionStore.resetAll ()
 
             let result: SampleCreateResult =
                 { SqlitePath = files.SqlitePath
                   Sqlite2Path = files.Sqlite2Path
                   CsvPath = files.CsvPath
                   Csv2Path = files.Csv2Path
+                  ExcelPath = files.ExcelPath
+                  RestUrl = files.RestUrl
                   NotebookPath = files.NotebookPath
                   NotebookPtPath = files.NotebookPtPath
-                  RegisteredConnections = [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed" ] }
+                  RegisteredConnections = [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "GitHubFSharp" ] }
 
             { Id = request.Id
               Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
@@ -826,6 +919,275 @@ module Handlers =
             { Id = request.Id
               Result = None
               Error = Some { Code = "workspace/initFailed"; Message = ex.Message } }
+
+    type AutoImportSourceItem =
+        { Name: string
+          Kind: ConnectorKind
+          FilePath: string
+          RelativePath: string }
+
+    type AutoImportDataSourcesResult =
+        { TargetDir: string
+          DataSourcesDir: string
+          FolderCreated: bool
+          FoundFilesCount: int
+          ImportedCount: int
+          Imported: AutoImportSourceItem list
+          RemovedCount: int
+          SkippedCount: int }
+
+    let handleAutoImportDataSources (request: WorkerRequestFrame) : WorkerResponseFrame =
+        try
+            let rawDir = tryGetWorkspaceDir request.Params
+            let rootDir, dataSourcesDir =
+                let trimmed = rawDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                let leaf = Path.GetFileName trimmed
+                if leaf.Equals("data_sources", StringComparison.OrdinalIgnoreCase) then
+                    let parent = Path.GetDirectoryName trimmed
+                    let actualRoot = if String.IsNullOrWhiteSpace parent then rawDir else parent
+                    actualRoot, rawDir
+                else
+                    rawDir, Path.Combine(rawDir, "data_sources")
+
+            let folderCreated = not (Directory.Exists dataSourcesDir)
+            if folderCreated then
+                Directory.CreateDirectory(dataSourcesDir) |> ignore
+                let readmePath = Path.Combine(dataSourcesDir, "README.txt")
+                if not (File.Exists readmePath) then
+                    File.WriteAllText(
+                        readmePath,
+                        "Place your .csv, .xlsx, .xls, or .sqlite/.db files in this directory.\nF# Query Studio will automatically detect and register them as queryable data sources.\n"
+                    )
+
+            // Ensure storage directories exist
+            let fsqsDir = Path.Combine(rootDir, ".fsqs")
+            if not (Directory.Exists fsqsDir) && not (rootDir.EndsWith(".fsqs", StringComparison.OrdinalIgnoreCase)) then
+                Directory.CreateDirectory(fsqsDir) |> ignore
+            let generatedDir = Path.Combine(fsqsDir, "generated")
+            if not (Directory.Exists generatedDir) then
+                Directory.CreateDirectory(generatedDir) |> ignore
+
+            let supportedExtensions =
+                [ ".csv", ConnectorKind("Csv")
+                  ".xlsx", ConnectorKind("Excel")
+                  ".xls", ConnectorKind("Excel")
+                  ".sqlite", ConnectorKind("Sqlite")
+                  ".sqlite3", ConnectorKind("Sqlite")
+                  ".db", ConnectorKind("Sqlite") ]
+
+            let candidateFiles =
+                if Directory.Exists dataSourcesDir then
+                    Directory.EnumerateFiles(dataSourcesDir, "*.*", SearchOption.AllDirectories)
+                    |> Seq.filter (fun file ->
+                        let fileName = Path.GetFileName file
+                        let ext = Path.GetExtension(file).ToLowerInvariant()
+                        not (fileName.StartsWith("~$", StringComparison.OrdinalIgnoreCase))
+                        && not (fileName.StartsWith(".", StringComparison.OrdinalIgnoreCase))
+                        && (supportedExtensions |> List.exists (fun (e, _) -> e = ext)))
+                    |> Seq.toList
+                else
+                    []
+
+            let existingConnections = Workspace.readConnections rootDir
+
+            let getExistingFilePath (conn: ConnectionDefinition) : string option =
+                try
+                    if conn.Configuration.ValueKind = JsonValueKind.Object then
+                        let mutable prop = Unchecked.defaultof<JsonElement>
+                        if conn.Configuration.TryGetProperty("filePath", &prop) && prop.ValueKind = JsonValueKind.String then
+                            Some (prop.GetString())
+                        else
+                            None
+                    elif conn.Configuration.ValueKind = JsonValueKind.String then
+                        Some (conn.Configuration.GetString())
+                    else
+                        None
+                with _ ->
+                    None
+
+            let isMatchingFile (registeredPath: string) (actualFile: string) : bool =
+                try
+                    let full1 = Path.GetFullPath(if Path.IsPathRooted registeredPath then registeredPath else Path.Combine(rootDir, registeredPath))
+                    let full2 = Path.GetFullPath(actualFile)
+                    String.Equals(
+                        full1,
+                        full2,
+                        (if OperatingSystem.IsWindows() then StringComparison.OrdinalIgnoreCase else StringComparison.Ordinal)
+                    )
+                with _ ->
+                    String.Equals(registeredPath, actualFile, StringComparison.OrdinalIgnoreCase)
+
+            let isAlreadyRegistered (actualFile: string) =
+                existingConnections
+                |> List.exists (fun c ->
+                    match getExistingFilePath c with
+                    | Some p -> isMatchingFile p actualFile
+                    | None -> false)
+
+            let mutable usedNames =
+                existingConnections
+                |> List.map (fun c -> c.Name)
+                |> Set.ofList
+
+            let makeUniqueName (candidate: string) : string =
+                if not (Set.contains candidate usedNames) then
+                    usedNames <- Set.add candidate usedNames
+                    candidate
+                else
+                    let mutable idx = 2
+                    while Set.contains $"{candidate}_{idx}" usedNames do
+                        idx <- idx + 1
+                    let unique = $"{candidate}_{idx}"
+                    usedNames <- Set.add unique usedNames
+                    unique
+
+            let toPascalCase (s: string) : string =
+                let parts = s.Split([| '_'; '-'; ' '; '.' |], StringSplitOptions.RemoveEmptyEntries)
+                if parts.Length = 0 then
+                    "DataSource"
+                else
+                    let capitalized =
+                        parts
+                        |> Array.map (fun part ->
+                            let clean = CodeGenerationHelpers.cleanIdentifier part
+                            if clean.Length > 0 && Char.IsLower(clean.[0]) then
+                                Char.ToUpper(clean.[0]).ToString() + clean.Substring(1)
+                            else
+                                clean)
+                        |> String.concat ""
+                    if String.IsNullOrWhiteSpace capitalized then "DataSource" else capitalized
+
+            let mutable newlyImported: AutoImportSourceItem list = []
+            let mutable newConnections: ConnectionDefinition list = []
+
+            for file in candidateFiles do
+                if not (isAlreadyRegistered file) then
+                    let ext = Path.GetExtension(file).ToLowerInvariant()
+                    let kind =
+                        supportedExtensions
+                        |> List.tryFind (fun (e, _) -> e = ext)
+                        |> Option.map snd
+                        |> Option.defaultValue ConnectorKind.Csv
+
+                    let baseName = Path.GetFileNameWithoutExtension file
+                    let connName = makeUniqueName (toPascalCase baseName)
+
+                    let relPath =
+                        try
+                            Path.GetRelativePath(rootDir, file).Replace('\\', '/')
+                        with _ ->
+                            file
+
+                    let configElement =
+                        match kind.Id with
+                        | "Excel" ->
+                            JsonSerializer.SerializeToElement({| filePath = relPath; hasHeader = true |}, Serialization.options)
+                        | "Sqlite" ->
+                            JsonSerializer.SerializeToElement({| filePath = relPath |}, Serialization.options)
+                        | _ -> // Csv
+                            JsonSerializer.SerializeToElement({| filePath = relPath |}, Serialization.options)
+
+                    let def: ConnectionDefinition =
+                        { Id = Guid.NewGuid()
+                          Name = connName
+                          Kind = kind
+                          Configuration = configElement
+                          SecretReference = None
+                          IsTrusted = true }
+
+                    newConnections <- newConnections @ [ def ]
+                    newlyImported <- newlyImported @ [ { Name = connName; Kind = kind; FilePath = file; RelativePath = relPath } ]
+
+            let missingDataSourcesConnections =
+                existingConnections
+                |> List.filter (fun conn ->
+                    match getExistingFilePath conn with
+                    | Some pathStr ->
+                        let norm = pathStr.Replace('\\', '/')
+                        let isUnderDataSources =
+                            norm.StartsWith("data_sources/", StringComparison.OrdinalIgnoreCase)
+                            || norm.Contains("/data_sources/")
+                            || (try
+                                    let full = Path.GetFullPath(if Path.IsPathRooted pathStr then pathStr else Path.Combine(rootDir, pathStr))
+                                    let dsFull = Path.GetFullPath(dataSourcesDir)
+                                    full.StartsWith(dsFull, StringComparison.OrdinalIgnoreCase)
+                                with _ -> false)
+                        if isUnderDataSources then
+                            let full = if Path.IsPathRooted pathStr then pathStr else Path.Combine(rootDir, pathStr)
+                            not (File.Exists full)
+                        else
+                            false
+                    | None -> false)
+
+            let remainingConnections =
+                if missingDataSourcesConnections.Length > 0 then
+                    let missingIds = missingDataSourcesConnections |> List.map (fun c -> c.Id) |> Set.ofList
+                    existingConnections |> List.filter (fun c -> not (Set.contains c.Id missingIds))
+                else
+                    existingConnections
+
+            let updatedConnections =
+                if newConnections.Length > 0 || missingDataSourcesConnections.Length > 0 then
+                    let merged = remainingConnections @ newConnections
+                    Workspace.writeConnections rootDir merged
+                    Connections.configure (WorkspaceConnectionResolver(merged, secretStore, rootDir))
+                    try
+                        (EntityBackgroundGenerator.generateForConnectionsAsync rootDir merged secretStore).GetAwaiter().GetResult() |> ignore
+                    with ex ->
+                        Log.Warning("FS Query Studio: Entity generation after auto-import failed: {Error}", ex.Message)
+                    Connections.triggerBackgroundSync rootDir merged secretStore
+                    SessionStore.resetAll ()
+                    merged
+                else
+                    existingConnections
+
+            let result: AutoImportDataSourcesResult =
+                { TargetDir = rootDir
+                  DataSourcesDir = dataSourcesDir
+                  FolderCreated = folderCreated
+                  FoundFilesCount = candidateFiles.Length
+                  ImportedCount = newlyImported.Length
+                  Imported = newlyImported
+                  RemovedCount = missingDataSourcesConnections.Length
+                  SkippedCount = candidateFiles.Length - newlyImported.Length }
+
+            { Id = request.Id
+              Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+              Error = None }
+        with ex ->
+            { Id = request.Id
+              Result = None
+              Error = Some { Code = "workspace/autoImportFailed"; Message = ex.Message } }
+
+    type SyncDataSourcesResult =
+        { TargetDir: string
+          StagedCount: int
+          SkippedCount: int
+          Total: int
+          ElapsedMs: int64 }
+
+    let handleSyncDataSources (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
+        task {
+            try
+                let targetDir = tryGetWorkspaceDir request.Params
+                let connections = Workspace.readConnections targetDir
+                let! summary = Connections.syncDataSources targetDir connections secretStore
+                let result : SyncDataSourcesResult =
+                    { TargetDir = targetDir
+                      StagedCount = summary.StagedCount
+                      SkippedCount = summary.SkippedCount
+                      Total = summary.Total
+                      ElapsedMs = summary.ElapsedMs }
+                return
+                    { Id = request.Id
+                      Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                      Error = None }
+            with ex ->
+                return
+                    { Id = request.Id
+                      Result = None
+                      Error = Some { Code = "workspace/syncDataSourcesFailed"; Message = ex.Message } }
+        }
 
     let handleWorkspaceUpgrade (request: WorkerRequestFrame) : WorkerResponseFrame =
         try
@@ -861,12 +1223,16 @@ module Handlers =
             | "results/page" -> return handleResultsPage request
             | "results/exportCsv" -> return handleResultsExportCsv request
             | "results/discard" -> return handleResultsDiscard request
+            | "connector/list" -> return handleConnectorList request
             | "connection/list" -> return handleConnectionList request
+
             | "connection/register" -> return handleConnectionRegister request
             | "connection/remove" -> return handleConnectionRemove request
             | "connection/schema" -> return! handleConnectionSchema request
             | "workspace/createSampleData" -> return handleCreateSampleData request
             | "workspace/initProject" | "workspace/initEmptyProject" -> return handleInitEmptyProject request
+            | "workspace/autoImportDataSources" | "workspace/autoImportFolder" -> return handleAutoImportDataSources request
+            | "workspace/syncDataSources" -> return! handleSyncDataSources request
             | "workspace/upgrade" -> return handleWorkspaceUpgrade request
             | unknown ->
                 return
