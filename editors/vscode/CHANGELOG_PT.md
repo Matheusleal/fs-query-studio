@@ -8,6 +8,24 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-03
+
+### Adicionado
+
+- **Arquitetura Modular de Conectores** — Desacoplamento completo dos conectores em projetos plugáveis especializados (`Abstractions`, `Csv`, `Excel`, `Sqlite`, `PostgreSql`, `SqlServer`, `Rest`). Interface orientada a esquemas que renderiza formulários dinâmicos de conexão com base nas capacidades declaradas em tempo de execução.
+- **Motor Universal de SQL Pushdown** — Tradução nativa de alta performance de consultas LINQ para SQL com suporte a `where`, `select`, `sortBy`/`thenBy`, `take`/`skip`, `join`, `groupBy`, agregações (`count`, `sum`, `avg`, `min`, `max`), funções escalares (`Substring`, `Replace`, `Math`, `DateTime`), formatação de texto/datas via `.ToString()` e pivot.
+- **Motor de Staging Persistente em SQLite** — Pré-carregamento e indexação B-tree composta de arquivos CSV e planilhas Excel (`.xlsx`) em `.fsqs/cache/engine.db`, viabilizando joins multi-fonte entre 3 ou mais origens sem explosão de consumo de memória RAM.
+- **Controle de Ciclo de Vida de Watchers e Worker em Segundo Plano** — Botões de Pausa e Retomada na barra de ferramentas de Conexões e na barra de status para liberação instantânea de 100% de CPU e memória; inicialização sob demanda do observador de `data_sources/`.
+- **Auto-Descoberta e Observador em Tempo Real de `data_sources/`** — Detecção instantânea e sincronização de arquivos na pasta de fontes de dados do projeto.
+- **Notebooks de Demonstração Bilíngues de Ponta a Ponta** — Notebooks interativos prontos para uso (`sample_demo.fsqnb` e `sample_demo_pt.fsqnb`) abrangendo SQLite, CSV, Excel e REST seguro via GitHub.
+- **Preservação da Ordem Declarada de Colunas** — A ordem de propriedades em registros anônimos e projeções explícitas é mantida com rigor na exibição de tabelas e na exportação CSV.
+
+### Corrigido
+
+- **Picos de Memória e Timeouts em Joins de Arquivos** — Eliminação de loops aninhados em memória através do pushdown nativo para o motor SQLite.
+- **Desalinhamento de Colunas em Projeções Customizadas** — Resolução do mapeamento posicional de colunas em expressões traduzidas.
+- **Compatibilidade Multiplataforma** — Tratamento robusto de URIs de arquivo entre Windows, Linux e macOS.
+
 ## [0.4.0-rc6] — 2026-11-03
 
 ### Adicionado
