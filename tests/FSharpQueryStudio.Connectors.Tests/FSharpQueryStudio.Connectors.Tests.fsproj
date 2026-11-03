@@ -6,6 +6,7 @@
 
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
+    <Compile Include="ConnectorRegistryTests.fs" />
     <Compile Include="Tests.fs" />
     <Compile Include="SqliteConnectorTests.fs" />
     <Compile Include="CsvConnectorTests.fs" />
@@ -13,6 +14,7 @@
     <Compile Include="RestConnectorTests.fs" />
     <Compile Include="ConnectionsTests.fs" />
     <Compile Include="SqlPushdownQueryTests.fs" />
+    <Compile Include="FileSqliteEngineTests.fs" />
     <Compile Include="CsvExportTests.fs" />
     <Compile Include="ConnectorCallLoggingTests.fs" />
     <Compile Include="WorkspaceConnectionResolverTests.fs" />
@@ -39,6 +41,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.Abstractions\FSharpQueryStudio.Connectors.Abstractions.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.Sqlite\FSharpQueryStudio.Connectors.Sqlite.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.SqlServer\FSharpQueryStudio.Connectors.SqlServer.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.PostgreSql\FSharpQueryStudio.Connectors.PostgreSql.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.Csv\FSharpQueryStudio.Connectors.Csv.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.Excel\FSharpQueryStudio.Connectors.Excel.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.Rest\FSharpQueryStudio.Connectors.Rest.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors\FSharpQueryStudio.Connectors.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Results\FSharpQueryStudio.Results.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Security\FSharpQueryStudio.Security.fsproj" />

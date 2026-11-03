@@ -27,10 +27,12 @@ Write type-safe, expressive queries with compile-time verification using **F# Qu
 5. [Smart Connection Autocomplete](#5-smart-connection-autocomplete)
 6. [LINQ Queries & Background Entity Provider](#6-linq-queries--background-entity-provider)
    - [Basic Filtering & Projection](#basic-filtering--projection)
-   - [Joining Multiple Tables](#joining-multiple-tables)
+   - [Full SQL Pushdown Translation](#full-sql-pushdown-translation)
+   - [Multi-Property Joins without Memory Explosions](#multi-property-joins-without-memory-explosions)
+   - [Inspecting Generated SQL (toRawSql)](#inspecting-generated-sql-torawsql)
    - [Aggregations & Grouping](#aggregations--grouping)
-   - [Querying CSV Files with LINQ](#querying-csv-files-with-linq)
-   - [Combining Database & CSV in Memory](#combining-database--csv-in-memory)
+   - [Persistent SQLite Disk Cache for CSV & Excel](#persistent-sqlite-disk-cache-for-csv--excel)
+   - [Automatic Discovery via data_sources Directory](#automatic-discovery-via-data_sources-directory)
 7. [Traditional Parameterized SQL (Raw SQL)](#7-traditional-parameterized-sql-raw-sql)
 8. [Interactive Results Grid](#8-interactive-results-grid)
 9. [Language Features & Go to Definition (F12)](#9-language-features--go-to-definition-f12)
@@ -153,70 +155,310 @@ query {
 }
 ```
 
-### Joining Multiple Tables
+### Full SQL Pushdown Translation
 
-Perform relational joins with compile-time type checking using F#'s `join` clause:
+Rather than executing naive `SELECT *` queries and filtering records in client memory, F# Query Studio features an **Entity Framework-grade SQL Pushdown Engine**:
+- **Column Projections**: `select {| Id = o.Id; Amount = o.Total |}` translates to `SELECT _t0.Id, _t0.Total FROM ...`
+- **Parameterized Filters**: `where (o.TotalAmount >= 100.0f)` translates to `WHERE (_t0.TotalAmount >= @p0)`
+- **Sorting & Slicing**: `sortBy`, `sortByDescending`, `take N`, `skip M` translate directly to `ORDER BY ... LIMIT N OFFSET M`
+- **Server-Side Aggregations**: `count` and `sum` translate directly to `COUNT(*)` and `SUM(...)`
+
+### Multi-Property Joins without Memory Explosions
+
+F# query expressions support joins over compound keys using tuples:
 
 ```fsharp
-// Join Customers with Orders and aggregate totals
+// Compile-time multi-property join translated to SQL without Cartesian products
 query {
-    for c in db.Customers do
-    join o in db.Orders on (c.Id = o.CustomerId)
-    where (o.Status = "Completed")
-    select (c.FullName, c.Country, o.Id, o.OrderDate, o.TotalAmount)
+    for s in Connections.sql.Transactions.Sales do
+    join t in Connections.sql.Transactions.Targets on ((s.StoreId, s.Region) = (t.StoreId, t.Region))
+    where (s.TotalAmount >= 250.0M)
+    select {| Store = s.StoreId; Region = s.Region; Amount = s.TotalAmount; Manager = t.Manager |}
 }
 ```
 
+This translates directly into:
+```sql
+SELECT _t0.StoreId AS Store, _t0.Region AS Region, _t0.TotalAmount AS Amount, _t1.Manager AS Manager
+FROM Transactions _t0
+INNER JOIN Targets _t1 ON _t0.StoreId = _t1.StoreId AND _t0.Region = _t1.Region
+WHERE (_t0.TotalAmount >= @p0)
+```
+
+Automatic composite B-tree indexes (`ix_table_StoreId_Region`) ensure sub-100ms execution times even when joining hundreds of thousands of rows.
+
+### Inspecting Generated SQL (`toRawSql`)
+
+Want to inspect the exact SQL query and bound parameters that will run on your database engine before or alongside execution?
+Use `ResultKind.toRawSql` or `Connections.toRawSql`:
+
 ```fsharp
-// Three-way join: OrderItems + Products + Categories
+let myQuery =
+    query {
+        for o in Connections.sql.SampleStore.Orders do
+        join c in Connections.sql.SampleStore.Customers on (o.CustomerId = c.Id)
+        where (o.Status = "Completed")
+        select {| OrderId = o.Id; Customer = c.FirstName + " " + c.LastName; Total = o.TotalAmount |}
+    }
+
+// Prints the exact parameterized SQL to stdout without touching the database!
+printfn "Generated SQL:\n%s" (Connections.toRawSql myQuery)
+
+// Execute and render the interactive table grid
+myQuery
+```
+
+### Advanced Query Engine Features (Joins, Aggregations, Subqueries, and Pivot)
+
+F# Query Studio supports the full range of relational analytics compiled directly to native SQL or evaluated in-memory with extreme throughput:
+
+#### 1. Joins (INNER, Chained LEFT OUTER JOINs)
+To write left outer joins across multiple tables, use the standard F# `leftOuterJoin ... in ... on ... into g` syntax followed by `for ... in g.DefaultIfEmpty()`:
+
+```fsharp
 query {
-    for item in db.OrderItems do
-    join prod in db.Products on (item.ProductId = prod.Id)
-    join cat in db.Categories on (prod.CategoryId = cat.Id)
-    select (item.OrderId, prod.Name, cat.Name, item.Quantity, item.UnitPrice)
+    for order in csv.Orders do
+    join orderItem in csv.OrderItems on (order.order_id = orderItem.order_id)
+    join customer in csv.Customers on (order.customer_id = customer.customer_id)
+    join product in csv.Products on (orderItem.product_id = product.product_id)
+    join payment in csv.Payments on (order.order_id = payment.order_id)
+
+    // Chaining multiple Left Outer Joins
+    leftOuterJoin shipmentGroup in csv.Shipments on (order.order_id = shipmentGroup.order_id) into shipmentGroup
+    leftOuterJoin returns in csv.Returns on (orderItem.order_item_id = returns.order_item_id) into returnGroup
+
+    for shipment in shipmentGroup.DefaultIfEmpty() do
+    for returns in returnGroup.DefaultIfEmpty() do
+
+    select {|
+        Order = order.order_id
+        Date = order.order_date
+        Status = order.status
+        Item = product.product_name
+        Qtt = orderItem.quantity
+        Total = orderItem.line_total
+        // Null checks and conditional logic translate natively to COALESCE / CASE WHEN in SQL
+        Carrier = (if isNull (box shipment) then "N/A" else shipment.carrier)
+        Returned = (if isNull (box returns) then "N/A" else returns.reason)
+    |}
 }
 ```
 
-### Aggregations & Grouping
+#### 2. Grouping & Aggregations (`groupBy`, `count`, `sum`, `min`, `max`, `average`)
+Groupings compile directly to indexed `GROUP BY` and `HAVING` queries:
 
 ```fsharp
-// Group customers by country and count total orders
 query {
-    for c in db.Customers do
-    groupValBy c.Id into g
-    select (g.Key, count g)
+    for p in csv.Products do
+    groupBy p.Category into g
+    select {|
+        Category = g.Key
+        Count = g.Count()
+        MinPrice = g.Min(fun x -> x.Price)
+        MaxPrice = g.Max(fun x -> x.Price)
+        AveragePrice = g.Average(fun x -> x.Price)
+        Total = g.Sum(fun x -> x.Price)
+    |}
 }
 ```
 
-### Querying CSV Files with LINQ
-
-Flat files like CSV, Excel, and JSON get inferred typed schemas automatically:
-
+Terminal scalar methods can also be called directly on queries:
 ```fsharp
-// Query the CSV transactions feed directly via Connections.csv
+let totalOrders = csv.Orders.Count()
+let totalRevenue = csv.OrderItems.Sum(fun i -> i.line_total)
+```
+
+#### 3. Limiters and Paging (`distinct`, `take`, `skip`, `head`)
+```fsharp
 query {
-    for row in Connections.csv.SalesFeed do
-    where (row.StoreCity = "New York" && row.Quantity >= 2)
-    sortByDescending row.Total
-    select (row.TransactionId, row.Product, row.Quantity, row.Total)
+    for p in csv.Products do
+    distinct
+    sortByDescending p.Price
+    skip 10
+    take 5
+    select p.Category
 }
 ```
 
-### Combining Database & CSV in Memory
-
-Because F# notebooks run in a unified Interactive session, you can cross-correlate relational databases with external CSV feeds using standard F# functions:
+#### 4. Subqueries and Subselects (`WHERE col IN (SELECT ...)`)
+You can compose strongly-typed subqueries that translate directly to native SQL subselects (`IN` and `EXISTS`):
 
 ```fsharp
-let dbProducts = 
-    query { for p in Connections.sql.SampleStore.Products do select (p.Name, p.UnitPrice) }
-    |> Seq.toList
+let discountedOrders =
+    query {
+        for item in csv.OrderItems do
+        where (item.discount > 0.0M)
+        select item.order_id
+    }
 
-let csvTransactions =
-    query { for r in Connections.csv.SalesFeed do select (r.Product, r.Total) }
-    |> Seq.toList
+query {
+    for o in csv.Orders do
+    where (discountedOrders.Contains(o.order_id))
+    select o
+}
+```
 
-// Cross-reference data in pure F#
-printfn "Database products: %d | CSV sales: %d" dbProducts.Length csvTransactions.Length
+#### 5. Cross-tabulation and Pivot (Dynamic & In-Memory)
+- **Dynamic SQL Pivot (`Connections.sql.pivot`)**: Runs conditional aggregation with `CASE WHEN` directly in the database engine:
+  ```fsharp
+  Connections.sql.pivot "Sales" ["Year"] "Product" "Amount" ~aggFunc:"SUM"
+  ```
+- **In-Memory Pivot (`Seq.pivot` / `Connections.pivot`)**: Performs cross-tabulation on any sequence:
+  ```fsharp
+  let pivotTable =
+      salesData
+      |> Seq.pivot (fun r -> r.Year) (fun r -> r.Product) (fun r -> r.Amount) Seq.sum
+  ```
+
+### Persistent SQLite Disk Cache for CSV & Excel
+
+When you register or auto-import flat files (`.csv`, `.xlsx`), F# Query Studio immediately and asynchronously pre-stages them into a persistent local SQLite database located at:
+`<workspace>/.fsqs/cache/engine.db`
+
+- **Smart Cache Validation**: The engine inspects each file's last modified timestamp (`mtime`) and byte length. Unchanged files are reused instantaneously with zero loading lag on subsequent runs.
+- **Immediate Async Pre-warming**: Staging starts automatically in the background upon connection registration or workspace open.
+- **Visual Status Bar Feedback**: The VS Code status bar displays `$(sync~spin) Syncing data sources...` during staging and `$(database) Data sources ready` when complete. You can also run the Command Palette command **F# Query Studio: Sync Data Sources Cache** at any time.
+
+### Automatic Discovery & Real-Time Watching via `data_sources` Directory
+
+Skip manual connection configuration by organizing your files in a `data_sources` folder:
+1. **On-Demand Activation**: To prevent unwanted CPU and RAM consumption while the extension is not actively in use, real-time file detection starts only when you click **Auto-Import Data Sources** (`$(folder-library)`) from the Connections view toolbar, the Welcome view, or run `F# Query Studio: Auto-Import Data Sources Directory` from the Command Palette.
+2. **Automatic Real-Time Watcher**: Once activated, the extension continuously monitors the `data_sources/` directory. Whenever you move, copy, modify, or delete `.csv`, `.xlsx`, `.db`, or `.sqlite` files, F# Query Studio automatically detects the changes, registers new connections, cleans up removed files, refreshes the connections tree, and stages the data into SQLite disk cache with visual status feedback (`$(sync~spin)`).
+3. **Pause & Resume Button (`$(debug-pause)` / `$(play)`)**: A dedicated Pause/Resume button on the Connections view header toolbar (and the status bar item) lets you pause background watchers and immediately terminate the worker process at any time, freeing 100% of background RAM and CPU until resumed or until you run a notebook cell.
+
+### Custom Column Types & Formula Transformations (Excel & CSV)
+
+When working with tabular files (Excel `.xlsx` and CSV), raw data frequently contains formatting inconsistencies: localized decimal separators (`1.234,56`), currency symbols (`$`, `R$`, `€`), percentages, leading zeros, or floating-point numbers truncated to integers. F# Query Studio provides a built-in transformation pipeline that cleans and transforms data **before** type conversion and database staging, giving you full control over F# types and SQLite schema mapping.
+
+#### 1. How and Where to Configure
+
+You can configure column type overrides and transformation formulas in two ways:
+
+##### Option A: Via VS Code User Interface (GUI)
+1. In the **Connections** sidebar, click **Add Connection** (`+`) and select **CSV** or **Excel** (or right-click an existing connection and select **Edit Connection**).
+2. Fill in the file path and connection details.
+3. In the **Column Types Override (optional)** field, provide the target F# types (e.g. `UnitPrice=decimal, Quantity=int`).
+4. In the **Column Transforms / Formulas (optional)** field, define your cleanup formulas (e.g. `UnitPrice=replace('.', '').replace(',', '.'), Sku=trim`).
+5. Click **Create Connection** (or **Save**). The schema and SQLite cache immediately update with the transformed data and typed F# records.
+
+##### Option B: In Workspace `.fsqs/connections.json`
+All workspace connections are stored in `.fsqs/connections.json`. You can edit this file directly. Both string-delimited and structured JSON object syntax are supported:
+
+```json
+{
+  "connections": [
+    {
+      "name": "FinancialReport",
+      "kind": "Excel",
+      "configuration": {
+        "filePath": "data_sources/financial_report.xlsx",
+        "sheetName": "Q4_Revenue",
+        "columnTypes": {
+          "Revenue": "decimal",
+          "ExchangeRate": "double",
+          "UnitsSold": "int",
+          "TaxRate": "double",
+          "AccountCode": "string"
+        },
+        "columnTransforms": {
+          "Revenue": "replace('$', '').replace(',', '').trim",
+          "ExchangeRate": "replace(',', '.')",
+          "TaxRate": "divide(100)",
+          "AccountCode": "trim"
+        }
+      }
+    },
+    {
+      "name": "OrdersCsv",
+      "kind": "Csv",
+      "configuration": {
+        "filePath": "data_sources/orders.csv",
+        "delimiter": ";",
+        "columnTypes": "TotalAmount=decimal, Discount=double, OrderId=int64",
+        "columnTransforms": "TotalAmount=replace('.', '').replace(',', '.'), Discount=divide(100)"
+      }
+    }
+  ]
+}
+```
+
+#### 2. Supported F# Types in `columnTypes`
+
+| Target Type | .NET / F# Type | Description & Best Use Case |
+|---|---|---|
+| `decimal` | `System.Decimal` | **High precision (128-bit, 28-29 significant digits)**. Mandatory for currency, finances, and long decimals with many fractional digits (e.g., `1234567.890123456`). Prevents loss of precision or integer truncation. |
+| `double` / `float` | `System.Double` | 64-bit IEEE floating-point. Best for coordinates (GPS latitude/longitude), scientific measurements, or continuous ratios. |
+| `int` | `System.Int32` | 32-bit signed integer (`-2,147,483,648` to `2,147,483,647`). |
+| `int64` | `System.Int64` | 64-bit signed integer (for large identifiers, timestamps in milliseconds, or big counters). |
+| `bool` | `System.Boolean` | Boolean flags. Recognizes `true`/`false`, `1`/`0`, `sim`/`nao`, `yes`/`no`. |
+| `System.DateTime` | `System.DateTime` | Formatted calendar dates and timestamps (`YYYY-MM-DD`, ISO 8601, or local culture dates). |
+| `string` | `System.String` | Raw text. Useful to preserve leading zeros in postal codes, tax IDs (CPF/CNPJ), or product SKUs (e.g. `"0042"`). |
+| `<type> option` | `Option<'T>` | Explicitly allows null, empty, or sentinel values (`N/A`, `-`, `null`). E.g.: `decimal option`, `int option`. |
+
+#### 3. Transformation Functions & Formulas in `columnTransforms`
+
+Formulas can be applied to individual columns and chained together using dot notation (`.`):
+
+| Formula Expression | Description | Example Input | Output |
+|---|---|---|---|
+| `replace('from', 'to')` | Replaces all occurrences of a string or character with another. Both single (`'`) and double (`"`) quotes are supported. | `replace(',', '.')` on `"12,50"` | `"12.50"` |
+| `replace('f1', 't1').replace('f2', 't2')` | **Chained replacement**: applies transformations sequentially from left to right. | `replace('.', '').replace(',', '.')` on `"1.234,56"` | `"1234.56"` |
+| `trim` | Removes leading and trailing whitespace characters. | `trim` on `"  ABC123  "` | `"ABC123"` |
+| `multiply(factor)` | Multiplies the numeric value by a factor (supports floating-point factor). | `multiply(100)` on `"0.15"` | `"15"` |
+| `divide(divisor)` | Divides the numeric value by a divisor (e.g. converting percentages to fractions). | `divide(100)` on `"25"` | `"0.25"` |
+| `decimal` / `double` | Normalizes commas to decimal points (`replace(',', '.')`). | `decimal` on `"99,99"` | `"99.99"` |
+| `string` / `toString` | Treats the value strictly as text without conversion. | `string` on `0123` | `"0123"` |
+
+#### 4. Real-World Practical Scenarios
+
+##### Scenario 1: Brazilian / European Currency & Number Formats (`"1.234,56"`)
+In European and Brazilian locales, the dot (`.`) is a thousands separator and the comma (`,`) is the decimal separator. By default, raw parsers can get confused by multiple separators:
+```json
+{
+  "columnTypes": "ValorTotal=decimal, Saldo=decimal",
+  "columnTransforms": "ValorTotal=replace('.', '').replace(',', '.'), Saldo=replace('R$', '').replace('.', '').replace(',', '.').trim"
+}
+```
+
+##### Scenario 2: Preserving Precision on High-Digit Floating-Point Numbers
+When Excel stores floating numbers with many decimal places (such as `1234567.890123456789`), setting `columnTypes` guarantees that F# Query Studio creates a SQLite `NUMERIC` column and an F# `decimal` field, completely avoiding integer truncations:
+```json
+{
+  "columnTypes": "SensorReading=decimal, Latitude=double, Longitude=double",
+  "columnTransforms": "SensorReading=trim, Latitude=replace(',', '.'), Longitude=replace(',', '.')"
+}
+```
+
+##### Scenario 3: Converting Percentage Columns to Ratios
+If a spreadsheet contains percentage values like `15` or `15%`, you can strip the `%` symbol and divide by 100:
+```json
+{
+  "columnTypes": "TaxRate=double, DiscountPercent=double",
+  "columnTransforms": "TaxRate=replace('%', '').divide(100), DiscountPercent=divide(100)"
+}
+```
+
+##### Scenario 4: Preserving Leading Zeros in Identifiers
+If a CSV contains product SKUs or ZIP codes with leading zeros (e.g. `001234`):
+```json
+{
+  "columnTypes": "ZipCode=string, Sku=string",
+  "columnTransforms": "ZipCode=trim, Sku=trim"
+}
+```
+
+#### 5. Using the Typed Columns in F# Queries
+
+Once configured, F# Query Studio generates strongly-typed records matching your overrides in `Connections.csv.<Conn>` and `Connections.excel.<Conn>`:
+
+```fsharp
+query {
+    for order in Connections.excel.FinancialReport.Q4_Revenue do
+    // order.Revenue is typed as System.Decimal, order.TaxRate is double
+    where (order.Revenue > 1000.0M && order.TaxRate <= 0.20)
+    sortByDescending order.Revenue
+    select {| Account = order.AccountCode; Revenue = order.Revenue; NetRevenue = order.Revenue * (1.0M - decimal order.TaxRate) |}
+}
 ```
 
 ---
@@ -255,7 +497,7 @@ The `Connections` module provides the core programmatic interface inside your no
 |---|---|---|
 | `Connections.sql.<Conn>` | `DatabaseConnection` | Accesses relational database tables and scoped `.rawQuery "..." [ ... ]`. |
 | `Connections.csv.<Conn>` | `CsvConnector.Data` | Accesses strongly-typed CSV rows (implements `IQueryable<'Row>`) and `.Raw()`. |
-| `Connections.excel.<Conn>` | `ExcelConnector.Data` | Accesses strongly-typed Excel sheets and `.Raw()`. |
+| `Connections.excel.<Conn>` | `ExcelConnector.Data` | Accesses strongly-typed Excel sheets (implements `IQueryable<'Row>`), pushdown `SheetQueryable`, and `.Raw()`. |
 | `Connections.rest.<Conn>` | `RestConnector.Data` | Accesses strongly-typed REST items and `.SendAsync()`. |
 | `Connections.getConnectionString` | `string -> string` | Returns the resolved connection string with stored credentials injected. |
 

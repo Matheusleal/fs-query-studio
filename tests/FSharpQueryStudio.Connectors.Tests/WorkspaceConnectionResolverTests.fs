@@ -75,7 +75,7 @@ let ``resolves a registered SQLite connection to a real, correctly-kinded Sqlite
     let path = Path.Combine(Path.GetTempPath(), "fqs-resolver-" + Guid.NewGuid().ToString("N") + ".db")
 
     try
-        let def = definition "Sales" Sqlite {| FilePath = path |} None
+        let def = definition "Sales" ConnectorKind.Sqlite {| FilePath = path |} None
         let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore())
 
         let connector = (resolver :> IConnectionResolver).Resolve("Sales")
@@ -88,7 +88,7 @@ let ``resolves a registered SQLite connection to a real, correctly-kinded Sqlite
 
 [<Fact>]
 let ``resolves a registered CSV connection to a real CsvConnector`` () =
-    let def = definition "Feed" Csv {| FilePath = @"C:\data\feed.csv" |} None
+    let def = definition "Feed" ConnectorKind.Csv {| FilePath = @"C:\data\feed.csv" |} None
     let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore())
 
     let connector = (resolver :> IConnectionResolver).Resolve("Feed")
@@ -98,7 +98,7 @@ let ``resolves a registered CSV connection to a real CsvConnector`` () =
 
 [<Fact>]
 let ``resolves a registered Excel connection to a real ExcelConnector`` () =
-    let def = definition "Book" Excel {| FilePath = @"C:\data\book.xlsx" |} None
+    let def = definition "Book" ConnectorKind.Excel {| FilePath = @"C:\data\book.xlsx" |} None
     let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore())
 
     let connector = (resolver :> IConnectionResolver).Resolve("Book")
@@ -111,7 +111,7 @@ let ``resolves a registered REST connection to a real RestConnector using the st
     let def =
         definition
             "Api"
-            RestJson
+            ConnectorKind.RestJson
             {| Url = "https://example.test/orders"
                Method = "GET"
                Headers = [||]
@@ -133,7 +133,7 @@ let ``resolves a registered SQL Server connection with its {password} token subs
     let def =
         definition
             "Sales"
-            SqlServer
+            ConnectorKind.SqlServer
             {| ConnectionString = "Server=.;Database=Orders;User Id=sa;Password={password};" |}
             (Some "fqs-conn-sales")
 
@@ -151,3 +151,89 @@ let ``Resolve throws a clear error for a name that is not registered`` () =
         Assert.Throws<Exception>(fun () -> (resolver :> IConnectionResolver).Resolve("Missing") |> ignore)
 
     Assert.Contains("Missing", ex.Message)
+
+
+// ---------------------------------------------------------------------------
+// Relative local file paths are resolved against the workspace project root
+// ---------------------------------------------------------------------------
+
+let private withTempWorkspace (f: string -> unit) =
+    let root = Path.Combine(Path.GetTempPath(), "fqs-relpath-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory(Path.Combine(root, ".fsqs")) |> ignore
+    Directory.CreateDirectory(Path.Combine(root, "data")) |> ignore
+    try
+        f root
+    finally
+        try Directory.Delete(root, true) with _ -> ()
+
+[<Fact>]
+let ``relative CSV path is resolved against the workspace project root and is readable`` () =
+    withTempWorkspace (fun root ->
+        File.WriteAllText(Path.Combine(root, "data", "feed.csv"), "Id,Name\n1,Alice\n2,Bob\n")
+        let def = definition "Feed" ConnectorKind.Csv {| FilePath = "data/feed.csv" |} None
+        let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore(), root)
+
+        let connector = (resolver :> IConnectionResolver).Resolve("Feed") :?> CsvConnector
+
+        Assert.Equal(Path.GetFullPath(Path.Combine(root, "data", "feed.csv")), connector.FilePath)
+        Assert.Equal(2, connector.ReadRows().Rows |> Seq.length))
+
+[<Fact>]
+let ``relative path is resolved against the project root when the workspace dir points at the .fsqs folder`` () =
+    withTempWorkspace (fun root ->
+        let def = definition "Feed" ConnectorKind.Csv {| FilePath = "./data/feed.csv" |} None
+        let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore(), Path.Combine(root, ".fsqs"))
+
+        let connector = (resolver :> IConnectionResolver).Resolve("Feed") :?> CsvConnector
+
+        Assert.Equal(Path.GetFullPath(Path.Combine(root, "data", "feed.csv")), connector.FilePath))
+
+[<Fact>]
+let ``parent-relative Excel path (..) is resolved against the project root`` () =
+    withTempWorkspace (fun root ->
+        let def = definition "Book" ConnectorKind.Excel {| FilePath = "../shared/book.xlsx" |} None
+        let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore(), root)
+
+        let connector = (resolver :> IConnectionResolver).Resolve("Book") :?> ExcelConnector
+
+        Assert.Equal(Path.GetFullPath(Path.Combine(root, "..", "shared", "book.xlsx")), connector.FilePath))
+
+[<Fact>]
+let ``relative SQLite path creates and opens the database inside the project root, not the process working directory`` () =
+    withTempWorkspace (fun root ->
+        let def = definition "Local" ConnectorKind.Sqlite {| FilePath = "data/local.db" |} None
+        let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore(), root)
+
+        let connector = (resolver :> IConnectionResolver).Resolve("Local") :?> SqliteConnector
+        let result = connector.ExecuteQuery "select 42 as Answer" []
+        Assert.Equal(1, result.Rows |> Seq.length)
+
+        Assert.Contains(Path.GetFullPath(Path.Combine(root, "data", "local.db")), connector.ConnectionString)
+        Assert.True(File.Exists(Path.Combine(root, "data", "local.db"))))
+
+[<Fact>]
+let ``absolute paths are left untouched when a workspace directory is provided`` () =
+    withTempWorkspace (fun root ->
+        let absolute = Path.Combine(Path.GetTempPath(), "elsewhere", "feed.csv")
+        let def = definition "Feed" ConnectorKind.Csv {| FilePath = absolute |} None
+        let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore(), root)
+
+        let connector = (resolver :> IConnectionResolver).Resolve("Feed") :?> CsvConnector
+
+        Assert.Equal(absolute, connector.FilePath))
+
+[<Fact>]
+let ``non-file fields such as connection strings are never rewritten as paths`` () =
+    let fields: ConnectorFormField list =
+        [ { Name = "connectionString"; Label = "Conn"; Type = ConnectorFieldType.String; Required = true
+            Placeholder = None; DefaultValue = None; SecretHandling = SecretHandling.None } ]
+    let config = JsonSerializer.SerializeToElement({| connectionString = "Data Source=relative.db" |})
+
+    let resolved = ConnectorDescriptor.resolveRelativeFilePaths fields config @"C:\ws"
+
+    Assert.Equal("Data Source=relative.db", resolved.GetProperty("connectionString").GetString())
+
+[<Fact>]
+let ``resolvePath keeps :memory: and URIs unchanged`` () =
+    Assert.Equal(":memory:", ConnectorDescriptor.resolvePath @"C:\ws" ":memory:")
+    Assert.Equal("https://example.test/a.csv", ConnectorDescriptor.resolvePath @"C:\ws" "https://example.test/a.csv")

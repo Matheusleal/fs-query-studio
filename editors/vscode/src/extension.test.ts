@@ -209,11 +209,12 @@ describe("F5 activation wiring", () => {
         store: async () => {},
         delete: async () => {},
       },
-    } as never;
+    };
   }
 
-  it("activate returns a connections API and registers the four commands", async () => {
-    const api = await activate(makeFakeContext());
+  it("activate returns a connections API and registers the commands and data_sources watcher", async () => {
+    const context = makeFakeContext();
+    const api = await activate(context as never);
     expect(api).toBeDefined();
     expect(typeof api.connections.list).toBe("function");
     for (const id of [
@@ -222,10 +223,40 @@ describe("F5 activation wiring", () => {
       "fs-query-studio.connections.remove",
       "fs-query-studio.connections.refresh",
       "fs-query-studio.createSampleData",
+      "fs-query-studio.autoImportFolder",
+      "fs-query-studio.syncDataSources",
+      "fs-query-studio.pauseWatchersAndWorkers",
+      "fs-query-studio.resumeWatchersAndWorkers",
+      "fs-query-studio.togglePauseResume",
       "fs-query-studio.openDocs",
     ]) {
       expect(vscodeStub.commands._handlers.has(id)).toBe(true);
     }
+    // Verify background control API
+    expect(api.background).toBeDefined();
+    expect(api.background?.isPaused()).toBe(false);
+    expect(api.background?.isDataSourcesWatcherActive()).toBe(false);
+
+    // Pause watchers & workers
+    await api.background?.pause(true);
+    expect(api.background?.isPaused()).toBe(true);
+
+    // Resume watchers & workers
+    await api.background?.resume(true);
+    expect(api.background?.isPaused()).toBe(false);
+
+    // Start data_sources watcher explicitly
+    api.background?.startDataSourcesWatcher();
+    expect(api.background?.isDataSourcesWatcherActive()).toBe(true);
+
+    // Toggle pause / resume
+    await api.background?.toggle();
+    expect(api.background?.isPaused()).toBe(true);
+    await api.background?.toggle();
+    expect(api.background?.isPaused()).toBe(false);
+
+    // Verify subscriptions include file watcher, commands, and disposables
+    expect(context.subscriptions.length).toBeGreaterThan(15);
     await deactivate();
   });
 });

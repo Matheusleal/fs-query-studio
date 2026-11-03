@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import * as path from "node:path";
 import { randomUUID } from "node:crypto";
 import { resolveDotnet, DotnetNotFoundError, DotnetTooOldError } from "./worker/dotnet";
 import { resolveWorkerDll, WorkerDllNotFoundError } from "./worker/worker-path";
@@ -13,7 +14,7 @@ import { FSQUERY_RENDERER_ID } from "./renderer/types";
 import { getWorkerSession, disposeWorkerSession } from "./worker/session";
 import { registerLanguageFeatures } from "./lang/providers";
 import { registerConnectionFeatures, type ConnectionsApi } from "./connections/commands";
-import { registerSecretBridge } from "./secrets/bridge";
+import { registerSecretBridge, type StagingProgressEvent } from "./secrets/bridge";
 
 export interface HealthCheckDeps {
   extensionRoot: string;
@@ -92,6 +93,15 @@ export async function runHealthCheck(deps: HealthCheckDeps): Promise<HealthCheck
 
 export interface FsQueryStudioApi {
   connections: ConnectionsApi;
+  background?: {
+    isPaused: () => boolean;
+    isDataSourcesWatcherActive: () => boolean;
+    pause: (silent?: boolean) => Promise<void>;
+    resume: (silent?: boolean) => Promise<void>;
+    toggle: () => Promise<void>;
+    startDataSourcesWatcher: () => void;
+    stopDataSourcesWatcher: () => void;
+  };
 }
 
 let outputChannel: vscode.OutputChannel | undefined;
@@ -176,19 +186,366 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     }
   };
 
-  let bridgeRegistered = false;
+  let resetStagingStatusTimer: NodeJS.Timeout | undefined;
+  const updateStagingProgress = (event: StagingProgressEvent) => {
+    const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+    const progressPrefix = event.currentIndex && event.totalCount
+      ? `[${event.currentIndex}/${event.totalCount}] `
+      : "";
+    const name = event.tableName || (event.filePath ? path.basename(event.filePath) : "Data");
+
+    if (resetStagingStatusTimer) {
+      clearTimeout(resetStagingStatusTimer);
+      resetStagingStatusTimer = undefined;
+    }
+
+    switch (event.phase) {
+      case "Reading": {
+        const text = isPt
+          ? `$(sync~spin) ${progressPrefix}Lendo ${name}...`
+          : `$(sync~spin) ${progressPrefix}Reading ${name}...`;
+        statusBar.text = text;
+        statusBar.tooltip = `F# Query Studio: ${event.message || text}`;
+        statusBar.show();
+        log(`[Cache] [Reading] ${progressPrefix}${name}: ${event.filePath || ""}`);
+        break;
+      }
+      case "Writing": {
+        const rowsText = typeof event.rowCount === "number" ? ` (${event.rowCount.toLocaleString()} rows)` : "";
+        const text = isPt
+          ? `$(sync~spin) ${progressPrefix}Gravando ${name}${rowsText}...`
+          : `$(sync~spin) ${progressPrefix}Writing ${name}${rowsText}...`;
+        statusBar.text = text;
+        statusBar.tooltip = `F# Query Studio: ${event.message || text}`;
+        statusBar.show();
+        log(`[Cache] [Writing] ${progressPrefix}${name}: ${event.rowCount ?? 0} rows`);
+        break;
+      }
+      case "Indexing": {
+        const text = isPt
+          ? `$(sync~spin) ${progressPrefix}Indexando ${name}...`
+          : `$(sync~spin) ${progressPrefix}Indexing ${name}...`;
+        statusBar.text = text;
+        statusBar.tooltip = `F# Query Studio: ${event.message || text}`;
+        statusBar.show();
+        log(`[Cache] [Indexing] ${progressPrefix}${name}: creating B-tree indexes`);
+        break;
+      }
+      case "Completed": {
+        const rowsText = typeof event.rowCount === "number" ? ` (${event.rowCount.toLocaleString()} rows)` : "";
+        const elapsedText = typeof event.elapsedMs === "number" ? ` in ${event.elapsedMs}ms` : "";
+        const text = isPt
+          ? `$(check) ${progressPrefix}Pronto: ${name}${rowsText}`
+          : `$(check) ${progressPrefix}Ready: ${name}${rowsText}`;
+        statusBar.text = text;
+        statusBar.tooltip = `F# Query Studio: Staged ${name}${rowsText}${elapsedText}`;
+        statusBar.show();
+        log(`[Cache] [Completed] ${progressPrefix}${name}${rowsText}${elapsedText}`);
+        resetStagingStatusTimer = setTimeout(() => {
+          statusBar.text = "$(database) F# Query Studio";
+          statusBar.tooltip = "F# Query Studio: Show Output Logs";
+        }, 3500);
+        break;
+      }
+      case "Skipped": {
+        log(`[Cache] [Skipped] ${progressPrefix}${name}: up-to-date in cache`);
+        break;
+      }
+      case "Failed": {
+        const text = isPt
+          ? `$(error) ${progressPrefix}Falha: ${name}`
+          : `$(error) ${progressPrefix}Failed: ${name}`;
+        statusBar.text = text;
+        statusBar.tooltip = `F# Query Studio: ${event.message || text}`;
+        statusBar.show();
+        log(`[Cache] [Failed] ${progressPrefix}${name}: ${event.message}`);
+        resetStagingStatusTimer = setTimeout(() => {
+          statusBar.text = "$(database) F# Query Studio";
+          statusBar.tooltip = "F# Query Studio: Show Output Logs";
+        }, 5000);
+        break;
+      }
+    }
+  };
+
+  let resetSyncStatusTimer: NodeJS.Timeout | undefined;
+  const runSyncDataSources = async (targetDir?: string, silent = false): Promise<void> => {
+    try {
+      if (resetSyncStatusTimer) {
+        clearTimeout(resetSyncStatusTimer);
+        resetSyncStatusTimer = undefined;
+      }
+      statusBar.text = "$(sync~spin) Syncing data sources...";
+      statusBar.tooltip = "F# Query Studio: Pre-staging CSV and Excel data into SQLite cache...";
+      statusBar.show();
+
+      const worker = await getWorker();
+      const res = await worker.send({
+        id: randomUUID(),
+        method: "workspace/syncDataSources",
+        params: { targetDir },
+      });
+
+      if (res.error) {
+        log(`[Workspace] Sync data sources failed: ${res.error.message}`);
+        statusBar.text = "$(error) Data sync failed";
+        statusBar.tooltip = `F# Query Studio: Data sources sync failed: ${res.error.message}`;
+        resetSyncStatusTimer = setTimeout(() => {
+          statusBar.text = "$(database) F# Query Studio";
+          statusBar.tooltip = "F# Query Studio: Show Output Logs";
+        }, 5000);
+        if (!silent) {
+          void vscode.window.showErrorMessage(`Data sources sync failed: ${res.error.message}`);
+        }
+        return;
+      }
+
+      const summary = res.result as {
+        targetDir: string;
+        stagedCount: number;
+        skippedCount: number;
+        total: number;
+        elapsedMs: number;
+      };
+
+      log(
+        `[Workspace] Data sources synced: ${summary.stagedCount} staged, ${summary.skippedCount} up-to-date (total ${summary.total}) in ${summary.elapsedMs}ms`,
+      );
+
+      statusBar.text = "$(database) Data sources ready";
+      statusBar.tooltip = `F# Query Studio: ${summary.total} sources synced (${summary.stagedCount} new/updated, ${summary.skippedCount} cached) in ${summary.elapsedMs}ms`;
+      resetSyncStatusTimer = setTimeout(() => {
+        statusBar.text = "$(database) F# Query Studio";
+        statusBar.tooltip = "F# Query Studio: Show Output Logs";
+      }, 4000);
+
+      if (!silent) {
+        const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+        const msg = isPt
+          ? `Sincronização concluída: ${summary.stagedCount} arquivo(s) carregados, ${summary.skippedCount} já atualizados em cache (${summary.elapsedMs}ms).`
+          : `Sync completed: ${summary.stagedCount} file(s) staged, ${summary.skippedCount} up-to-date in disk cache (${summary.elapsedMs}ms).`;
+        void vscode.window.showInformationMessage(msg);
+      }
+    } catch (err) {
+      const msg = (err as Error).message;
+      log(`[Workspace] Error during sync: ${msg}`);
+      statusBar.text = "$(error) Data sync error";
+      resetSyncStatusTimer = setTimeout(() => {
+        statusBar.text = "$(database) F# Query Studio";
+        statusBar.tooltip = "F# Query Studio: Show Output Logs";
+      }, 5000);
+      if (!silent) {
+        void vscode.window.showErrorMessage(`Error syncing data sources: ${msg}`);
+      }
+    }
+  };
+
+  const autoImportAndSyncDataSources = async (targetDir: string, silent = true): Promise<void> => {
+    try {
+      const worker = await getWorker();
+      const res = await worker.send({
+        id: randomUUID(),
+        method: "workspace/autoImportDataSources",
+        params: { targetDir },
+      });
+
+      if (res.error) {
+        log(`[Watcher] Auto-import error: ${res.error.message}`);
+        return;
+      }
+
+      const data = res.result as {
+        targetDir: string;
+        dataSourcesDir: string;
+        folderCreated: boolean;
+        foundFilesCount: number;
+        importedCount: number;
+        imported: Array<{ name: string; kind: string; filePath: string; relativePath: string }>;
+        removedCount?: number;
+        skippedCount: number;
+      };
+
+      const changesDetected = data.importedCount > 0 || (data.removedCount ?? 0) > 0;
+      if (changesDetected) {
+        log(
+          `[Watcher] data_sources updated: ${data.importedCount} imported, ${data.removedCount ?? 0} removed in ${data.dataSourcesDir}`,
+        );
+        await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
+
+        if (!silent) {
+          const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+          const msg = isPt
+            ? `${data.importedCount} fonte(s) importada(s) automaticamente da pasta 'data_sources'.`
+            : `Auto-imported ${data.importedCount} data source(s) from 'data_sources'.`;
+          void vscode.window.showInformationMessage(msg);
+        }
+      }
+
+      // Always trigger cache sync on file change/creation/deletion
+      await runSyncDataSources(targetDir, true);
+    } catch (err) {
+      log(`[Watcher] Error auto-syncing data sources: ${(err as Error).message}`);
+    }
+  };
+
+  let isPaused = false;
+  let dataSourcesWatcherActive = false;
+  let dataSourcesWatcher: vscode.Disposable | undefined;
+  let lastRegisteredClient: unknown = undefined;
+
+  void vscode.commands.executeCommand("setContext", "fs-query-studio.isPaused", false);
+
+  const isDataSourcesCandidate = (filePath: string): boolean => {
+    const baseName = path.basename(filePath);
+    if (baseName.startsWith(".") || baseName.startsWith("~$") || baseName.toLowerCase() === "readme.txt") {
+      return false;
+    }
+    const ext = path.extname(filePath).toLowerCase();
+    return [".csv", ".xlsx", ".xls", ".sqlite", ".sqlite3", ".db"].includes(ext);
+  };
+
+  let dataSourcesDebounceTimer: NodeJS.Timeout | undefined;
+  const onDataSourcesFileChanged = (uri: vscode.Uri) => {
+    if (isPaused) {
+      return;
+    }
+    if (!isDataSourcesCandidate(uri.fsPath)) {
+      return;
+    }
+    if (dataSourcesDebounceTimer) {
+      clearTimeout(dataSourcesDebounceTimer);
+    }
+    dataSourcesDebounceTimer = setTimeout(async () => {
+      dataSourcesDebounceTimer = undefined;
+      if (isPaused) {
+        return;
+      }
+      const wsFolder = vscode.workspace.getWorkspaceFolder(uri);
+      let targetDir = wsFolder?.uri.fsPath;
+      if (!targetDir) {
+        const parts = uri.fsPath.split(/[/\\]/);
+        const dsIdx = parts.lastIndexOf("data_sources");
+        if (dsIdx > 0) {
+          targetDir = parts.slice(0, dsIdx).join(path.sep);
+        } else {
+          targetDir = path.dirname(uri.fsPath);
+        }
+      }
+      log(`[Watcher] Change detected in data_sources (${path.basename(uri.fsPath)}). Auto-syncing: ${targetDir}`);
+      await autoImportAndSyncDataSources(targetDir, true);
+    }, 600);
+  };
+
+  const startDataSourcesWatcher = () => {
+    if (dataSourcesWatcher) {
+      return;
+    }
+    dataSourcesWatcherActive = true;
+    const watcher = vscode.workspace.createFileSystemWatcher("**/data_sources/**");
+    const d1 = watcher.onDidCreate(onDataSourcesFileChanged);
+    const d2 = watcher.onDidChange(onDataSourcesFileChanged);
+    const d3 = watcher.onDidDelete(onDataSourcesFileChanged);
+    dataSourcesWatcher = {
+      dispose() {
+        d1.dispose();
+        d2.dispose();
+        d3.dispose();
+        watcher.dispose();
+      },
+    };
+    log("[Watcher] Automatic detection for 'data_sources' initialized and active.");
+  };
+
+  const stopDataSourcesWatcher = () => {
+    if (dataSourcesDebounceTimer) {
+      clearTimeout(dataSourcesDebounceTimer);
+      dataSourcesDebounceTimer = undefined;
+    }
+    if (dataSourcesWatcher) {
+      dataSourcesWatcher.dispose();
+      dataSourcesWatcher = undefined;
+      log("[Watcher] Automatic detection for 'data_sources' stopped.");
+    }
+  };
+
+  const pauseWatchersAndWorkers = async (silent = false): Promise<void> => {
+    if (isPaused) return;
+    isPaused = true;
+    await vscode.commands.executeCommand("setContext", "fs-query-studio.isPaused", true);
+    stopDataSourcesWatcher();
+    disposeWorkerSession();
+    lastRegisteredClient = undefined;
+    log("[Host] Watchers and workers paused; worker session disposed and RAM/CPU released.");
+
+    statusBar.text = "$(play) F# Query: Paused";
+    statusBar.tooltip = "F# Query Studio: Watchers and workers paused (RAM and CPU released). Click to resume.";
+    statusBar.command = "fs-query-studio.resumeWatchersAndWorkers";
+    statusBar.show();
+
+    if (!silent) {
+      const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+      const msg = isPt
+        ? "F# Query Studio: Watchers e workers pausados. O processo em background foi encerrado e a memória liberada."
+        : "F# Query Studio: Watchers and workers paused. Background process terminated and memory released.";
+      void vscode.window.showInformationMessage(msg);
+    }
+  };
+
+  const resumeWatchersAndWorkers = async (silent = false): Promise<void> => {
+    if (!isPaused) return;
+    isPaused = false;
+    await vscode.commands.executeCommand("setContext", "fs-query-studio.isPaused", false);
+
+    statusBar.text = "$(database) F# Query Studio";
+    statusBar.tooltip = "F# Query Studio: Show Output Logs";
+    statusBar.command = "fs-query-studio.showOutput";
+    statusBar.show();
+
+    log("[Host] Watchers and workers resumed.");
+
+    if (dataSourcesWatcherActive) {
+      startDataSourcesWatcher();
+      for (const folder of vscode.workspace.workspaceFolders ?? []) {
+        void autoImportAndSyncDataSources(folder.uri.fsPath, true);
+      }
+    }
+
+    await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
+
+    if (!silent) {
+      const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+      const msg = isPt
+        ? "F# Query Studio: Watchers e workers retomados com sucesso."
+        : "F# Query Studio: Watchers and workers resumed successfully.";
+      void vscode.window.showInformationMessage(msg);
+    }
+  };
+
+  const togglePauseResume = async (): Promise<void> => {
+    if (isPaused) {
+      await resumeWatchersAndWorkers();
+    } else {
+      await pauseWatchersAndWorkers();
+    }
+  };
+
   const getWorker = async () => {
+    if (isPaused) {
+      log("[Host] Resuming paused worker for incoming request.");
+      await resumeWatchersAndWorkers(true);
+    }
     const session = await getWorkerSession({
       extensionRoot: context.extensionPath,
       env: process.env,
       log,
     });
-    if (!bridgeRegistered) {
-      bridgeRegistered = true;
+    if (lastRegisteredClient !== session.client) {
+      lastRegisteredClient = session.client;
       registerSecretBridge({
         client: session.client,
         secrets: context.secrets,
         onEntityMappingStatus: updateEntityMappingStatus,
+        onStagingProgress: updateStagingProgress,
       });
     }
     return session.client;
@@ -205,6 +562,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     getWorker,
     secrets: context.secrets,
     log,
+    isPaused: () => isPaused,
   });
 
   const languageFeatures = registerLanguageFeatures({
@@ -399,6 +757,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
           ? "Bancos de dados SQLite ('sample_store.db', 'inventory.db'), CSVs ('sales_feed.csv', 'customers_feed.csv') e notebooks interativos ('sample_demo_pt.fsqnb', 'sample_demo.fsqnb') criados com sucesso!"
           : "Sample SQLite databases ('sample_store.db', 'inventory.db'), CSVs ('sales_feed.csv', 'customers_feed.csv'), and interactive notebooks ('sample_demo.fsqnb', 'sample_demo_pt.fsqnb') created successfully!";
 
+        void runSyncDataSources(targetDir, true);
         void vscode.window.showInformationMessage(successMsg);
       } catch (err) {
         const msg = (err as Error).message;
@@ -549,6 +908,107 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     },
   );
 
+  const autoImportFolderCommand = vscode.commands.registerCommand(
+    "fs-query-studio.autoImportFolder",
+    async (resource?: vscode.Uri) => {
+      let targetDir: string | undefined;
+      if (resource && resource.fsPath) {
+        try {
+          const stat = await vscode.workspace.fs.stat(resource);
+          if (stat.type === vscode.FileType.Directory) {
+            targetDir = resource.fsPath;
+          } else {
+            targetDir = path.dirname(resource.fsPath);
+          }
+        } catch {
+          targetDir = resource.fsPath;
+        }
+      } else {
+        const wsFolders = vscode.workspace.workspaceFolders;
+        if (wsFolders && wsFolders.length === 1) {
+          targetDir = wsFolders[0].uri.fsPath;
+        } else if (wsFolders && wsFolders.length > 1) {
+          const pick = await vscode.window.showQuickPick(
+            wsFolders.map((f) => ({ label: f.name, description: f.uri.fsPath, uri: f.uri })),
+            { placeHolder: "Select a workspace folder to auto-import data sources" },
+          );
+          if (!pick) return;
+          targetDir = pick.uri.fsPath;
+        } else {
+          const picked = await vscode.window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+            openLabel: "Select Workspace Folder",
+            title: "Select Workspace Root Folder for Data Sources Auto-Import",
+          });
+          if (!picked || picked.length === 0) return;
+          targetDir = picked[0].fsPath;
+        }
+      }
+
+      log(`[Workspace] Auto-importing data sources in: ${targetDir}`);
+      try {
+        const worker = await getWorker();
+        const res = await worker.send({
+          id: randomUUID(),
+          method: "workspace/autoImportDataSources",
+          params: { targetDir },
+        });
+
+        if (res.error) {
+          log(`[Workspace] Failed to auto-import data sources: ${res.error.message}`);
+          outputChannel?.show(true);
+          void vscode.window.showErrorMessage(`Failed to auto-import data sources: ${res.error.message}`);
+          return;
+        }
+
+        const data = res.result as {
+          targetDir: string;
+          dataSourcesDir: string;
+          folderCreated: boolean;
+          foundFilesCount: number;
+          importedCount: number;
+          imported: Array<{ name: string; kind: string; filePath: string; relativePath: string }>;
+          skippedCount: number;
+        };
+
+        log(
+          `[Workspace] Auto-import completed: ${data.importedCount} imported, ${data.skippedCount} skipped in ${data.dataSourcesDir}`,
+        );
+
+        // Start real-time automatic detection watcher for data_sources
+        startDataSourcesWatcher();
+
+        await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
+
+        const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+        if (data.importedCount > 0) {
+          const names = data.imported.map((x) => x.name).join(", ");
+          const msg = isPt
+            ? `${data.importedCount} fonte(s) de dados importada(s) automaticamente da pasta 'data_sources': ${names}. Detecção automática em tempo real ativada.`
+            : `Auto-imported ${data.importedCount} data source(s) from 'data_sources': ${names}. Real-time automatic detection is now active.`;
+          void runSyncDataSources(targetDir, true);
+          void vscode.window.showInformationMessage(msg);
+        } else {
+          const msg = isPt
+            ? `Pasta 'data_sources' pronta em '${data.dataSourcesDir}'. Detecção automática ativada: qualquer arquivo .csv, .xlsx, .db ou .sqlite adicionado nela será detectado e sincronizado automaticamente.`
+            : `Folder 'data_sources' is ready at '${data.dataSourcesDir}'. Real-time detection active: place your .csv, .xlsx, or .sqlite files there and they will be auto-imported.`;
+          const actionText = isPt ? "Mostrar no Explorador" : "Reveal in Explorer";
+          const choice = await vscode.window.showInformationMessage(msg, actionText);
+          if (choice === actionText) {
+            const folderUri = vscode.Uri.file(data.dataSourcesDir);
+            await vscode.commands.executeCommand("revealInExplorer", folderUri);
+          }
+        }
+      } catch (err) {
+        const msg = (err as Error).message;
+        log(`[Workspace] Error auto-importing data sources: ${msg}`);
+        void vscode.window.showErrorMessage(`Error auto-importing data sources: ${msg}`);
+      }
+    },
+  );
+
   const upgradeProjectCommand = vscode.commands.registerCommand(
     "fs-query-studio.upgradeProject",
     async (resource?: vscode.Uri) => {
@@ -614,34 +1074,52 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     },
   );
 
-  // Automatic upgrade check for open workspace folders on startup
-  const wsFolders = vscode.workspace.workspaceFolders;
-  if (wsFolders && wsFolders.length > 0) {
-    (async () => {
-      try {
-        const worker = await getWorker();
-        for (const folder of wsFolders) {
-          const res = await worker.send({
-            id: randomUUID(),
-            method: "workspace/upgrade",
-            params: { workspaceDir: folder.uri.fsPath },
+  const syncDataSourcesCommand = vscode.commands.registerCommand(
+    "fs-query-studio.syncDataSources",
+    async (resource?: vscode.Uri) => {
+      let targetDir: string | undefined;
+      if (resource && resource.fsPath) {
+        targetDir = resource.fsPath;
+      } else {
+        const wsFolders = vscode.workspace.workspaceFolders;
+        if (wsFolders && wsFolders.length === 1) {
+          targetDir = wsFolders[0].uri.fsPath;
+        } else if (wsFolders && wsFolders.length > 1) {
+          const pick = await vscode.window.showQuickPick(
+            wsFolders.map((f) => ({ label: f.name, description: f.uri.fsPath, uri: f.uri })),
+            { placeHolder: "Select a workspace folder to sync data sources cache" },
+          );
+          if (!pick) return;
+          targetDir = pick.uri.fsPath;
+        } else {
+          const picked = await vscode.window.showOpenDialog({
+            canSelectFiles: false,
+            canSelectFolders: true,
+            canSelectMany: false,
+            openLabel: "Select Workspace Folder to Sync",
           });
-          if (!res.error && res.result) {
-            const report = res.result as { upgraded: boolean; currentVersion: number; actions: string[] };
-            if (report.upgraded) {
-              log(`[Workspace] Auto-upgraded ${folder.name} to Schema v${report.currentVersion}: ${report.actions.join("; ")}`);
-              void vscode.window.showInformationMessage(
-                `F# Query Studio: Auto-upgraded ${folder.name} to Schema v${report.currentVersion}.`,
-              );
-              await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
-            }
-          }
+          if (!picked || picked.length === 0) return;
+          targetDir = picked[0].fsPath;
         }
-      } catch {
-        // non-blocking on startup
       }
-    })();
-  }
+      await runSyncDataSources(targetDir, false);
+    },
+  );
+
+  const pauseCommand = vscode.commands.registerCommand(
+    "fs-query-studio.pauseWatchersAndWorkers",
+    () => pauseWatchersAndWorkers(),
+  );
+
+  const resumeCommand = vscode.commands.registerCommand(
+    "fs-query-studio.resumeWatchersAndWorkers",
+    () => resumeWatchersAndWorkers(),
+  );
+
+  const togglePauseResumeCommand = vscode.commands.registerCommand(
+    "fs-query-studio.togglePauseResume",
+    () => togglePauseResume(),
+  );
 
   context.subscriptions.push(
     command,
@@ -653,16 +1131,37 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     newNotebookHereCommand,
     restartCommand,
     createSampleDataCommand,
+    autoImportFolderCommand,
+    syncDataSourcesCommand,
     initEmptyProjectCommand,
     upgradeProjectCommand,
     openDocsCommand,
+    pauseCommand,
+    resumeCommand,
+    togglePauseResumeCommand,
     languageFeatures,
     connections.disposable,
     outputChannel,
     statusBar,
+    {
+      dispose: () => {
+        stopDataSourcesWatcher();
+      },
+    },
   );
 
-  return { connections: connections.api };
+  return {
+    connections: connections.api,
+    background: {
+      isPaused: () => isPaused,
+      isDataSourcesWatcherActive: () => dataSourcesWatcherActive,
+      pause: pauseWatchersAndWorkers,
+      resume: resumeWatchersAndWorkers,
+      toggle: togglePauseResume,
+      startDataSourcesWatcher,
+      stopDataSourcesWatcher,
+    },
+  };
 }
 
 export async function deactivate(): Promise<void> {

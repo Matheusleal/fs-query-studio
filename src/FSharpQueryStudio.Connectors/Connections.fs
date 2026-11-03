@@ -22,6 +22,10 @@ open Microsoft.FSharp.Reflection
 type IConnectionResolver =
     abstract Resolve: name: string -> IConnector
 
+/// Optional interface implemented by resolvers that know their project root folder.
+type IWorkspaceAwareResolver =
+    abstract BaseDirectory: string option
+
 /// The controlled surface `.fsx` scripts use to reach configured
 /// connections by name — Section 10:
 ///
@@ -42,8 +46,36 @@ type IConnectionResolver =
 /// on elsewhere.
 module Connections =
     let mutable private resolver: IConnectionResolver option = None
+    let mutable private engine: FileSqliteEngine option = None
 
-    let configure (newResolver: IConnectionResolver) = resolver <- Some newResolver
+    let setEngine (newEngine: FileSqliteEngine) =
+        engine <- Some newEngine
+
+    let getEngine () : FileSqliteEngine =
+        match engine with
+        | Some e -> e
+        | None ->
+            let defaultPath =
+                match resolver with
+                | Some r ->
+                    match box r with
+                    | :? IWorkspaceAwareResolver as war when war.BaseDirectory.IsSome ->
+                        System.IO.Path.Combine(war.BaseDirectory.Value, ".fsqs", "cache", "engine.db")
+                    | _ ->
+                        System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fsqs_cache", "engine.db")
+                | None ->
+                    System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fsqs_cache", "engine.db")
+            let e = FileSqliteEngine(defaultPath)
+            engine <- Some e
+            e
+
+    let configure (newResolver: IConnectionResolver) =
+        resolver <- Some newResolver
+        match box newResolver with
+        | :? IWorkspaceAwareResolver as war when war.BaseDirectory.IsSome ->
+            let dbPath = System.IO.Path.Combine(war.BaseDirectory.Value, ".fsqs", "cache", "engine.db")
+            engine <- Some (FileSqliteEngine(dbPath))
+        | _ -> ()
 
     let private resolve (name: string) : IConnector =
         match resolver with
@@ -55,164 +87,248 @@ module Connections =
 
     let private mapperCache = ConcurrentDictionary<Type * string, obj array -> obj>()
 
+    let private isSentinelString (s: string) : bool =
+        if String.IsNullOrWhiteSpace s then
+            true
+        else
+            let t = s.Trim().Trim('"', '\'')
+            String.IsNullOrEmpty t
+            || String.Equals(t, "n/a", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "na", StringComparison.OrdinalIgnoreCase)
+            || t = "-"
+            || t = "--"
+            || t = "?"
+            || String.Equals(t, "null", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "none", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "nil", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "undefined", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "nan", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "infinity", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "-infinity", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "tbd", StringComparison.OrdinalIgnoreCase)
+            || t.StartsWith("#", StringComparison.Ordinal)
+
+    let private tryParseNormalizedDecimal (clean: string) : decimal option =
+        if clean.Contains(",") && not (clean.Contains(".")) then
+            let normalized = clean.Replace(",", ".")
+            match Decimal.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+            | true, v -> Some v
+            | false, _ -> None
+        elif clean.Contains(".") && not (clean.Contains(",")) then
+            match Decimal.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+            | true, v -> Some v
+            | false, _ -> None
+        elif clean.Contains(",") && clean.Contains(".") then
+            let lastComma = clean.LastIndexOf(',')
+            let lastDot = clean.LastIndexOf('.')
+            let normalized =
+                if lastDot > lastComma then clean.Replace(",", "")
+                else clean.Replace(".", "").Replace(",", ".")
+            match Decimal.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+            | true, v -> Some v
+            | false, _ -> None
+        else
+            match Decimal.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+            | true, v -> Some v
+            | false, _ ->
+                match Decimal.TryParse(clean, NumberStyles.Number, CultureInfo.CurrentCulture) with
+                | true, v -> Some v
+                | false, _ -> None
+
+    let private tryParseNormalizedDouble (clean: string) : double option =
+        let parsed =
+            if clean.Contains(",") && not (clean.Contains(".")) then
+                let normalized = clean.Replace(",", ".")
+                match Double.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                | true, v -> Some v
+                | false, _ -> None
+            elif clean.Contains(".") && not (clean.Contains(",")) then
+                match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                | true, v -> Some v
+                | false, _ -> None
+            elif clean.Contains(",") && clean.Contains(".") then
+                let lastComma = clean.LastIndexOf(',')
+                let lastDot = clean.LastIndexOf('.')
+                let normalized =
+                    if lastDot > lastComma then clean.Replace(",", "")
+                    else clean.Replace(".", "").Replace(",", ".")
+                match Double.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                | true, v -> Some v
+                | false, _ -> None
+            else
+                match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                | true, v -> Some v
+                | false, _ ->
+                    match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands, CultureInfo.CurrentCulture) with
+                    | true, v -> Some v
+                    | false, _ -> None
+        match parsed with
+        | Some v when Double.IsFinite v -> Some v
+        | _ -> None
+
     let private convertValue (raw: obj) (targetType: Type) : obj =
         if isNull raw || Convert.IsDBNull(raw) then
             null
         elif targetType.IsInstanceOfType(raw) then
-            raw
+            match raw with
+            | :? double as d when not (Double.IsFinite d) -> null
+            | :? single as f when not (Single.IsFinite f) -> null
+            | _ -> raw
         elif raw :? string then
             let rawStr = (raw :?> string).Trim().Trim('"', '\'')
-            let isSentinelOrEmpty =
-                String.IsNullOrEmpty rawStr
-                || String.Equals(rawStr, "n/a", StringComparison.OrdinalIgnoreCase)
-                || rawStr = "-"
-                || String.Equals(rawStr, "null", StringComparison.OrdinalIgnoreCase)
 
             if targetType = typeof<string> then
                 box rawStr
-            elif isSentinelOrEmpty then
+            elif isSentinelString rawStr then
                 null
             elif targetType = typeof<decimal> then
-                let clean = rawStr
-                let parsed =
-                    if clean.Contains(",") && not (clean.Contains(".")) then
-                        let normalized = clean.Replace(",", ".")
-                        match Decimal.TryParse(normalized, NumberStyles.AllowDecimalPoint ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    elif clean.Contains(".") && not (clean.Contains(",")) then
-                        match Decimal.TryParse(clean, NumberStyles.AllowDecimalPoint ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    elif clean.Contains(",") && clean.Contains(".") then
-                        let lastComma = clean.LastIndexOf(',')
-                        let lastDot = clean.LastIndexOf('.')
-                        let normalized =
-                            if lastDot > lastComma then clean.Replace(",", "")
-                            else clean.Replace(".", "").Replace(",", ".")
-                        match Decimal.TryParse(normalized, NumberStyles.AllowDecimalPoint ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    else
-                        match Decimal.TryParse(clean, NumberStyles.Integer ||| NumberStyles.AllowLeadingSign ||| NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v
-                        | false, _ ->
-                            match Decimal.TryParse(clean, NumberStyles.Number, CultureInfo.CurrentCulture) with
-                            | true, v -> Some v | false, _ -> None
-
-                match parsed with
+                match tryParseNormalizedDecimal rawStr with
                 | Some v -> box v
-                | None -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
-
+                | None ->
+                    match tryParseNormalizedDouble rawStr with
+                    | Some d when d >= float Decimal.MinValue && d <= float Decimal.MaxValue ->
+                        try box (Convert.ToDecimal(d, CultureInfo.InvariantCulture)) with _ -> null
+                    | _ -> null
             elif targetType = typeof<double> || targetType = typeof<float> then
-                let clean = rawStr
-                let parsed =
-                    if clean.Contains(",") && not (clean.Contains(".")) then
-                        let normalized = clean.Replace(",", ".")
-                        match Double.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    elif clean.Contains(".") && not (clean.Contains(",")) then
-                        match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    elif clean.Contains(",") && clean.Contains(".") then
-                        let lastComma = clean.LastIndexOf(',')
-                        let lastDot = clean.LastIndexOf('.')
-                        let normalized =
-                            if lastDot > lastComma then clean.Replace(",", "")
-                            else clean.Replace(".", "").Replace(",", ".")
-                        match Double.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    else
-                        match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v
-                        | false, _ ->
-                            match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands, CultureInfo.CurrentCulture) with
-                            | true, v -> Some v | false, _ -> None
-
-                match parsed with
+                match tryParseNormalizedDouble rawStr with
                 | Some v -> box v
-                | None -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
-
+                | None -> null
             elif targetType = typeof<single> then
-                let clean = rawStr
-                let parsed =
-                    if clean.Contains(",") && not (clean.Contains(".")) then
-                        let normalized = clean.Replace(",", ".")
-                        match Single.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    elif clean.Contains(".") && not (clean.Contains(",")) then
-                        match Single.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    elif clean.Contains(",") && clean.Contains(".") then
-                        let lastComma = clean.LastIndexOf(',')
-                        let lastDot = clean.LastIndexOf('.')
-                        let normalized =
-                            if lastDot > lastComma then clean.Replace(",", "")
-                            else clean.Replace(".", "").Replace(",", ".")
-                        match Single.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v | false, _ -> None
-                    else
-                        match Single.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
-                        | true, v -> Some v
-                        | false, _ ->
-                            match Single.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands, CultureInfo.CurrentCulture) with
-                            | true, v -> Some v | false, _ -> None
-
-                match parsed with
-                | Some v -> box v
-                | None -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                match tryParseNormalizedDouble rawStr with
+                | Some v ->
+                    let f = single v
+                    if Single.IsFinite f then box f else null
+                | None -> null
             elif targetType = typeof<int> then
-                match Int32.TryParse(rawStr, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+                match Int32.TryParse(rawStr, NumberStyles.Integer ||| NumberStyles.AllowThousands ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
                 | true, v -> box v
-                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                | false, _ ->
+                    match tryParseNormalizedDouble rawStr with
+                    | Some d ->
+                        let clamped = Math.Clamp(Math.Round(d), float Int32.MinValue, float Int32.MaxValue)
+                        box (int clamped)
+                    | None -> null
             elif targetType = typeof<int64> then
-                match Int64.TryParse(rawStr, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+                match Int64.TryParse(rawStr, NumberStyles.Integer ||| NumberStyles.AllowThousands ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
                 | true, v -> box v
-                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                | false, _ ->
+                    match tryParseNormalizedDouble rawStr with
+                    | Some d ->
+                        let clamped = Math.Clamp(Math.Round(d), float Int64.MinValue, float Int64.MaxValue)
+                        box (int64 clamped)
+                    | None -> null
             elif targetType = typeof<int16> then
-                match Int16.TryParse(rawStr, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+                match Int16.TryParse(rawStr, NumberStyles.Integer ||| NumberStyles.AllowThousands ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
                 | true, v -> box v
-                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                | false, _ ->
+                    match tryParseNormalizedDouble rawStr with
+                    | Some d ->
+                        let clamped = Math.Clamp(Math.Round(d), float Int16.MinValue, float Int16.MaxValue)
+                        box (int16 clamped)
+                    | None -> null
             elif targetType = typeof<bool> then
                 match Boolean.TryParse(rawStr) with
                 | true, v -> box v
                 | false, _ ->
                     let l = rawStr.ToLowerInvariant()
-                    if l = "1" || l = "true" || l = "t" || l = "yes" || l = "y" then box true
-                    elif l = "0" || l = "false" || l = "f" || l = "no" || l = "n" then box false
-                    else Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                    if l = "1" || l = "true" || l = "t" || l = "yes" || l = "y" || l = "sim" || l = "s" then box true
+                    elif l = "0" || l = "false" || l = "f" || l = "no" || l = "n" || l = "nao" || l = "não" then box false
+                    else null
             elif targetType = typeof<DateTime> then
                 match DateTime.TryParse(rawStr, CultureInfo.InvariantCulture, DateTimeStyles.None) with
                 | true, v -> box v
                 | false, _ ->
                     match DateTime.TryParse(rawStr, CultureInfo.CurrentCulture, DateTimeStyles.None) with
                     | true, v -> box v
-                    | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                    | false, _ ->
+                        match tryParseNormalizedDouble rawStr with
+                        | Some d when d > -657435.0 && d < 2958466.0 ->
+                            try box (DateTime.FromOADate(d)) with _ -> null
+                        | _ -> null
+            elif targetType = typeof<DateOnly> then
+                match DateOnly.TryParse(rawStr, CultureInfo.InvariantCulture, DateTimeStyles.None) with
+                | true, v -> box v
+                | false, _ ->
+                    match DateTime.TryParse(rawStr, CultureInfo.InvariantCulture, DateTimeStyles.None) with
+                    | true, dt -> box (DateOnly.FromDateTime(dt))
+                    | false, _ -> null
             elif targetType = typeof<Guid> then
                 match Guid.TryParse(rawStr) with
                 | true, v -> box v
-                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                | false, _ -> null
             else
-                Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                try Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                with _ -> null
         else
-            if targetType = typeof<decimal> then
-                match raw with
-                | :? double as d -> box (Convert.ToDecimal(d, CultureInfo.InvariantCulture))
-                | :? single as f -> box (Convert.ToDecimal(f, CultureInfo.InvariantCulture))
-                | :? int as i -> box (decimal i)
-                | :? int64 as i64 -> box (decimal i64)
-                | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
-            elif targetType = typeof<DateTime> then
-                match raw with
-                | :? DateOnly as d -> box (d.ToDateTime(TimeOnly.MinValue))
-                | :? DateTimeOffset as dto -> box dto.DateTime
-                | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
-            elif targetType = typeof<DateOnly> then
-                match raw with
-                | :? DateTime as dt -> box (DateOnly.FromDateTime(dt))
-                | :? DateTimeOffset as dto -> box (DateOnly.FromDateTime(dto.DateTime))
-                | _ -> DateOnly.Parse(string raw, CultureInfo.InvariantCulture) |> box
-            else
-                Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+            try
+                if targetType = typeof<string> then
+                    box (Convert.ToString(raw, CultureInfo.InvariantCulture))
+                elif targetType = typeof<decimal> then
+                    match raw with
+                    | :? double as d -> if Double.IsFinite d then box (Convert.ToDecimal(d, CultureInfo.InvariantCulture)) else null
+                    | :? single as f -> if Single.IsFinite f then box (Convert.ToDecimal(f, CultureInfo.InvariantCulture)) else null
+                    | :? int as i -> box (decimal i)
+                    | :? int64 as i64 -> box (decimal i64)
+                    | :? int16 as i16 -> box (decimal i16)
+                    | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+                elif targetType = typeof<double> || targetType = typeof<float> then
+                    match raw with
+                    | :? decimal as m -> box (double m)
+                    | :? single as f -> if Single.IsFinite f then box (double f) else null
+                    | :? int as i -> box (double i)
+                    | :? int64 as i64 -> box (double i64)
+                    | _ ->
+                        let v = Convert.ToDouble(raw, CultureInfo.InvariantCulture)
+                        if Double.IsFinite v then box v else null
+                elif targetType = typeof<int> then
+                    match raw with
+                    | :? double as d ->
+                        if Double.IsFinite d then
+                            box (int (Math.Clamp(Math.Round(d), float Int32.MinValue, float Int32.MaxValue)))
+                        else null
+                    | :? decimal as m ->
+                        box (int (Math.Clamp(Math.Round(double m), float Int32.MinValue, float Int32.MaxValue)))
+                    | :? int64 as i64 ->
+                        box (int (Math.Clamp(i64, int64 Int32.MinValue, int64 Int32.MaxValue)))
+                    | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+                elif targetType = typeof<int64> then
+                    match raw with
+                    | :? double as d ->
+                        if Double.IsFinite d then
+                            box (int64 (Math.Clamp(Math.Round(d), float Int64.MinValue, float Int64.MaxValue)))
+                        else null
+                    | :? decimal as m ->
+                        box (int64 (Math.Clamp(Math.Round(double m), float Int64.MinValue, float Int64.MaxValue)))
+                    | :? int as i -> box (int64 i)
+                    | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+                elif targetType = typeof<DateTime> then
+                    match raw with
+                    | :? DateOnly as d -> box (d.ToDateTime(TimeOnly.MinValue))
+                    | :? DateTimeOffset as dto -> box dto.DateTime
+                    | :? double as d when Double.IsFinite d && d > -657435.0 && d < 2958466.0 -> box (DateTime.FromOADate(d))
+                    | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+                elif targetType = typeof<DateOnly> then
+                    match raw with
+                    | :? DateTime as dt -> box (DateOnly.FromDateTime(dt))
+                    | :? DateTimeOffset as dto -> box (DateOnly.FromDateTime(dto.DateTime))
+                    | :? double as d when Double.IsFinite d && d > -657435.0 && d < 2958466.0 ->
+                        box (DateOnly.FromDateTime(DateTime.FromOADate(d)))
+                    | _ -> DateOnly.Parse(string raw, CultureInfo.InvariantCulture) |> box
+                else
+                    Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+            with _ ->
+                null
 
     let getCompiledRecordMapper<'T> = CompiledRecordMapper.getCompiledRecordMapper<'T>
+
+    type private FieldMapperSpec =
+        { ColIndex: int
+          PropType: Type
+          IsOption: bool
+          InnerType: Type
+          NoneValue: obj
+          SomeCtor: (obj array -> obj) option
+          DefaultValue: obj }
 
     let getMapper<'T> (columns: string list) : (obj array -> 'T) =
         let targetType = typeof<'T>
@@ -221,66 +337,102 @@ module Connections =
             mapperCache.GetOrAdd(
                 key,
                 Func<Type * string, obj array -> obj>(fun _ ->
+                    let flags = System.Reflection.BindingFlags.Public ||| System.Reflection.BindingFlags.NonPublic ||| System.Reflection.BindingFlags.Instance
                     if targetType = typeof<obj array> then
                         (fun row -> box row)
-                    elif FSharpType.IsRecord(targetType) then
-                        let fields = FSharpType.GetRecordFields(targetType)
-                        let colIndices =
+                    elif FSharpType.IsRecord(targetType, flags) then
+                        let fields = FSharpType.GetRecordFields(targetType, flags)
+                        let sanitizedColumns = CodeGenerationHelpers.sanitizeColumns columns
+                        let specs =
                             fields
                             |> Array.mapi (fun defaultIdx f ->
                                 let byName =
                                     columns
-                                    |> List.tryFindIndex (fun c -> String.Equals(c, f.Name, StringComparison.OrdinalIgnoreCase))
-                                match byName with
-                                | Some idx -> idx
-                                | None -> if defaultIdx < columns.Length then defaultIdx else 0
-                            )
-                        let ctor = FSharpValue.PreComputeRecordConstructor(targetType)
-                        fun (row: obj array) ->
-                            let args: obj array = Array.zeroCreate fields.Length
-                            for i in 0 .. fields.Length - 1 do
-                                let idx = colIndices.[i]
-                                let raw = if idx < row.Length then row.[idx] else null
-                                let isNullVal = isNull raw || Convert.IsDBNull(raw)
-                                let propType = fields.[i].PropertyType
-                                let isOption = propType.IsGenericType && propType.GetGenericTypeDefinition() = typedefof<option<_>>
+                                    |> List.tryFindIndex (fun c ->
+                                        String.Equals(c, f.Name, StringComparison.OrdinalIgnoreCase)
+                                        || String.Equals(CodeGenerationHelpers.cleanIdentifier c, f.Name, StringComparison.OrdinalIgnoreCase)
+                                        || String.Equals(CodeGenerationHelpers.cleanIdentifier c, CodeGenerationHelpers.cleanIdentifier f.Name, StringComparison.OrdinalIgnoreCase))
+                                    |> Option.orElseWith (fun () ->
+                                        sanitizedColumns
+                                        |> List.tryFindIndex (fun sc ->
+                                            String.Equals(sc, f.Name, StringComparison.OrdinalIgnoreCase)
+                                            || String.Equals(CodeGenerationHelpers.cleanIdentifier sc, CodeGenerationHelpers.cleanIdentifier f.Name, StringComparison.OrdinalIgnoreCase)))
+                                let colIdx =
+                                    match byName with
+                                    | Some idx -> idx
+                                    | None -> if defaultIdx < columns.Length then defaultIdx else -1
 
+                                let propType = f.PropertyType
+                                let isOption = propType.IsGenericType && propType.GetGenericTypeDefinition() = typedefof<option<_>>
                                 if isOption then
-                                    let cases = FSharpType.GetUnionCases(propType)
+                                    let cases = FSharpType.GetUnionCases(propType, flags)
                                     let noneCase = cases |> Array.find (fun c -> c.Name = "None")
                                     let someCase = cases |> Array.find (fun c -> c.Name = "Some")
+                                    { ColIndex = colIdx
+                                      PropType = propType
+                                      IsOption = true
+                                      InnerType = propType.GetGenericArguments().[0]
+                                      NoneValue = FSharpValue.MakeUnion(noneCase, [||], flags)
+                                      SomeCtor = Some(FSharpValue.PreComputeUnionConstructor(someCase, flags))
+                                      DefaultValue = null }
+                                else
+                                    let defaultVal =
+                                        if propType = typeof<string> then box ""
+                                        elif propType = typeof<DateTime> then box DateTime.MinValue
+                                        elif propType.IsValueType then Activator.CreateInstance(propType)
+                                        else null
+                                    { ColIndex = colIdx
+                                      PropType = propType
+                                      IsOption = false
+                                      InnerType = propType
+                                      NoneValue = null
+                                      SomeCtor = None
+                                      DefaultValue = defaultVal }
+                            )
+                        let ctor = FSharpValue.PreComputeRecordConstructor(targetType, flags)
+                        let fieldCount = specs.Length
+                        fun (row: obj array) ->
+                            let args: obj array = Array.zeroCreate fieldCount
+                            let rowLen = if isNull row then 0 else row.Length
+                            for i = 0 to fieldCount - 1 do
+                                let spec = specs.[i]
+                                let idx = spec.ColIndex
+                                let raw = if idx >= 0 && idx < rowLen then row.[idx] else null
+                                let isNullVal = isNull raw || Convert.IsDBNull(raw)
+
+                                if spec.IsOption then
                                     let isOptionNone =
                                         isNullVal
                                         || (match raw with
-                                            | :? string as s ->
-                                                let t = s.Trim().Trim('"', '\'')
-                                                String.IsNullOrEmpty t
-                                                || String.Equals(t, "n/a", StringComparison.OrdinalIgnoreCase)
-                                                || t = "-"
-                                                || String.Equals(t, "null", StringComparison.OrdinalIgnoreCase)
+                                            | :? string as s -> isSentinelString s
                                             | _ -> false)
 
                                     if isOptionNone then
-                                        args.[i] <- FSharpValue.MakeUnion(noneCase, [||])
+                                        args.[i] <- spec.NoneValue
                                     else
-                                        let innerType = propType.GetGenericArguments().[0]
-                                        let converted = convertValue raw innerType
+                                        let converted = convertValue raw spec.InnerType
                                         if isNull converted then
-                                            args.[i] <- FSharpValue.MakeUnion(noneCase, [||])
+                                            args.[i] <- spec.NoneValue
                                         else
-                                            args.[i] <- FSharpValue.MakeUnion(someCase, [| converted |])
+                                            args.[i] <- spec.SomeCtor.Value [| converted |]
                                 else
                                     if isNullVal then
-                                        args.[i] <- null
+                                        args.[i] <- spec.DefaultValue
                                     else
-                                        args.[i] <- convertValue raw propType
+                                        let converted = convertValue raw spec.PropType
+                                        args.[i] <- if isNull converted then spec.DefaultValue else converted
                             ctor args
                     else
+                        let defaultScalar =
+                            if targetType = typeof<string> then box ""
+                            elif targetType.IsValueType then Activator.CreateInstance(targetType)
+                            else null
                         fun (row: obj array) ->
-                            if row.Length > 0 && not (isNull row.[0]) && not (Convert.IsDBNull(row.[0])) then
-                                convertValue row.[0] targetType
+                            if not (isNull row) && row.Length > 0 && not (isNull row.[0]) && not (Convert.IsDBNull(row.[0])) then
+                                let converted = convertValue row.[0] targetType
+                                if isNull converted then defaultScalar else converted
                             else
-                                null
+                                defaultScalar
                 )
             )
         fun (row: obj array) -> unbox<'T> (rawMapper row)
@@ -389,9 +541,9 @@ module Connections =
     /// <param name="name">The registered CSV connection name.</param>
     /// <returns>A sequence of strongly-typed records of type 'T.</returns>
     let queryCsv<'T> (name: string) : 'T seq =
-        let r = readCsvRaw name
-        let mapper = getMapper<'T> r.Columns
         seq {
+            let r = readCsvRaw name
+            let mapper = getMapper<'T> r.Columns
             for row in r.Rows do
                 yield mapper row
         }
@@ -404,9 +556,9 @@ module Connections =
     /// <param name="maxRows">Optional maximum number of rows to read.</param>
     /// <returns>A sequence of strongly-typed records of type 'T.</returns>
     let queryExcel<'T> (name: string) (maxRows: int option) : 'T seq =
-        let r = readExcelRaw name maxRows
-        let mapper = getMapper<'T> r.Columns
         seq {
+            let r = readExcelRaw name maxRows
+            let mapper = getMapper<'T> r.Columns
             for row in r.Rows do
                 yield mapper row
         }
@@ -420,17 +572,38 @@ module Connections =
     /// <param name="maxRows">Optional maximum number of rows.</param>
     /// <returns>A sequence of strongly-typed records of type 'T.</returns>
     let queryExcelSheet<'T> (name: string) (sheetName: string option) (maxRows: int option) : 'T seq =
-        match resolve name with
-        | :? ExcelConnector as c ->
-            let stopwatch = Stopwatch.StartNew()
-            let result = c.ReadRows(?sheetName = sheetName, ?maxRows = maxRows)
-            let logged = { result with Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows }
-            let mapper = getMapper<'T> logged.Columns
-            seq {
+        seq {
+            match resolve name with
+            | :? ExcelConnector as c ->
+                let stopwatch = Stopwatch.StartNew()
+                let result = c.ReadRows(?sheetName = sheetName, ?maxRows = maxRows)
+                let logged = { result with Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows }
+                let mapper = getMapper<'T> logged.Columns
                 for row in logged.Rows do
                     yield mapper row
-            }
-        | other -> unsupported name "Connections.queryExcelSheet" other
+            | other -> unsupported name "Connections.queryExcelSheet" other
+        }
+
+    let private jsonElementToBoxedValue (v: JsonElement) : obj =
+        match v.ValueKind with
+        | JsonValueKind.Null
+        | JsonValueKind.Undefined -> null
+        | JsonValueKind.String -> box (v.GetString())
+        | JsonValueKind.True -> box true
+        | JsonValueKind.False -> box false
+        | JsonValueKind.Number ->
+            let okI, i = v.TryGetInt32()
+            if okI then box i
+            else
+                let okL, l = v.TryGetInt64()
+                if okL then box l
+                else
+                    let okM, m = v.TryGetDecimal()
+                    if okM then box m
+                    else
+                        let okD, d = v.TryGetDouble()
+                        if okD then box d else box (v.GetRawText())
+        | _ -> box (v.GetRawText())
 
     /// <summary>
     /// Sends a request to a REST/JSON connection and deserializes JSON into strongly-typed records.
@@ -438,24 +611,66 @@ module Connections =
     let queryJsonWithOptions<'T> (name: string) (options: RestRequestOptions option) : 'T seq =
         match resolve name with
         | :? RestConnector as c ->
+            let stopwatch = Stopwatch.StartNew()
             let opts = defaultArg options c.BaseOptions
             let elem = (c.SendAsync opts CancellationToken.None).GetAwaiter().GetResult()
-            let jsonText = elem.GetRawText()
-            let items: 'T list =
+            let objectElements =
                 if elem.ValueKind = JsonValueKind.Array then
-                    JsonSerializer.Deserialize<'T list>(jsonText, Serialization.options)
+                    elem.EnumerateArray()
+                    |> Seq.filter (fun e -> e.ValueKind = JsonValueKind.Object)
+                    |> Seq.toList
                 elif elem.ValueKind = JsonValueKind.Object then
                     let arrayProp =
                         elem.EnumerateObject()
                         |> Seq.tryFind (fun prop -> prop.Value.ValueKind = JsonValueKind.Array)
                     match arrayProp with
                     | Some prop ->
-                        JsonSerializer.Deserialize<'T list>(prop.Value.GetRawText(), Serialization.options)
-                    | None ->
-                        [ JsonSerializer.Deserialize<'T>(jsonText, Serialization.options) ]
+                        prop.Value.EnumerateArray()
+                        |> Seq.filter (fun e -> e.ValueKind = JsonValueKind.Object)
+                        |> Seq.toList
+                    | None -> [ elem ]
                 else
                     []
-            items :> 'T seq
+
+            if FSharpType.IsRecord(typeof<'T>) && not (List.isEmpty objectElements) then
+                let columns =
+                    objectElements
+                    |> Seq.collect (fun o -> o.EnumerateObject() |> Seq.map (fun p -> p.Name))
+                    |> Seq.distinct
+                    |> Seq.toList
+                let rows =
+                    objectElements
+                    |> Seq.map (fun o ->
+                        columns
+                        |> List.map (fun col ->
+                            match o.TryGetProperty(col) with
+                            | true, v -> jsonElementToBoxedValue v
+                            | false, _ -> null)
+                        |> Array.ofList)
+                let loggedRows = logOnceDrained (c :> IConnector).Kind stopwatch rows
+                let mapper = getMapper<'T> columns
+                seq {
+                    for row in loggedRows do
+                        yield mapper row
+                }
+            else
+                let jsonText = elem.GetRawText()
+                let items: 'T list =
+                    if elem.ValueKind = JsonValueKind.Array then
+                        JsonSerializer.Deserialize<'T list>(jsonText, Serialization.options)
+                    elif elem.ValueKind = JsonValueKind.Object then
+                        let arrayProp =
+                            elem.EnumerateObject()
+                            |> Seq.tryFind (fun prop -> prop.Value.ValueKind = JsonValueKind.Array)
+                        match arrayProp with
+                        | Some prop ->
+                            JsonSerializer.Deserialize<'T list>(prop.Value.GetRawText(), Serialization.options)
+                        | None ->
+                            [ JsonSerializer.Deserialize<'T>(jsonText, Serialization.options) ]
+                    else
+                        []
+                stopwatch.Stop()
+                items :> 'T seq
         | other -> unsupported name "Connections.queryJson" other
 
     /// <summary>
@@ -463,6 +678,16 @@ module Connections =
     /// </summary>
     let queryJson<'T> (name: string) : 'T seq =
         queryJsonWithOptions<'T> name None
+
+    /// <summary>
+    /// Executes a SQL query directly against the workspace's FileSqliteEngine,
+    /// returning a ConnectorQueryResult (ResultKind.Table) across all staged files.
+    /// </summary>
+    let queryEngine (sqlText: string) : ConnectorQueryResult =
+        (getEngine()).ExecuteQuery(sqlText, [])
+
+    let queryEngineWith (sqlText: string) (parameters: (string * obj) list) : ConnectorQueryResult =
+        (getEngine()).ExecuteQuery(sqlText, parameters)
 
     /// Represents an active database connection with first-class query and schema discovery members for autocomplete.
     type DatabaseConnection(name: string, connector: IQueryableConnector) =
@@ -519,6 +744,9 @@ module Connections =
         member this.PushdownQueryable<'T>(sqlText: string, ?parameters: (string * obj) list) : SqlPushdownQueryable<'T> =
             let p = defaultArg parameters []
             SqlPushdownQueryable<'T>(connector, sqlText, p)
+
+        member this.Table<'T>(tableName: string) : SqlPushdownQueryable<'T> =
+            SqlPushdownQueryable<'T>(connector, tableName, [])
 
         member _.DiscoverSchemaAsync(?ct: CancellationToken) =
             let token = defaultArg ct CancellationToken.None
@@ -609,6 +837,7 @@ module Connections =
             sb.AppendLine("        member _.rawQuery(sqlText: string, ?parameters: (string * obj) list) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.rawQuery(sqlText, ?parameters = parameters)") |> ignore
             sb.AppendLine("        member _.rawQuery(sqlText: string) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.rawQuery(sqlText)") |> ignore
             sb.AppendLine("        member _.Execute(sqlText: string, ?parameters: (string * obj) list) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.Execute(sqlText, ?parameters = parameters)") |> ignore
+            sb.AppendLine("        member _.Table<'T>(tableName: string) : FSharpQueryStudio.Connectors.SqlPushdownQueryable<'T> = conn.Table<'T>(tableName)") |> ignore
             sb.AppendLine("        member _.Connection = conn") |> ignore
             for (schema, tbls) in schemaGroups do
                 if schema = "public" || schema = "dbo" || schema = "main" then
@@ -617,9 +846,7 @@ module Connections =
                             let dotIdx = t.Name.IndexOf(".")
                             if dotIdx > 0 then t.Name.Substring(dotIdx + 1) else t.Name
                         let propName = escapeIdent rawTableName
-                        let colList = t.Columns |> List.map (fun c -> c.Name) |> String.concat ", "
-                        let sqlQuery = $"SELECT {colList} FROM {t.Name}"
-                        sb.AppendLine($"        member _.{propName} : FSharpQueryStudio.Connectors.SqlPushdownQueryable<{escapeIdent schema}.{propName}> = conn.PushdownQueryable<{escapeIdent schema}.{propName}>(\"{sqlQuery}\")") |> ignore
+                        sb.AppendLine($"        member _.{propName} : FSharpQueryStudio.Connectors.SqlPushdownQueryable<{escapeIdent schema}.{propName}> = conn.Table<{escapeIdent schema}.{propName}>(\"{t.Name}\")") |> ignore
                 sb.AppendLine($"        member _.{escapeIdent schema} =") |> ignore
                 sb.AppendLine("            {|") |> ignore
                 for t in tbls do
@@ -627,9 +854,7 @@ module Connections =
                         let dotIdx = t.Name.IndexOf(".")
                         if dotIdx > 0 then t.Name.Substring(dotIdx + 1) else t.Name
                     let propName = escapeIdent rawTableName
-                    let colList = t.Columns |> List.map (fun c -> c.Name) |> String.concat ", "
-                    let sqlQuery = $"SELECT {colList} FROM {t.Name}"
-                    sb.AppendLine($"                {propName} = conn.PushdownQueryable<{escapeIdent schema}.{propName}>(\"{sqlQuery}\")") |> ignore
+                    sb.AppendLine($"                {propName} = conn.Table<{escapeIdent schema}.{propName}>(\"{t.Name}\")") |> ignore
                 sb.AppendLine("            |}") |> ignore
                 sb.AppendLine() |> ignore
             sb.AppendLine("    let database () : Database = Database()") |> ignore
@@ -641,12 +866,12 @@ module Connections =
         /// Generates a SQLProvider declaration snippet for this database connection.
         member this.GenerateSqlProvider(?typeAlias: string) : string =
             let alias = defaultArg typeAlias "Db"
+            let kind = (connector :> IConnector).Kind
             let vendor =
-                match (connector :> IConnector).Kind with
-                | ConnectorKind.PostgreSql -> "Common.DatabaseProviderTypes.POSTGRESQL"
-                | ConnectorKind.SqlServer -> "Common.DatabaseProviderTypes.MSSQLSERVER"
-                | ConnectorKind.Sqlite -> "Common.DatabaseProviderTypes.SQLITE"
-                | _ -> "Common.DatabaseProviderTypes.POSTGRESQL"
+                if kind = ConnectorKind.PostgreSql then "Common.DatabaseProviderTypes.POSTGRESQL"
+                elif kind = ConnectorKind.SqlServer then "Common.DatabaseProviderTypes.MSSQLSERVER"
+                elif kind = ConnectorKind.Sqlite then "Common.DatabaseProviderTypes.SQLITE"
+                else "Common.DatabaseProviderTypes.POSTGRESQL"
             $"open FSharp.Data.Sql\n\n[<Literal>]\nlet private connStr = \"{connector.ConnectionString}\"\n\ntype {alias} = SqlDataProvider<\n    DatabaseVendor = {vendor},\n    ConnectionString = connStr >\n\nlet db = {alias}.GetDataContext()\n"
 
     /// Represents an active CSV connection with typed row queries and autocomplete.
@@ -655,7 +880,14 @@ module Connections =
         member _.Connector = connector
         member _.FilePath = connector.FilePath
         member _.Rows<'T>() : 'T seq = queryCsv<'T> name
-        member this.Queryable<'T>() : IQueryable<'T> = (this.Rows<'T>()).AsQueryable()
+        member this.Queryable<'T>() : IQueryable<'T> =
+            let eng = getEngine ()
+            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows()), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
+            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName) :> IQueryable<'T>
+        member this.PushdownQueryable<'T>() : SqlPushdownQueryable<'T> =
+            let eng = getEngine ()
+            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows()), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
+            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
         member _.Raw() : ConnectorQueryResult = readCsvRaw name
 
     /// Represents an active Excel workbook connection with multi-sheet typed queries.
@@ -665,8 +897,38 @@ module Connections =
         member _.FilePath = connector.FilePath
         member _.Rows<'T>(?maxRows: int) : 'T seq = queryExcel<'T> name maxRows
         member _.Sheet<'T>(sheetName: string, ?maxRows: int) : 'T seq = queryExcelSheet<'T> name (Some sheetName) maxRows
-        member this.Queryable<'T>(?maxRows: int) : IQueryable<'T> = (this.Rows<'T>(?maxRows = maxRows)).AsQueryable()
-        member this.SheetQueryable<'T>(sheetName: string, ?maxRows: int) : IQueryable<'T> = (this.Sheet<'T>(sheetName, ?maxRows = maxRows)).AsQueryable()
+        member this.Queryable<'T>(?maxRows: int) : IQueryable<'T> =
+            let eng = getEngine ()
+            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows(?maxRows = maxRows)), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
+            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName) :> IQueryable<'T>
+        member this.PushdownQueryable<'T>(?maxRows: int) : SqlPushdownQueryable<'T> =
+            let eng = getEngine ()
+            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows(?maxRows = maxRows)), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
+            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
+        member this.SheetQueryable<'T>(sheetName: string, ?maxRows: int) : IQueryable<'T> =
+            let eng = getEngine ()
+            let compoundKey = $"{name}_{sheetName}"
+            let cleanTableName =
+                if eng.IsStagedAndCurrent(compoundKey, connector.FilePath) then
+                    compoundKey
+                elif eng.IsStagedAndCurrent(name, connector.FilePath) && (String.Equals(name, sheetName, StringComparison.OrdinalIgnoreCase) || maxRows.IsNone) then
+                    name
+                else
+                    let key = if String.Equals(name, sheetName, StringComparison.OrdinalIgnoreCase) then name else compoundKey
+                    eng.EnsureStaged(key, connector.FilePath, (fun () -> connector.ReadRows(sheetName = sheetName, ?maxRows = maxRows)), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
+            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName) :> IQueryable<'T>
+        member this.SheetPushdownQueryable<'T>(sheetName: string, ?maxRows: int) : SqlPushdownQueryable<'T> =
+            let eng = getEngine ()
+            let compoundKey = $"{name}_{sheetName}"
+            let cleanTableName =
+                if eng.IsStagedAndCurrent(compoundKey, connector.FilePath) then
+                    compoundKey
+                elif eng.IsStagedAndCurrent(name, connector.FilePath) && (String.Equals(name, sheetName, StringComparison.OrdinalIgnoreCase) || maxRows.IsNone) then
+                    name
+                else
+                    let key = if String.Equals(name, sheetName, StringComparison.OrdinalIgnoreCase) then name else compoundKey
+                    eng.EnsureStaged(key, connector.FilePath, (fun () -> connector.ReadRows(sheetName = sheetName, ?maxRows = maxRows)), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
+            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
         member _.Raw(?maxRows: int) : ConnectorQueryResult = readExcelRaw name maxRows
 
     /// Represents an active REST/JSON connection with typed queries.
@@ -679,7 +941,48 @@ module Connections =
             connector.SendAsync options token
 
     /// Category container for registered relational SQL database connections (e.g. Connections.sql.SampleStore).
-    type SqlCategory() = class end
+    type SqlCategory() =
+        member _.query(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            let p = defaultArg parameters []
+            (getEngine()).ExecuteQuery(sqlText, p)
+        member _.rawQuery(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            let p = defaultArg parameters []
+            (getEngine()).ExecuteQuery(sqlText, p)
+        /// Builds dynamic SQL for cross-tabulation / pivot query given known pivot column values.
+        static member buildPivotSql(tableName: string, rowKeys: string list, pivotCol: string, valCol: string, pivotVals: string list, ?aggFunc: string) : string =
+            let agg = defaultArg aggFunc "SUM"
+            let rowKeysStr = String.concat ", " rowKeys
+            let pivotCols =
+                pivotVals
+                |> List.map (fun v ->
+                    let safeVal = v.Replace("'", "''")
+                    let safeAlias = v.Replace("\"", "\"\"")
+                    $"{agg}(CASE WHEN {pivotCol} = '{safeVal}' THEN {valCol} END) AS \"{safeAlias}\""
+                )
+                |> String.concat ",\n    "
+            if List.isEmpty pivotVals then
+                $"SELECT {rowKeysStr} FROM {tableName} GROUP BY {rowKeysStr};"
+            else
+                $"SELECT {rowKeysStr},\n    {pivotCols}\nFROM {tableName}\nGROUP BY {rowKeysStr};"
+        member this.buildPivotSql(tableName: string, rowKeys: string list, pivotCol: string, valCol: string, pivotVals: string list, ?aggFunc: string) : string =
+            SqlCategory.buildPivotSql(tableName, rowKeys, pivotCol, valCol, pivotVals, ?aggFunc = aggFunc)
+        /// Performs a dynamic SQL cross-tabulation / pivot on the staging engine.
+        /// Extracts distinct values of pivotCol and executes conditional aggregation grouped by rowKeys.
+        member this.pivot(tableName: string, rowKeys: string list, pivotCol: string, valCol: string, ?aggFunc: string) : ConnectorQueryResult =
+            let eng = getEngine ()
+            let distinctSql = $"SELECT DISTINCT {pivotCol} AS val FROM {tableName} WHERE {pivotCol} IS NOT NULL ORDER BY 1;"
+            let distinctRes = eng.ExecuteQuery(distinctSql, [])
+            let pivotVals =
+                distinctRes.Rows
+                |> Seq.choose (fun row ->
+                    if row.Length > 0 && not (isNull row.[0]) then
+                        let s = string row.[0]
+                        if not (String.IsNullOrWhiteSpace s) then Some s else None
+                    else None
+                )
+                |> Seq.toList
+            let pivotSql = this.buildPivotSql(tableName, rowKeys, pivotCol, valCol, pivotVals, ?aggFunc = aggFunc)
+            eng.ExecuteQuery(pivotSql, [])
 
     /// Category container for registered delimited CSV file connections (e.g. Connections.csv.CustomersFeed).
     type CsvCategory() = class end
@@ -722,6 +1025,211 @@ module Connections =
         | :? RestConnector as c -> RestConnection(name, c)
         | other -> unsupported name "Connections.rest" other
 
+    /// Result of an asynchronous data sources pre-staging / sync operation.
+    type DataSourcesSyncSummary =
+        { StagedCount: int
+          SkippedCount: int
+          Total: int
+          ElapsedMs: int64 }
+
+    /// Asynchronously synchronizes and pre-stages all CSV and Excel connections for a workspace into the persistent SQLite disk cache with progress reporting.
+    let syncDataSourcesAsyncWithProgress
+        (workspaceDir: string)
+        (connections: ConnectionDefinition list)
+        (secretStore: FSharpQueryStudio.Security.ISecretStore)
+        (onProgress: (StagingProgressEvent -> unit) option) : Task<DataSourcesSyncSummary> =
+        task {
+            let sw = Stopwatch.StartNew()
+            let baseDir = ConnectorDescriptor.projectRootOf workspaceDir
+            let cacheDir = System.IO.Path.Combine(workspaceDir, ".fsqs", "cache")
+            if not (System.IO.Directory.Exists cacheDir) then
+                System.IO.Directory.CreateDirectory cacheDir |> ignore
+            let dbPath = System.IO.Path.Combine(cacheDir, "engine.db")
+            let eng =
+                match engine with
+                | Some e when String.Equals(System.IO.Path.GetFullPath(e.DatabasePath), System.IO.Path.GetFullPath(dbPath), StringComparison.OrdinalIgnoreCase) -> e
+                | _ ->
+                    let e = FileSqliteEngine(dbPath)
+                    engine <- Some e
+                    e
+
+            let mutable stagedCount = 0
+            let mutable skippedCount = 0
+            let fileConns =
+                connections
+                |> List.filter (fun c -> c.Kind.Id = "Csv" || c.Kind.Id = "Excel")
+
+            let total = fileConns.Length
+
+            for i in 0 .. fileConns.Length - 1 do
+                let connDef = fileConns.[i]
+                let currentIdx = i + 1
+                try
+                    let conn: IConnector = ConnectorRegistry.Instance.Resolve(connDef, secretStore, Some baseDir)
+                    match connDef.Kind.Id with
+                    | "Csv" ->
+                        let csvConn = conn :?> CsvConnector
+                        let filePath = csvConn.FilePath
+                        let fullPath = if System.IO.Path.IsPathRooted filePath then filePath else System.IO.Path.Combine(workspaceDir, filePath)
+                        if System.IO.File.Exists fullPath then
+                            if eng.IsStagedAndCurrent(connDef.Name, fullPath) then
+                                skippedCount <- skippedCount + 1
+                                match onProgress with
+                                | Some cb ->
+                                    cb {
+                                        TableName = connDef.Name
+                                        FilePath = fullPath
+                                        Phase = "Skipped"
+                                        RowCount = None
+                                        CurrentIndex = Some currentIdx
+                                        TotalCount = Some total
+                                        ElapsedMs = Some 0L
+                                        Message = Some $"'{connDef.Name}' is up-to-date in cache"
+                                    }
+                                | None -> ()
+                            else
+                                eng.EnsureStaged(
+                                    connDef.Name,
+                                    fullPath,
+                                    (fun () -> csvConn.ReadRows()),
+                                    ?columnTypes = (if csvConn.Options.ColumnTypes.IsEmpty then None else Some csvConn.Options.ColumnTypes),
+                                    currentIndex = currentIdx,
+                                    totalCount = total,
+                                    ?onProgress = onProgress
+                                ) |> ignore
+                                stagedCount <- stagedCount + 1
+                    | "Excel" ->
+                        let excelConn = conn :?> ExcelConnector
+                        let filePath = excelConn.FilePath
+                        let fullPath = if System.IO.Path.IsPathRooted filePath then filePath else System.IO.Path.Combine(workspaceDir, filePath)
+                        if System.IO.File.Exists fullPath then
+                            let tables =
+                                try
+                                    (excelConn :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
+                                with ex ->
+                                    Log.Warning("FS Query Studio: Could not discover worksheets for Excel connection '{Name}': {Error}", connDef.Name, ex.Message)
+                                    []
+
+                            let isSingleSheet = tables.Length = 1
+
+                            for tbl in tables do
+                                let sheetName = tbl.Name
+                                let compoundKey = $"{connDef.Name}_{sheetName}"
+                                let isSameName = String.Equals(connDef.Name, sheetName, StringComparison.OrdinalIgnoreCase)
+
+                                if eng.IsStagedAndCurrent(compoundKey, fullPath) then
+                                    skippedCount <- skippedCount + 1
+                                    match onProgress with
+                                    | Some cb ->
+                                        cb {
+                                            TableName = compoundKey
+                                            FilePath = fullPath
+                                            Phase = "Skipped"
+                                            RowCount = None
+                                            CurrentIndex = Some currentIdx
+                                            TotalCount = Some total
+                                            ElapsedMs = Some 0L
+                                            Message = Some $"'{compoundKey}' is up-to-date in cache"
+                                        }
+                                    | None -> ()
+                                else
+                                    eng.EnsureStaged(
+                                        compoundKey,
+                                        fullPath,
+                                        (fun () -> excelConn.ReadRows(sheetName = sheetName)),
+                                        ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes),
+                                        currentIndex = currentIdx,
+                                        totalCount = total,
+                                        ?onProgress = onProgress
+                                    ) |> ignore
+                                    stagedCount <- stagedCount + 1
+
+                                if isSameName || isSingleSheet || (not (List.isEmpty tables) && sheetName = (List.head tables).Name) then
+                                    if not (eng.IsStagedAndCurrent(connDef.Name, fullPath)) then
+                                        eng.EnsureStaged(
+                                            connDef.Name,
+                                            fullPath,
+                                            (fun () -> excelConn.ReadRows(sheetName = sheetName)),
+                                            ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes),
+                                            currentIndex = currentIdx,
+                                            totalCount = total,
+                                            ?onProgress = onProgress
+                                        ) |> ignore
+                                        stagedCount <- stagedCount + 1
+
+                            if List.isEmpty tables then
+                                if eng.IsStagedAndCurrent(connDef.Name, fullPath) then
+                                    skippedCount <- skippedCount + 1
+                                    match onProgress with
+                                    | Some cb ->
+                                        cb {
+                                            TableName = connDef.Name
+                                            FilePath = fullPath
+                                            Phase = "Skipped"
+                                            RowCount = None
+                                            CurrentIndex = Some currentIdx
+                                            TotalCount = Some total
+                                            ElapsedMs = Some 0L
+                                            Message = Some $"'{connDef.Name}' is up-to-date in cache"
+                                        }
+                                    | None -> ()
+                                else
+                                    eng.EnsureStaged(
+                                        connDef.Name,
+                                        fullPath,
+                                        (fun () -> excelConn.ReadRows()),
+                                        ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes),
+                                        currentIndex = currentIdx,
+                                        totalCount = total,
+                                        ?onProgress = onProgress
+                                    ) |> ignore
+                                    stagedCount <- stagedCount + 1
+                    | _ -> ()
+                with ex ->
+                    Log.Warning("FS Query Studio: Background staging failed for connection '{Name}': {Error}", connDef.Name, ex.Message)
+
+            sw.Stop()
+            return
+                { StagedCount = stagedCount
+                  SkippedCount = skippedCount
+                  Total = fileConns.Length
+                  ElapsedMs = sw.ElapsedMilliseconds }
+        }
+
+    /// Asynchronously synchronizes and pre-stages all CSV and Excel connections for a workspace into the persistent SQLite disk cache.
+    let syncDataSourcesAsync (workspaceDir: string) (connections: ConnectionDefinition list) (secretStore: FSharpQueryStudio.Security.ISecretStore) : Task<DataSourcesSyncSummary> =
+        syncDataSourcesAsyncWithProgress workspaceDir connections secretStore None
+
+    /// Synchronizes and pre-stages all CSV and Excel connections without progress callback.
+    let syncDataSources = syncDataSourcesAsync
+
+    /// Triggers fire-and-forget background pre-staging of tabular files into the persistent disk cache.
+    let triggerBackgroundSync (workspaceDir: string) (connections: ConnectionDefinition list) (secretStore: FSharpQueryStudio.Security.ISecretStore) : unit =
+        Task.Run(fun () ->
+            try
+                (syncDataSourcesAsync workspaceDir connections secretStore).GetAwaiter().GetResult() |> ignore
+            with ex ->
+                Log.Warning("FS Query Studio: Fire-and-forget background sync failed: {Error}", ex.Message)
+        ) |> ignore
+
+    /// Displays the raw generated SQL query for a queryable or SQL expression without executing it against the database.
+    let toRawSql (query: obj) : string = ResultKind.toRawSql query
+
+    /// Returns the raw generated SQL query and parameter bindings without executing it against the database.
+    let toRawSqlWithParameters (query: obj) : string * (string * obj) list = ResultKind.toRawSqlWithParameters query
+
+[<AutoOpen>]
+module QueryInspectionExtensions =
+    type ResultKind = FSharpQueryStudio.Protocol.ResultKind
+
+    do
+        ResultKind.RegisterRawSqlExtractor(SqlPushdownQuery.extractRawSql, SqlPushdownQuery.extractSqlWithParameters)
+
+    /// Displays the raw generated SQL query for a queryable or SQL expression without executing it against the database.
+    let toRawSql (query: obj) : string = ResultKind.toRawSql query
+
+    /// Returns the raw generated SQL query and parameter bindings without executing it against the database.
+    let toRawSqlWithParameters (query: obj) : string * (string * obj) list = ResultKind.toRawSqlWithParameters query
 
 [<AutoOpen>]
 module ConnectorQueryResultExtensions =
@@ -735,3 +1243,23 @@ module ConnectorQueryResultExtensions =
 
         member this.AsQueryable<'T>() : IQueryable<'T> =
             this.As<'T>().AsQueryable()
+
+[<AutoOpen>]
+module SequencePivotExtensions =
+    /// Module with pivot / cross-tabulation functions for in-memory sequences.
+    module Seq =
+        /// Performs an in-memory pivot / cross-tabulation of any sequence of records.
+        let pivot (rowKeySelector: 'T -> 'RowKey) (colKeySelector: 'T -> 'ColKey) (valSelector: 'T -> 'Value) (aggregator: 'Value seq -> 'Result) (source: 'T seq) : ('RowKey * Map<'ColKey, 'Result>) seq =
+            source
+            |> Seq.groupBy rowKeySelector
+            |> Seq.map (fun (rowKey, rowItems) ->
+                let colMap =
+                    rowItems
+                    |> Seq.groupBy colKeySelector
+                    |> Seq.map (fun (colKey, colItems) ->
+                        let vals = colItems |> Seq.map valSelector
+                        (colKey, aggregator vals)
+                    )
+                    |> Map.ofSeq
+                (rowKey, colMap)
+            )

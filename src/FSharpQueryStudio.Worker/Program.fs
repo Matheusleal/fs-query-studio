@@ -259,12 +259,22 @@ let loop (stdin: TextReader) (stdout: TextWriter) (host: HostChannel) : Task =
 
 [<EntryPoint>]
 let main _argv =
+    let utf8NoBom = System.Text.UTF8Encoding(false)
+    try
+        System.Console.InputEncoding <- utf8NoBom
+        System.Console.OutputEncoding <- utf8NoBom
+    with _ -> ()
+
     Log.Logger <- LoggerSetup.build "worker" "worker" (LoggerSetup.defaultLogsDirectory ())
 
     try
         Log.Information("F# Query Studio worker starting")
 
-        let stdout = System.Console.Out
+        use stdinReader = new StreamReader(System.Console.OpenStandardInput(), utf8NoBom)
+        use stdoutWriter = new StreamWriter(System.Console.OpenStandardOutput(), utf8NoBom)
+        stdoutWriter.AutoFlush <- true
+
+        let stdout: TextWriter = stdoutWriter
 
         // Generalises `writeResponse`'s lock pattern to any frame: the
         // reverse channel writes `WorkerRequestFrame`s to the same stdout,
@@ -285,7 +295,7 @@ let main _argv =
         Handlers.configureSecretStore (BridgeSecretStore hostChannel)
         Handlers.configureHostChannel hostChannel
 
-        (loop System.Console.In stdout hostChannel).GetAwaiter().GetResult()
+        (loop stdinReader stdout hostChannel).GetAwaiter().GetResult()
         Log.Information("F# Query Studio worker stopping")
         0
     finally

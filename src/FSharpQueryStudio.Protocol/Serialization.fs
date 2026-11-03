@@ -16,5 +16,6 @@ module Serialization =
             JsonFSharpOptions.Default()
                 .WithSkippableOptionFields()
                 .WithAllowNullFields()
+        o.Converters.Add(ConnectorKindJsonConverter())
         o.Converters.Add(JsonFSharpConverter(fsOptions))
         o

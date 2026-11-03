@@ -1,8 +1,12 @@
 import * as vscode from "vscode";
 import { FSHARP_CELL_SELECTOR } from "./providers";
 import type { ConnectorKindName } from "../protocol";
+import {
+  ConnectorFrontRegistry,
+  type TargetConnectorCategory,
+} from "../connections/connector-registry";
 
-export type TargetConnectorCategory = "Database" | "Csv" | "Excel" | "RestJson";
+export type { TargetConnectorCategory };
 
 export interface ConnectionItem {
   name: string;
@@ -14,19 +18,7 @@ export interface ConnectionItem {
  * or `undefined` if the cursor is not inside a recognized connection-name string argument.
  */
 export function getTargetConnectorCategory(linePrefix: string): TargetConnectorCategory | undefined {
-  if (/Connections\.(?:sql|connect|get|query|getConnectionString)\b\s*\(?\s*"[^"]*$/.test(linePrefix)) {
-    return "Database";
-  }
-  if (/Connections\.(?:csv|connectCsv|queryCsv)\b\s*\(?\s*"[^"]*$/.test(linePrefix)) {
-    return "Csv";
-  }
-  if (/Connections\.(?:excel|connectExcel|queryExcel|queryExcelSheet)\b\s*\(?\s*"[^"]*$/.test(linePrefix)) {
-    return "Excel";
-  }
-  if (/Connections\.(?:rest|connectRest|queryJson)\b\s*\(?\s*"[^"]*$/.test(linePrefix)) {
-    return "RestJson";
-  }
-  return undefined;
+  return ConnectorFrontRegistry.getTargetConnectorCategory(linePrefix);
 }
 
 /** Pure. `linePrefix` is the text of the cursor's line up to the cursor. */
@@ -73,21 +65,9 @@ export function registerConnectionNameCompletion(
           if (token.isCancellationRequested) {
             return undefined;
           }
-          const filtered = all.filter((c) => {
-            if (!c.kind) {
-              return true;
-            }
-            switch (category) {
-              case "Database":
-                return c.kind === "SqlServer" || c.kind === "PostgreSql" || c.kind === "Sqlite";
-              case "Csv":
-                return c.kind === "Csv";
-              case "Excel":
-                return c.kind === "Excel";
-              case "RestJson":
-                return c.kind === "RestJson";
-            }
-          });
+          const filtered = all.filter((c) =>
+            ConnectorFrontRegistry.isInCategory(c.kind, category),
+          );
           return filtered.map((c) => {
             const item = new vscode.CompletionItem(
               c.kind ? { label: c.name, description: c.kind } : c.name,

@@ -22,263 +22,524 @@ type SqlDialect =
 
 module SqlDialect =
     let fromConnectorKind (kind: ConnectorKind) =
-        match kind with
-        | ConnectorKind.PostgreSql -> SqlDialect.PostgreSql
-        | ConnectorKind.SqlServer -> SqlDialect.SqlServer
-        | _ -> SqlDialect.Sqlite
+        if kind = ConnectorKind("PostgreSql") then SqlDialect.PostgreSql
+        elif kind = ConnectorKind("SqlServer") then SqlDialect.SqlServer
+        else SqlDialect.Sqlite
+
+    let private reservedKeywords =
+        HashSet<string>(
+            [|
+                "ALL"; "ALTER"; "AND"; "AS"; "ASC"; "BETWEEN"; "BY"; "CASE"; "CAST"; "CHECK"; "COLUMN";
+                "CONSTRAINT"; "CREATE"; "CROSS"; "CURRENT"; "DATABASE"; "DEFAULT"; "DELETE"; "DESC";
+                "DISTINCT"; "DROP"; "ELSE"; "END"; "ESCAPE"; "EXCEPT"; "EXISTS"; "FOREIGN"; "FROM";
+                "FULL"; "GROUP"; "HAVING"; "IN"; "INDEX"; "INNER"; "INSERT"; "INTERSECT"; "INTO";
+                "IS"; "JOIN"; "KEY"; "LEFT"; "LIKE"; "LIMIT"; "NOT"; "NULL"; "ON"; "OR"; "ORDER";
+                "OUTER"; "PRIMARY"; "REFERENCES"; "RIGHT"; "SELECT"; "SET"; "TABLE"; "THEN"; "TO";
+                "TOP"; "TRANSACTION"; "UNION"; "UNIQUE"; "UPDATE"; "VALUES"; "VIEW"; "WHEN"; "WHERE";
+                "WITH"
+            |],
+            StringComparer.OrdinalIgnoreCase
+        )
+
+    let quoteIdentifier (dialect: SqlDialect) (name: string) =
+        if String.IsNullOrEmpty name then name
+        elif name.StartsWith("\"") || name.StartsWith("[") then name
+        elif reservedKeywords.Contains name || name.Contains(" ") || not (Char.IsLetter(name.[0]) || name.[0] = '_') then
+            match dialect with
+            | SqlDialect.SqlServer -> $"[{name}]"
+            | _ -> $"\"{name}\""
+        else
+            name
 
 /// Static helper methods for reading primitive types directly from IDataRecord without boxing.
 type RecordReaders =
-    static member ReadInt32(record: IDataRecord, idx: int) : int =
-        if record.IsDBNull(idx) then 0
+    static member private IsSentinelString(s: string) : bool =
+        if String.IsNullOrWhiteSpace s then true
         else
-            try record.GetInt32(idx)
-            with _ ->
+            let t = s.Trim().Trim('"', '\'')
+            String.IsNullOrEmpty t
+            || t = "-"
+            || String.Equals(t, "n/a", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "na", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "null", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "none", StringComparison.OrdinalIgnoreCase)
+            || String.Equals(t, "nan", StringComparison.OrdinalIgnoreCase)
+            || t.StartsWith("#", StringComparison.Ordinal)
+
+    static member private TryParseNormalizedDecimal(clean: string) : bool * decimal =
+        if clean.Contains(",") && not (clean.Contains(".")) then
+            let normalized = clean.Replace(",", ".")
+            match Decimal.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+            | true, v -> true, v
+            | false, _ -> false, 0M
+        elif clean.Contains(".") && not (clean.Contains(",")) then
+            match Decimal.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+            | true, v -> true, v
+            | false, _ -> false, 0M
+        elif clean.Contains(",") && clean.Contains(".") then
+            let lastComma = clean.LastIndexOf(',')
+            let lastDot = clean.LastIndexOf('.')
+            let normalized =
+                if lastDot > lastComma then clean.Replace(",", "")
+                else clean.Replace(".", "").Replace(",", ".")
+            match Decimal.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+            | true, v -> true, v
+            | false, _ -> false, 0M
+        else
+            match Decimal.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+            | true, v -> true, v
+            | false, _ ->
+                match Decimal.TryParse(clean, NumberStyles.Number, CultureInfo.CurrentCulture) with
+                | true, v -> true, v
+                | false, _ -> false, 0M
+
+    static member private TryParseNormalizedDouble(clean: string) : bool * double =
+        let parsed =
+            if clean.Contains(",") && not (clean.Contains(".")) then
+                let normalized = clean.Replace(",", ".")
+                match Double.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                | true, v -> Some v
+                | false, _ -> None
+            elif clean.Contains(".") && not (clean.Contains(",")) then
+                match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                | true, v -> Some v
+                | false, _ -> None
+            elif clean.Contains(",") && clean.Contains(".") then
+                let lastComma = clean.LastIndexOf(',')
+                let lastDot = clean.LastIndexOf('.')
+                let normalized =
+                    if lastDot > lastComma then clean.Replace(",", "")
+                    else clean.Replace(".", "").Replace(",", ".")
+                match Double.TryParse(normalized, NumberStyles.Float ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                | true, v -> Some v
+                | false, _ -> None
+            else
+                match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands ||| NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture) with
+                | true, v -> Some v
+                | false, _ ->
+                    match Double.TryParse(clean, NumberStyles.Float ||| NumberStyles.AllowThousands, CultureInfo.CurrentCulture) with
+                    | true, v -> Some v
+                    | false, _ -> None
+        match parsed with
+        | Some v when Double.IsFinite v -> true, v
+        | _ -> false, 0.0
+
+    static member ReadInt32(record: IDataRecord, idx: int) : int =
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then 0
+        else
+            try
                 let v = record.GetValue(idx)
                 match v with
+                | null -> 0
                 | :? int as i -> i
-                | :? int64 as i64 -> int i64
+                | :? int64 as i64 -> int (Math.Clamp(i64, int64 Int32.MinValue, int64 Int32.MaxValue))
                 | :? int16 as i16 -> int i16
                 | :? byte as b -> int b
-                | :? decimal as d -> int d
-                | :? double as d -> int d
+                | :? decimal as d -> int (Math.Clamp(Math.Round(double d), float Int32.MinValue, float Int32.MaxValue))
+                | :? double as d ->
+                    if Double.IsFinite d then int (Math.Clamp(Math.Round(d), float Int32.MinValue, float Int32.MaxValue)) else 0
+                | :? single as f ->
+                    if Single.IsFinite f then int (Math.Clamp(Math.Round(double f), float Int32.MinValue, float Int32.MaxValue)) else 0
+                | :? bool as b -> if b then 1 else 0
                 | :? string as s ->
-                    match Int32.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture) with
-                    | true, i -> i
-                    | false, _ -> Convert.ToInt32(v, CultureInfo.InvariantCulture)
+                    let rawStr = s.Trim().Trim('"', '\'')
+                    if RecordReaders.IsSentinelString rawStr then 0
+                    else
+                        match Int32.TryParse(rawStr, NumberStyles.Any, CultureInfo.InvariantCulture) with
+                        | true, i -> i
+                        | false, _ ->
+                            match RecordReaders.TryParseNormalizedDouble rawStr with
+                            | true, d -> int (Math.Clamp(Math.Round(d), float Int32.MinValue, float Int32.MaxValue))
+                            | false, _ -> 0
                 | _ -> Convert.ToInt32(v, CultureInfo.InvariantCulture)
+            with _ ->
+                0
 
     static member ReadInt64(record: IDataRecord, idx: int) : int64 =
-        if record.IsDBNull(idx) then 0L
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then 0L
         else
-            try record.GetInt64(idx)
-            with _ ->
+            try
                 let v = record.GetValue(idx)
                 match v with
+                | null -> 0L
                 | :? int64 as i64 -> i64
                 | :? int as i -> int64 i
                 | :? int16 as i16 -> int64 i16
                 | :? byte as b -> int64 b
-                | :? decimal as d -> int64 d
-                | :? double as d -> int64 d
+                | :? decimal as d -> int64 (Math.Clamp(Math.Round(double d), float Int64.MinValue, float Int64.MaxValue))
+                | :? double as d ->
+                    if Double.IsFinite d then int64 (Math.Clamp(Math.Round(d), float Int64.MinValue, float Int64.MaxValue)) else 0L
+                | :? single as f ->
+                    if Single.IsFinite f then int64 (Math.Clamp(Math.Round(double f), float Int64.MinValue, float Int64.MaxValue)) else 0L
+                | :? bool as b -> if b then 1L else 0L
                 | :? string as s ->
-                    match Int64.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture) with
-                    | true, i64 -> i64
-                    | false, _ -> Convert.ToInt64(v, CultureInfo.InvariantCulture)
+                    let rawStr = s.Trim().Trim('"', '\'')
+                    if RecordReaders.IsSentinelString rawStr then 0L
+                    else
+                        match Int64.TryParse(rawStr, NumberStyles.Any, CultureInfo.InvariantCulture) with
+                        | true, i64 -> i64
+                        | false, _ ->
+                            match RecordReaders.TryParseNormalizedDouble rawStr with
+                            | true, d -> int64 (Math.Clamp(Math.Round(d), float Int64.MinValue, float Int64.MaxValue))
+                            | false, _ -> 0L
                 | _ -> Convert.ToInt64(v, CultureInfo.InvariantCulture)
+            with _ ->
+                0L
 
     static member ReadInt16(record: IDataRecord, idx: int) : int16 =
-        if record.IsDBNull(idx) then 0s
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then 0s
         else
             try record.GetInt16(idx)
             with _ ->
-                let v = record.GetValue(idx)
-                match v with
-                | :? int16 as i16 -> i16
-                | :? int as i -> int16 i
-                | :? int64 as i64 -> int16 i64
-                | :? byte as b -> int16 b
-                | _ -> Convert.ToInt16(v, CultureInfo.InvariantCulture)
+                try
+                    let v = record.GetValue(idx)
+                    match v with
+                    | null -> 0s
+                    | :? int16 as i16 -> i16
+                    | :? int as i -> int16 (Math.Clamp(i, int Int16.MinValue, int Int16.MaxValue))
+                    | :? int64 as i64 -> int16 (Math.Clamp(i64, int64 Int16.MinValue, int64 Int16.MaxValue))
+                    | :? byte as b -> int16 b
+                    | :? string as s ->
+                        let rawStr = s.Trim().Trim('"', '\'')
+                        if RecordReaders.IsSentinelString rawStr then 0s
+                        else
+                            match Int16.TryParse(rawStr, NumberStyles.Any, CultureInfo.InvariantCulture) with
+                            | true, i16 -> i16
+                            | false, _ ->
+                                match RecordReaders.TryParseNormalizedDouble rawStr with
+                                | true, d -> int16 (Math.Clamp(Math.Round(d), float Int16.MinValue, float Int16.MaxValue))
+                                | false, _ -> 0s
+                    | _ -> Convert.ToInt16(v, CultureInfo.InvariantCulture)
+                with _ ->
+                    0s
 
     static member ReadByte(record: IDataRecord, idx: int) : byte =
-        if record.IsDBNull(idx) then 0uy
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then 0uy
         else
             try record.GetByte(idx)
-            with _ -> Convert.ToByte(record.GetValue(idx), CultureInfo.InvariantCulture)
+            with _ ->
+                try Convert.ToByte(record.GetValue(idx), CultureInfo.InvariantCulture)
+                with _ -> 0uy
 
     static member ReadDecimal(record: IDataRecord, idx: int) : decimal =
-        if record.IsDBNull(idx) then 0M
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then 0M
         else
-            try record.GetDecimal(idx)
-            with _ ->
+            try
                 let v = record.GetValue(idx)
                 match v with
+                | null -> 0M
                 | :? decimal as d -> d
-                | :? double as d -> Convert.ToDecimal(d, CultureInfo.InvariantCulture)
-                | :? single as f -> Convert.ToDecimal(f, CultureInfo.InvariantCulture)
+                | :? double as d ->
+                    if Double.IsFinite d then Convert.ToDecimal(d, CultureInfo.InvariantCulture) else 0M
+                | :? single as f ->
+                    if Single.IsFinite f then Convert.ToDecimal(f, CultureInfo.InvariantCulture) else 0M
                 | :? int as i -> decimal i
                 | :? int64 as i64 -> decimal i64
                 | :? string as s ->
-                    match Decimal.TryParse(s, NumberStyles.Any, CultureInfo.InvariantCulture) with
-                    | true, d -> d
-                    | false, _ -> Convert.ToDecimal(v, CultureInfo.InvariantCulture)
+                    let rawStr = s.Trim().Trim('"', '\'')
+                    if RecordReaders.IsSentinelString rawStr then 0M
+                    else
+                        match RecordReaders.TryParseNormalizedDecimal rawStr with
+                        | true, d -> d
+                        | false, _ -> 0M
                 | _ -> Convert.ToDecimal(v, CultureInfo.InvariantCulture)
+            with _ ->
+                0M
 
     static member ReadDouble(record: IDataRecord, idx: int) : double =
-        if record.IsDBNull(idx) then 0.0
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then 0.0
         else
-            try record.GetDouble(idx)
-            with _ -> Convert.ToDouble(record.GetValue(idx), CultureInfo.InvariantCulture)
-
-    static member ReadSingle(record: IDataRecord, idx: int) : single =
-        if record.IsDBNull(idx) then 0.0f
-        else
-            try record.GetFloat(idx)
-            with _ -> Convert.ToSingle(record.GetValue(idx), CultureInfo.InvariantCulture)
-
-    static member ReadBool(record: IDataRecord, idx: int) : bool =
-        if record.IsDBNull(idx) then false
-        else
-            try record.GetBoolean(idx)
-            with _ ->
+            try
                 let v = record.GetValue(idx)
                 match v with
+                | null -> 0.0
+                | :? double as d -> if Double.IsFinite d then d else 0.0
+                | :? single as f -> if Single.IsFinite f then double f else 0.0
+                | :? decimal as m -> double m
+                | :? int as i -> double i
+                | :? int64 as i64 -> double i64
+                | :? string as s ->
+                    let rawStr = s.Trim().Trim('"', '\'')
+                    if RecordReaders.IsSentinelString rawStr then 0.0
+                    else
+                        match RecordReaders.TryParseNormalizedDouble rawStr with
+                        | true, d -> d
+                        | false, _ -> 0.0
+                | _ ->
+                    let d = Convert.ToDouble(v, CultureInfo.InvariantCulture)
+                    if Double.IsFinite d then d else 0.0
+            with _ ->
+                0.0
+
+    static member ReadSingle(record: IDataRecord, idx: int) : single =
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then 0.0f
+        else
+            try
+                let d = RecordReaders.ReadDouble(record, idx)
+                single d
+            with _ ->
+                0.0f
+
+    static member ReadBool(record: IDataRecord, idx: int) : bool =
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then false
+        else
+            try
+                let v = record.GetValue(idx)
+                match v with
+                | null -> false
                 | :? bool as b -> b
                 | :? int as i -> i <> 0
                 | :? int64 as i64 -> i64 <> 0L
+                | :? double as d -> Double.IsFinite d && d <> 0.0
+                | :? decimal as m -> m <> 0M
                 | :? string as s ->
-                    match Boolean.TryParse(s) with
-                    | true, b -> b
-                    | false, _ -> s = "1" || s.Equals("yes", StringComparison.OrdinalIgnoreCase)
+                    let rawStr = s.Trim().Trim('"', '\'')
+                    if RecordReaders.IsSentinelString rawStr then false
+                    else
+                        match Boolean.TryParse(rawStr) with
+                        | true, b -> b
+                        | false, _ ->
+                            rawStr = "1"
+                            || rawStr.Equals("yes", StringComparison.OrdinalIgnoreCase)
+                            || rawStr.Equals("y", StringComparison.OrdinalIgnoreCase)
+                            || rawStr.Equals("true", StringComparison.OrdinalIgnoreCase)
+                            || rawStr.Equals("t", StringComparison.OrdinalIgnoreCase)
+                            || rawStr.Equals("sim", StringComparison.OrdinalIgnoreCase)
                 | _ -> Convert.ToBoolean(v, CultureInfo.InvariantCulture)
+            with _ ->
+                false
 
     static member ReadString(record: IDataRecord, idx: int) : string =
-        if record.IsDBNull(idx) then null
+        // Strings are reference types, so a genuine SQL NULL stays `null` (no unbox risk).
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then null
         else
             try record.GetString(idx)
-            with _ -> string (record.GetValue(idx))
+            with _ ->
+                try
+                    let v = record.GetValue(idx)
+                    if isNull v || Convert.IsDBNull(v) then null else string v
+                with _ ->
+                    null
 
     static member ReadGuid(record: IDataRecord, idx: int) : Guid =
-        if record.IsDBNull(idx) then Guid.Empty
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then Guid.Empty
         else
             try record.GetGuid(idx)
             with _ ->
-                let v = record.GetValue(idx)
-                match v with
-                | :? Guid as g -> g
-                | :? string as s -> Guid.Parse(s)
-                | :? (byte array) as b -> Guid(b)
-                | _ -> Guid.Parse(string v)
+                try
+                    let v = record.GetValue(idx)
+                    match v with
+                    | null -> Guid.Empty
+                    | :? Guid as g -> g
+                    | :? string as s ->
+                        match Guid.TryParse(s.Trim().Trim('"', '\'')) with
+                        | true, g -> g
+                        | false, _ -> Guid.Empty
+                    | :? (byte array) as b when b.Length = 16 -> Guid(b)
+                    | _ ->
+                        match Guid.TryParse(string v) with
+                        | true, g -> g
+                        | false, _ -> Guid.Empty
+                with _ ->
+                    Guid.Empty
 
     static member ReadDateTime(record: IDataRecord, idx: int) : DateTime =
-        if record.IsDBNull(idx) then DateTime.MinValue
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then DateTime.MinValue
         else
             try record.GetDateTime(idx)
             with _ ->
-                let v = record.GetValue(idx)
-                match v with
-                | :? DateTime as dt -> dt
-                | :? DateOnly as d -> d.ToDateTime(TimeOnly.MinValue)
-                | :? DateTimeOffset as dto -> dto.DateTime
-                | :? string as s ->
-                    match DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None) with
-                    | true, dt -> dt
-                    | false, _ -> Convert.ToDateTime(v, CultureInfo.InvariantCulture)
-                | _ -> Convert.ToDateTime(v, CultureInfo.InvariantCulture)
+                try
+                    let v = record.GetValue(idx)
+                    match v with
+                    | null -> DateTime.MinValue
+                    | :? DateTime as dt -> dt
+                    | :? DateOnly as d -> d.ToDateTime(TimeOnly.MinValue)
+                    | :? DateTimeOffset as dto -> dto.DateTime
+                    | :? double as d when Double.IsFinite d && d > -657435.0 && d < 2958466.0 -> DateTime.FromOADate(d)
+                    | :? int64 as ticks when ticks >= DateTime.MinValue.Ticks && ticks <= DateTime.MaxValue.Ticks -> DateTime(ticks)
+                    | :? string as s ->
+                        let rawStr = s.Trim().Trim('"', '\'')
+                        if RecordReaders.IsSentinelString rawStr then DateTime.MinValue
+                        else
+                            match DateTime.TryParse(rawStr, CultureInfo.InvariantCulture, DateTimeStyles.None) with
+                            | true, dt -> dt
+                            | false, _ ->
+                                match DateTime.TryParse(rawStr, CultureInfo.CurrentCulture, DateTimeStyles.None) with
+                                | true, dt -> dt
+                                | false, _ -> DateTime.MinValue
+                    | _ -> Convert.ToDateTime(v, CultureInfo.InvariantCulture)
+                with _ ->
+                    DateTime.MinValue
 
     static member ReadDateOnly(record: IDataRecord, idx: int) : DateOnly =
-        if record.IsDBNull(idx) then DateOnly.MinValue
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then DateOnly.MinValue
         else
-            let v = record.GetValue(idx)
-            match v with
-            | :? DateOnly as d -> d
-            | :? DateTime as dt -> DateOnly.FromDateTime(dt)
-            | :? DateTimeOffset as dto -> DateOnly.FromDateTime(dto.DateTime)
-            | :? string as s ->
-                match DateOnly.TryParse(s, CultureInfo.InvariantCulture) with
-                | true, d -> d
-                | false, _ -> DateOnly.FromDateTime(Convert.ToDateTime(v, CultureInfo.InvariantCulture))
-            | _ -> DateOnly.FromDateTime(Convert.ToDateTime(v, CultureInfo.InvariantCulture))
+            try
+                let v = record.GetValue(idx)
+                match v with
+                | null -> DateOnly.MinValue
+                | :? DateOnly as d -> d
+                | :? DateTime as dt -> DateOnly.FromDateTime(dt)
+                | :? DateTimeOffset as dto -> DateOnly.FromDateTime(dto.DateTime)
+                | :? string as s ->
+                    let rawStr = s.Trim().Trim('"', '\'')
+                    if RecordReaders.IsSentinelString rawStr then DateOnly.MinValue
+                    else
+                        match DateOnly.TryParse(rawStr, CultureInfo.InvariantCulture) with
+                        | true, d -> d
+                        | false, _ ->
+                            match DateTime.TryParse(rawStr, CultureInfo.InvariantCulture, DateTimeStyles.None) with
+                            | true, dt -> DateOnly.FromDateTime(dt)
+                            | false, _ -> DateOnly.MinValue
+                | _ -> DateOnly.FromDateTime(Convert.ToDateTime(v, CultureInfo.InvariantCulture))
+            with _ ->
+                DateOnly.MinValue
+
+    static member private DefaultForType(targetType: Type) : obj =
+        if targetType = typeof<string> then box ""
+        elif targetType = typeof<DateTime> then box DateTime.MinValue
+        elif targetType = typeof<DateOnly> then box DateOnly.MinValue
+        elif targetType = typeof<Guid> then box Guid.Empty
+        elif targetType = typeof<byte[]> then box (Array.empty<byte>)
+        elif targetType.IsValueType && Nullable.GetUnderlyingType(targetType) = null then
+            Activator.CreateInstance(targetType)
+        else
+            null
 
     static member ConvertValue (raw: obj) (targetType: Type) : obj =
-        if isNull raw || Convert.IsDBNull(raw) then
-            if targetType.IsValueType && Nullable.GetUnderlyingType(targetType) = null then
-                Activator.CreateInstance(targetType)
-            else
-                null
-        elif targetType = typeof<obj> then
-            raw
-        elif raw.GetType() = targetType then
-            raw
-        elif targetType = typeof<string> then
-            box (string raw)
-        elif raw :? string then
-            let rawStr = (raw :?> string).Trim().Trim('"', '\'')
-            if targetType = typeof<bool> then
-                match Boolean.TryParse(rawStr) with
-                | true, v -> box v
-                | false, _ -> box (rawStr = "1" || String.Equals(rawStr, "yes", StringComparison.OrdinalIgnoreCase))
-            elif targetType = typeof<int> then
-                match Int32.TryParse(rawStr, NumberStyles.Any, CultureInfo.InvariantCulture) with
-                | true, v -> box v
-                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
-            elif targetType = typeof<int64> then
-                match Int64.TryParse(rawStr, NumberStyles.Any, CultureInfo.InvariantCulture) with
-                | true, v -> box v
-                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
-            elif targetType = typeof<decimal> then
-                match Decimal.TryParse(rawStr, NumberStyles.Any, CultureInfo.InvariantCulture) with
-                | true, v -> box v
-                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
-            elif targetType = typeof<double> then
-                match Double.TryParse(rawStr, NumberStyles.Any, CultureInfo.InvariantCulture) with
-                | true, v -> box v
-                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
-            elif targetType = typeof<DateTime> then
-                match DateTime.TryParse(rawStr, CultureInfo.InvariantCulture, DateTimeStyles.None) with
-                | true, v -> box v
-                | false, _ ->
-                    match DateTime.TryParse(rawStr, CultureInfo.CurrentCulture, DateTimeStyles.None) with
+        try
+            if isNull raw || Convert.IsDBNull(raw) then
+                RecordReaders.DefaultForType targetType
+            elif targetType = typeof<obj> then
+                raw
+            elif raw.GetType() = targetType then
+                raw
+            elif targetType = typeof<string> then
+                box (string raw)
+            elif raw :? string then
+                let rawStr = (raw :?> string).Trim().Trim('"', '\'')
+                if RecordReaders.IsSentinelString rawStr then
+                    RecordReaders.DefaultForType targetType
+                elif targetType = typeof<bool> then
+                    match Boolean.TryParse(rawStr) with
                     | true, v -> box v
-                    | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
-            elif targetType = typeof<DateOnly> then
-                match DateOnly.TryParse(rawStr, CultureInfo.InvariantCulture) with
-                | true, v -> box v
-                | false, _ ->
+                    | false, _ ->
+                        box (
+                            rawStr = "1"
+                            || String.Equals(rawStr, "yes", StringComparison.OrdinalIgnoreCase)
+                            || String.Equals(rawStr, "y", StringComparison.OrdinalIgnoreCase)
+                            || String.Equals(rawStr, "sim", StringComparison.OrdinalIgnoreCase)
+                        )
+                elif targetType = typeof<int> then
+                    match Int32.TryParse(rawStr, NumberStyles.Any, CultureInfo.InvariantCulture) with
+                    | true, v -> box v
+                    | false, _ ->
+                        match RecordReaders.TryParseNormalizedDouble rawStr with
+                        | true, d -> box (int (Math.Clamp(Math.Round(d), float Int32.MinValue, float Int32.MaxValue)))
+                        | false, _ -> box 0
+                elif targetType = typeof<int64> then
+                    match Int64.TryParse(rawStr, NumberStyles.Any, CultureInfo.InvariantCulture) with
+                    | true, v -> box v
+                    | false, _ ->
+                        match RecordReaders.TryParseNormalizedDouble rawStr with
+                        | true, d -> box (int64 (Math.Clamp(Math.Round(d), float Int64.MinValue, float Int64.MaxValue)))
+                        | false, _ -> box 0L
+                elif targetType = typeof<decimal> then
+                    match RecordReaders.TryParseNormalizedDecimal rawStr with
+                    | true, v -> box v
+                    | false, _ -> box 0M
+                elif targetType = typeof<double> then
+                    match RecordReaders.TryParseNormalizedDouble rawStr with
+                    | true, v -> box v
+                    | false, _ -> box 0.0
+                elif targetType = typeof<DateTime> then
                     match DateTime.TryParse(rawStr, CultureInfo.InvariantCulture, DateTimeStyles.None) with
-                    | true, dt -> box (DateOnly.FromDateTime(dt))
-                    | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
-            elif targetType = typeof<Guid> then
-                match Guid.TryParse(rawStr) with
-                | true, v -> box v
-                | false, _ -> Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
+                    | true, v -> box v
+                    | false, _ ->
+                        match DateTime.TryParse(rawStr, CultureInfo.CurrentCulture, DateTimeStyles.None) with
+                        | true, v -> box v
+                        | false, _ -> box DateTime.MinValue
+                elif targetType = typeof<DateOnly> then
+                    match DateOnly.TryParse(rawStr, CultureInfo.InvariantCulture) with
+                    | true, v -> box v
+                    | false, _ ->
+                        match DateTime.TryParse(rawStr, CultureInfo.InvariantCulture, DateTimeStyles.None) with
+                        | true, dt -> box (DateOnly.FromDateTime(dt))
+                        | false, _ -> box DateOnly.MinValue
+                elif targetType = typeof<Guid> then
+                    match Guid.TryParse(rawStr) with
+                    | true, v -> box v
+                    | false, _ -> box Guid.Empty
+                else
+                    Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
             else
-                Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
-        else
-            if targetType = typeof<decimal> then
-                match raw with
-                | :? double as d -> box (Convert.ToDecimal(d, CultureInfo.InvariantCulture))
-                | :? single as f -> box (Convert.ToDecimal(f, CultureInfo.InvariantCulture))
-                | :? int as i -> box (decimal i)
-                | :? int64 as i64 -> box (decimal i64)
-                | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
-            elif targetType = typeof<DateTime> then
-                match raw with
-                | :? DateOnly as d -> box (d.ToDateTime(TimeOnly.MinValue))
-                | :? DateTimeOffset as dto -> box dto.DateTime
-                | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
-            elif targetType = typeof<DateOnly> then
-                match raw with
-                | :? DateTime as dt -> box (DateOnly.FromDateTime(dt))
-                | :? DateTimeOffset as dto -> box (DateOnly.FromDateTime(dto.DateTime))
-                | _ -> DateOnly.Parse(string raw, CultureInfo.InvariantCulture) |> box
-            else
-                Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+                if targetType = typeof<decimal> then
+                    match raw with
+                    | :? double as d -> if Double.IsFinite d then box (Convert.ToDecimal(d, CultureInfo.InvariantCulture)) else box 0M
+                    | :? single as f -> if Single.IsFinite f then box (Convert.ToDecimal(f, CultureInfo.InvariantCulture)) else box 0M
+                    | :? int as i -> box (decimal i)
+                    | :? int64 as i64 -> box (decimal i64)
+                    | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+                elif targetType = typeof<int> then
+                    match raw with
+                    | :? double as d ->
+                        if Double.IsFinite d then box (int (Math.Clamp(Math.Round(d), float Int32.MinValue, float Int32.MaxValue))) else box 0
+                    | :? decimal as m ->
+                        box (int (Math.Clamp(Math.Round(double m), float Int32.MinValue, float Int32.MaxValue)))
+                    | :? int64 as i64 ->
+                        box (int (Math.Clamp(i64, int64 Int32.MinValue, int64 Int32.MaxValue)))
+                    | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+                elif targetType = typeof<int64> then
+                    match raw with
+                    | :? double as d ->
+                        if Double.IsFinite d then box (int64 (Math.Clamp(Math.Round(d), float Int64.MinValue, float Int64.MaxValue))) else box 0L
+                    | :? decimal as m ->
+                        box (int64 (Math.Clamp(Math.Round(double m), float Int64.MinValue, float Int64.MaxValue)))
+                    | :? int as i -> box (int64 i)
+                    | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+                elif targetType = typeof<DateTime> then
+                    match raw with
+                    | :? DateOnly as d -> box (d.ToDateTime(TimeOnly.MinValue))
+                    | :? DateTimeOffset as dto -> box dto.DateTime
+                    | :? double as d when Double.IsFinite d && d > -657435.0 && d < 2958466.0 -> box (DateTime.FromOADate(d))
+                    | _ -> Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+                elif targetType = typeof<DateOnly> then
+                    match raw with
+                    | :? DateTime as dt -> box (DateOnly.FromDateTime(dt))
+                    | :? DateTimeOffset as dto -> box (DateOnly.FromDateTime(dto.DateTime))
+                    | :? double as d when Double.IsFinite d && d > -657435.0 && d < 2958466.0 ->
+                        box (DateOnly.FromDateTime(DateTime.FromOADate(d)))
+                    | _ -> DateOnly.Parse(string raw, CultureInfo.InvariantCulture) |> box
+                else
+                    Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
+        with _ ->
+            RecordReaders.DefaultForType targetType
 
     static member ReadOption<'U>(record: IDataRecord, idx: int) : 'U option =
-        if record.IsDBNull(idx) then None
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then None
         else
-            let raw = record.GetValue(idx)
-            let isOptionNone =
-                isNull raw || Convert.IsDBNull(raw) ||
-                (match raw with
-                 | :? string as s ->
-                     let t = s.Trim().Trim('"', '\'')
-                     String.IsNullOrEmpty t
-                     || String.Equals(t, "n/a", StringComparison.OrdinalIgnoreCase)
-                     || t = "-"
-                     || String.Equals(t, "null", StringComparison.OrdinalIgnoreCase)
-                 | _ -> false)
+            try
+                let raw = record.GetValue(idx)
+                let isOptionNone =
+                    isNull raw
+                    || Convert.IsDBNull(raw)
+                    || (match raw with
+                        | :? string as s -> RecordReaders.IsSentinelString s
+                        | _ -> false)
 
-            if isOptionNone then None
-            else
-                let converted = RecordReaders.ConvertValue raw typeof<'U>
-                if isNull converted then None
-                else Some (unbox<'U> converted)
+                if isOptionNone then None
+                else
+                    let converted = RecordReaders.ConvertValue raw typeof<'U>
+                    if isNull converted then None
+                    else Some (unbox<'U> converted)
+            with _ ->
+                None
 
     static member ReadObject(record: IDataRecord, idx: int, targetType: Type) : obj =
-        if record.IsDBNull(idx) then null
-        else RecordReaders.ConvertValue (record.GetValue(idx)) targetType
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then
+            RecordReaders.DefaultForType targetType
+        else
+            RecordReaders.ConvertValue (record.GetValue(idx)) targetType
 
 /// High-performance compiled mapper generator that caches Func<IDataRecord, 'T> delegates.
 module CompiledRecordMapper =
@@ -357,6 +618,16 @@ module CompiledRecordMapper =
                         let lambda = Expression.Lambda<Func<IDataRecord, 'T>>(newExpr, recordParam)
                         let compiled = lambda.Compile()
                         box (fun (record: IDataRecord) -> compiled.Invoke(record) :> obj)
+                    elif FSharpType.IsTuple(targetType) then
+                        let elemTypes = FSharpType.GetTupleElements(targetType)
+                        let tupleCtor = FSharpValue.PreComputeTupleConstructor(targetType)
+                        box (fun (record: IDataRecord) ->
+                            let values = Array.zeroCreate elemTypes.Length
+                            for i in 0 .. elemTypes.Length - 1 do
+                                let raw = if i < record.FieldCount && not (record.IsDBNull(i)) then record.GetValue(i) else null
+                                values.[i] <- RecordReaders.ConvertValue raw elemTypes.[i]
+                            tupleCtor values
+                        )
                     else
                         box (fun (record: IDataRecord) ->
                             if record.FieldCount > 0 && not (record.IsDBNull(0)) then
@@ -378,25 +649,65 @@ type OrderClause = {
     Direction: OrderDirection
 }
 
+type JoinPlan = {
+    JoinType: string
+    SourceTable: string
+    Alias: string
+    OnClause: string
+    RowType: Type option
+}
+
+module SqlPushdownFormatting =
+    let formatSqlAndParameters (sql: string) (parameters: (string * obj) list) : string =
+        if List.isEmpty parameters then
+            sql
+        else
+            let paramLines =
+                parameters
+                |> List.map (fun (name, value) ->
+                    let formattedVal =
+                        if isNull value || Convert.IsDBNull(value) then "NULL"
+                        else
+                            match value with
+                            | :? string as s -> sprintf "'%s'" s
+                            | :? DateTime as dt -> sprintf "'%s'" (dt.ToString("yyyy-MM-dd HH:mm:ss"))
+                            | :? bool as b -> if b then "1" else "0"
+                            | other -> string other
+                    sprintf "--   %s = %s" name formattedVal)
+                |> String.concat "\n"
+            $"-- Parameters:\n{paramLines}\n{sql}"
+
 /// Represents the planned SQL pushdown query and any in-memory fallback predicates.
 type PushdownQueryPlan = {
     BaseSql: string
     BaseParameters: (string * obj) list
+    BaseAlias: string
+    Joins: ResizeArray<JoinPlan>
     WhereClauses: ResizeArray<string>
     Parameters: ResizeArray<string * obj>
     OrderBy: ResizeArray<OrderClause>
+    GroupBy: ResizeArray<string>
+    Having: ResizeArray<string>
+    mutable IsDistinct: bool
+    mutable BaseRowType: Type option
     mutable Skip: int option
     mutable Take: int option
     mutable Projection: string option
     FallbackPredicates: ResizeArray<obj -> bool>
 } with
-    static member Create(baseSql: string, baseParameters: (string * obj) list) =
+    static member Create(baseSql: string, baseParameters: (string * obj) list, ?baseAlias: string, ?baseRowType: Type) =
         {
             BaseSql = baseSql
             BaseParameters = baseParameters
+            BaseAlias = defaultArg baseAlias "_t0"
+            Joins = ResizeArray<JoinPlan>()
             WhereClauses = ResizeArray<string>()
             Parameters = ResizeArray<string * obj>()
             OrderBy = ResizeArray<OrderClause>()
+            GroupBy = ResizeArray<string>()
+            Having = ResizeArray<string>()
+            IsDistinct = false
+            BaseRowType = baseRowType
             Skip = None
             Take = None
             Projection = None
@@ -404,31 +715,69 @@ type PushdownQueryPlan = {
         }
 
     member this.Clone() =
-        let p = PushdownQueryPlan.Create(this.BaseSql, this.BaseParameters)
+        let p = PushdownQueryPlan.Create(this.BaseSql, this.BaseParameters, this.BaseAlias, ?baseRowType = this.BaseRowType)
+        p.Joins.AddRange(this.Joins)
         p.WhereClauses.AddRange(this.WhereClauses)
         p.Parameters.AddRange(this.Parameters)
         p.OrderBy.AddRange(this.OrderBy)
+        p.GroupBy.AddRange(this.GroupBy)
+        p.Having.AddRange(this.Having)
+        p.IsDistinct <- this.IsDistinct
         p.Skip <- this.Skip
         p.Take <- this.Take
         p.Projection <- this.Projection
         p.FallbackPredicates.AddRange(this.FallbackPredicates)
         p
 
+    member this.BuildRawSql(dialect: SqlDialect) : string =
+        let sql = this.BuildSql(dialect)
+        let allParams = (this.BaseParameters @ (this.Parameters |> List.ofSeq))
+        SqlPushdownFormatting.formatSqlAndParameters sql allParams
+
     member this.BuildSql(dialect: SqlDialect) : string =
         let isTableOnly =
             let trimmed = this.BaseSql.Trim()
             not (trimmed.StartsWith("select", StringComparison.OrdinalIgnoreCase))
-            && not (trimmed.Contains(" "))
+            && not (trimmed.StartsWith("with", StringComparison.OrdinalIgnoreCase))
+            && not (trimmed.Contains(" from ", StringComparison.OrdinalIgnoreCase))
 
         let fromSource =
-            if isTableOnly then
-                this.BaseSql.Trim()
+            if this.Joins.Count > 0 then
+                let baseFrom =
+                    if isTableOnly then $"{this.BaseSql.Trim()} {this.BaseAlias}"
+                    else $"({this.BaseSql}) AS {this.BaseAlias}"
+                let joinsSql =
+                    this.Joins
+                    |> Seq.map (fun j ->
+                        let tbl =
+                            let t = j.SourceTable.Trim()
+                            if t.StartsWith("select", StringComparison.OrdinalIgnoreCase) || t.Contains(" ") then $"({t}) AS {j.Alias}"
+                            else $"{t} {j.Alias}"
+                        $"{j.JoinType} {tbl} ON {j.OnClause}"
+                    )
+                    |> String.concat " "
+                $"{baseFrom} {joinsSql}"
             else
-                $"({this.BaseSql}) AS _src"
+                if isTableOnly then
+                    this.BaseSql.Trim()
+                else
+                    $"({this.BaseSql}) AS _src"
 
         let whereSql =
             if this.WhereClauses.Count > 0 then
                 " WHERE " + String.concat " AND " this.WhereClauses
+            else
+                ""
+
+        let groupBySql =
+            if this.GroupBy.Count > 0 then
+                " GROUP BY " + String.concat ", " this.GroupBy
+            else
+                ""
+
+        let havingSql =
+            if this.Having.Count > 0 then
+                " HAVING " + String.concat " AND " this.Having
             else
                 ""
 
@@ -444,37 +793,116 @@ type PushdownQueryPlan = {
             else
                 ""
 
-        match this.Projection with
-        | Some proj ->
-            $"SELECT {proj} FROM {fromSource}{whereSql}"
-        | None ->
-            match dialect with
-            | SqlDialect.SqlServer ->
-                match this.Skip, this.Take with
-                | Some skip, Some take ->
-                    let ord = if orderSql = "" then " ORDER BY (SELECT NULL)" else orderSql
-                    $"SELECT * FROM {fromSource}{whereSql}{ord} OFFSET {skip} ROWS FETCH NEXT {take} ROWS ONLY"
-                | Some skip, None ->
-                    let ord = if orderSql = "" then " ORDER BY (SELECT NULL)" else orderSql
-                    $"SELECT * FROM {fromSource}{whereSql}{ord} OFFSET {skip} ROWS"
-                | None, Some take ->
-                    if orderSql <> "" then
-                        $"SELECT * FROM {fromSource}{whereSql}{orderSql} OFFSET 0 ROWS FETCH NEXT {take} ROWS ONLY"
-                    else
-                        $"SELECT TOP ({take}) * FROM {fromSource}{whereSql}"
-                | None, None ->
-                    $"SELECT * FROM {fromSource}{whereSql}{orderSql}"
-            | _ ->
-                let limitSql =
-                    match this.Take, this.Skip with
-                    | Some take, Some skip -> $" LIMIT {take} OFFSET {skip}"
-                    | Some take, None -> $" LIMIT {take}"
-                    | None, Some skip -> $" OFFSET {skip}"
-                    | None, None -> ""
+        let selectCols =
+            match this.Projection with
+            | Some proj -> proj
+            | None ->
+                if this.Joins.Count > 0 then
+                    let joinedCols = this.Joins |> Seq.map (fun j -> $"{j.Alias}.*") |> String.concat ", "
+                    $"{this.BaseAlias}.*, {joinedCols}"
+                else
+                    "*"
 
-                $"SELECT * FROM {fromSource}{whereSql}{orderSql}{limitSql}"
+        let distinctKeyword = if this.IsDistinct then "DISTINCT " else ""
+
+        match dialect with
+        | SqlDialect.SqlServer ->
+            match this.Skip, this.Take with
+            | Some skip, Some take ->
+                let ord = if orderSql = "" then " ORDER BY (SELECT NULL)" else orderSql
+                $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{ord} OFFSET {skip} ROWS FETCH NEXT {take} ROWS ONLY"
+            | Some skip, None ->
+                let ord = if orderSql = "" then " ORDER BY (SELECT NULL)" else orderSql
+                $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{ord} OFFSET {skip} ROWS"
+            | None, Some take ->
+                if orderSql <> "" then
+                    $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{orderSql} OFFSET 0 ROWS FETCH NEXT {take} ROWS ONLY"
+                else
+                    $"SELECT {distinctKeyword}TOP ({take}) {selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}"
+            | None, None ->
+                $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{orderSql}"
+        | _ ->
+            let limitSql =
+                match this.Take, this.Skip with
+                | Some take, Some skip -> $" LIMIT {take} OFFSET {skip}"
+                | Some take, None -> $" LIMIT {take}"
+                | None, Some skip -> $" OFFSET {skip}"
+                | None, None -> ""
+
+            $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{orderSql}{limitSql}"
+
+type ParameterMemberReplacer(param: ParameterExpression, memberMap: Map<string, Expression>) =
+    inherit ExpressionVisitor()
+    override this.VisitMember(m: MemberExpression) =
+        if m.Expression = (param :> Expression) && memberMap.ContainsKey m.Member.Name then
+            memberMap.[m.Member.Name]
+        else
+            base.VisitMember(m)
 
 module ExpressionPushdownTranslator =
+    let rec collectBlockAssignments (expr: Expression) (acc: (string * Expression) list) : Expression * (string * Expression) list =
+        match expr with
+        | :? BlockExpression as be when be.Expressions.Count > 0 ->
+            let mutable currentAcc = acc
+            for i in 0 .. be.Expressions.Count - 2 do
+                match be.Expressions.[i] with
+                | :? BinaryExpression as b when b.NodeType = ExpressionType.Assign ->
+                    match b.Left with
+                    | :? ParameterExpression as p when not (isNull p.Name) ->
+                        currentAcc <- (p.Name, b.Right) :: currentAcc
+                    | _ -> ()
+                | _ -> ()
+            let last = be.Expressions.[be.Expressions.Count - 1]
+            match last with
+            | :? BlockExpression ->
+                collectBlockAssignments last currentAcc
+            | _ ->
+                last, currentAcc
+        | other ->
+            other, acc
+
+    let unwrapBlock (expr: Expression) : Expression =
+        let targetExpr, assignments = collectBlockAssignments expr []
+        if List.isEmpty assignments then targetExpr
+        else
+            let varMap = assignments |> Map.ofList
+            let replacer =
+                { new ExpressionVisitor() with
+                    override this.VisitParameter(p: ParameterExpression) =
+                        if not (isNull p) && not (isNull p.Name) && varMap.ContainsKey p.Name then
+                            varMap.[p.Name]
+                        else
+                            base.VisitParameter(p)
+                }
+            replacer.Visit(targetExpr)
+
+    let extractMemberMap (body: Expression) : Map<string, Expression> =
+        let unwrapped = unwrapBlock body
+        match unwrapped with
+        | :? NewExpression as ne ->
+            let ctor = ne.Constructor
+            let paramInfos = if isNull ctor then [||] else ctor.GetParameters()
+            let mutable m = Map.empty
+            for i in 0 .. ne.Arguments.Count - 1 do
+                let arg = ne.Arguments.[i]
+                let itemKey = sprintf "Item%d" (i + 1)
+                m <- m.Add(itemKey, arg)
+                if not (isNull ne.Members) && i < ne.Members.Count then
+                    m <- m.Add(ne.Members.[i].Name, arg)
+                elif i < paramInfos.Length then
+                    m <- m.Add(paramInfos.[i].Name, arg)
+            m
+        | :? MemberInitExpression as mie ->
+            let mutable m = Map.empty
+            for b in mie.Bindings do
+                match b with
+                | :? MemberAssignment as ma ->
+                    m <- m.Add(ma.Member.Name, ma.Expression)
+                | _ -> ()
+            m
+        | _ ->
+            Map.empty
+
     let rec dependsOnParameter (param: ParameterExpression) (expr: Expression) : bool =
         match expr with
         | null -> false
@@ -494,28 +922,341 @@ module ExpressionPushdownTranslator =
             let fn = lambda.Compile()
             fn.DynamicInvoke()
 
-    let rec extractColumnName (param: ParameterExpression) (expr: Expression) : string =
+    let rec unwrapQuote (expr: Expression) : Expression =
+        match expr with
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Quote -> unwrapQuote u.Operand
+        | _ -> expr
+
+    let rec private getTupleDepth (t: Type) : int =
+        if not (isNull t) && t.IsGenericType && (t.Name.StartsWith("Tuple`") || t.Name.StartsWith("ValueTuple`")) then
+            let args = t.GetGenericArguments()
+            if args.Length = 2 then
+                1 + getTupleDepth args.[0]
+            else
+                args.Length - 1
+        else
+            0
+
+    /// Resolves a member expression (possibly navigating a nested tuple hierarchy from multi-table joins)
+    /// into an optional table alias and the column name.
+    let resolveMemberRef (plan: PushdownQueryPlan) (expr: Expression) : (string option * string) =
+        let unwrapped = unwrapQuote expr
+        match unwrapped with
+        | :? MemberExpression as m ->
+            let colName = m.Member.Name
+            let mutable matchedAlias: string option = None
+            if not (isNull m.Expression) && plan.Joins.Count > 0 then
+                let exprType = m.Expression.Type
+                if not (exprType.Name.StartsWith("AnonymousObject") || exprType.Name.StartsWith("Tuple") || exprType.Name.StartsWith("ValueTuple")) then
+                    let baseMatches = if plan.BaseRowType = Some exprType then 1 else 0
+                    let matchingJoins = plan.Joins |> Seq.filter (fun j -> j.RowType = Some exprType) |> Seq.toList
+                    let totalMatches = baseMatches + matchingJoins.Length
+                    if totalMatches = 1 then
+                        if baseMatches = 1 then
+                            matchedAlias <- Some plan.BaseAlias
+                        else
+                            matchedAlias <- Some matchingJoins.[0].Alias
+
+            match matchedAlias with
+            | Some alias -> (Some alias, colName)
+            | None ->
+                let path = ResizeArray<string>()
+                let mutable curr: Expression = m.Expression
+                let mutable rootParam: ParameterExpression option = None
+
+                let mutable keepWalking = true
+                while keepWalking && not (isNull curr) do
+                    match curr with
+                    | :? MemberExpression as parentM ->
+                        path.Add(parentM.Member.Name)
+                        curr <- parentM.Expression
+                    | :? ParameterExpression as p ->
+                        rootParam <- Some p
+                        keepWalking <- false
+                    | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ->
+                        curr <- u.Operand
+                    | _ ->
+                        keepWalking <- false
+
+                path.Reverse()
+
+                if path.Count = 0 then
+                    (None, colName)
+                else
+                    let tupleItems = path |> Seq.filter (fun s -> s.StartsWith("Item")) |> Seq.toList
+                    if not (List.isEmpty tupleItems) then
+                        if tupleItems.Length = 1 then
+                            // Flat tuple / AnonymousObject: root.Item{X}
+                            let itemStr = tupleItems.[0].Substring(4)
+                            match Int32.TryParse(itemStr) with
+                            | true, n when n >= 1 ->
+                                let tableIdx = n - 1
+                                let alias = if tableIdx = 0 then plan.BaseAlias else sprintf "_t%d" tableIdx
+                                (Some alias, colName)
+                            | _ ->
+                                (None, colName)
+                        else
+                            // Check for overflow tuple (Item8)
+                            let first = tupleItems.[0]
+                            if first = "Item8" && tupleItems.Length = 2 then
+                                let subStr = tupleItems.[1].Substring(4)
+                                match Int32.TryParse(subStr) with
+                                | true, subIdx when subIdx >= 1 ->
+                                    let leftJoins = plan.Joins |> Seq.filter (fun j -> j.JoinType = "LEFT JOIN") |> Seq.toList
+                                    let tableIdx =
+                                        if leftJoins.Length >= subIdx then
+                                            let joinTarget = leftJoins.[subIdx - 1]
+                                            let idx = plan.Joins |> Seq.findIndex (fun j -> obj.ReferenceEquals(j, joinTarget))
+                                            idx + 1
+                                        else
+                                            let baseOffset = max 0 (plan.Joins.Count - leftJoins.Length)
+                                            baseOffset + subIdx
+                                    (Some (sprintf "_t%d" tableIdx), colName)
+                                | _ -> (None, colName)
+                            else
+                                // Nested left-associative tuple tree: root.Item1.Item2...
+                                let k =
+                                    match rootParam with
+                                    | Some p ->
+                                        let d = getTupleDepth p.Type
+                                        if d > 0 then d else plan.Joins.Count
+                                    | None -> plan.Joins.Count
+
+                                let leadingOnes =
+                                    let mutable count = 0
+                                    let mutable stopped = false
+                                    for item in tupleItems do
+                                        if not stopped then
+                                            if item = "Item1" then count <- count + 1
+                                            else stopped <- true
+                                    count
+
+                                let hasItem2 = tupleItems |> List.exists (fun s -> s = "Item2")
+                                let tableIdx =
+                                    if not hasItem2 then 0
+                                    else max 0 (k - leadingOnes)
+
+                                let alias = if tableIdx = 0 then plan.BaseAlias else sprintf "_t%d" tableIdx
+                                (Some alias, colName)
+                    else
+                        (None, colName)
+        | _ ->
+            (None, unwrapped.ToString())
+
+    let rec extractColumnNameWithAlias (plan: PushdownQueryPlan) (expr: Expression) : string =
+        let unwrapped = unwrapQuote expr
+        match unwrapped with
+        | :? LambdaExpression as l -> extractColumnNameWithAlias plan l.Body
+        | :? MemberExpression as m ->
+            let aliasOpt, colName = resolveMemberRef plan m
+            match aliasOpt with
+            | Some alias when plan.Joins.Count > 0 -> $"{alias}.{colName}"
+            | _ ->
+                if plan.Joins.Count > 0 && not (colName.Contains ".") then
+                    $"{plan.BaseAlias}.{colName}"
+                else
+                    colName
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ->
+            extractColumnNameWithAlias plan u.Operand
+        | _ ->
+            unwrapped.ToString()
+
+    let extractColumnName (param: ParameterExpression) (expr: Expression) : string =
         match expr with
         | :? MemberExpression as m when m.Expression = (param :> Expression) ->
             m.Member.Name
         | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ->
-            extractColumnName param u.Operand
+            match u.Operand with
+            | :? MemberExpression as m when m.Expression = (param :> Expression) -> m.Member.Name
+            | other -> other.ToString()
         | _ ->
             expr.ToString()
 
-    let rec translatePredicate (param: ParameterExpression) (planParams: ResizeArray<string * obj>) (expr: Expression) : string option =
+    let rec extractKeyColumns (plan: PushdownQueryPlan) (fallbackAlias: string) (param: ParameterExpression) (expr: Expression) : string list =
+        let unwrapped = unwrapQuote expr
+        match unwrapped with
+        | :? MemberExpression as m ->
+            let aliasOpt, colName = resolveMemberRef plan m
+            let alias = defaultArg aliasOpt fallbackAlias
+            [ $"{alias}.{colName}" ]
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ->
+            extractKeyColumns plan fallbackAlias param u.Operand
+        | :? NewExpression as ne ->
+            [ for arg in ne.Arguments do
+                yield! extractKeyColumns plan fallbackAlias param arg ]
+        | :? MemberInitExpression as mie ->
+            [ for binding in mie.Bindings do
+                match binding with
+                | :? MemberAssignment as ma ->
+                    yield! extractKeyColumns plan fallbackAlias param ma.Expression
+                | _ -> () ]
+        | :? MethodCallExpression as mc when mc.Method.Name = "Create" && (mc.Method.DeclaringType = typeof<Tuple> || mc.Method.DeclaringType.Name.StartsWith("Tuple")) ->
+            [ for arg in mc.Arguments do
+                yield! extractKeyColumns plan fallbackAlias param arg ]
+        | _ ->
+            let single = extractColumnName param unwrapped
+            if not (String.IsNullOrWhiteSpace single) && not (single.Contains "(") && not (single.Contains " ") then
+                let ref = if single.Contains(".") then single else $"{fallbackAlias}.{single}"
+                [ ref ]
+            else []
+
+    let rec tryExtractFromValue (value: obj) : (string * IQueryableConnector * Type option) option =
+        if isNull value then None
+        else
+            let valType = value.GetType()
+            let isPushdown = valType.Name.StartsWith("SqlPushdownQueryable")
+            if isPushdown then
+                let planProp = valType.GetProperty("Plan")
+                let connProp = valType.GetProperty("Connector")
+                let elemType = if valType.IsGenericType then Some (valType.GetGenericArguments().[0]) else None
+                if not (isNull planProp) && not (isNull connProp) then
+                    let p = planProp.GetValue(value) :?> PushdownQueryPlan
+                    let conn = connProp.GetValue(value) :?> IQueryableConnector
+                    Some (p.BaseSql, conn, elemType)
+                else
+                    None
+            elif typeof<IQueryable>.IsAssignableFrom(valType) then
+                let q = value :?> IQueryable
+                if not (isNull q.Expression) then
+                    match q.Expression with
+                    | :? ConstantExpression as ce when obj.ReferenceEquals(ce.Value, value) ->
+                        None
+                    | otherExpr ->
+                        tryExtractQueryableInfo otherExpr
+                else
+                    None
+            else
+                let props = valType.GetProperties()
+                let qProp = props |> Array.tryFind (fun p -> typeof<IQueryable>.IsAssignableFrom(p.PropertyType))
+                match qProp with
+                | Some p ->
+                    try
+                        let propVal = p.GetValue(value)
+                        tryExtractFromValue propVal
+                    with _ -> None
+                | None -> None
+
+    and tryExtractQueryableInfo (expr: Expression) : (string * IQueryableConnector * Type option) option =
+        let unwrapped = unwrapQuote expr
+        match unwrapped with
+        | :? ConstantExpression as c when not (isNull c.Value) ->
+            tryExtractFromValue c.Value
+        | :? MemberExpression as m ->
+            try
+                let target =
+                    if isNull m.Expression then null
+                    else
+                        match m.Expression with
+                        | :? ConstantExpression as ce -> ce.Value
+                        | other ->
+                            let lambda = Expression.Lambda(other)
+                            lambda.Compile().DynamicInvoke()
+                let value =
+                    match m.Member with
+                    | :? System.Reflection.FieldInfo as fi -> fi.GetValue(target)
+                    | :? System.Reflection.PropertyInfo as pi -> pi.GetValue(target)
+                    | _ -> null
+                tryExtractFromValue value
+            with _ -> None
+        | :? MethodCallExpression as mc ->
+            if typeof<IQueryable>.IsAssignableFrom(mc.Type) then
+                try
+                    let lambda = Expression.Lambda(mc)
+                    let res = lambda.Compile().DynamicInvoke()
+                    match tryExtractFromValue res with
+                    | Some info -> Some info
+                    | None ->
+                        if mc.Arguments.Count > 0 then
+                            tryExtractQueryableInfo mc.Arguments.[0]
+                        else None
+                with _ ->
+                    if mc.Arguments.Count > 0 then
+                        tryExtractQueryableInfo mc.Arguments.[0]
+                    else None
+            elif mc.Arguments.Count > 0 then
+                tryExtractQueryableInfo mc.Arguments.[0]
+            else
+                None
+        | _ ->
+            None
+
+    let rec isDefaultIfEmptyFlattening (expr: Expression) : bool =
+        let unwrapped = unwrapQuote expr
+        match unwrapped with
+        | :? MethodCallExpression as mc ->
+            if mc.Method.Name = "DefaultIfEmpty" then true
+            elif mc.Method.Name = "SelectMany" then
+                if mc.Arguments.Count >= 2 then
+                    let inner = unwrapQuote mc.Arguments.[1]
+                    let innerBody =
+                        match inner with
+                        | :? LambdaExpression as l -> l.Body
+                        | other -> other
+                    isDefaultIfEmptyFlattening innerBody || isDefaultIfEmptyFlattening mc.Arguments.[0]
+                else false
+            else
+                mc.Arguments |> Seq.exists isDefaultIfEmptyFlattening
+        | :? LambdaExpression as l -> isDefaultIfEmptyFlattening l.Body
+        | :? UnaryExpression as u -> isDefaultIfEmptyFlattening u.Operand
+        | _ -> false
+
+    let canPushdownAllJoins (rootExpr: Expression) (outerConn: IQueryableConnector) : bool =
+        let methodCalls = ResizeArray<MethodCallExpression>()
+        let rec collect (e: Expression) =
+            match e with
+            | null -> ()
+            | :? MethodCallExpression as mc ->
+                if mc.Method.Name = "Join" || mc.Method.Name = "GroupJoin" || mc.Method.Name = "SelectMany" then
+                    methodCalls.Add(mc)
+                for a in mc.Arguments do collect a
+            | :? LambdaExpression as l -> collect l.Body
+            | :? UnaryExpression as u -> collect u.Operand
+            | :? BinaryExpression as b -> collect b.Left; collect b.Right
+            | _ -> ()
+        collect rootExpr
+        if methodCalls.Count = 0 then true
+        else
+            methodCalls |> Seq.forall (fun mc ->
+                if (mc.Method.Name = "Join" || mc.Method.Name = "GroupJoin") && mc.Arguments.Count >= 5 then
+                    match tryExtractQueryableInfo mc.Arguments.[1] with
+                    | Some (_, innerConn, _) ->
+                        obj.ReferenceEquals(outerConn, innerConn)
+                        || (
+                            (outerConn :> IConnector).Kind = (innerConn :> IConnector).Kind
+                            && String.Equals(outerConn.ConnectionString, innerConn.ConnectionString, StringComparison.OrdinalIgnoreCase)
+                        )
+                    | None -> false
+                elif mc.Method.Name = "SelectMany" && mc.Arguments.Count >= 2 then
+                    let innerArg = unwrapQuote mc.Arguments.[1]
+                    let innerExpr =
+                        match innerArg with
+                        | :? LambdaExpression as l -> l.Body
+                        | other -> other
+                    match tryExtractQueryableInfo innerExpr with
+                    | Some (_, innerConn, _) ->
+                        obj.ReferenceEquals(outerConn, innerConn)
+                        || (
+                            (outerConn :> IConnector).Kind = (innerConn :> IConnector).Kind
+                            && String.Equals(outerConn.ConnectionString, innerConn.ConnectionString, StringComparison.OrdinalIgnoreCase)
+                        )
+                    | None ->
+                        isDefaultIfEmptyFlattening innerExpr
+                else false
+            )
+
+    let rec translatePredicate (param: ParameterExpression) (plan: PushdownQueryPlan) (dialect: SqlDialect) (expr: Expression) : string option =
         match expr with
         | null -> None
         | :? BinaryExpression as b ->
             match b.NodeType with
             | ExpressionType.AndAlso ->
-                match translatePredicate param planParams b.Left, translatePredicate param planParams b.Right with
+                match translatePredicate param plan dialect b.Left, translatePredicate param plan dialect b.Right with
                 | Some l, Some r -> Some $"({l} AND {r})"
                 | Some l, None -> Some l
                 | None, Some r -> Some r
                 | None, None -> None
             | ExpressionType.OrElse ->
-                match translatePredicate param planParams b.Left, translatePredicate param planParams b.Right with
+                match translatePredicate param plan dialect b.Left, translatePredicate param plan dialect b.Right with
                 | Some l, Some r -> Some $"({l} OR {r})"
                 | _ -> None
             | ExpressionType.Equal
@@ -538,18 +1279,18 @@ module ExpressionPushdownTranslator =
                 let rightHasParam = dependsOnParameter param b.Right
 
                 if leftHasParam && not rightHasParam then
-                    let col = extractColumnName param b.Left
+                    let col = extractColumnNameWithAlias plan b.Left
                     let clientVal = evaluateClientValue b.Right
                     if isNull clientVal then
                         if op = "=" then Some $"({col} IS NULL)"
                         elif op = "<>" then Some $"({col} IS NOT NULL)"
                         else None
                     else
-                        let pName = $"@p{planParams.Count}"
-                        planParams.Add(pName, clientVal)
+                        let pName = $"@p{plan.Parameters.Count}"
+                        plan.Parameters.Add(pName, clientVal)
                         Some $"({col} {op} {pName})"
                 elif not leftHasParam && rightHasParam then
-                    let col = extractColumnName param b.Right
+                    let col = extractColumnNameWithAlias plan b.Right
                     let clientVal = evaluateClientValue b.Left
                     let invOp =
                         match op with
@@ -563,53 +1304,473 @@ module ExpressionPushdownTranslator =
                         elif invOp = "<>" then Some $"({col} IS NOT NULL)"
                         else None
                     else
-                        let pName = $"@p{planParams.Count}"
-                        planParams.Add(pName, clientVal)
+                        let pName = $"@p{plan.Parameters.Count}"
+                        plan.Parameters.Add(pName, clientVal)
                         Some $"({col} {invOp} {pName})"
+                elif leftHasParam && rightHasParam then
+                    let leftCol = extractColumnNameWithAlias plan b.Left
+                    let rightCol = extractColumnNameWithAlias plan b.Right
+                    if not (String.IsNullOrWhiteSpace leftCol) && not (String.IsNullOrWhiteSpace rightCol) then
+                        Some $"({leftCol} {op} {rightCol})"
+                    else
+                        None
                 else
                     None
             | _ -> None
         | :? UnaryExpression as u when u.NodeType = ExpressionType.Not ->
-            match translatePredicate param planParams u.Operand with
+            match translatePredicate param plan dialect u.Operand with
             | Some inner -> Some $"(NOT {inner})"
             | None -> None
         | :? MethodCallExpression as mc ->
-            if mc.Method.DeclaringType = typeof<string> && mc.Arguments.Count = 1 && dependsOnParameter param mc.Object && not (dependsOnParameter param mc.Arguments.[0]) then
-                let col = extractColumnName param mc.Object
+            if mc.Method.Name = "Contains" then
+                let sourceExpr, itemExpr =
+                    if mc.Method.IsStatic && mc.Arguments.Count >= 2 then
+                        mc.Arguments.[0], mc.Arguments.[1]
+                    elif not (isNull mc.Object) && mc.Arguments.Count >= 1 then
+                        mc.Object, mc.Arguments.[0]
+                    else null, null
+                if not (isNull sourceExpr) && not (isNull itemExpr) && dependsOnParameter param itemExpr then
+                    let col = extractColumnNameWithAlias plan itemExpr
+                    match tryExtractQueryableInfo sourceExpr with
+                    | Some (subTable, _, subRowType) ->
+                        let subPlan = PushdownQueryPlan.Create(subTable, [], ?baseRowType = subRowType)
+                        let targetExpr =
+                            match unwrapQuote sourceExpr with
+                            | :? ConstantExpression as ce when not (isNull ce.Value) ->
+                                match ce.Value with
+                                | :? IQueryable as iq -> iq.Expression
+                                | _ -> sourceExpr
+                            | other -> other
+                        mergeExpressionIntoPlan targetExpr subPlan dialect
+                        let mutable subSql = subPlan.BuildSql(dialect)
+                        for (pName, pVal) in subPlan.Parameters do
+                            let uniqueName = $"@p{plan.Parameters.Count}"
+                            subSql <- subSql.Replace(pName, uniqueName)
+                            plan.Parameters.Add(uniqueName, pVal)
+                        Some $"({col} IN ({subSql}))"
+                    | None ->
+                        try
+                            let collVal = evaluateClientValue sourceExpr
+                            match collVal with
+                            | :? System.Collections.IEnumerable as enum when not (collVal :? string) ->
+                                let items = [ for item in enum -> item ]
+                                if items.IsEmpty then
+                                    Some "(1=0)"
+                                else
+                                    let pNames = ResizeArray<string>()
+                                    for item in items do
+                                        let pName = $"@p{plan.Parameters.Count}"
+                                        plan.Parameters.Add(pName, item)
+                                        pNames.Add(pName)
+                                    let inList = String.concat ", " pNames
+                                    Some $"({col} IN ({inList}))"
+                            | _ -> None
+                        with _ -> None
+                elif mc.Method.DeclaringType = typeof<string> && mc.Arguments.Count = 1 && dependsOnParameter param mc.Object && not (dependsOnParameter param mc.Arguments.[0]) then
+                    let col = extractColumnNameWithAlias plan mc.Object
+                    let rawVal = evaluateClientValue mc.Arguments.[0]
+                    if isNull rawVal then None
+                    else
+                        let sVal = string rawVal
+                        let pName = $"@p{plan.Parameters.Count}"
+                        match mc.Method.Name with
+                        | "Contains" ->
+                            plan.Parameters.Add(pName, box ("%" + sVal + "%"))
+                            Some $"({col} LIKE {pName})"
+                        | "StartsWith" ->
+                            plan.Parameters.Add(pName, box (sVal + "%"))
+                            Some $"({col} LIKE {pName})"
+                        | "EndsWith" ->
+                            plan.Parameters.Add(pName, box ("%" + sVal))
+                            Some $"({col} LIKE {pName})"
+                        | _ -> None
+                else
+                    None
+            elif mc.Method.Name = "Any" then
+                let sourceExpr =
+                    if mc.Method.IsStatic && mc.Arguments.Count >= 1 then mc.Arguments.[0]
+                    elif not (isNull mc.Object) then mc.Object
+                    else null
+                if not (isNull sourceExpr) then
+                    match tryExtractQueryableInfo sourceExpr with
+                    | Some (subTable, _, subRowType) ->
+                        let subPlan = PushdownQueryPlan.Create(subTable, [], ?baseRowType = subRowType)
+                        let targetExpr =
+                            match unwrapQuote sourceExpr with
+                            | :? ConstantExpression as ce when not (isNull ce.Value) ->
+                                match ce.Value with
+                                | :? IQueryable as iq -> iq.Expression
+                                | _ -> sourceExpr
+                            | other -> other
+                        mergeExpressionIntoPlan targetExpr subPlan dialect
+                        if mc.Arguments.Count >= 2 then
+                            let predLambda = unwrapQuote mc.Arguments.[1] :?> LambdaExpression
+                            match translatePredicate predLambda.Parameters.[0] subPlan dialect predLambda.Body with
+                            | Some pSql -> subPlan.WhereClauses.Add(pSql)
+                            | None -> ()
+                        let mutable subSql = subPlan.BuildSql(dialect)
+                        for (pName, pVal) in subPlan.Parameters do
+                            let uniqueName = $"@p{plan.Parameters.Count}"
+                            subSql <- subSql.Replace(pName, uniqueName)
+                            plan.Parameters.Add(uniqueName, pVal)
+                        Some $"EXISTS ({subSql})"
+                    | None -> None
+                else None
+            elif mc.Method.DeclaringType = typeof<string> && mc.Arguments.Count = 1 && dependsOnParameter param mc.Object && not (dependsOnParameter param mc.Arguments.[0]) then
+                let col = extractColumnNameWithAlias plan mc.Object
                 let rawVal = evaluateClientValue mc.Arguments.[0]
                 if isNull rawVal then None
                 else
                     let sVal = string rawVal
-                    let pName = $"@p{planParams.Count}"
+                    let pName = $"@p{plan.Parameters.Count}"
                     match mc.Method.Name with
-                    | "Contains" ->
-                        planParams.Add(pName, box ("%" + sVal + "%"))
-                        Some $"({col} LIKE {pName})"
                     | "StartsWith" ->
-                        planParams.Add(pName, box (sVal + "%"))
+                        plan.Parameters.Add(pName, box (sVal + "%"))
                         Some $"({col} LIKE {pName})"
                     | "EndsWith" ->
-                        planParams.Add(pName, box ("%" + sVal))
+                        plan.Parameters.Add(pName, box ("%" + sVal))
                         Some $"({col} LIKE {pName})"
                     | _ -> None
             else
                 None
         | _ -> None
 
-    let rec unwrapQuote (expr: Expression) : Expression =
-        match expr with
-        | :? UnaryExpression as u when u.NodeType = ExpressionType.Quote -> unwrapQuote u.Operand
-        | _ -> expr
-
-    let rec extractMemberName (expr: Expression) : string =
+    and translateScalarCondition (dialect: SqlDialect) (plan: PushdownQueryPlan) (expr: Expression) : string option =
         let unwrapped = unwrapQuote expr
         match unwrapped with
-        | :? LambdaExpression as l -> extractMemberName l.Body
-        | :? MemberExpression as m -> m.Member.Name
-        | :? UnaryExpression as u -> extractMemberName u.Operand
-        | _ -> unwrapped.ToString()
+        | :? BinaryExpression as b ->
+            let op =
+                match b.NodeType with
+                | ExpressionType.Equal -> "="
+                | ExpressionType.NotEqual -> "<>"
+                | ExpressionType.GreaterThan -> ">"
+                | ExpressionType.GreaterThanOrEqual -> ">="
+                | ExpressionType.LessThan -> "<"
+                | ExpressionType.LessThanOrEqual -> "<="
+                | _ -> "="
+            match translateScalarExpr dialect plan b.Left, translateScalarExpr dialect plan b.Right with
+            | Some l, Some r ->
+                if r = "NULL" then
+                    if op = "=" then Some $"({l} IS NULL)"
+                    else Some $"({l} IS NOT NULL)"
+                elif l = "NULL" then
+                    if op = "=" then Some $"({r} IS NULL)"
+                    else Some $"({r} IS NOT NULL)"
+                else
+                    Some $"({l} {op} {r})"
+            | _ -> None
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Not ->
+            match translateScalarCondition dialect plan u.Operand with
+            | Some inner -> Some $"(NOT {inner})"
+            | None -> None
+        | _ -> None
 
-    let mergeExpressionIntoPlan (rootExpr: Expression) (plan: PushdownQueryPlan) : unit =
+    and translateScalarExpr (dialect: SqlDialect) (plan: PushdownQueryPlan) (expr: Expression) : string option =
+        let unwrapped = unwrapQuote expr
+        match unwrapped with
+        | null -> None
+        | :? ConstantExpression as c ->
+            if isNull c.Value then Some "NULL"
+            elif c.Type = typeof<string> then
+                let s = string c.Value
+                let escaped = s.Replace("'", "''")
+                Some $"'{escaped}'"
+            elif c.Type = typeof<bool> then
+                let b = c.Value :?> bool
+                if dialect = SqlDialect.PostgreSql then
+                    Some (if b then "TRUE" else "FALSE")
+                else
+                    Some (if b then "1" else "0")
+            elif c.Type = typeof<DateTime> then
+                let dt = c.Value :?> DateTime
+                let dtStr = dt.ToString("yyyy-MM-dd HH:mm:ss.fff")
+                Some $"'{dtStr}'"
+            else
+                Some (Convert.ToString(c.Value, CultureInfo.InvariantCulture))
+        | :? MemberExpression as m when not (isNull m.Expression) && (m.Expression.Type = typeof<DateTime> || m.Expression.Type = typeof<DateOnly>) &&
+                                         (m.Member.Name = "Date" || m.Member.Name = "Year" || m.Member.Name = "Month" || m.Member.Name = "Day" || m.Member.Name = "Hour" || m.Member.Name = "Minute" || m.Member.Name = "Second") ->
+            match translateScalarExpr dialect plan m.Expression with
+            | Some o ->
+                match m.Member.Name with
+                | "Year" ->
+                    match dialect with
+                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%Y', {o}) AS INTEGER)"
+                    | SqlDialect.SqlServer -> Some $"YEAR({o})"
+                    | SqlDialect.PostgreSql -> Some $"EXTRACT(YEAR FROM {o})"
+                | "Month" ->
+                    match dialect with
+                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%m', {o}) AS INTEGER)"
+                    | SqlDialect.SqlServer -> Some $"MONTH({o})"
+                    | SqlDialect.PostgreSql -> Some $"EXTRACT(MONTH FROM {o})"
+                | "Day" ->
+                    match dialect with
+                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%d', {o}) AS INTEGER)"
+                    | SqlDialect.SqlServer -> Some $"DAY({o})"
+                    | SqlDialect.PostgreSql -> Some $"EXTRACT(DAY FROM {o})"
+                | "Date" ->
+                    match dialect with
+                    | SqlDialect.Sqlite -> Some $"date({o})"
+                    | SqlDialect.SqlServer -> Some $"CAST({o} AS DATE)"
+                    | SqlDialect.PostgreSql -> Some $"CAST({o} AS DATE)"
+                | "Hour" ->
+                    match dialect with
+                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%H', {o}) AS INTEGER)"
+                    | SqlDialect.SqlServer -> Some $"DATEPART(HOUR, {o})"
+                    | SqlDialect.PostgreSql -> Some $"EXTRACT(HOUR FROM {o})"
+                | "Minute" ->
+                    match dialect with
+                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%M', {o}) AS INTEGER)"
+                    | SqlDialect.SqlServer -> Some $"DATEPART(MINUTE, {o})"
+                    | SqlDialect.PostgreSql -> Some $"EXTRACT(MINUTE FROM {o})"
+                | "Second" ->
+                    match dialect with
+                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%S', {o}) AS INTEGER)"
+                    | SqlDialect.SqlServer -> Some $"DATEPART(SECOND, {o})"
+                    | SqlDialect.PostgreSql -> Some $"EXTRACT(SECOND FROM {o})"
+                | _ -> None
+            | None -> None
+        | :? MemberExpression as m ->
+            let aliasOpt, colName = resolveMemberRef plan m
+            match aliasOpt with
+            | Some alias -> Some $"{alias}.{colName}"
+            | None ->
+                match m.Expression with
+                | null ->
+                    let v = evaluateClientValue expr
+                    translateScalarExpr dialect plan (Expression.Constant(v, expr.Type))
+                | _ ->
+                    if plan.Joins.Count > 0 && not (colName.Contains ".") then
+                        Some $"{plan.BaseAlias}.{colName}"
+                    else
+                        Some colName
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ->
+            translateScalarExpr dialect plan u.Operand
+        | :? BinaryExpression as b ->
+            match b.NodeType with
+            | ExpressionType.Add ->
+                if b.Type = typeof<string> then
+                    let op = if dialect = SqlDialect.SqlServer then " + " else " || "
+                    match translateScalarExpr dialect plan b.Left, translateScalarExpr dialect plan b.Right with
+                    | Some l, Some r -> Some $"({l}{op}{r})"
+                    | _ -> None
+                else
+                    match translateScalarExpr dialect plan b.Left, translateScalarExpr dialect plan b.Right with
+                    | Some l, Some r -> Some $"({l} + {r})"
+                    | _ -> None
+            | ExpressionType.Subtract ->
+                match translateScalarExpr dialect plan b.Left, translateScalarExpr dialect plan b.Right with
+                | Some l, Some r -> Some $"({l} - {r})"
+                | _ -> None
+            | ExpressionType.Multiply ->
+                match translateScalarExpr dialect plan b.Left, translateScalarExpr dialect plan b.Right with
+                | Some l, Some r -> Some $"({l} * {r})"
+                | _ -> None
+            | ExpressionType.Divide ->
+                match translateScalarExpr dialect plan b.Left, translateScalarExpr dialect plan b.Right with
+                | Some l, Some r -> Some $"({l} / {r})"
+                | _ -> None
+            | _ -> None
+        | :? ConditionalExpression as c ->
+            let isNullCheck (e: Expression) : bool =
+                match unwrapQuote e with
+                | :? MethodCallExpression as mc when mc.Method.Name = "IsNull" || mc.Method.Name = "ReferenceEquals" -> true
+                | :? BinaryExpression as b when b.NodeType = ExpressionType.Equal ->
+                    let isNullConst (x: Expression) =
+                        match unwrapQuote x with
+                        | :? ConstantExpression as ce -> isNull ce.Value
+                        | _ -> false
+                    isNullConst b.Left || isNullConst b.Right
+                | _ -> false
+
+            let isNotNullCheck (e: Expression) : bool =
+                match unwrapQuote e with
+                | :? UnaryExpression as u when u.NodeType = ExpressionType.Not -> isNullCheck u.Operand
+                | :? BinaryExpression as b when b.NodeType = ExpressionType.NotEqual ->
+                    let isNullConst (x: Expression) =
+                        match unwrapQuote x with
+                        | :? ConstantExpression as ce -> isNull ce.Value
+                        | _ -> false
+                    isNullConst b.Left || isNullConst b.Right
+                | _ -> false
+
+            if isNullCheck c.Test then
+                match translateScalarExpr dialect plan c.IfFalse, translateScalarExpr dialect plan c.IfTrue with
+                | Some valExpr, Some defExpr -> Some $"COALESCE({valExpr}, {defExpr})"
+                | _ -> None
+            elif isNotNullCheck c.Test then
+                match translateScalarExpr dialect plan c.IfTrue, translateScalarExpr dialect plan c.IfFalse with
+                | Some valExpr, Some defExpr -> Some $"COALESCE({valExpr}, {defExpr})"
+                | _ -> None
+            else
+                match translateScalarCondition dialect plan c.Test, translateScalarExpr dialect plan c.IfTrue, translateScalarExpr dialect plan c.IfFalse with
+                | Some testExpr, Some trueExpr, Some falseExpr ->
+                    Some $"CASE WHEN {testExpr} THEN {trueExpr} ELSE {falseExpr} END"
+                | _ -> None
+        | :? MethodCallExpression as mc ->
+            if mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "Concat" then
+                let op = if dialect = SqlDialect.SqlServer then " + " else " || "
+                let argParts = mc.Arguments |> Seq.map (translateScalarExpr dialect plan) |> Seq.toList
+                if argParts |> List.forall Option.isSome then
+                    let joined = argParts |> List.map Option.get |> String.concat op
+                    Some $"({joined})"
+                else None
+            elif mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "ToUpper" && mc.Arguments.Count = 0 then
+                match translateScalarExpr dialect plan mc.Object with
+                | Some o -> Some $"UPPER({o})"
+                | None -> None
+            elif mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "ToLower" && mc.Arguments.Count = 0 then
+                match translateScalarExpr dialect plan mc.Object with
+                | Some o -> Some $"LOWER({o})"
+                | None -> None
+            elif mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "Trim" && mc.Arguments.Count = 0 then
+                match translateScalarExpr dialect plan mc.Object with
+                | Some o -> Some $"TRIM({o})"
+                | None -> None
+            elif mc.Method.Name = "Count" then
+                if mc.Arguments.Count >= 2 then
+                    match translateScalarExpr dialect plan mc.Arguments.[1] with
+                    | Some col -> Some $"COUNT({col})"
+                    | None -> Some "COUNT(*)"
+                else Some "COUNT(*)"
+            elif mc.Method.Name = "LongCount" then
+                Some "COUNT(*)"
+            elif mc.Method.Name = "Sum" && mc.Arguments.Count >= 2 then
+                match translateScalarExpr dialect plan mc.Arguments.[1] with
+                | Some col -> Some $"SUM({col})"
+                | None -> None
+            elif mc.Method.Name = "Min" then
+                if mc.Arguments.Count >= 2 then
+                    match translateScalarExpr dialect plan mc.Arguments.[1] with
+                    | Some col -> Some $"MIN({col})"
+                    | None -> None
+                elif not (isNull mc.Object) then
+                    match translateScalarExpr dialect plan mc.Object with
+                    | Some col -> Some $"MIN({col})"
+                    | None -> None
+                else None
+            elif mc.Method.Name = "Max" then
+                if mc.Arguments.Count >= 2 then
+                    match translateScalarExpr dialect plan mc.Arguments.[1] with
+                    | Some col -> Some $"MAX({col})"
+                    | None -> None
+                elif not (isNull mc.Object) then
+                    match translateScalarExpr dialect plan mc.Object with
+                    | Some col -> Some $"MAX({col})"
+                    | None -> None
+                else None
+            elif (mc.Method.Name = "Average" || mc.Method.Name = "Avg") then
+                if mc.Arguments.Count >= 2 then
+                    match translateScalarExpr dialect plan mc.Arguments.[1] with
+                    | Some col -> Some $"AVG({col})"
+                    | None -> None
+                elif not (isNull mc.Object) then
+                    match translateScalarExpr dialect plan mc.Object with
+                    | Some col -> Some $"AVG({col})"
+                    | None -> None
+                else None
+            elif mc.Method.Name = "ToString" then
+                let objExpr =
+                    if not (isNull mc.Object) then
+                        translateScalarExpr dialect plan mc.Object
+                    elif mc.Arguments.Count > 0 then
+                        translateScalarExpr dialect plan mc.Arguments.[0]
+                    else None
+
+                match objExpr with
+                | Some o ->
+                    let formatArg =
+                        if not (isNull mc.Object) && mc.Arguments.Count > 0 then
+                            match unwrapQuote mc.Arguments.[0] with
+                            | :? ConstantExpression as ce when not (isNull ce.Value) -> Some (string ce.Value)
+                            | _ -> None
+                        elif isNull mc.Object && mc.Arguments.Count > 1 then
+                            match unwrapQuote mc.Arguments.[1] with
+                            | :? ConstantExpression as ce when not (isNull ce.Value) -> Some (string ce.Value)
+                            | _ -> None
+                        else None
+
+                    match formatArg with
+                    | Some fmt ->
+                        match dialect with
+                        | SqlDialect.Sqlite ->
+                            let sqliteFmt =
+                                fmt.Replace("yyyy", "%Y")
+                                   .Replace("YYYY", "%Y")
+                                   .Replace("yy", "%Y")
+                                   .Replace("MM", "%m")
+                                   .Replace("dd", "%d")
+                                   .Replace("DD", "%d")
+                                   .Replace("HH", "%H")
+                                   .Replace("hh", "%H")
+                                   .Replace("mm", "%M")
+                                   .Replace("ss", "%S")
+                                   .Replace("SS", "%S")
+                            if sqliteFmt.Contains("%") then
+                                Some $"strftime('{sqliteFmt}', {o})"
+                            else
+                                Some $"CAST({o} AS TEXT)"
+                        | SqlDialect.SqlServer ->
+                            Some $"FORMAT({o}, '{fmt}')"
+                        | SqlDialect.PostgreSql ->
+                            let pgFmt =
+                                fmt.Replace("yyyy", "YYYY")
+                                   .Replace("YYYY", "YYYY")
+                                   .Replace("yy", "YY")
+                                   .Replace("MM", "MM")
+                                   .Replace("dd", "DD")
+                                   .Replace("DD", "DD")
+                                   .Replace("HH", "HH24")
+                                   .Replace("hh", "HH12")
+                                   .Replace("mm", "MI")
+                                   .Replace("ss", "SS")
+                                   .Replace("SS", "SS")
+                            Some $"to_char({o}, '{pgFmt}')"
+                    | None ->
+                        match dialect with
+                        | SqlDialect.Sqlite -> Some $"CAST({o} AS TEXT)"
+                        | SqlDialect.SqlServer -> Some $"CAST({o} AS NVARCHAR(MAX))"
+                        | SqlDialect.PostgreSql -> Some $"CAST({o} AS TEXT)"
+                | None -> None
+            elif mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "Substring" then
+                match translateScalarExpr dialect plan mc.Object with
+                | Some o ->
+                    let startArg = if mc.Arguments.Count > 0 then translateScalarExpr dialect plan mc.Arguments.[0] else None
+                    let lenArg = if mc.Arguments.Count > 1 then translateScalarExpr dialect plan mc.Arguments.[1] else None
+                    match startArg, lenArg with
+                    | Some s, Some l ->
+                        match dialect with
+                        | SqlDialect.SqlServer -> Some $"SUBSTRING({o}, ({s}) + 1, {l})"
+                        | _ -> Some $"SUBSTR({o}, ({s}) + 1, {l})"
+                    | Some s, None ->
+                        match dialect with
+                        | SqlDialect.SqlServer -> Some $"SUBSTRING({o}, ({s}) + 1, LEN({o}))"
+                        | _ -> Some $"SUBSTR({o}, ({s}) + 1)"
+                    | _ -> None
+                | None -> None
+            elif mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "Replace" && mc.Arguments.Count = 2 then
+                match translateScalarExpr dialect plan mc.Object, translateScalarExpr dialect plan mc.Arguments.[0], translateScalarExpr dialect plan mc.Arguments.[1] with
+                | Some o, Some oldVal, Some newVal -> Some $"REPLACE({o}, {oldVal}, {newVal})"
+                | _ -> None
+            elif mc.Method.DeclaringType = typeof<Math> && mc.Method.Name = "Round" then
+                match mc.Arguments.Count with
+                | 1 ->
+                    match translateScalarExpr dialect plan mc.Arguments.[0] with
+                    | Some v -> Some $"ROUND({v})"
+                    | None -> None
+                | 2 ->
+                    match translateScalarExpr dialect plan mc.Arguments.[0], translateScalarExpr dialect plan mc.Arguments.[1] with
+                    | Some v, Some digits -> Some $"ROUND({v}, {digits})"
+                    | _ -> None
+                | _ -> None
+            elif mc.Method.DeclaringType = typeof<Math> && mc.Method.Name = "Abs" && mc.Arguments.Count = 1 then
+                match translateScalarExpr dialect plan mc.Arguments.[0] with
+                | Some v -> Some $"ABS({v})"
+                | None -> None
+            else
+                None
+        | _ -> None
+
+    and mergeExpressionIntoPlan (rootExpr: Expression) (plan: PushdownQueryPlan) (dialect: SqlDialect) : unit =
         let methodCalls = ResizeArray<MethodCallExpression>()
         let rec collectCalls (e: Expression) =
             match e with
@@ -621,34 +1782,101 @@ module ExpressionPushdownTranslator =
 
         collectCalls rootExpr
 
-        // Process calls from inner to outer so ORDER BY and WHERE build naturally
+        // Process calls from inner to outer so Join -> Where -> OrderBy -> Select build naturally
         let reversed = methodCalls |> Seq.toArray |> Array.rev
+        let mutable currentProjectionBody: Expression option = None
 
         for mc in reversed do
             match mc.Method.Name with
+            | ("Join" | "GroupJoin") as mName when mc.Arguments.Count >= 5 ->
+                if plan.Joins.Count = 0 && plan.BaseRowType.IsNone then
+                    match tryExtractQueryableInfo mc.Arguments.[0] with
+                    | Some (_, _, outerRowType) -> plan.BaseRowType <- outerRowType
+                    | None -> ()
+
+                let innerArg = mc.Arguments.[1]
+                match tryExtractQueryableInfo innerArg with
+                | Some (innerTable, _, innerRowType) ->
+                    let nextIdx = plan.Joins.Count + 1
+                    let innerAlias = sprintf "_t%d" nextIdx
+                    let defaultOuterAlias = if plan.Joins.Count = 0 then plan.BaseAlias else sprintf "_t%d" plan.Joins.Count
+                    let outerKeyL = unwrapQuote mc.Arguments.[2] :?> LambdaExpression
+                    let innerKeyL = unwrapQuote mc.Arguments.[3] :?> LambdaExpression
+                    let outerCols = extractKeyColumns plan defaultOuterAlias outerKeyL.Parameters.[0] outerKeyL.Body
+                    let innerCols = extractKeyColumns plan innerAlias innerKeyL.Parameters.[0] innerKeyL.Body
+                    let onClause =
+                        if outerCols.Length > 0 && outerCols.Length = innerCols.Length then
+                            List.zip outerCols innerCols
+                            |> List.map (fun (oRef, iRef) -> $"{oRef} = {iRef}")
+                            |> String.concat " AND "
+                        else
+                            let outerCol = extractColumnName outerKeyL.Parameters.[0] outerKeyL.Body
+                            let innerCol = extractColumnName innerKeyL.Parameters.[0] innerKeyL.Body
+                            let outerColRef = if outerCol.Contains(".") then outerCol else $"{defaultOuterAlias}.{outerCol}"
+                            let innerColRef = if innerCol.Contains(".") then innerCol else $"{innerAlias}.{innerCol}"
+                            $"{outerColRef} = {innerColRef}"
+
+                    let joinType = if mName = "GroupJoin" then "LEFT JOIN" else "INNER JOIN"
+                    plan.Joins.Add({
+                        JoinType = joinType
+                        SourceTable = innerTable
+                        Alias = innerAlias
+                        OnClause = onClause
+                        RowType = innerRowType
+                    })
+                | None -> ()
+            | "SelectMany" when mc.Arguments.Count >= 2 ->
+                let innerArg = unwrapQuote mc.Arguments.[1]
+                let innerExpr =
+                    match innerArg with
+                    | :? LambdaExpression as l -> l.Body
+                    | other -> other
+                match tryExtractQueryableInfo innerExpr with
+                | Some (innerTable, _, innerRowType) ->
+                    let nextIdx = plan.Joins.Count + 1
+                    let innerAlias = sprintf "_t%d" nextIdx
+                    plan.Joins.Add({
+                        JoinType = "INNER JOIN"
+                        SourceTable = innerTable
+                        Alias = innerAlias
+                        OnClause = "1=1"
+                        RowType = innerRowType
+                    })
+                | None -> ()
             | "Where" when mc.Arguments.Count >= 2 ->
                 let arg1 = unwrapQuote mc.Arguments.[1]
                 match arg1 with
                 | :? LambdaExpression as l ->
                     let param = l.Parameters.[0]
-                    match translatePredicate param plan.Parameters l.Body with
+                    match translatePredicate param plan dialect l.Body with
                     | Some sqlPred ->
                         plan.WhereClauses.Add(sqlPred)
                     | None ->
                         let compiled = l.Compile()
                         plan.FallbackPredicates.Add(fun item -> unbox<bool> (compiled.DynamicInvoke(item)))
                 | _ -> ()
+            | "GroupBy" when mc.Arguments.Count >= 2 ->
+                let keyArg = unwrapQuote mc.Arguments.[1]
+                match keyArg with
+                | :? LambdaExpression as l ->
+                    let cols = extractKeyColumns plan plan.BaseAlias l.Parameters.[0] l.Body
+                    for c in cols do
+                        if not (plan.GroupBy.Contains c) then
+                            plan.GroupBy.Add(c)
+                | _ -> ()
+            | "Distinct" ->
+                plan.IsDistinct <- true
             | "OrderBy" when mc.Arguments.Count >= 2 ->
-                let col = extractMemberName mc.Arguments.[1]
+                let col = extractColumnNameWithAlias plan mc.Arguments.[1]
                 plan.OrderBy.Add({ ColumnName = col; Direction = Ascending })
             | "OrderByDescending" when mc.Arguments.Count >= 2 ->
-                let col = extractMemberName mc.Arguments.[1]
+                let col = extractColumnNameWithAlias plan mc.Arguments.[1]
                 plan.OrderBy.Add({ ColumnName = col; Direction = Descending })
             | "ThenBy" when mc.Arguments.Count >= 2 ->
-                let col = extractMemberName mc.Arguments.[1]
+                let col = extractColumnNameWithAlias plan mc.Arguments.[1]
                 plan.OrderBy.Add({ ColumnName = col; Direction = Ascending })
             | "ThenByDescending" when mc.Arguments.Count >= 2 ->
-                let col = extractMemberName mc.Arguments.[1]
+                let col = extractColumnNameWithAlias plan mc.Arguments.[1]
                 plan.OrderBy.Add({ ColumnName = col; Direction = Descending })
             | "Take" when mc.Arguments.Count >= 2 ->
                 let count = evaluateClientValue mc.Arguments.[1] :?> int
@@ -656,18 +1884,93 @@ module ExpressionPushdownTranslator =
             | "Skip" when mc.Arguments.Count >= 2 ->
                 let count = evaluateClientValue mc.Arguments.[1] :?> int
                 plan.Skip <- Some count
-            | "Count" ->
+            | ("First" | "FirstOrDefault" | "Head" | "HeadOrDefault") ->
+                plan.Take <- Some 1
+            | ("Single" | "SingleOrDefault") ->
+                plan.Take <- Some 2
+            | ("Count" | "LongCount") ->
                 plan.Projection <- Some "COUNT(*)"
             | "Sum" when mc.Arguments.Count >= 2 ->
-                let col = extractMemberName mc.Arguments.[1]
+                let col = extractColumnNameWithAlias plan mc.Arguments.[1]
                 plan.Projection <- Some $"SUM({col})"
+            | "Min" when mc.Arguments.Count >= 2 ->
+                let col = extractColumnNameWithAlias plan mc.Arguments.[1]
+                plan.Projection <- Some $"MIN({col})"
+            | "Max" when mc.Arguments.Count >= 2 ->
+                let col = extractColumnNameWithAlias plan mc.Arguments.[1]
+                plan.Projection <- Some $"MAX({col})"
+            | ("Average" | "Avg") when mc.Arguments.Count >= 2 ->
+                let col = extractColumnNameWithAlias plan mc.Arguments.[1]
+                plan.Projection <- Some $"AVG({col})"
+            | "Select" when mc.Arguments.Count >= 2 ->
+                let arg1 = unwrapQuote mc.Arguments.[1]
+                match arg1 with
+                | :? LambdaExpression as l ->
+                    let unwrappedBody = unwrapBlock l.Body
+                    match currentProjectionBody with
+                    | Some prevBody ->
+                        let prevMap = extractMemberMap prevBody
+                        let replacer = ParameterMemberReplacer(l.Parameters.[0], prevMap)
+                        let inlined = replacer.Visit(unwrappedBody)
+                        currentProjectionBody <- Some inlined
+                    | None ->
+                        currentProjectionBody <- Some unwrappedBody
+                | _ -> ()
             | _ -> ()
+
+        match currentProjectionBody with
+        | Some rawBody ->
+            let body = unwrapBlock rawBody
+            match body with
+            | :? NewExpression as newExpr ->
+                let ctor = newExpr.Constructor
+                let paramInfos = if isNull ctor then [||] else ctor.GetParameters()
+                let colParts = ResizeArray<string>()
+                let mutable ok = true
+                for idx in 0 .. newExpr.Arguments.Count - 1 do
+                    let arg = newExpr.Arguments.[idx]
+                    let itemNum = idx + 1
+                    let alias =
+                        if not (isNull newExpr.Members) && idx < newExpr.Members.Count then
+                            newExpr.Members.[idx].Name
+                        elif idx < paramInfos.Length then
+                            paramInfos.[idx].Name
+                        else
+                            sprintf "Item%d" itemNum
+                    match translateScalarExpr dialect plan arg with
+                    | Some sqlExpr ->
+                        let qAlias = SqlDialect.quoteIdentifier dialect alias
+                        colParts.Add($"{sqlExpr} AS {qAlias}")
+                    | None ->
+                        ok <- false
+                if ok && colParts.Count > 0 then
+                    plan.Projection <- Some (String.concat ", " colParts)
+            | :? MemberExpression as m ->
+                match translateScalarExpr dialect plan m with
+                | Some sqlExpr ->
+                    let qProp = SqlDialect.quoteIdentifier dialect m.Member.Name
+                    plan.Projection <- Some $"{sqlExpr} AS {qProp}"
+                | None -> ()
+            | :? BinaryExpression as b ->
+                match translateScalarExpr dialect plan b with
+                | Some sqlExpr ->
+                    let qVal = SqlDialect.quoteIdentifier dialect "Value"
+                    plan.Projection <- Some $"{sqlExpr} AS {qVal}"
+                | None -> ()
+            | :? MethodCallExpression as mcExpr ->
+                match translateScalarExpr dialect plan mcExpr with
+                | Some sqlExpr ->
+                    let qVal = SqlDialect.quoteIdentifier dialect "Value"
+                    plan.Projection <- Some $"{sqlExpr} AS {qVal}"
+                | None -> ()
+            | _ -> ()
+        | None -> ()
 
     let rec hasJoin (expr: Expression) : bool =
         match expr with
         | null -> false
         | :? MethodCallExpression as mc ->
-            if mc.Method.Name = "Join" || mc.Method.Name = "GroupJoin" then true
+            if mc.Method.Name = "Join" || mc.Method.Name = "GroupJoin" || mc.Method.Name = "SelectMany" then true
             else
                 (if isNull mc.Object then false else hasJoin mc.Object)
                 || (mc.Arguments |> Seq.exists hasJoin)
@@ -676,9 +1979,9 @@ module ExpressionPushdownTranslator =
         | :? BinaryExpression as b -> hasJoin b.Left || hasJoin b.Right
         | _ -> false
 
-    let extractPlanFromExpression (rootExpr: Expression) (baseSql: string) (baseParameters: (string * obj) list) : PushdownQueryPlan =
+    let extractPlanFromExpression (rootExpr: Expression) (baseSql: string) (baseParameters: (string * obj) list) (dialect: SqlDialect) : PushdownQueryPlan =
         let plan = PushdownQueryPlan.Create(baseSql, baseParameters)
-        mergeExpressionIntoPlan rootExpr plan
+        mergeExpressionIntoPlan rootExpr plan dialect
         plan
 
 module LinqInMemoryFallback =
@@ -706,10 +2009,31 @@ module LinqInMemoryFallback =
             let targetMethod =
                 enumMethods
                 |> Array.find (fun m ->
-                    m.Name = mc.Method.Name
-                    && m.IsGenericMethod
-                    && m.GetGenericArguments().Length = methodGenericArgs.Length
-                    && m.GetParameters().Length = evaluatedArgs.Length
+                    if m.Name <> mc.Method.Name
+                       || not m.IsGenericMethod
+                       || m.GetGenericArguments().Length <> methodGenericArgs.Length
+                       || m.GetParameters().Length <> evaluatedArgs.Length then
+                        false
+                    else
+                        try
+                            let candidate = m.MakeGenericMethod(methodGenericArgs)
+                            let pars = candidate.GetParameters()
+                            Array.zip pars evaluatedArgs
+                            |> Array.forall (fun (p, a) ->
+                                if isNull a then true
+                                else
+                                    let argType = a.GetType()
+                                    if p.ParameterType.IsAssignableFrom(argType) then true
+                                    elif typeof<Delegate>.IsAssignableFrom(argType) && typeof<Delegate>.IsAssignableFrom(p.ParameterType) then
+                                        let aInvoke = argType.GetMethod("Invoke")
+                                        let pInvoke = p.ParameterType.GetMethod("Invoke")
+                                        if not (isNull aInvoke) && not (isNull pInvoke) then
+                                            aInvoke.GetParameters().Length = pInvoke.GetParameters().Length
+                                        else true
+                                    else false
+                            )
+                        with _ ->
+                            false
                 )
             let specialized = targetMethod.MakeGenericMethod(methodGenericArgs)
             specialized.Invoke(null, evaluatedArgs)
@@ -727,8 +2051,29 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
     member _.BaseParameters = baseParameters
     member _.Dialect = dialect
 
+    member this.ExtractPlan(expression: Expression, ?seedPlan: PushdownQueryPlan) : PushdownQueryPlan =
+        match seedPlan with
+        | Some sp ->
+            let cloned = sp.Clone()
+            ExpressionPushdownTranslator.mergeExpressionIntoPlan expression cloned dialect
+            cloned
+        | None ->
+            ExpressionPushdownTranslator.extractPlanFromExpression expression baseSql baseParameters dialect
+
+    member this.ToSqlWithParameters(expression: Expression, ?seedPlan: PushdownQueryPlan) : string * (string * obj) list =
+        let plan = this.ExtractPlan(expression, ?seedPlan = seedPlan)
+        let sql = plan.BuildSql(dialect)
+        let allParams = (plan.BaseParameters @ (plan.Parameters |> List.ofSeq))
+        sql, allParams
+
+    member this.ToRawSql(expression: Expression, ?seedPlan: PushdownQueryPlan) : string =
+        let sql, allParams = this.ToSqlWithParameters(expression, ?seedPlan = seedPlan)
+        SqlPushdownFormatting.formatSqlAndParameters sql allParams
+
     member this.ExecutePlanOrStream<'T>(expression: Expression, ?seedPlan: PushdownQueryPlan) : 'T seq =
-        if ExpressionPushdownTranslator.hasJoin expression then
+        let isJoin = ExpressionPushdownTranslator.hasJoin expression
+        let canPushdown = if isJoin then ExpressionPushdownTranslator.canPushdownAllJoins expression connector else true
+        if isJoin && not canPushdown then
             let res = LinqInMemoryFallback.evaluate expression
             res :?> IEnumerable<'T>
         else
@@ -736,10 +2081,10 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
                 match seedPlan with
                 | Some sp ->
                     let cloned = sp.Clone()
-                    ExpressionPushdownTranslator.mergeExpressionIntoPlan expression cloned
+                    ExpressionPushdownTranslator.mergeExpressionIntoPlan expression cloned dialect
                     cloned
                 | None ->
-                    ExpressionPushdownTranslator.extractPlanFromExpression expression baseSql baseParameters
+                    ExpressionPushdownTranslator.extractPlanFromExpression expression baseSql baseParameters dialect
             let sql = plan.BuildSql(dialect)
             let allParams = (plan.BaseParameters @ (plan.Parameters |> List.ofSeq))
 
@@ -774,7 +2119,7 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
         this.ExecutePlanOrStream<'T>(expression)
 
     member this.ExecuteScalar<'TResult>(expression: Expression) : 'TResult =
-        let plan = ExpressionPushdownTranslator.extractPlanFromExpression expression baseSql baseParameters
+        let plan = ExpressionPushdownTranslator.extractPlanFromExpression expression baseSql baseParameters dialect
         let sql = plan.BuildSql(dialect)
         let allParams = (plan.BaseParameters @ (plan.Parameters |> List.ofSeq))
         let res = connector.ExecuteQuery sql allParams
@@ -793,13 +2138,15 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
                     t.GetGenericArguments().[0]
                 else
                     t
+            let plan = PushdownQueryPlan.Create(baseSql, baseParameters)
             Activator.CreateInstance(
                 typedefof<SqlPushdownQueryable<_>>.MakeGenericType(elemType),
-                this, expression, connector, baseSql, baseParameters, PushdownQueryPlan.Create(baseSql, baseParameters)
+                this, expression, connector, baseSql, baseParameters, plan
             ) :?> IQueryable
 
         member this.CreateQuery<'TElement>(expression: Expression) : IQueryable<'TElement> =
-            SqlPushdownQueryable<'TElement>(this, expression, connector, baseSql, baseParameters, PushdownQueryPlan.Create(baseSql, baseParameters)) :> IQueryable<'TElement>
+            let plan = PushdownQueryPlan.Create(baseSql, baseParameters)
+            SqlPushdownQueryable<'TElement>(this, expression, connector, baseSql, baseParameters, plan) :> IQueryable<'TElement>
 
         member this.Execute(expression: Expression) : obj =
             this.ExecuteScalar<obj>(expression)
@@ -828,10 +2175,13 @@ and SqlPushdownQueryable<'T>(
     new(connector: IQueryableConnector, baseSql: string, ?baseParameters: (string * obj) list) =
         let p = defaultArg baseParameters []
         let provider = SqlPushdownQueryProvider(connector, baseSql, p)
-        let plan = PushdownQueryPlan.Create(baseSql, p)
+        let plan = PushdownQueryPlan.Create(baseSql, p, baseRowType = typeof<'T>)
         SqlPushdownQueryable<'T>(provider, Expression.Constant(null, typeof<IQueryable<'T>>), connector, baseSql, p, plan)
 
     member _.Plan = plan
+    member _.Connector = connector
+    member _.BaseSql = baseSql
+    member _.BaseParameters = baseParameters
 
     /// Appends a raw parameterized WHERE clause directly to the pushdown query.
     member this.Where(filterSql: string, ?parameters: (string * obj) list) : SqlPushdownQueryable<'T> =
@@ -852,6 +2202,18 @@ and SqlPushdownQueryable<'T>(
         newPlan.Take <- Some validSize
         SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
 
+    /// Extracts the raw SQL query generated for this queryable without executing it against the database.
+    member this.ToRawSql() : string =
+        let p = provider :?> SqlPushdownQueryProvider
+        let expr = (this :> IQueryable<'T>).Expression
+        p.ToRawSql(expr, plan)
+
+    /// Extracts the raw SQL query and parameter bindings for this queryable without executing it against the database.
+    member this.ToSqlWithParameters() : string * (string * obj) list =
+        let p = provider :?> SqlPushdownQueryProvider
+        let expr = (this :> IQueryable<'T>).Expression
+        p.ToSqlWithParameters(expr, plan)
+
     interface IQueryable<'T> with
         member _.Provider = provider
         member this.Expression = if isNull expression || (match expression with :? ConstantExpression as c -> isNull c.Value | _ -> false) then Expression.Constant(this, typeof<IQueryable<'T>>) :> Expression else expression
@@ -869,5 +2231,65 @@ and SqlPushdownQueryable<'T>(
     interface IEnumerable with
         member this.GetEnumerator() =
             (this :> IEnumerable<'T>).GetEnumerator() :> IEnumerator
+
+module SqlPushdownQuery =
+    open SqlPushdownFormatting
+
+    let rec tryFindPushdownSource (expr: Expression) : (IQueryable * PushdownQueryPlan option) option =
+        match expr with
+        | null -> None
+        | :? ConstantExpression as c when not (isNull c.Value) ->
+            match c.Value with
+            | :? IQueryable as iq when not (isNull iq.Provider) && iq.Provider.GetType() = typeof<SqlPushdownQueryProvider> ->
+                let t = c.Value.GetType()
+                let planProp = t.GetProperty("Plan")
+                let plan = if isNull planProp then None else Some (planProp.GetValue(c.Value) :?> PushdownQueryPlan)
+                Some (iq, plan)
+            | _ -> None
+        | :? MethodCallExpression as m ->
+            m.Arguments
+            |> Seq.tryPick tryFindPushdownSource
+            |> Option.orElseWith (fun () -> tryFindPushdownSource m.Object)
+        | :? UnaryExpression as u ->
+            tryFindPushdownSource u.Operand
+        | _ -> None
+
+    let extractSqlWithParameters (query: obj) : string * (string * obj) list =
+        match query with
+        | null -> ("", [])
+        | :? string as s -> (s, [])
+        | :? PushdownQueryPlan as plan ->
+            let sql = plan.BuildSql(SqlDialect.Sqlite)
+            let parms = plan.BaseParameters @ (plan.Parameters |> List.ofSeq)
+            (sql, parms)
+        | :? IQueryable as iq ->
+            if not (isNull iq.Provider) && iq.Provider.GetType() = typeof<SqlPushdownQueryProvider> then
+                let provider = iq.Provider :?> SqlPushdownQueryProvider
+                let planProp = iq.GetType().GetProperty("Plan")
+                let seedPlan = if isNull planProp then None else Some (planProp.GetValue(iq) :?> PushdownQueryPlan)
+                provider.ToSqlWithParameters(iq.Expression, ?seedPlan = seedPlan)
+            else
+                match tryFindPushdownSource iq.Expression with
+                | Some (sourceIq, seedPlan) ->
+                    let provider = sourceIq.Provider :?> SqlPushdownQueryProvider
+                    provider.ToSqlWithParameters(iq.Expression, ?seedPlan = seedPlan)
+                | None ->
+                    (string iq, [])
+        | other ->
+            let t = other.GetType()
+            let toRawSqlMethod = t.GetMethod("ToRawSql", Type.EmptyTypes)
+            if not (isNull toRawSqlMethod) then
+                let res = toRawSqlMethod.Invoke(other, [||]) :?> string
+                (res, [])
+            else
+                (string other, [])
+
+    let extractRawSql (query: obj) : string =
+        let sql, parms = extractSqlWithParameters query
+        formatSqlAndParameters sql parms
+
+    do
+        ResultKind.RegisterRawSqlExtractor(extractRawSql, extractSqlWithParameters)
+
 
 

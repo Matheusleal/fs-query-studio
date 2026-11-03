@@ -82,6 +82,12 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
           echo "version=$PACKAGE_VERSION" >> $GITHUB_OUTPUT
           
+          if [ "${{ github.event.inputs.prerelease }}" = "true" ] || [[ "$TAG" == *-* ]]; then
+            echo "prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
           cp editors/vscode/fs-query-studio.vsix "editors/vscode/fs-query-studio-${TAG}.vsix"
           echo "vsix_named=editors/vscode/fs-query-studio-${TAG}.vsix" >> $GITHUB_OUTPUT
 
@@ -91,7 +97,7 @@ jobs:
           tag_name: ${{ steps.vars.outputs.tag }}
           name: "F# Query Studio ${{ steps.vars.outputs.tag }}"
           draft: ${{ github.event.inputs.draft || false }}
-          prerelease: ${{ github.event.inputs.prerelease || false }}
+          prerelease: ${{ steps.vars.outputs.prerelease == 'true' }}
           generate_release_notes: true
           files: |
             editors/vscode/fs-query-studio.vsix

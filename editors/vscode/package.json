@@ -4,7 +4,7 @@
   "displayName": "F# Query Studio",
   "description": "Write, analyze, and run F# query scripts against SQL, files, and REST APIs.",
   "license": "MIT",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
@@ -45,6 +45,8 @@
     "onCommand:fs-query-studio.checkWorker",
     "onCommand:fs-query-studio.showOutput",
     "onCommand:fs-query-studio.createSampleData",
+    "onCommand:fs-query-studio.autoImportFolder",
+    "onCommand:fs-query-studio.syncDataSources",
     "onCommand:fs-query-studio.openDocs",
     "onCommand:fs-query-studio.newNotebook",
     "onCommand:fs-query-studio.newNotebookHere",
@@ -101,6 +103,36 @@
         "icon": "$(database)"
       },
       {
+        "command": "fs-query-studio.autoImportFolder",
+        "title": "F# Query Studio: Auto-Import Data Sources Directory",
+        "shortTitle": "Auto-Import Sources",
+        "icon": "$(folder-library)"
+      },
+      {
+        "command": "fs-query-studio.pauseWatchersAndWorkers",
+        "title": "F# Query Studio: Pause Watchers and Workers",
+        "shortTitle": "Pause Background",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "fs-query-studio.resumeWatchersAndWorkers",
+        "title": "F# Query Studio: Resume Watchers and Workers",
+        "shortTitle": "Resume Background",
+        "icon": "$(play)"
+      },
+      {
+        "command": "fs-query-studio.togglePauseResume",
+        "title": "F# Query Studio: Toggle Pause/Resume Background Watchers and Workers",
+        "shortTitle": "Toggle Pause/Resume",
+        "icon": "$(debug-pause)"
+      },
+      {
+        "command": "fs-query-studio.syncDataSources",
+        "title": "F# Query Studio: Sync Data Sources Cache",
+        "shortTitle": "Sync Sources",
+        "icon": "$(sync)"
+      },
+      {
         "command": "fs-query-studio.initEmptyProject",
         "title": "F# Query Studio: Initialize Empty Project",
         "shortTitle": "Initialize Project",
@@ -145,7 +177,7 @@
     "viewsWelcome": [
       {
         "view": "fsQueryStudioConnections",
-        "contents": "No connections registered yet.\n[Add Connection](command:fs-query-studio.connections.add)\n\n[Initialize Empty Project](command:fs-query-studio.initEmptyProject)\n\n[Create Sample Data (SQLite & CSV)](command:fs-query-studio.createSampleData)\n\n[Open Documentation](command:fs-query-studio.openDocs)\n\n[Show Output Logs](command:fs-query-studio.showOutput)"
+        "contents": "No connections registered yet.\n[Add Connection](command:fs-query-studio.connections.add)\n\n[Auto-Import Data Sources Directory](command:fs-query-studio.autoImportFolder)\n\n[Sync Data Sources Cache](command:fs-query-studio.syncDataSources)\n\n[Initialize Empty Project](command:fs-query-studio.initEmptyProject)\n\n[Create Sample Data (SQLite & CSV)](command:fs-query-studio.createSampleData)\n\n[Open Documentation](command:fs-query-studio.openDocs)\n\n[Show Output Logs](command:fs-query-studio.showOutput)"
       }
     ],
     "menus": {
@@ -165,15 +197,38 @@
           "command": "fs-query-studio.initEmptyProject",
           "when": "explorerViewletVisible && explorerResourceIsFolder",
           "group": "navigation@31"
+        },
+        {
+          "command": "fs-query-studio.autoImportFolder",
+          "when": "explorerViewletVisible && explorerResourceIsFolder",
+          "group": "navigation@32"
         }
       ],
       "commandPalette": [
         {
           "command": "fs-query-studio.newNotebookHere",
           "when": "false"
+        },
+        {
+          "command": "fs-query-studio.pauseWatchersAndWorkers",
+          "when": "!fs-query-studio.isPaused"
+        },
+        {
+          "command": "fs-query-studio.resumeWatchersAndWorkers",
+          "when": "fs-query-studio.isPaused"
         }
       ],
       "view/title": [
+        {
+          "command": "fs-query-studio.pauseWatchersAndWorkers",
+          "when": "view == fsQueryStudioConnections && !fs-query-studio.isPaused",
+          "group": "navigation@5"
+        },
+        {
+          "command": "fs-query-studio.resumeWatchersAndWorkers",
+          "when": "view == fsQueryStudioConnections && fs-query-studio.isPaused",
+          "group": "navigation@5"
+        },
         {
           "command": "fs-query-studio.openDocs",
           "when": "view == fsQueryStudioConnections",
@@ -188,6 +243,11 @@
           "command": "fs-query-studio.createSampleData",
           "when": "view == fsQueryStudioConnections",
           "group": "navigation@15"
+        },
+        {
+          "command": "fs-query-studio.autoImportFolder",
+          "when": "view == fsQueryStudioConnections",
+          "group": "navigation@16"
         },
         {
           "command": "fs-query-studio.connections.add",

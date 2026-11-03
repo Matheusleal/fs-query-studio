@@ -6,8 +6,8 @@ Escreva, analise e execute scripts de consulta F# contra bancos de dados SQL, ar
 
 O F# Query Studio é uma **extensão para o VS Code**. Você abre arquivos `.fsqnb` como *F# Query Notebooks*; cada célula de código executa F# em uma sessão FSI persistente hospedada em um processo worker .NET nativo. Uma API unificada e segura (`Connections.*`) conecta-se aos bancos de dados e arquivos registrados na barra lateral, renderizando os resultados em um grid interativo virtualizado com visualização de esquema e exportação para CSV.
 
-> **Status:** `0.2.0`, pronto para distribuição. Estúdio completo de exploração e consultas com descoberta multi-schema, consultas LINQ fortemente tipadas, geração de entidades em background, benchmarks de execução sub-milissegundo comprovados e 100% de cobertura de testes de elementos de UI.
-> Veja o [Release v0.2.0](https://github.com/Matheusleal/fs-query-studio/releases/tag/v0.2.0) e o guia de publicação em [`docs/vscode-extension-release.md`](docs/vscode-extension-release.md).
+> **Status:** `0.4.0`, pronto para distribuição. Estúdio de consultas e exploração multi-fonte de alta performance com pushdown completo de SQL, cache persistente assíncrono em disco SQLite com índices B-tree compostos, otimização de joins multi-propriedade sem explosão de memória, descoberta automatizada de arquivos em `data_sources/`, visualização de SQL gerado (`toRawSql`), benchmarks sub-milissegundo comprovados e 100% de cobertura de testes.
+> Veja o [Release v0.4.0](https://github.com/Matheusleal/fs-query-studio/releases/tag/v0.4.0) e o guia de publicação em [`docs/vscode-extension-release.md`](docs/vscode-extension-release.md).
 
 ---
 
@@ -35,24 +35,35 @@ O pipeline de CI também publica o pacote VSIX automaticamente a cada push na br
 
 1. **Novo notebook** — execute o comando **F# Query Studio: New F# Query Notebook** na Command Palette (`Ctrl+Shift+P`), ou crie qualquer arquivo com extensão `.fsqnb`.
 2. **Execute F#** — digite código F# em uma célula e execute-a. Declarações `let` persistem para as células seguintes (uma sessão FSI por notebook). O comando **F# Query Studio: Restart Notebook Session** reinicializa a sessão quando desejado.
-3. **Adicione uma conexão** — abra o painel **F# Query Studio** na Activity Bar e clique em **Add Connection**: SQLite / CSV / Excel / JSON (caminho de arquivo), SQL Server / PostgreSQL / MySQL (connection string), ou REST JSON (URL). Credenciais e senhas são salvas no chaveiro seguro do sistema operacional via VS Code `SecretStorage`, nunca em disco.
-4. **Consulte com LINQ ou SQL**:
-   - Consultas tipadas com LINQ:
-     ```fsharp
-     query { for u in Connections.sql.MinhaConexao.Users do where (u.IsActive) select u }
-     ```
-   - Ou com SQL tradicional parametrizado isolado na conexão:
-     ```fsharp
-     Connections.sql.MinhaConexao.rawQuery "select * from Orders where Total > @min" [ "@min", box 100.0 ]
-     ```
-   Ao executar a célula, o resultado é renderizado automaticamente em um grid interativo com aba de esquema e botão **Export CSV**.
+3. **Adicione ou importe conexões automaticamente** — adicione arquivos `.csv`, `.xlsx` ou `.db` na pasta `data_sources/` do projeto e execute **F# Query Studio: Auto-Import Data Sources Directory**, ou use **Add Connection** no painel da barra lateral. Fontes de arquivos são sincronizadas de forma assíncrona em cache persistente SQLite (`.fsqs/cache/engine.db`) com índices B-tree compostos automáticos.
+4. **Consulte com Pushdown Completo para SQL & LINQ** — consultas F# LINQ são traduzidas diretamente para SQL nativo no banco de dados (`SELECT`, `WHERE`, `JOIN`, `ORDER BY`, `LIMIT`, `SKIP`, `COUNT`, `SUM`), sem puxar tabelas inteiras para a memória RAM:
+   ```fsharp
+   query {
+       for u in Connections.sql.MinhaConexao.Users do
+       where (u.IsActive && u.Age >= 21)
+       sortBy u.LastName
+       select {| Nome = u.FirstName + " " + u.LastName; Email = u.Email |}
+   }
+   ```
+5. **Inspecione a Query SQL Gerada** — visualize a query SQL parametrizada exata antes ou durante a execução:
+   ```fsharp
+   printfn "%s" (Connections.toRawSql minhaQuery)
+   ```
+   Ou execute comandos SQL brutos: `Connections.sql.MinhaConexao.rawQuery "select * from Orders" []`.
+   O resultado é exibido em uma grade virtualizada interativa com aba de esquema e botão **Export CSV**.
 
-Guia prático passo a passo: **[`docs/TUTORIAL.md`](docs/TUTORIAL.md)**.  
+Guia prático passo a passo: **[`docs/TUTORIAL_PT.md`](docs/TUTORIAL_PT.md)** (English: [`docs/TUTORIAL.md`](docs/TUTORIAL.md)).  
 Guia Completo do Usuário: **[`editors/vscode/USER_GUIDE_PT.md`](editors/vscode/USER_GUIDE_PT.md)** (ou clique no ícone `$(book)` no VS Code).
 
 ## O que a Extensão Oferece
 
 - **Execução em Notebooks** — cada célula `.fsqnb` executa em uma sessão FSI isolada por notebook; saída ao vivo de stdout / stderr; cancelamento de células demoradas pela barra de ferramentas.
+- **Pushdown Completo de Queries para SQL** — tradução estilo Entity Framework para bancos relacionais e arquivos planos. Transforma projeções (`select`), filtros (`where`), joins (`join`), joins multi-propriedades (`on ((a.p1, a.p2) = (b.p1, b.p2))`), ordenação, fatiamento (`take`/`skip`) e agregações (`count`/`sum`) em instruções SQL nativas ultra-rápidas.
+- **Cache Persistente em Disco SQLite & Joins Rápidos em Arquivos** — arquivos planos (CSV e Excel `.xlsx`) são pré-carregados em background em um banco SQLite persistente em disco (`.fsqs/cache/engine.db`). A sincronização valida a data de modificação (`mtime`) e o tamanho em bytes para evitar reprocessamento desnecessário. Índices B-tree compostos automáticos eliminam produtos cartesianos e consumo excessivo de RAM em arquivos com mais de 200.000 linhas.
+- **Inferência Precisa de Tipos Tabulares & Fórmulas** — Esquemas de Excel e CSV detectam tipos reais (inteiros, decimais, datas, booleanos) na árvore e nas entidades. Suporta tipos customizados (`columnTypes`) e fórmulas de transformação (`columnTransforms`, ex: `replace('.', '').replace(',', '.')` ou `trim`) com preservação total de números decimais de alta precisão. Instruções detalhadas e exemplos reais: [Guia do Usuário - Mapeamentos e Fórmulas](editors/vscode/USER_GUIDE_PT.md#tipos-de-coluna-personalizados--transformações-com-fórmulas-excel--csv).
+- **Visualização Prévia de SQL (`toRawSql`)** — inspecione o SQL bruto parametrizado gerado pelo pushdown a qualquer momento via `ResultKind.toRawSql query` ou `Connections.toRawSql query`.
+- **Descoberta Automática de Fontes (`data_sources/`)** — adicione arquivos `.csv`, `.xlsx`, `.db` ou `.sqlite` na pasta `data_sources/` do projeto e clique em **Auto-Import Data Sources** para detectar, registrar e tipar conexões instantaneamente.
+- **Status Visual de Sincronização** — indicador animado na barra de status (`$(sync~spin) Sincronizando fontes de dados...` ➔ `$(database) Fontes prontas`) informa o progresso e prontidão das fontes em tempo real.
 - **Consultas LINQ Fortemente Tipadas** — geração automática de tipos record e contextos LINQ em background para bancos de dados (PostgreSQL, SQL Server, MySQL, SQLite) e arquivos (CSV, Excel, JSON).
 - **API `Connections` Unificada** — `Connections.sql` / `csv` / `excel` / `rest` acessam conexões diretamente com tipos gerados em background e execução `rawQuery` isolada por conexão. O valor da última expressão é renderizado automaticamente — coleções geram o grid, conectores adicionam **Export CSV**, valores escalares são exibidos como texto formatado.
 - **Grid de Resultados Interativo** — tabela virtualizada de alta performance, alternância para visualização de metadados/esquema, exportação para CSV e paginação contínua ("Load More") para grandes volumes.

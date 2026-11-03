@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -26,6 +26,7 @@
     <ProjectReference Include="..\FSharpQueryStudio.Results\FSharpQueryStudio.Results.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Fsac\FSharpQueryStudio.Fsac.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Storage\FSharpQueryStudio.Storage.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Connectors.Abstractions\FSharpQueryStudio.Connectors.Abstractions.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Connectors\FSharpQueryStudio.Connectors.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Security\FSharpQueryStudio.Security.fsproj" />
   </ItemGroup>

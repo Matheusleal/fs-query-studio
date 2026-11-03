@@ -215,3 +215,149 @@ let ``an infinite scalar sequence streams a bounded preview instead of hanging``
     Assert.True(env.IsTruncated)
     Assert.True(cursor.IsSome)
     Assert.True(retained.IsNone)
+
+[<Fact>]
+let ``extractAnonymousRecordBlocks extracts property names from single line record`` () =
+    let code = """let item = {| Order = 1001; Date = "2026-01-01"; Status = "Completed" |}"""
+    let blocks = Projection.extractAnonymousRecordBlocks code
+    Assert.Single(blocks) |> ignore
+    Assert.Equal<string list>([ "Order"; "Date"; "Status" ], blocks.[0])
+
+[<Fact>]
+let ``extractAnonymousRecordBlocks extracts property names from query select clause in user declared order`` () =
+    let code = """
+query {
+    for c in Connections.csv do
+    leftOuterJoin o in Connections.orders on (c.Id = o.CustomerId) into ords
+    for ord in ords.DefaultIfEmpty() do
+    leftOuterJoin r in Connections.returns on (ord.Id = r.OrderId) into rets
+    for r in rets.DefaultIfEmpty() do
+    select {|
+        Order = ord.Id
+        Date = ord.Date
+        Status = ord.Status
+        Ccy = ord.Ccy
+        Item = ord.Item
+        Qtt = ord.Qtt
+        Total = ord.Total
+        Carrier = c.Name
+        Returned = r.Status
+    |}
+}
+"""
+    let blocks = Projection.extractAnonymousRecordBlocks code
+    Assert.Single(blocks) |> ignore
+    let expected = [ "Order"; "Date"; "Status"; "Ccy"; "Item"; "Qtt"; "Total"; "Carrier"; "Returned" ]
+    Assert.Equal<string list>(expected, blocks.[0])
+
+[<Fact>]
+let ``extractAnonymousRecordBlocks handles backticks and comments inside anonymous record`` () =
+    let code = """
+select {|
+    // Header id
+    ``Order ID`` = ord.Id
+    (* Order timestamp *)
+    Date = ord.Date
+    Status = if ord.Total > 0M then "Paid" else "Unpaid"
+|}
+"""
+    let blocks = Projection.extractAnonymousRecordBlocks code
+    Assert.Single(blocks) |> ignore
+    Assert.Equal<string list>([ "Order ID"; "Date"; "Status" ], blocks.[0])
+
+[<Fact>]
+let ``extractAnonymousRecordBlocks ignores nested anonymous record properties in outer block`` () =
+    let code = """
+{|
+    Order = 1
+    Customer = {| Name = "Alice"; City = "Paris" |}
+    Total = 50.0M
+|}
+"""
+    let blocks = Projection.extractAnonymousRecordBlocks code
+    Assert.Equal(2, blocks.Length)
+    Assert.Equal<string list>([ "Name"; "City" ], blocks.[0])
+    Assert.Equal<string list>([ "Order"; "Customer"; "Total" ], blocks.[1])
+
+[<Fact>]
+let ``projectWithCursorDetailed renders anonymous record columns in declared select order instead of alphabetical`` () =
+    let item = {| Order = 1001; Date = "2026-01-01"; Status = "Completed" |}
+    let code = """
+select {|
+    Order = 1001
+    Date = "2026-01-01"
+    Status = "Completed"
+|}
+"""
+    // In F#, reflected fields on {| Order = ...; Date = ...; Status = ... |} are alphabetically: Date, Order, Status
+    let envDefault, _, _ = Projection.projectWithCursorDetailed (box item) 0L None None
+    Assert.Equal<string list>([ "Date"; "Order"; "Status" ], envDefault.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal<obj array>([| box "2026-01-01"; box 1001; box "Completed" |], envDefault.Rows.[0])
+
+    // With source code containing the select clause, the order is transformed to Order, Date, Status
+    let envOrdered, _, retained = Projection.projectWithCursorDetailed (box item) 0L (Some code) None
+    Assert.Equal<string list>([ "Order"; "Date"; "Status" ], envOrdered.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal<obj array>([| box 1001; box "2026-01-01"; box "Completed" |], envOrdered.Rows.[0])
+    Assert.True(retained.IsSome)
+    Assert.Equal<string list>([ "Order"; "Date"; "Status" ], retained.Value.Columns)
+    Assert.Equal<obj array>([| box 1001; box "2026-01-01"; box "Completed" |], retained.Value.Rows.[0])
+
+[<Fact>]
+let ``projectWithCursorDetailed renders a sequence of anonymous records in declared order matching 9 fields from user request`` () =
+    let items =
+        [
+            {|
+                Carrier = "DHL"
+                Ccy = "USD"
+                Date = "2026-01-01"
+                Item = "Laptop"
+                Order = 101
+                Qtt = 2
+                Returned = "No"
+                Status = "Delivered"
+                Total = 1500M
+            |}
+        ]
+
+    let code = """
+query {
+    for c in Connections.csv do
+    select {|
+        Order = ord.Id
+        Date = ord.Date
+        Status = ord.Status
+        Ccy = ord.Ccy
+        Item = ord.Item
+        Qtt = ord.Qtt
+        Total = ord.Total
+        Carrier = c.Name
+        Returned = r.Status
+    |}
+}
+"""
+    let env, _, retained = Projection.projectWithCursorDetailed (box items) 0L (Some code) None
+    let expectedCols = [ "Order"; "Date"; "Status"; "Ccy"; "Item"; "Qtt"; "Total"; "Carrier"; "Returned" ]
+    Assert.Equal<string list>(expectedCols, env.Schema |> List.map (fun c -> c.Name))
+    let expectedRow: obj array = [| box 101; box "2026-01-01"; box "Delivered"; box "USD"; box "Laptop"; box 2; box 1500M; box "DHL"; box "No" |]
+    Assert.Equal<obj array>(expectedRow, env.Rows.[0])
+    Assert.True(retained.IsSome)
+    Assert.Equal<string list>(expectedCols, retained.Value.Columns)
+    Assert.Equal<obj array>(expectedRow, retained.Value.Rows.[0])
+
+[<Fact>]
+let ``registerSourceCode preserves column ordering across notebook cells without passing source to second cell`` () =
+    let cell1Code = """
+let myQuery =
+    select {|
+        Zed = 1
+        Alpha = 2
+        Middle = 3
+    |}
+"""
+    Projection.registerSourceCode cell1Code
+
+    let item = {| Zed = 10; Alpha = 20; Middle = 30 |}
+    // Evaluating item with no source code (simulating Cell 2 with just `myQuery`)
+    let env, _, _ = Projection.projectWithCursorDetailed (box item) 0L None None
+    Assert.Equal<string list>([ "Zed"; "Alpha"; "Middle" ], env.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal<obj array>([| box 10; box 20; box 30 |], env.Rows.[0])

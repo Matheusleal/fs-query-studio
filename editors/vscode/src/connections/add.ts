@@ -3,11 +3,13 @@ import {
   readUnionTag,
   type ConnectionDefinition,
   type ConnectorKindName,
+  type ConnectorDescriptorDto
 } from "../protocol";
 import {
   buildConnectionDefinition,
   type ConnectionFormInput,
 } from "./definition";
+import { ConnectorFrontRegistry } from "./connector-registry";
 import type { WorkerLike } from "./tree";
 
 export type ConnectionScope = "local" | "global";
@@ -24,7 +26,7 @@ export interface ConnectionScopePick {
 }
 
 export interface ConnectionUi {
-  pickKind(): Promise<ConnectorKindName | undefined>;
+  pickKind(descriptors?: ConnectorDescriptorDto[]): Promise<ConnectorKindName | undefined>;
   pickScope?(folders: WorkspaceFolderInfo[]): Promise<ConnectionScopePick | undefined>;
   pickSqlServerAuth?(): Promise<SqlServerAuthType | undefined>;
   input(opts: {
@@ -48,17 +50,22 @@ export interface ConnectionFlowDeps {
   refresh: () => void;
   log: (line: string) => void;
   getWorkspaceFolders?: () => WorkspaceFolderInfo[];
+  getDescriptors?: () => Promise<ConnectorDescriptorDto[]>;
 }
+
+export const DEFAULT_CONNECTOR_DESCRIPTORS: ConnectorDescriptorDto[] =
+  ConnectorFrontRegistry.defaultDescriptors;
 
 function stringProp(configuration: unknown, key: string): string {
   const value = (configuration as Record<string, unknown> | null | undefined)?.[key];
   return typeof value === "string" ? value : "";
 }
 
-async function collectFields(
+export async function collectFields(
   ui: ConnectionUi,
   kind: ConnectorKindName,
   existing?: ConnectionDefinition,
+  descriptor?: ConnectorDescriptorDto,
 ): Promise<ConnectionFormInput | undefined> {
   const name = await ui.input({
     prompt: "Connection name",
@@ -69,101 +76,90 @@ async function collectFields(
   }
 
   const input: ConnectionFormInput = { kind, name: name.trim() };
+  const configValues: Record<string, unknown> = {};
+  let isWindowsAuth = false;
 
-  if (kind === "Sqlite" || kind === "Csv" || kind === "Excel") {
-    const rawFilePath = await ui.input({
-      prompt: "Absolute file path",
-      value: existing ? stringProp(existing.configuration, "filePath") : undefined,
-      placeHolder: "/path/to/file",
-    });
-    if (rawFilePath === undefined) return undefined;
-    input.filePath = rawFilePath.trim().replace(/^["']|["']$/g, "").trim();
+  const effectiveDescriptor =
+    descriptor ??
+    DEFAULT_CONNECTOR_DESCRIPTORS.find((d) => d.kindId.toLowerCase() === kind.toLowerCase());
 
-    if (kind === "Csv") {
-      const delim = await ui.input({
-        prompt: "Delimiter (optional: comma, semicolon, tab. Leave blank for auto-detect)",
-        value: existing ? stringProp(existing.configuration, "delimiter") : undefined,
-        placeHolder: "Leave blank for auto-detect (, ; \\t |)",
-      });
-      if (delim !== undefined && delim.trim().length > 0) {
-        input.delimiter = delim.trim();
+  if (!effectiveDescriptor) {
+    return input;
+  }
+
+  for (const field of effectiveDescriptor.formFields) {
+    const existingVal = existing ? stringProp(existing.configuration, field.name) : undefined;
+    const defaultVal = existingVal || field.defaultValue || undefined;
+
+    if (field.name === "password" || field.type === "password") {
+      if (isWindowsAuth) {
+        continue;
       }
-    }
-  } else if (kind === "SqlServer") {
-    let authType: SqlServerAuthType = "sql";
-    if (ui.pickSqlServerAuth) {
-      const existingConnStr = existing ? stringProp(existing.configuration, "connectionString") : "";
-      const isExistingWindows = /(integrated\s+security\s*=\s*(true|sspi)|trusted_connection\s*=\s*(true|yes))/i.test(existingConnStr);
-      const pickedAuth = await ui.pickSqlServerAuth();
-      if (!pickedAuth) return undefined;
-      authType = pickedAuth;
-    }
-
-    if (authType === "windows") {
-      const defaultConnStr = existing
-        ? stringProp(existing.configuration, "connectionString")
-        : "Server=localhost;Database=master;Integrated Security=True;TrustServerCertificate=True;";
-      const connectionString = await ui.input({
-        prompt: "SQL Server Connection String (Windows Authentication / Integrated Security)",
-        value: defaultConnStr,
-        placeHolder: "Server=localhost;Database=master;Integrated Security=True;TrustServerCertificate=True;",
-      });
-      if (connectionString === undefined) return undefined;
-
-      let normalized = connectionString.trim();
-      if (!/integrated\s+security\s*=/i.test(normalized) && !/trusted_connection\s*=/i.test(normalized)) {
-        normalized = normalized.replace(/;?$/, ";Integrated Security=True;");
-      }
-      if (!/trustservercertificate\s*=/i.test(normalized)) {
-        normalized = normalized.replace(/;?$/, ";TrustServerCertificate=True;");
-      }
-      input.connectionString = normalized;
-      // Windows Authentication uses current Windows identity — no password needed!
-    } else {
-      const connectionString = await ui.input({
-        prompt: "SQL Server Connection String (e.g. Server=localhost;Database=master;User Id=sa)",
-        value: existing ? stringProp(existing.configuration, "connectionString") : undefined,
-        placeHolder: "Server=localhost;Database=master;User Id=sa;Password={password};TrustServerCertificate=True",
-      });
-      if (connectionString === undefined) return undefined;
-      input.connectionString = connectionString;
       const password = await ui.input({
         prompt: existing?.secretReference
-          ? "Password (leave blank to keep the current one)"
-          : "Password (leave blank if already specified in connection string or not required)",
+          ? `${field.label} (leave blank to keep the current one)`
+          : `${field.label} (leave blank if already specified in connection string or not required)`,
         password: true,
       });
       if (password === undefined) return undefined;
       input.password = password;
+      continue;
     }
-  } else if (kind === "PostgreSql") {
-    const connectionString = await ui.input({
-      prompt: "PostgreSQL Connection String (e.g. Host=localhost;Database=mydb;Username=postgres)",
-      value: existing ? stringProp(existing.configuration, "connectionString") : undefined,
-      placeHolder: "Host=localhost;Database=mydb;Username=postgres;Password={password}",
+
+    if (ConnectorFrontRegistry.supportsWindowsAuthPrompt(kind, field.name) && ui.pickSqlServerAuth) {
+      const pickedAuth = await ui.pickSqlServerAuth();
+      if (!pickedAuth) return undefined;
+
+      if (pickedAuth === "windows") {
+        isWindowsAuth = true;
+        const defaultWindowsConnStr = ConnectorFrontRegistry.getDefaultWindowsAuthConnectionString(kind);
+        const defaultConnStr = existing
+          ? stringProp(existing.configuration, field.name)
+          : defaultWindowsConnStr;
+        const connectionString = await ui.input({
+          prompt: `${field.label} (Windows Authentication / Integrated Security)`,
+          value: defaultConnStr,
+          placeHolder: defaultWindowsConnStr,
+        });
+        if (connectionString === undefined) return undefined;
+
+        const normalized = ConnectorFrontRegistry.normalizeWindowsAuthConnectionString(kind, connectionString);
+        input.connectionString = normalized;
+        configValues[field.name] = normalized;
+        // Windows Authentication uses current Windows identity — skip password
+        continue;
+      }
+    }
+
+
+    const entered = await ui.input({
+      prompt: field.label,
+      value: defaultVal,
+      placeHolder: field.placeholder ?? undefined,
     });
-    if (connectionString === undefined) return undefined;
-    input.connectionString = connectionString;
-    const password = await ui.input({
-      prompt: existing?.secretReference
-        ? "Password (leave blank to keep the current one)"
-        : "Password (leave blank if already specified in connection string or not required)",
-      password: true,
-    });
-    if (password === undefined) return undefined;
-    input.password = password;
-  } else {
-    const url = await ui.input({
-      prompt: "Base URL",
-      value: existing ? stringProp(existing.configuration, "url") : undefined,
-      placeHolder: "https://example.com/api",
-    });
-    if (url === undefined) return undefined;
-    input.url = url;
+    if (entered === undefined) return undefined;
+
+    const trimmed = entered.trim();
+    if (field.type === "file") {
+      const cleanPath = trimmed.replace(/^["']|["']$/g, "").trim();
+      configValues[field.name] = cleanPath;
+      input.filePath = cleanPath;
+    } else {
+      configValues[field.name] = trimmed;
+      if (field.name === "connectionString") {
+        input.connectionString = trimmed;
+      } else if (field.name === "delimiter") {
+        input.delimiter = trimmed;
+      } else if (field.name === "url") {
+        input.url = trimmed;
+      }
+    }
   }
 
+  input.configValues = configValues;
   return input;
 }
+
 
 async function register(
   deps: ConnectionFlowDeps,
@@ -209,9 +205,15 @@ export async function runAddConnection(deps: ConnectionFlowDeps): Promise<void> 
     }
   }
 
-  const kind = await deps.ui.pickKind();
+  const descriptors = deps.getDescriptors
+    ? await deps.getDescriptors()
+    : DEFAULT_CONNECTOR_DESCRIPTORS;
+
+  const kind = await deps.ui.pickKind(descriptors);
   if (!kind) return;
-  const input = await collectFields(deps.ui, kind);
+
+  const desc = descriptors.find((d) => d.kindId.toLowerCase() === kind.toLowerCase());
+  const input = await collectFields(deps.ui, kind, undefined, desc);
   if (!input) return;
   if (await register(deps, buildConnectionDefinition(input), targetDir)) {
     deps.refresh();
@@ -227,7 +229,11 @@ export async function runEditConnection(
     deps.log(`connection ${existing.id} has an unrecognised kind; cannot edit`);
     return;
   }
-  const input = await collectFields(deps.ui, kind, existing);
+  const descriptors = deps.getDescriptors
+    ? await deps.getDescriptors()
+    : DEFAULT_CONNECTOR_DESCRIPTORS;
+  const desc = descriptors.find((d) => d.kindId.toLowerCase() === kind.toLowerCase());
+  const input = await collectFields(deps.ui, kind, existing, desc);
   if (!input) return;
   const folders = deps.getWorkspaceFolders ? deps.getWorkspaceFolders() : [];
   const targetDir = folders.length > 0 ? folders[0].path : undefined;
@@ -235,6 +241,7 @@ export async function runEditConnection(
     deps.refresh();
   }
 }
+
 
 export async function runRemoveConnection(
   deps: ConnectionFlowDeps,

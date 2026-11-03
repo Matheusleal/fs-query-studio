@@ -25,5 +25,13 @@ let tempWorkingDirectory () =
 /// process's current directory. Tests must point the current directory
 /// elsewhere before cleaning up their temp directory.
 let cleanupWorkingDirectory (dir: string) =
-    Directory.SetCurrentDirectory(Path.GetTempPath())
-    Directory.Delete(dir, true)
+    try
+        Directory.SetCurrentDirectory(Path.GetTempPath())
+        if Directory.Exists(dir) then
+            Directory.Delete(dir, true)
+    with _ ->
+        ()
+    GC.Collect()
+    GC.WaitForPendingFinalizers()
+    GC.Collect()
+
