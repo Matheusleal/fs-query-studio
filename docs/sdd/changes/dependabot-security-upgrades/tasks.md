@@ -15,4 +15,4 @@
 
 ## Milestone 4: Pull Request Readiness
 - [x] TASK-401: Commit changes and verify git cleanliness.
-- [ ] TASK-402: Push branch and create Pull Request via `gh pr create`.
+- [x] TASK-402: Push branch and create Pull Request via `gh pr create`.
