@@ -46,100 +46,6 @@ type AutoImportDataSourcesResult =
 /// Encapsulates workspace filesystem workflows (sample generation, auto-import, empty project initialization).
 module WorkspaceOperations =
 
-    /// Generates sample data files and registers standard sample connections.
-    let createSampleData (dir: string) (secretStore: ISecretStore) : SampleCreateResult =
-        let files = SampleDataGenerator.generateAllSamples dir
-
-        let sqliteDef: ConnectionDefinition =
-            { Id = Guid.NewGuid()
-              Name = "SampleStore"
-              Kind = ConnectorKind.Sqlite
-              Configuration = JsonSerializer.SerializeToElement({| filePath = files.SqlitePath |}, Serialization.options)
-              SecretReference = None
-              IsTrusted = true }
-
-        let sqlite2Def: ConnectionDefinition =
-            { Id = Guid.NewGuid()
-              Name = "InventoryStore"
-              Kind = ConnectorKind.Sqlite
-              Configuration = JsonSerializer.SerializeToElement({| filePath = files.Sqlite2Path |}, Serialization.options)
-              SecretReference = None
-              IsTrusted = true }
-
-        let csvDef: ConnectionDefinition =
-            { Id = Guid.NewGuid()
-              Name = "SalesFeed"
-              Kind = ConnectorKind.Csv
-              Configuration = JsonSerializer.SerializeToElement({| filePath = files.CsvPath |}, Serialization.options)
-              SecretReference = None
-              IsTrusted = true }
-
-        let csv2Def: ConnectionDefinition =
-            { Id = Guid.NewGuid()
-              Name = "CustomersFeed"
-              Kind = ConnectorKind.Csv
-              Configuration = JsonSerializer.SerializeToElement({| filePath = files.Csv2Path |}, Serialization.options)
-              SecretReference = None
-              IsTrusted = true }
-
-        let excelDef: ConnectionDefinition =
-            { Id = Guid.NewGuid()
-              Name = "RegionalTargets"
-              Kind = ConnectorKind.Excel
-              Configuration = JsonSerializer.SerializeToElement({| filePath = files.ExcelPath; hasHeader = true |}, Serialization.options)
-              SecretReference = None
-              IsTrusted = true }
-
-        let excel2Def: ConnectionDefinition =
-            { Id = Guid.NewGuid()
-              Name = "CommerceOps"
-              Kind = ConnectorKind.Excel
-              Configuration = JsonSerializer.SerializeToElement({| filePath = files.Excel2Path; hasHeader = true |}, Serialization.options)
-              SecretReference = None
-              IsTrusted = true }
-
-        let restDef: ConnectionDefinition =
-            { Id = Guid.NewGuid()
-              Name = "GitHubFSharp"
-              Kind = ConnectorKind.RestJson
-              Configuration =
-                  JsonSerializer.SerializeToElement(
-                      {| url = files.RestUrl
-                         method = "GET"
-                         headers = [ ("Accept", "application/vnd.github+json"); ("User-Agent", "FSharpQueryStudio/1.0") ] |},
-                      Serialization.options
-                  )
-              SecretReference = None
-              IsTrusted = true }
-
-        let _ = Workspace.registerConnection dir sqliteDef
-        let _ = Workspace.registerConnection dir sqlite2Def
-        let _ = Workspace.registerConnection dir csvDef
-        let _ = Workspace.registerConnection dir csv2Def
-        let _ = Workspace.registerConnection dir excelDef
-        let _ = Workspace.registerConnection dir excel2Def
-        let updatedInDir = Workspace.registerConnection dir restDef
-
-        Connections.configure (WorkspaceConnectionResolver(updatedInDir, secretStore, dir))
-        try
-            (EntityBackgroundGenerator.generateForConnectionsAsync dir updatedInDir secretStore).GetAwaiter().GetResult() |> ignore
-        with ex ->
-            Log.Warning("FS Query Studio: Entity generation after sample creation failed: {Error}", ex.Message)
-
-        Connections.triggerBackgroundSync dir updatedInDir secretStore
-        SessionStore.resetAll ()
-
-        { SqlitePath = files.SqlitePath
-          Sqlite2Path = files.Sqlite2Path
-          CsvPath = files.CsvPath
-          Csv2Path = files.Csv2Path
-          ExcelPath = files.ExcelPath
-          Excel2Path = files.Excel2Path
-          RestUrl = files.RestUrl
-          NotebookPath = files.NotebookPath
-          NotebookPtPath = files.NotebookPtPath
-          RegisteredConnections = [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "GitHubFSharp" ] }
-
     /// Initializes empty workspace directories and workspace.json.
     let initEmptyProject (rootDir: string) : {| workspacePath: string; targetDir: string; fsqsDir: string |} =
         let fsqsDir = Path.Combine(rootDir, ".fsqs")
@@ -360,4 +266,45 @@ module WorkspaceOperations =
           Imported = newlyImported
           RemovedCount = missingDataSourcesConnections.Length
           SkippedCount = candidateFiles.Length - newlyImported.Length }
+
+    /// Generates sample data files inside data_sources/ and registers them via the natural auto-import pipeline plus the sample REST source.
+    let createSampleData (dir: string) (secretStore: ISecretStore) : SampleCreateResult =
+        let files = SampleDataGenerator.generateAllSamples dir
+
+        let sampleFileNames =
+            set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "GitHubFSharp" ]
+
+        let existingNonSample =
+            Workspace.readConnections dir
+            |> List.filter (fun c -> not (sampleFileNames |> Set.exists (fun s -> String.Equals(s, c.Name, StringComparison.OrdinalIgnoreCase))))
+
+        let restDef: ConnectionDefinition =
+            { Id = Guid.NewGuid()
+              Name = "GitHubFSharp"
+              Kind = ConnectorKind.RestJson
+              Configuration =
+                  JsonSerializer.SerializeToElement(
+                      {| url = files.RestUrl
+                         method = "GET"
+                         headers = [ ("Accept", "application/vnd.github+json"); ("User-Agent", "FSharpQueryStudio/1.0") ] |},
+                      Serialization.options
+                  )
+              SecretReference = None
+              IsTrusted = true }
+
+        Workspace.writeConnections dir (existingNonSample @ [ restDef ])
+
+        let _ = autoImportDataSources dir secretStore
+        SessionStore.resetAll ()
+
+        { SqlitePath = files.SqlitePath
+          Sqlite2Path = files.Sqlite2Path
+          CsvPath = files.CsvPath
+          Csv2Path = files.Csv2Path
+          ExcelPath = files.ExcelPath
+          Excel2Path = files.Excel2Path
+          RestUrl = files.RestUrl
+          NotebookPath = files.NotebookPath
+          NotebookPtPath = files.NotebookPtPath
+          RegisteredConnections = [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "GitHubFSharp" ] }
 

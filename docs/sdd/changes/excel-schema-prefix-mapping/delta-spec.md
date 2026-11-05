@@ -31,6 +31,12 @@ the ExcelConnection shall always resolve and stage the prefixed SQLite table `<C
 ### REQ-EXCEL-04 — Four-Sheet English Excel Demo Workbook (`CommerceOps`) in Sample Project
 ```text
 When generating sample project data (`generateAllSamples` / `workspace/createSampleData`),
-the SampleDataGenerator shall create an English Excel workbook (`commerce_operations.xlsx`) registered as `CommerceOps` containing four worksheets (`Customers`, `ProductsStock`, `Sales`, and `DeliveryLogs`) and include interactive multi-sheet LINQ query cells using `Connections.excel.CommerceOps` in both `sample_demo.fsqnb` and `sample_demo_pt.fsqnb`.
+the SampleDataGenerator shall create an English Excel workbook (`commerce_ops.xlsx`) registered as `CommerceOps` containing four worksheets (`Customers`, `ProductsStock`, `Sales`, and `DeliveryLogs`) and include interactive multi-sheet LINQ query cells using `Connections.excel.CommerceOps` in both `sample_demo.fsqnb` and `sample_demo_pt.fsqnb`.
+```
+
+### REQ-EXCEL-05 — Sample Data Sources Created in `data_sources/` via Auto-Import & Updated UI Button Label
+```text
+When generating sample project data (`generateAllSamples` / `workspace/createSampleData`),
+the SampleDataGenerator and WorkspaceOperations shall place all sample file data sources inside the `data_sources/` directory (`sample_store.db`, `inventory_store.db`, `sales_feed.csv`, `customers_feed.csv`, `regional_targets.xlsx`, `commerce_ops.xlsx`) and import them via `autoImportDataSources`, and the VS Code extension shall label the command/button `Create Sample Data (SQLite, CSV & XLSX)`.
 ```
 

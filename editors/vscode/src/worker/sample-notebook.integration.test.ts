@@ -79,6 +79,9 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
         expect(fs.existsSync(data.csv2Path!)).toBe(true);
         expect(fs.existsSync(data.excelPath!)).toBe(true);
         expect(fs.existsSync(data.excel2Path!)).toBe(true);
+        expect(data.sqlitePath).toContain("data_sources");
+        expect(data.excelPath).toContain("data_sources");
+        expect(data.excel2Path).toContain("data_sources");
         expect(data.restUrl).toMatch(/^https:\/\/.*github\.com/i);
         expect(fs.existsSync(data.notebookPath)).toBe(true);
         expect(fs.existsSync(data.notebookPtPath!)).toBe(true);

@@ -1160,16 +1160,23 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
         File.WriteAllText(filePath, getSampleDemoPortugueseNotebook ())
 
     let generateAllSamples (targetDir: string) : SampleFilesResult =
-        let sampleDir = Path.Combine(targetDir, "sample_data")
+        let sampleDir = Path.Combine(targetDir, "data_sources")
         if not (Directory.Exists sampleDir) then
             Directory.CreateDirectory sampleDir |> ignore
 
+        let readmePath = Path.Combine(sampleDir, "README.txt")
+        if not (File.Exists readmePath) then
+            File.WriteAllText(
+                readmePath,
+                "Place your .csv, .xlsx, .xls, or .sqlite/.db files in this directory.\nF# Query Studio will automatically detect and register them as queryable data sources.\n"
+            )
+
         let dbPath = Path.Combine(sampleDir, "sample_store.db")
-        let db2Path = Path.Combine(sampleDir, "inventory.db")
+        let db2Path = Path.Combine(sampleDir, "inventory_store.db")
         let csvPath = Path.Combine(sampleDir, "sales_feed.csv")
         let csv2Path = Path.Combine(sampleDir, "customers_feed.csv")
         let excelPath = Path.Combine(sampleDir, "regional_targets.xlsx")
-        let excel2Path = Path.Combine(sampleDir, "commerce_operations.xlsx")
+        let excel2Path = Path.Combine(sampleDir, "commerce_ops.xlsx")
         let notebookPath = Path.Combine(targetDir, "sample_demo.fsqnb")
         let notebookPtPath = Path.Combine(targetDir, "sample_demo_pt.fsqnb")
 
