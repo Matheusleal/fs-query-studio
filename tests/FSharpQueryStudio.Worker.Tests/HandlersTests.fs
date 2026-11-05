@@ -2140,3 +2140,86 @@ let ``workspace/autoImportDataSources creates data_sources and discovers files a
             Handlers.setWorkspaceDirForTests None
             cleanTempDir tmp
     }
+
+[<Fact>]
+let ``evaluating Connections.excel.teste.<sheet> queries translates to prefixed SQLite table and returns distinct worksheet records`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-excel-schema-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let xlsxPath = Path.Combine(tmp, "teste.xlsx")
+            do
+                use wb = new ClosedXML.Excel.XLWorkbook()
+                let wsCal = wb.Worksheets.Add("calendar")
+                wsCal.Cell(1, 1).Value <- "Id"
+                wsCal.Cell(1, 2).Value <- "Event"
+                wsCal.Cell(2, 1).Value <- 1
+                wsCal.Cell(2, 2).Value <- "Orientation"
+
+                let wsNames = wb.Worksheets.Add("names")
+                wsNames.Cell(1, 1).Value <- "Id"
+                wsNames.Cell(1, 2).Value <- "FullName"
+                wsNames.Cell(2, 1).Value <- 10
+                wsNames.Cell(2, 2).Value <- "Carlos"
+
+                let wsCourses = wb.Worksheets.Add("courses")
+                wsCourses.Cell(1, 1).Value <- "Id"
+                wsCourses.Cell(1, 2).Value <- "CourseName"
+                wsCourses.Cell(2, 1).Value <- 100
+                wsCourses.Cell(2, 2).Value <- "Functional Programming"
+                wb.SaveAs(xlsxPath)
+
+            let connDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "teste"
+                  Kind = ConnectorKind.Excel
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = xlsxPath; hasHeader = true |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let! regResp = Handlers.dispatch (registerConnectionRequest "reg-teste-xlsx" connDef)
+            Assert.True(regResp.Error.IsNone)
+            Handlers.waitForPendingGeneration ()
+
+            let syncReq: WorkerRequestFrame =
+                { Id = "sync-teste-xlsx"
+                  Method = "workspace/syncDataSources"
+                  Params = JsonSerializer.SerializeToElement({| targetDir = tmp |}, Serialization.options) }
+            let! syncResp = Handlers.dispatch syncReq
+            Assert.True(syncResp.Error.IsNone)
+
+            let docUri = Path.Combine(tmp, "teste_excel.fsqnb")
+            let codeSqlCheck = """
+let sqlCal =
+    query {
+        for x in Connections.excel.teste.calendar do
+        select x
+    } |> ResultKind.toRawSql
+
+let sqlNames =
+    query {
+        for x in Connections.excel.teste.names do
+        select {| Id = x.Id; Name = x.FullName |}
+    } |> ResultKind.toRawSql
+
+let sqlCourses =
+    query {
+        for x in Connections.excel.teste.courses do
+        select x
+    } |> ResultKind.toRawSql
+
+$"{sqlCal} | {sqlNames} | {sqlCourses}"
+"""
+            let! respSql = Handlers.dispatch (notebookCellRequest "eval-teste-sql" codeSqlCheck docUri)
+            Assert.True(respSql.Error.IsNone, (match respSql.Error with Some e -> e.Message | None -> ""))
+            let envSql = JsonSerializer.Deserialize<ResultEnvelope>(respSql.Result.Value.GetRawText(), Serialization.options)
+            Assert.Equal(ResultKind.Text, envSql.Kind)
+            Assert.Equal(
+                Some "SELECT * FROM teste_calendar | SELECT Id AS Id, FullName AS Name FROM teste_names | SELECT * FROM teste_courses",
+                envSql.DisplayText
+            )
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }

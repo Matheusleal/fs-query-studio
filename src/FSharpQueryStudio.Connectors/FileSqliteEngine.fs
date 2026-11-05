@@ -134,6 +134,9 @@ type FileSqliteEngine(dbPath: string) =
     member this.IsStagedAndCurrent(tableName: string, filePath: string) : bool =
         if not (File.Exists filePath) then false
         else
+            let cleanTableName =
+                let clean = CodeGenerationHelpers.cleanIdentifier tableName
+                if String.IsNullOrWhiteSpace clean then "StagedFile" else clean
             try
                 let fi = FileInfo(filePath)
                 let mtime = fi.LastWriteTimeUtc.Ticks
@@ -147,7 +150,7 @@ type FileSqliteEngine(dbPath: string) =
 
                 use cmd = conn.CreateCommand()
                 cmd.CommandText <- "SELECT last_write_time_utc, file_size FROM _fqs_file_cache WHERE table_name = @t;"
-                cmd.Parameters.AddWithValue("@t", tableName) |> ignore
+                cmd.Parameters.AddWithValue("@t", cleanTableName) |> ignore
                 use reader = cmd.ExecuteReader()
                 if reader.Read() then
                     let cachedMtime = reader.GetInt64(0)
@@ -155,7 +158,7 @@ type FileSqliteEngine(dbPath: string) =
                     if cachedMtime = mtime && cachedSize = size then
                         use checkCmd = conn.CreateCommand()
                         checkCmd.CommandText <- "SELECT count(*) FROM sqlite_master WHERE type='table' AND name = @t;"
-                        checkCmd.Parameters.AddWithValue("@t", tableName) |> ignore
+                        checkCmd.Parameters.AddWithValue("@t", cleanTableName) |> ignore
                         let count = Convert.ToInt64(checkCmd.ExecuteScalar())
                         count > 0L
                     else
@@ -163,8 +166,46 @@ type FileSqliteEngine(dbPath: string) =
                 else
                     false
             with ex ->
-                Log.Warning("FS Query Studio: FileSqliteEngine cache check failed for {Table}: {Error}", tableName, ex.Message)
+                Log.Warning("FS Query Studio: FileSqliteEngine cache check failed for {Table}: {Error}", cleanTableName, ex.Message)
                 false
+
+    /// Drops a legacy or stale staged table if it exists in the SQLite cache for the specified file.
+    member this.DropStaleTableIfExists(tableName: string, filePath: string) : unit =
+        let cleanTableName =
+            let clean = CodeGenerationHelpers.cleanIdentifier tableName
+            if String.IsNullOrWhiteSpace clean then "StagedFile" else clean
+        let sem = getDbLock dbPath
+        sem.Wait()
+        try
+            try
+                stagedTables.TryRemove(cleanTableName) |> ignore
+                use conn = new SqliteConnection(connStr)
+                conn.Open()
+                use pragmaCmd = conn.CreateCommand()
+                pragmaCmd.CommandText <- "PRAGMA busy_timeout = 60000;"
+                pragmaCmd.ExecuteNonQuery() |> ignore
+
+                use checkCmd = conn.CreateCommand()
+                checkCmd.CommandText <- "SELECT file_path FROM _fqs_file_cache WHERE table_name = @t;"
+                checkCmd.Parameters.AddWithValue("@t", cleanTableName) |> ignore
+                let cachedPathObj = checkCmd.ExecuteScalar()
+                let shouldDrop =
+                    if isNull cachedPathObj || Convert.IsDBNull(cachedPathObj) then
+                        false
+                    else
+                        let cachedPath = string cachedPathObj
+                        String.Equals(cachedPath, filePath, StringComparison.OrdinalIgnoreCase)
+                        || (try String.Equals(Path.GetFullPath(cachedPath), Path.GetFullPath(filePath), StringComparison.OrdinalIgnoreCase) with _ -> false)
+
+                if shouldDrop then
+                    use dropCmd = conn.CreateCommand()
+                    dropCmd.CommandText <- $"DROP TABLE IF EXISTS \"{cleanTableName}\"; DELETE FROM _fqs_file_cache WHERE table_name = @t;"
+                    dropCmd.Parameters.AddWithValue("@t", cleanTableName) |> ignore
+                    dropCmd.ExecuteNonQuery() |> ignore
+            with ex ->
+                Log.Warning("FS Query Studio: Could not drop stale table {Table}: {Error}", cleanTableName, ex.Message)
+        finally
+            sem.Release() |> ignore
 
     /// Ensures that the specified CSV or Excel file is staged into the SQLite database as `tableName`.
     /// If the table is already staged and the file on disk has not changed, this returns immediately (0ms).
@@ -248,6 +289,10 @@ type FileSqliteEngine(dbPath: string) =
                             let fi = if File.Exists filePath then FileInfo(filePath) else null
                             let mtime = if not (isNull fi) then fi.LastWriteTimeUtc.Ticks else 0L
                             let size = if not (isNull fi) then fi.Length else 0L
+
+                            let dbDir = Path.GetDirectoryName(dbPath)
+                            if not (String.IsNullOrWhiteSpace dbDir) && not (Directory.Exists dbDir) then
+                                Directory.CreateDirectory(dbDir) |> ignore
 
                             use conn = new SqliteConnection(connStr)
                             conn.Open()

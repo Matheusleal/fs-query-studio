@@ -34,8 +34,10 @@ module Connections =
 
     let getEngine () : FileSqliteEngine =
         match engine with
-        | Some e -> e
-        | None ->
+        | Some e when
+            let dir = System.IO.Path.GetDirectoryName(e.DatabasePath)
+            not (String.IsNullOrWhiteSpace dir) && System.IO.Directory.Exists dir -> e
+        | _ ->
             let defaultPath =
                 match resolver with
                 | Some r ->
@@ -56,7 +58,8 @@ module Connections =
         | :? IWorkspaceAwareResolver as war when war.BaseDirectory.IsSome ->
             let dbPath = System.IO.Path.Combine(war.BaseDirectory.Value, ".fsqs", "cache", "engine.db")
             engine <- Some (FileSqliteEngine(dbPath))
-        | _ -> ()
+        | _ ->
+            engine <- None
 
     let private resolve (name: string) : IConnector =
         match resolver with
@@ -803,42 +806,39 @@ module Connections =
 
     /// Represents an active Excel workbook connection with multi-sheet typed queries.
     type ExcelConnection(name: string, connector: ExcelConnector) =
+        let resolveDefaultSheetName () =
+            match connector.Options.SheetName with
+            | Some s when not (String.IsNullOrWhiteSpace s) -> s
+            | _ ->
+                let tables =
+                    try
+                        (connector :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
+                    with _ -> []
+                match tables with
+                | first :: _ -> first.Name
+                | [] -> "Sheet1"
         member _.Name = name
         member _.Connector = connector
         member _.FilePath = connector.FilePath
         member _.Rows<'T>(?maxRows: int) : 'T seq = queryExcel<'T> name maxRows
         member _.Sheet<'T>(sheetName: string, ?maxRows: int) : 'T seq = queryExcelSheet<'T> name (Some sheetName) maxRows
         member this.Queryable<'T>(?maxRows: int) : IQueryable<'T> =
-            let eng = getEngine ()
-            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows(?maxRows = maxRows)), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
-            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName) :> IQueryable<'T>
+            this.PushdownQueryable<'T>(?maxRows = maxRows) :> IQueryable<'T>
         member this.PushdownQueryable<'T>(?maxRows: int) : SqlPushdownQueryable<'T> =
-            let eng = getEngine ()
-            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows(?maxRows = maxRows)), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
-            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
+            let sheetName = resolveDefaultSheetName ()
+            this.SheetPushdownQueryable<'T>(sheetName, ?maxRows = maxRows)
         member this.SheetQueryable<'T>(sheetName: string, ?maxRows: int) : IQueryable<'T> =
-            let eng = getEngine ()
-            let compoundKey = $"{name}_{sheetName}"
-            let cleanTableName =
-                if eng.IsStagedAndCurrent(compoundKey, connector.FilePath) then
-                    compoundKey
-                elif eng.IsStagedAndCurrent(name, connector.FilePath) && (String.Equals(name, sheetName, StringComparison.OrdinalIgnoreCase) || maxRows.IsNone) then
-                    name
-                else
-                    let key = if String.Equals(name, sheetName, StringComparison.OrdinalIgnoreCase) then name else compoundKey
-                    eng.EnsureStaged(key, connector.FilePath, (fun () -> connector.ReadRows(sheetName = sheetName, ?maxRows = maxRows)), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
-            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName) :> IQueryable<'T>
+            this.SheetPushdownQueryable<'T>(sheetName, ?maxRows = maxRows) :> IQueryable<'T>
         member this.SheetPushdownQueryable<'T>(sheetName: string, ?maxRows: int) : SqlPushdownQueryable<'T> =
             let eng = getEngine ()
             let compoundKey = $"{name}_{sheetName}"
             let cleanTableName =
-                if eng.IsStagedAndCurrent(compoundKey, connector.FilePath) then
-                    compoundKey
-                elif eng.IsStagedAndCurrent(name, connector.FilePath) && (String.Equals(name, sheetName, StringComparison.OrdinalIgnoreCase) || maxRows.IsNone) then
-                    name
-                else
-                    let key = if String.Equals(name, sheetName, StringComparison.OrdinalIgnoreCase) then name else compoundKey
-                    eng.EnsureStaged(key, connector.FilePath, (fun () -> connector.ReadRows(sheetName = sheetName, ?maxRows = maxRows)), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
+                eng.EnsureStaged(
+                    compoundKey,
+                    connector.FilePath,
+                    (fun () -> connector.ReadRows(sheetName = sheetName, ?maxRows = maxRows)),
+                    ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes)
+                )
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
         member _.Raw(?maxRows: int) : ConnectorQueryResult = readExcelRaw name maxRows
 
@@ -1014,6 +1014,9 @@ module Connections =
                         let filePath = excelConn.FilePath
                         let fullPath = if System.IO.Path.IsPathRooted filePath then filePath else System.IO.Path.Combine(workspaceDir, filePath)
                         if System.IO.File.Exists fullPath then
+                            // Remove any legacy unprefixed table staged under the workbook connection name
+                            eng.DropStaleTableIfExists(connDef.Name, fullPath)
+
                             let tables =
                                 try
                                     (excelConn :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
@@ -1021,12 +1024,9 @@ module Connections =
                                     Log.Warning("FS Query Studio: Could not discover worksheets for Excel connection '{Name}': {Error}", connDef.Name, ex.Message)
                                     []
 
-                            let isSingleSheet = tables.Length = 1
-
                             for tbl in tables do
                                 let sheetName = tbl.Name
                                 let compoundKey = $"{connDef.Name}_{sheetName}"
-                                let isSameName = String.Equals(connDef.Name, sheetName, StringComparison.OrdinalIgnoreCase)
 
                                 if eng.IsStagedAndCurrent(compoundKey, fullPath) then
                                     skippedCount <- skippedCount + 1
@@ -1048,47 +1048,6 @@ module Connections =
                                         compoundKey,
                                         fullPath,
                                         (fun () -> excelConn.ReadRows(sheetName = sheetName)),
-                                        ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes),
-                                        currentIndex = currentIdx,
-                                        totalCount = total,
-                                        ?onProgress = onProgress
-                                    ) |> ignore
-                                    stagedCount <- stagedCount + 1
-
-                                if isSameName || isSingleSheet || (not (List.isEmpty tables) && sheetName = (List.head tables).Name) then
-                                    if not (eng.IsStagedAndCurrent(connDef.Name, fullPath)) then
-                                        eng.EnsureStaged(
-                                            connDef.Name,
-                                            fullPath,
-                                            (fun () -> excelConn.ReadRows(sheetName = sheetName)),
-                                            ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes),
-                                            currentIndex = currentIdx,
-                                            totalCount = total,
-                                            ?onProgress = onProgress
-                                        ) |> ignore
-                                        stagedCount <- stagedCount + 1
-
-                            if List.isEmpty tables then
-                                if eng.IsStagedAndCurrent(connDef.Name, fullPath) then
-                                    skippedCount <- skippedCount + 1
-                                    match onProgress with
-                                    | Some cb ->
-                                        cb {
-                                            TableName = connDef.Name
-                                            FilePath = fullPath
-                                            Phase = "Skipped"
-                                            RowCount = None
-                                            CurrentIndex = Some currentIdx
-                                            TotalCount = Some total
-                                            ElapsedMs = Some 0L
-                                            Message = Some $"'{connDef.Name}' is up-to-date in cache"
-                                        }
-                                    | None -> ()
-                                else
-                                    eng.EnsureStaged(
-                                        connDef.Name,
-                                        fullPath,
-                                        (fun () -> excelConn.ReadRows()),
                                         ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes),
                                         currentIndex = currentIdx,
                                         totalCount = total,

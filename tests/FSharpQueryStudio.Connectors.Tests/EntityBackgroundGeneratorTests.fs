@@ -233,3 +233,66 @@ let ``generateForConnectionsAsync with empty connections overwrites existing Gen
     finally
         try Directory.Delete(tempDir, true) with _ -> ()
 
+[<Fact>]
+let ``generateForConnectionsAsync emits Excel connection as schema container without root IQueryable or Rows`` () =
+    BuiltinConnectors.registerDefaults ()
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fqs-excel-gen-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(tempDir) |> ignore
+    try
+        let xlsxPath = Path.Combine(tempDir, "teste.xlsx")
+        do
+            use wb = new ClosedXML.Excel.XLWorkbook()
+            let ws1 = wb.Worksheets.Add("calendar")
+            ws1.Cell(1, 1).Value <- "Id"
+            ws1.Cell(1, 2).Value <- "EventName"
+            ws1.Cell(2, 1).Value <- 1
+            ws1.Cell(2, 2).Value <- "Kickoff"
+
+            let ws2 = wb.Worksheets.Add("names")
+            ws2.Cell(1, 1).Value <- "Id"
+            ws2.Cell(1, 2).Value <- "FullName"
+            ws2.Cell(2, 1).Value <- 2
+            ws2.Cell(2, 2).Value <- "Ana"
+
+            let ws3 = wb.Worksheets.Add("courses")
+            ws3.Cell(1, 1).Value <- "Id"
+            ws3.Cell(1, 2).Value <- "Title"
+            ws3.Cell(2, 1).Value <- 3
+            ws3.Cell(2, 2).Value <- "Databases"
+            wb.SaveAs(xlsxPath)
+
+        let connExcel =
+            { Id = Guid.NewGuid()
+              Name = "teste"
+              Kind = ConnectorKind.Excel
+              Configuration = JsonSerializer.SerializeToElement({| filePath = xlsxPath; hasHeader = true |})
+              SecretReference = None
+              IsTrusted = true }
+
+        let secretStore = InMemorySecretStore()
+        let result =
+            (EntityBackgroundGenerator.generateForConnectionsAsync tempDir [ connExcel ] secretStore)
+                .GetAwaiter()
+                .GetResult()
+
+        Assert.True(result)
+        let generatedFile = EntityBackgroundGenerator.generatedFilePath tempDir
+        let code = File.ReadAllText(generatedFile)
+
+        // Schema container module and worksheet properties
+        Assert.Contains("module testeExcel =", code)
+        Assert.Contains("module calendar =", code)
+        Assert.Contains("module names =", code)
+        Assert.Contains("module courses =", code)
+        Assert.Contains("member _.calendar : FSharpQueryStudio.Connectors.SqlPushdownQueryable<calendar.Row> = conn.SheetPushdownQueryable<calendar.Row>(\"calendar\")", code)
+        Assert.Contains("member _.names : FSharpQueryStudio.Connectors.SqlPushdownQueryable<names.Row> = conn.SheetPushdownQueryable<names.Row>(\"names\")", code)
+        Assert.Contains("member _.courses : FSharpQueryStudio.Connectors.SqlPushdownQueryable<courses.Row> = conn.SheetPushdownQueryable<courses.Row>(\"courses\")", code)
+
+        // Root Data type must NOT act as a table of the first sheet
+        Assert.DoesNotContain("defaultQueryable", code)
+        Assert.DoesNotContain("member _.Rows", code)
+        Assert.DoesNotContain("interface System.Linq.IQueryable", code)
+    finally
+        try Directory.Delete(tempDir, true) with _ -> ()
+
+
