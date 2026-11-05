@@ -1413,6 +1413,7 @@ let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or em
             let csv1 = r1.GetProperty("csvPath").GetString()
             let csv2 = r1.GetProperty("csv2Path").GetString()
             let excel1 = r1.GetProperty("excelPath").GetString()
+            let excel2 = r1.GetProperty("excel2Path").GetString()
             let restUrl = r1.GetProperty("restUrl").GetString()
             let nb1 = r1.GetProperty("notebookPath").GetString()
             let nb2 = r1.GetProperty("notebookPtPath").GetString()
@@ -1421,6 +1422,7 @@ let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or em
             Assert.True(File.Exists csv1, $"csvPath should exist: {csv1}")
             Assert.True(File.Exists csv2, $"csv2Path should exist: {csv2}")
             Assert.True(File.Exists excel1, $"excelPath should exist: {excel1}")
+            Assert.True(File.Exists excel2, $"excel2Path should exist: {excel2}")
             Assert.StartsWith("https://", restUrl)
             Assert.Contains("github.com", restUrl)
             Assert.True(File.Exists nb1, $"notebookPath should exist: {nb1}")
@@ -1431,7 +1433,7 @@ let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or em
                 |> Seq.map (fun el -> el.GetString())
                 |> Seq.toList
             Assert.Equal<string list>(
-                [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "GitHubFSharp" ],
+                [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "GitHubFSharp" ],
                 regConns
             )
 
@@ -1482,7 +1484,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(12, codeCells.Length)
+            Assert.Equal(13, codeCells.Length)
 
             for idx, code in List.indexed codeCells do
                 let evalReq = notebookCellRequest $"cell-{idx + 1}" code "sample_demo.fsqnb"
@@ -1507,7 +1509,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(12, codeCellsPt.Length)
+            Assert.Equal(13, codeCellsPt.Length)
 
             for idx, code in List.indexed codeCellsPt do
                 let evalReq = notebookCellRequest $"cell-pt-{idx + 1}" code "sample_demo_pt.fsqnb"

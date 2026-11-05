@@ -21,6 +21,7 @@ type SampleCreateResult =
       CsvPath: string
       Csv2Path: string
       ExcelPath: string
+      Excel2Path: string
       RestUrl: string
       NotebookPath: string
       NotebookPtPath: string
@@ -89,6 +90,14 @@ module WorkspaceOperations =
               SecretReference = None
               IsTrusted = true }
 
+        let excel2Def: ConnectionDefinition =
+            { Id = Guid.NewGuid()
+              Name = "CommerceOps"
+              Kind = ConnectorKind.Excel
+              Configuration = JsonSerializer.SerializeToElement({| filePath = files.Excel2Path; hasHeader = true |}, Serialization.options)
+              SecretReference = None
+              IsTrusted = true }
+
         let restDef: ConnectionDefinition =
             { Id = Guid.NewGuid()
               Name = "GitHubFSharp"
@@ -108,6 +117,7 @@ module WorkspaceOperations =
         let _ = Workspace.registerConnection dir csvDef
         let _ = Workspace.registerConnection dir csv2Def
         let _ = Workspace.registerConnection dir excelDef
+        let _ = Workspace.registerConnection dir excel2Def
         let updatedInDir = Workspace.registerConnection dir restDef
 
         Connections.configure (WorkspaceConnectionResolver(updatedInDir, secretStore, dir))
@@ -124,10 +134,11 @@ module WorkspaceOperations =
           CsvPath = files.CsvPath
           Csv2Path = files.Csv2Path
           ExcelPath = files.ExcelPath
+          Excel2Path = files.Excel2Path
           RestUrl = files.RestUrl
           NotebookPath = files.NotebookPath
           NotebookPtPath = files.NotebookPtPath
-          RegisteredConnections = [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "GitHubFSharp" ] }
+          RegisteredConnections = [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "GitHubFSharp" ] }
 
     /// Initializes empty workspace directories and workspace.json.
     let initEmptyProject (rootDir: string) : {| workspacePath: string; targetDir: string; fsqsDir: string |} =

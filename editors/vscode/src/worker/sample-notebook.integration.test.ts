@@ -67,6 +67,7 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
           csvPath: string;
           csv2Path?: string;
           excelPath?: string;
+          excel2Path?: string;
           restUrl?: string;
           notebookPath: string;
           notebookPtPath?: string;
@@ -77,6 +78,7 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
         expect(fs.existsSync(data.csvPath)).toBe(true);
         expect(fs.existsSync(data.csv2Path!)).toBe(true);
         expect(fs.existsSync(data.excelPath!)).toBe(true);
+        expect(fs.existsSync(data.excel2Path!)).toBe(true);
         expect(data.restUrl).toMatch(/^https:\/\/.*github\.com/i);
         expect(fs.existsSync(data.notebookPath)).toBe(true);
         expect(fs.existsSync(data.notebookPtPath!)).toBe(true);
@@ -90,7 +92,7 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
         const nbContent = fs.readFileSync(data.notebookPath, "utf-8");
         const doc = deserializeFsqnb(nbContent);
         const codeCells = doc.cells.filter((c) => c.kind === "code");
-        expect(codeCells.length).toBe(12);
+        expect(codeCells.length).toBe(13);
 
         const toVscodeUri = (filePath: string) => {
           const normalized = filePath.replace(/\\/g, "/");
@@ -102,7 +104,7 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
         // VS Code formats document URIs: file:///${path} on Windows (with %3A), file://${path} on Linux/macOS
         const vscodeUriEn = toVscodeUri(data.notebookPath);
 
-        const expectedEnRowCounts = [2, 8, 6, 4, 5, 3, 6, 8, 5, 4, 8, 6];
+        const expectedEnRowCounts = [2, 8, 6, 4, 5, 3, 6, 8, 5, 4, 6, 8, 7];
 
         for (let i = 0; i < codeCells.length; i++) {
           const cell = codeCells[i];
@@ -128,7 +130,7 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
           }
           expect(["Table", "Scalar"]).toContain(kind);
           if (kind === "Table") {
-            if (i === 10) {
+            if (i === 11) {
               expect(envelope.rows.length).toBeGreaterThanOrEqual(1);
             } else {
               expect(envelope.rows.length).toBe(expectedEnRowCounts[i]);
@@ -140,11 +142,11 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
         const nbPtContent = fs.readFileSync(data.notebookPtPath!, "utf-8");
         const docPt = deserializeFsqnb(nbPtContent);
         const codeCellsPt = docPt.cells.filter((c) => c.kind === "code");
-        expect(codeCellsPt.length).toBe(12);
+        expect(codeCellsPt.length).toBe(13);
 
         const vscodeUriPt = toVscodeUri(data.notebookPtPath!);
 
-        const expectedPtRowCounts = [2, 8, 6, 4, 5, 3, 6, 8, 5, 4, 8, 6];
+        const expectedPtRowCounts = [2, 8, 6, 4, 5, 3, 6, 8, 5, 4, 6, 8, 7];
 
         for (let i = 0; i < codeCellsPt.length; i++) {
           const cell = codeCellsPt[i];
@@ -170,7 +172,7 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
           }
           expect(["Table", "Scalar"]).toContain(kind);
           if (kind === "Table") {
-            if (i === 10) {
+            if (i === 11) {
               expect(envelope.rows.length).toBeGreaterThanOrEqual(1);
             } else {
               expect(envelope.rows.length).toBe(expectedPtRowCounts[i]);

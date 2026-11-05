@@ -1,4 +1,4 @@
-﻿namespace FSharpQueryStudio.Worker
+namespace FSharpQueryStudio.Worker
 
 open System
 open System.Collections.Concurrent
@@ -191,6 +191,8 @@ module Handlers =
                                     SampleDataGenerator.createSampleCustomersCsv fp
                                 elif String.Equals(def.Name, "RegionalTargets", StringComparison.OrdinalIgnoreCase) then
                                     SampleDataGenerator.createSampleExcelWorkbook fp
+                                elif String.Equals(def.Name, "CommerceOps", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.createSampleCommerceExcelWorkbook fp
             with _ -> ()
 
     let runEvaluate (request: WorkerRequestFrame) (workDir: string) : WorkerResponseFrame =
@@ -642,7 +644,7 @@ module Handlers =
 
     let private cleanLeakedGlobalSampleConnections (globalWs: string) : ConnectionDefinition list =
         let conns = Workspace.readConnections globalWs
-        let sampleNames = set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "GitHubFSharp" ]
+        let sampleNames = set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "GitHubFSharp" ]
         let isLeakedSample (c: ConnectionDefinition) =
             sampleNames.Contains c.Name && (
                 try

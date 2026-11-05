@@ -26,3 +26,11 @@ When querying a worksheet via `Connections.excel.<Conn>.<Sheet>`, `SheetQueryabl
 the ExcelConnection shall always resolve and stage the prefixed SQLite table `<Conn>_<Sheet>` so that LINQ-to-SQL pushdown translates queries to `FROM <Conn>_<Sheet>`.
 ```
 
+## ADDED Requirements
+
+### REQ-EXCEL-04 — Four-Sheet English Excel Demo Workbook (`CommerceOps`) in Sample Project
+```text
+When generating sample project data (`generateAllSamples` / `workspace/createSampleData`),
+the SampleDataGenerator shall create an English Excel workbook (`commerce_operations.xlsx`) registered as `CommerceOps` containing four worksheets (`Customers`, `ProductsStock`, `Sales`, and `DeliveryLogs`) and include interactive multi-sheet LINQ query cells using `Connections.excel.CommerceOps` in both `sample_demo.fsqnb` and `sample_demo_pt.fsqnb`.
+```
+

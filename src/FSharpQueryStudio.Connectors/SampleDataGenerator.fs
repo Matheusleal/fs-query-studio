@@ -18,6 +18,7 @@ module SampleDataGenerator =
           CsvPath: string
           Csv2Path: string
           ExcelPath: string
+          Excel2Path: string
           RestUrl: string
           NotebookPath: string
           NotebookPtPath: string }
@@ -240,6 +241,7 @@ INSERT OR IGNORE INTO Suppliers (Id, CompanyName, ContactEmail, Country, Rating)
 | **`SalesFeed`** | CSV | Flat-file transaction export | `Date`, `OrderId`, `Customer`, `Product`, `Category`, `TotalAmount`, `Status` |
 | **`CustomersFeed`** | CSV | Flat-file loyalty & satisfaction feed | `CustomerId`, `CustomerName`, `LoyaltyTier`, `TotalSpent`, `Score`, `Feedback` |
 | **`RegionalTargets`** | Excel (`.xlsx`) | Multi-sheet regional revenue targets & budgets | `RegionalTargets`, `QuarterlyBudget` |
+| **`CommerceOps`** | Excel (`.xlsx`) | 4-sheet e-commerce operations & logistics workbook | `Customers`, `ProductsStock`, `Sales`, `DeliveryLogs` |
 | **`GitHubFSharp`** | REST (`https://`) | Secure GitHub REST API (`fsprojects` repositories) | `name`, `full_name`, `language`, `stargazers_count`, `forks_count`, `html_url` |
 
 ---
@@ -487,13 +489,42 @@ query {
 """
 
                 mkMarkdown """
-## 10. 🔒 Secure GitHub REST API (`https://`): F# Community Repositories (`GitHubFSharp`)
+## 10. 📦 4-Sheet Excel Workbook (`.xlsx`): Customers, Products Stock, Sales & Delivery Logs (`CommerceOps`)
+
+Each Excel connection acts as a schema container (`Connections.excel.CommerceOps.<Sheet>`) mapped to prefixed SQLite tables (`CommerceOps_Customers`, `CommerceOps_ProductsStock`, `CommerceOps_Sales`, `CommerceOps_DeliveryLogs`). You can join all four worksheets in a single SQL-pushed LINQ query!
+"""
+
+                mkCode """
+// 10. Join all 4 sheets (Sales, Customers, ProductsStock, DeliveryLogs) in CommerceOps (.xlsx)
+query {
+    for s in Connections.excel.CommerceOps.Sales do
+    join c in Connections.excel.CommerceOps.Customers on (s.CustomerId = c.CustomerId)
+    join p in Connections.excel.CommerceOps.ProductsStock on (s.ProductId = p.ProductId)
+    join d in Connections.excel.CommerceOps.DeliveryLogs on (s.SaleId = d.SaleId)
+    sortByDescending s.TotalAmount
+    select {|
+        SaleId = s.SaleId
+        Customer = c.FullName
+        Country = c.Country
+        Product = p.ProductName
+        StockAvailable = p.StockQuantity
+        Quantity = s.Quantity
+        TotalAmount = s.TotalAmount
+        Carrier = d.Carrier
+        TrackingCode = d.TrackingCode
+        DeliveryStatus = d.DeliveryStatus
+    |}
+}
+"""
+
+                mkMarkdown """
+## 11. 🔒 Secure GitHub REST API (`https://`): F# Community Repositories (`GitHubFSharp`)
 
 REST/JSON endpoints over HTTPS are automatically sampled and mapped into strongly-typed F# records. Here we query public F# repositories from `https://api.github.com/orgs/fsprojects/repos` via `Connections.rest.GitHubFSharp`.
 """
 
                 mkCode """
-// 10. Query public F# repositories from GitHub HTTPS REST API via Connections.rest
+// 11. Query public F# repositories from GitHub HTTPS REST API via Connections.rest
 query {
     for repo in Connections.rest.GitHubFSharp do
     sortByDescending repo.stargazers_count
@@ -510,18 +541,19 @@ query {
 """
 
                 mkMarkdown """
-## 11. 🌐 Cross-Database & Cross-Kind Overview: 6-Source Pipeline
+## 12. 🌐 Cross-Database & Cross-Kind Overview: 7-Source Pipeline
 
-Because F# Query Studio executes queries in an integrated F# Interactive session, you can aggregate metadata and counts across all 6 sources (`SQLite`, `CSV`, `Excel`, and `REST/JSON`) simultaneously.
+Because F# Query Studio executes queries in an integrated F# Interactive session, you can aggregate metadata and counts across all 7 sources (`SQLite`, `CSV`, `Excel`, and `REST/JSON`) simultaneously.
 """
 
                 mkCode """
-// 11. Comprehensive summary across all 6 registered data sources
+// 12. Comprehensive summary across all 7 registered data sources
 let sampleStoreOrders = Connections.sql.SampleStore.Orders |> Seq.length
 let inventoryWarehouses = Connections.sql.InventoryStore.Warehouses |> Seq.length
 let salesCount = Connections.csv.SalesFeed |> Seq.length
 let loyaltyCount = Connections.csv.CustomersFeed |> Seq.length
 let excelTargetsCount = Connections.excel.RegionalTargets.RegionalTargets |> Seq.length
+let commerceSalesCount = Connections.excel.CommerceOps.Sales |> Seq.length
 let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
 
 [
@@ -530,6 +562,7 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
     {| Source = "SalesFeed";       Kind = "CSV (Flat-File)";     RecordCount = salesCount;          PrimaryEntity = "Transactions" |}
     {| Source = "CustomersFeed";   Kind = "CSV (Flat-File)";     RecordCount = loyaltyCount;        PrimaryEntity = "Loyalty Profiles" |}
     {| Source = "RegionalTargets"; Kind = "Excel (.xlsx)";       RecordCount = excelTargetsCount;   PrimaryEntity = "RegionalTargets" |}
+    {| Source = "CommerceOps";     Kind = "Excel (.xlsx)";       RecordCount = commerceSalesCount;  PrimaryEntity = "Customers / Stock / Sales / Delivery" |}
     {| Source = "GitHubFSharp";    Kind = "REST JSON (HTTPS)";   RecordCount = githubReposCount;    PrimaryEntity = "GitHub Repositories" |}
 ]
 """
@@ -565,6 +598,7 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
 | **`SalesFeed`** | CSV | Feed diário de transações de vendas | `Date`, `OrderId`, `Customer`, `Product`, `Category`, `TotalAmount`, `Status` |
 | **`CustomersFeed`** | CSV | Feed de fidelidade e avaliação de clientes | `CustomerId`, `CustomerName`, `LoyaltyTier`, `TotalSpent`, `Score`, `Feedback` |
 | **`RegionalTargets`** | Excel (`.xlsx`) | Planilha multi-abas de metas regionais e orçamento | `RegionalTargets`, `QuarterlyBudget` |
+| **`CommerceOps`** | Excel (`.xlsx`) | Planilha em inglês com 4 abas (clientes, estoque, vendas e delivery) | `Customers`, `ProductsStock`, `Sales`, `DeliveryLogs` |
 | **`GitHubFSharp`** | REST (`https://`) | API REST segura do GitHub (`fsprojects` repos) | `name`, `full_name`, `language`, `stargazers_count`, `forks_count`, `html_url` |
 
 ---
@@ -812,13 +846,42 @@ query {
 """
 
                 mkMarkdown """
-## 10. 🔒 API REST Segura do GitHub (`https://`): Repositórios da Comunidade F# (`GitHubFSharp`)
+## 10. 📦 Planilha Excel 4 Abas (`.xlsx`): Clientes, Produtos com Estoque, Vendas e Logs de Delivery (`CommerceOps`)
+
+Cada conexão Excel funciona como um schema/container (`Connections.excel.CommerceOps.<Sheet>`) mapeado para tabelas prefixadas no SQLite (`CommerceOps_Customers`, `CommerceOps_ProductsStock`, `CommerceOps_Sales`, `CommerceOps_DeliveryLogs`). Veja como unir as 4 abas em uma única consulta LINQ com pushdown para SQL:
+"""
+
+                mkCode """
+// 10. Join entre as 4 abas da planilha em inglês CommerceOps (Sales, Customers, ProductsStock, DeliveryLogs)
+query {
+    for s in Connections.excel.CommerceOps.Sales do
+    join c in Connections.excel.CommerceOps.Customers on (s.CustomerId = c.CustomerId)
+    join p in Connections.excel.CommerceOps.ProductsStock on (s.ProductId = p.ProductId)
+    join d in Connections.excel.CommerceOps.DeliveryLogs on (s.SaleId = d.SaleId)
+    sortByDescending s.TotalAmount
+    select {|
+        VendaId = s.SaleId
+        Cliente = c.FullName
+        Pais = c.Country
+        Produto = p.ProductName
+        EstoqueDisponivel = p.StockQuantity
+        Quantidade = s.Quantity
+        ValorTotal = s.TotalAmount
+        Transportadora = d.Carrier
+        CodigoRastreio = d.TrackingCode
+        StatusEntrega = d.DeliveryStatus
+    |}
+}
+"""
+
+                mkMarkdown """
+## 11. 🔒 API REST Segura do GitHub (`https://`): Repositórios da Comunidade F# (`GitHubFSharp`)
 
 Endpoints REST/JSON em páginas seguras (`https://`) são inspecionados e mapeados em registros F# fortemente tipados. Aqui consultamos os repositórios públicos de F# em `https://api.github.com/orgs/fsprojects/repos` via `Connections.rest.GitHubFSharp`.
 """
 
                 mkCode """
-// 10. Consulta repositórios públicos da comunidade F# via API HTTPS do GitHub em Connections.rest
+// 11. Consulta repositórios públicos da comunidade F# via API HTTPS do GitHub em Connections.rest
 query {
     for repo in Connections.rest.GitHubFSharp do
     sortByDescending repo.stargazers_count
@@ -835,18 +898,19 @@ query {
 """
 
                 mkMarkdown """
-## 11. 🌐 Visão Consolidada Multi-Fontes: SQLite + CSV + Excel + REST
+## 12. 🌐 Visão Consolidada Multi-Fontes: SQLite + CSV + Excel + REST
 
-Como as consultas no F# Query Studio rodam em uma sessão FSI unificada, você pode cruzar e comparar dados das 6 fontes simultaneamente:
+Como as consultas no F# Query Studio rodam em uma sessão FSI unificada, você pode cruzar e comparar dados das 7 fontes simultaneamente:
 """
 
                 mkCode """
-// 11. Resumo consolidado das 6 fontes de dados registradas
+// 12. Resumo consolidado das 7 fontes de dados registradas
 let sampleStoreOrders = Connections.sql.SampleStore.Orders |> Seq.length
 let inventoryWarehouses = Connections.sql.InventoryStore.Warehouses |> Seq.length
 let salesCount = Connections.csv.SalesFeed |> Seq.length
 let loyaltyCount = Connections.csv.CustomersFeed |> Seq.length
 let excelTargetsCount = Connections.excel.RegionalTargets.RegionalTargets |> Seq.length
+let commerceSalesCount = Connections.excel.CommerceOps.Sales |> Seq.length
 let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
 
 [
@@ -855,6 +919,7 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
     {| Fonte = "SalesFeed";       Tipo = "CSV (Arquivo Plano)"; TotalRegistros = salesCount;          EntidadePrincipal = "Transações" |}
     {| Fonte = "CustomersFeed";   Tipo = "CSV (Arquivo Plano)"; TotalRegistros = loyaltyCount;        EntidadePrincipal = "Perfis de Fidelidade" |}
     {| Fonte = "RegionalTargets"; Tipo = "Excel (.xlsx)";       TotalRegistros = excelTargetsCount;   EntidadePrincipal = "RegionalTargets" |}
+    {| Fonte = "CommerceOps";     Tipo = "Excel (.xlsx)";       TotalRegistros = commerceSalesCount;  EntidadePrincipal = "Customers / Stock / Sales / Delivery" |}
     {| Fonte = "GitHubFSharp";    Tipo = "REST JSON (HTTPS)";   TotalRegistros = githubReposCount;    EntidadePrincipal = "Repositórios GitHub" |}
 ]
 """
@@ -974,6 +1039,112 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
 
         workbook.SaveAs(filePath)
 
+    let createSampleCommerceExcelWorkbook (filePath: string) : unit =
+        let dir = Path.GetDirectoryName(filePath)
+        if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
+            Directory.CreateDirectory(dir) |> ignore
+
+        use workbook = new XLWorkbook()
+
+        // Sheet 1: Customers
+        let customersSheet = workbook.Worksheets.Add("Customers")
+        let customerHeaders = [| "CustomerId"; "FullName"; "Email"; "Country"; "City"; "CustomerSegment" |]
+        for colIdx in 0 .. customerHeaders.Length - 1 do
+            customersSheet.Cell(1, colIdx + 1).Value <- customerHeaders.[colIdx]
+
+        let customerRows: (int * string * string * string * string * string) array =
+            [| (1, "Emma Watson", "emma.watson@ukmail.co.uk", "UK", "London", "Enterprise")
+               (2, "Liam Carter", "liam.carter@techcorp.com", "USA", "Austin", "Enterprise")
+               (3, "Lucas Andrade", "lucas.andrade@brshop.com.br", "Brazil", "Sao Paulo", "SMB")
+               (4, "Sofia Martinez", "sofia.m@madridretail.es", "Spain", "Madrid", "SMB")
+               (5, "Kenji Takahashi", "kenji.t@tokyocloud.jp", "Japan", "Tokyo", "Enterprise") |]
+
+        for rowIdx in 0 .. customerRows.Length - 1 do
+            let id, fullName, email, country, city, segment = customerRows.[rowIdx]
+            let r = rowIdx + 2
+            customersSheet.Cell(r, 1).Value <- id
+            customersSheet.Cell(r, 2).Value <- fullName
+            customersSheet.Cell(r, 3).Value <- email
+            customersSheet.Cell(r, 4).Value <- country
+            customersSheet.Cell(r, 5).Value <- city
+            customersSheet.Cell(r, 6).Value <- segment
+
+        // Sheet 2: ProductsStock
+        let productsSheet = workbook.Worksheets.Add("ProductsStock")
+        let productHeaders = [| "ProductId"; "Sku"; "ProductName"; "Category"; "UnitPrice"; "StockQuantity"; "WarehouseZone" |]
+        for colIdx in 0 .. productHeaders.Length - 1 do
+            productsSheet.Cell(1, colIdx + 1).Value <- productHeaders.[colIdx]
+
+        let productRows: (int * string * string * string * decimal * int * string) array =
+            [| (101, "HW-LAP-16", "Ultrabook Pro 16", "Hardware", 1599.00M, 45, "Zone-A")
+               (102, "HW-MON-27", "4K IPS Monitor 27", "Hardware", 449.50M, 80, "Zone-A")
+               (103, "ACC-KBD-01", "Mechanical Tactile Keyboard", "Accessories", 129.00M, 150, "Zone-B")
+               (104, "ACC-MSE-02", "Ergonomic Wireless Mouse", "Accessories", 69.90M, 210, "Zone-B")
+               (105, "NET-RTR-05", "Wi-Fi 7 Mesh Router", "Networking", 299.00M, 60, "Zone-C") |]
+
+        for rowIdx in 0 .. productRows.Length - 1 do
+            let pid, sku, pname, cat, price, stock, zone = productRows.[rowIdx]
+            let r = rowIdx + 2
+            productsSheet.Cell(r, 1).Value <- pid
+            productsSheet.Cell(r, 2).Value <- sku
+            productsSheet.Cell(r, 3).Value <- pname
+            productsSheet.Cell(r, 4).Value <- cat
+            productsSheet.Cell(r, 5).Value <- price
+            productsSheet.Cell(r, 6).Value <- stock
+            productsSheet.Cell(r, 7).Value <- zone
+
+        // Sheet 3: Sales
+        let salesSheet = workbook.Worksheets.Add("Sales")
+        let salesHeaders = [| "SaleId"; "CustomerId"; "ProductId"; "Quantity"; "TotalAmount"; "SaleDate"; "PaymentMethod" |]
+        for colIdx in 0 .. salesHeaders.Length - 1 do
+            salesSheet.Cell(1, colIdx + 1).Value <- salesHeaders.[colIdx]
+
+        let salesRows: (int * int * int * int * decimal * string * string) array =
+            [| (1001, 1, 101, 2, 3198.00M, "2026-03-10", "Corporate Card")
+               (1002, 2, 102, 3, 1348.50M, "2026-03-12", "Wire Transfer")
+               (1003, 3, 103, 5, 645.00M, "2026-03-15", "Credit Card")
+               (1004, 4, 105, 2, 598.00M, "2026-03-18", "Credit Card")
+               (1005, 5, 101, 1, 1599.00M, "2026-03-20", "Wire Transfer")
+               (1006, 1, 104, 4, 279.60M, "2026-03-22", "Corporate Card") |]
+
+        for rowIdx in 0 .. salesRows.Length - 1 do
+            let sid, cid, pid, qty, total, sdate, method_ = salesRows.[rowIdx]
+            let r = rowIdx + 2
+            salesSheet.Cell(r, 1).Value <- sid
+            salesSheet.Cell(r, 2).Value <- cid
+            salesSheet.Cell(r, 3).Value <- pid
+            salesSheet.Cell(r, 4).Value <- qty
+            salesSheet.Cell(r, 5).Value <- total
+            salesSheet.Cell(r, 6).Value <- sdate
+            salesSheet.Cell(r, 7).Value <- method_
+
+        // Sheet 4: DeliveryLogs
+        let deliverySheet = workbook.Worksheets.Add("DeliveryLogs")
+        let deliveryHeaders = [| "DeliveryId"; "SaleId"; "Carrier"; "TrackingCode"; "DeliveryStatus"; "DispatchedDate"; "EstimatedArrival" |]
+        for colIdx in 0 .. deliveryHeaders.Length - 1 do
+            deliverySheet.Cell(1, colIdx + 1).Value <- deliveryHeaders.[colIdx]
+
+        let deliveryRows: (int * int * string * string * string * string * string) array =
+            [| (5001, 1001, "DHL Express", "DHL-99201-UK", "Delivered", "2026-03-11", "2026-03-13")
+               (5002, 1002, "FedEx Priority", "FDX-88412-US", "Delivered", "2026-03-13", "2026-03-15")
+               (5003, 1003, "UPS Worldwide", "UPS-77109-BR", "In Transit", "2026-03-16", "2026-03-21")
+               (5004, 1004, "DHL Express", "DHL-66320-ES", "Delivered", "2026-03-19", "2026-03-21")
+               (5005, 1005, "Yamato Global", "YMT-55401-JP", "In Transit", "2026-03-21", "2026-03-24")
+               (5006, 1006, "DHL Express", "DHL-99540-UK", "Out for Delivery", "2026-03-23", "2026-03-25") |]
+
+        for rowIdx in 0 .. deliveryRows.Length - 1 do
+            let did, sid, carrier, tracking, status, dispatched, arrival = deliveryRows.[rowIdx]
+            let r = rowIdx + 2
+            deliverySheet.Cell(r, 1).Value <- did
+            deliverySheet.Cell(r, 2).Value <- sid
+            deliverySheet.Cell(r, 3).Value <- carrier
+            deliverySheet.Cell(r, 4).Value <- tracking
+            deliverySheet.Cell(r, 5).Value <- status
+            deliverySheet.Cell(r, 6).Value <- dispatched
+            deliverySheet.Cell(r, 7).Value <- arrival
+
+        workbook.SaveAs(filePath)
+
     let createSampleDemoNotebook (filePath: string) : unit =
         let dir = Path.GetDirectoryName(filePath)
         if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
@@ -998,6 +1169,7 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
         let csvPath = Path.Combine(sampleDir, "sales_feed.csv")
         let csv2Path = Path.Combine(sampleDir, "customers_feed.csv")
         let excelPath = Path.Combine(sampleDir, "regional_targets.xlsx")
+        let excel2Path = Path.Combine(sampleDir, "commerce_operations.xlsx")
         let notebookPath = Path.Combine(targetDir, "sample_demo.fsqnb")
         let notebookPtPath = Path.Combine(targetDir, "sample_demo_pt.fsqnb")
 
@@ -1006,6 +1178,7 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
         createSampleCsv csvPath
         createSampleCustomersCsv csv2Path
         createSampleExcelWorkbook excelPath
+        createSampleCommerceExcelWorkbook excel2Path
         createSampleDemoNotebook notebookPath
         createSampleDemoNotebookPt notebookPtPath
 
@@ -1014,6 +1187,7 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
           CsvPath = csvPath
           Csv2Path = csv2Path
           ExcelPath = excelPath
+          Excel2Path = excel2Path
           RestUrl = DefaultGitHubRestUrl
           NotebookPath = notebookPath
           NotebookPtPath = notebookPtPath }
