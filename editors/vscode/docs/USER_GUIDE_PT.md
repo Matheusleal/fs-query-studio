@@ -64,11 +64,11 @@ O F# Query Studio se integra perfeitamente ao VS Code em três áreas principais
 1. **Barra de Atividades (Activity Bar)**: Ícone dedicado com o logo do F# Query Studio na barra lateral esquerda. Nele você visualiza todas as conexões registradas, esquemas, tabelas e metadados de colunas.
 2. **Ícones de Ação no Menu**:
    - `$(book)` **Documentação**: Abre este guia lado a lado com seu código (disponível no cabeçalho do painel Connections e no editor do notebook).
-   - `$(database)` **Criar Base de Dados de Teste**: Gera automaticamente bases SQLite e CSV fictícias com notebook demonstrativo em 1 clique.
+   - `$(database)` **Criar Base de Dados de Teste**: Gera automaticamente bases SQLite, CSV e XLSX fictícias em `data_sources/` com notebook demonstrativo em 1 clique.
    - `$(add)` **Adicionar Conexão**: Abre o assistente interativo para cadastrar bancos, arquivos ou APIs.
    - `$(refresh)` **Atualizar**: Recarrega o esquema e regenera os tipos de entidades.
 3. **Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)**:
-   - `F# Query Studio: Create Sample Data (SQLite & CSV)`
+   - `F# Query Studio: Create Sample Data (SQLite, CSV & XLSX)`
    - `F# Query Studio: Open Documentation`
    - `F# Query Studio: New F# Query Notebook`
    - `F# Query Studio: Restart Notebook Session`
@@ -76,11 +76,11 @@ O F# Query Studio se integra perfeitamente ao VS Code em três áreas principais
 
 ---
 
-## 3. Início Rápido: Criando Dados de Exemplo (SQLite e CSV)
+## 3. Início Rápido: Criando Dados de Exemplo (SQLite, CSV e XLSX)
 
 Quer começar a explorar consultas LINQ imediatamente sem precisar configurar um banco externo?
 
-Clique no botão **`Create Sample Data`** (`$(database)`) no cabeçalho do painel **Connections**, ou selecione `F# Query Studio: Create Sample Data (SQLite & CSV)` no Command Palette.
+Clique no botão **`Create Sample Data`** (`$(database)`) no cabeçalho do painel **Connections**, ou selecione `F# Query Studio: Create Sample Data (SQLite, CSV & XLSX)` no Command Palette.
 
 ### O Que É Criado Automaticamente:
 1. **`sample_store.db` (SQLite)**: Um banco relacional completo contendo 5 tabelas populadas com dados consistentes:

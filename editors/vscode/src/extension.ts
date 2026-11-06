@@ -730,14 +730,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
           sqlite2Path?: string;
           csvPath: string;
           csv2Path?: string;
+          excelPath?: string;
+          excel2Path?: string;
           notebookPath: string;
           notebookPtPath?: string;
         };
 
         log(
-          `[Workspace] Sample data created successfully: SQLite=${data.sqlitePath}, SQLite2=${data.sqlite2Path}, CSV=${data.csvPath}, CSV2=${data.csv2Path}, Notebook=${data.notebookPath}, NotebookPt=${data.notebookPtPath}`,
+          `[Workspace] Sample data created successfully in data_sources: SQLite=${data.sqlitePath}, SQLite2=${data.sqlite2Path}, CSV=${data.csvPath}, CSV2=${data.csv2Path}, Excel=${data.excelPath}, Excel2=${data.excel2Path}, Notebook=${data.notebookPath}, NotebookPt=${data.notebookPtPath}`,
         );
 
+        startDataSourcesWatcher();
         await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
 
         const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
@@ -754,8 +757,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
         }
 
         const successMsg = isPt
-          ? "Bancos de dados SQLite ('sample_store.db', 'inventory.db'), CSVs ('sales_feed.csv', 'customers_feed.csv') e notebooks interativos ('sample_demo_pt.fsqnb', 'sample_demo.fsqnb') criados com sucesso!"
-          : "Sample SQLite databases ('sample_store.db', 'inventory.db'), CSVs ('sales_feed.csv', 'customers_feed.csv'), and interactive notebooks ('sample_demo.fsqnb', 'sample_demo_pt.fsqnb') created successfully!";
+          ? "Fontes de dados na pasta 'data_sources' (SQLite, CSV e XLSX) e notebooks interativos ('sample_demo_pt.fsqnb', 'sample_demo.fsqnb') criados e importados com sucesso!"
+          : "Sample data sources in 'data_sources' (SQLite, CSV & XLSX) and interactive notebooks ('sample_demo.fsqnb', 'sample_demo_pt.fsqnb') created and imported successfully!";
 
         void runSyncDataSources(targetDir, true);
         void vscode.window.showInformationMessage(successMsg);

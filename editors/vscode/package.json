@@ -98,7 +98,7 @@
       },
       {
         "command": "fs-query-studio.createSampleData",
-        "title": "F# Query Studio: Create Sample Data (SQLite & CSV)",
+        "title": "F# Query Studio: Create Sample Data (SQLite, CSV & XLSX)",
         "shortTitle": "Create Sample Data",
         "icon": "$(database)"
       },
@@ -177,7 +177,7 @@
     "viewsWelcome": [
       {
         "view": "fsQueryStudioConnections",
-        "contents": "No connections registered yet.\n[Add Connection](command:fs-query-studio.connections.add)\n\n[Auto-Import Data Sources Directory](command:fs-query-studio.autoImportFolder)\n\n[Sync Data Sources Cache](command:fs-query-studio.syncDataSources)\n\n[Initialize Empty Project](command:fs-query-studio.initEmptyProject)\n\n[Create Sample Data (SQLite & CSV)](command:fs-query-studio.createSampleData)\n\n[Open Documentation](command:fs-query-studio.openDocs)\n\n[Show Output Logs](command:fs-query-studio.showOutput)"
+        "contents": "No connections registered yet.\n[Add Connection](command:fs-query-studio.connections.add)\n\n[Auto-Import Data Sources Directory](command:fs-query-studio.autoImportFolder)\n\n[Sync Data Sources Cache](command:fs-query-studio.syncDataSources)\n\n[Initialize Empty Project](command:fs-query-studio.initEmptyProject)\n\n[Create Sample Data (SQLite, CSV & XLSX)](command:fs-query-studio.createSampleData)\n\n[Open Documentation](command:fs-query-studio.openDocs)\n\n[Show Output Logs](command:fs-query-studio.showOutput)"
       }
     ],
     "menus": {

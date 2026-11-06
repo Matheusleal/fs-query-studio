@@ -536,15 +536,112 @@ let ``syncDataSourcesAsync pre-stages all worksheets of Excel connection into SQ
             Assert.True(File.Exists cacheDb)
 
             let eng = FileSqliteEngine(cacheDb)
-            // Both individual sheets and the default connection name should be staged and current
+            // Only prefixed worksheet tables should be staged; the connection name itself acts as a schema prefix, not a table
             Assert.True(eng.IsStagedAndCurrent("CompanyData_Targets", xlsxPath))
             Assert.True(eng.IsStagedAndCurrent("CompanyData_Budgets", xlsxPath))
-            Assert.True(eng.IsStagedAndCurrent("CompanyData", xlsxPath))
+            Assert.False(eng.IsStagedAndCurrent("CompanyData", xlsxPath))
 
             // Re-syncing without file changes skips all tables
             let! summary2 = Connections.syncDataSourcesAsync tmp [ connDef ] secretStore
             Assert.Equal(0, summary2.StagedCount)
-            Assert.True(summary2.SkippedCount >= 2)
+            Assert.Equal(2, summary2.SkippedCount)
+        finally
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+            try Directory.Delete(tmp, true) with _ -> ()
+    }
+
+type CalendarRow = { Id: int; EventName: string }
+type NamesRow = { Id: int; PersonName: string }
+type CoursesRow = { Id: int; CourseTitle: string }
+
+[<Fact>]
+let ``Excel connection teste with calendar, names and courses stages only prefixed tables and translates LINQ to exact sheet table`` () =
+    task {
+        BuiltinConnectors.registerDefaults ()
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-excel-teste-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory tmp |> ignore
+        try
+            let xlsxPath = Path.Combine(tmp, "teste.xlsx")
+            do
+                use wb = new ClosedXML.Excel.XLWorkbook()
+                let wsCal = wb.Worksheets.Add("calendar")
+                wsCal.Cell(1, 1).Value <- "Id"
+                wsCal.Cell(1, 2).Value <- "EventName"
+                wsCal.Cell(2, 1).Value <- 1
+                wsCal.Cell(2, 2).Value <- "Semester Start"
+
+                let wsNames = wb.Worksheets.Add("names")
+                wsNames.Cell(1, 1).Value <- "Id"
+                wsNames.Cell(1, 2).Value <- "PersonName"
+                wsNames.Cell(2, 1).Value <- 10
+                wsNames.Cell(2, 2).Value <- "Maria"
+
+                let wsCourses = wb.Worksheets.Add("courses")
+                wsCourses.Cell(1, 1).Value <- "Id"
+                wsCourses.Cell(1, 2).Value <- "CourseTitle"
+                wsCourses.Cell(2, 1).Value <- 100
+                wsCourses.Cell(2, 2).Value <- "F# Programming"
+
+                wb.SaveAs(xlsxPath)
+
+            let connDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "teste"
+                  Kind = ConnectorKind.Excel
+                  Configuration = System.Text.Json.JsonDocument.Parse($"""{{"filePath": "{xlsxPath.Replace("\\", "/")}", "hasHeader": true}}""").RootElement
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let secretStore = FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
+            let cacheDb = Path.Combine(tmp, ".fsqs", "cache", "engine.db")
+            Directory.CreateDirectory(Path.GetDirectoryName(cacheDb)) |> ignore
+            let eng = FileSqliteEngine(cacheDb)
+
+            // Simulate a legacy unprefixed table "teste" existing before sync
+            let excelConnector = ExcelConnector(xlsxPath)
+            eng.EnsureStaged("teste", xlsxPath, (fun () -> excelConnector.ReadRows(sheetName = "calendar"))) |> ignore
+            Assert.True(eng.IsStagedAndCurrent("teste", xlsxPath))
+
+            // Sync data sources should drop the stale "teste" table and stage only teste_calendar, teste_names, teste_courses
+            let! summary = Connections.syncDataSourcesAsync tmp [ connDef ] secretStore
+            Assert.Equal(3, summary.StagedCount)
+            Assert.False(eng.IsStagedAndCurrent("teste", xlsxPath))
+            Assert.True(eng.IsStagedAndCurrent("teste_calendar", xlsxPath))
+            Assert.True(eng.IsStagedAndCurrent("teste_names", xlsxPath))
+            Assert.True(eng.IsStagedAndCurrent("teste_courses", xlsxPath))
+
+            Connections.setEngine eng
+            let excelConn = Connections.ExcelConnection("teste", excelConnector)
+
+            let qCalendar =
+                query {
+                    for x in excelConn.SheetPushdownQueryable<CalendarRow>("calendar") do
+                    select x
+                }
+            let qNames =
+                query {
+                    for x in excelConn.SheetPushdownQueryable<NamesRow>("names") do
+                    select {| Id = x.Id; Name = x.PersonName |}
+                }
+            let qCourses =
+                query {
+                    for x in excelConn.SheetPushdownQueryable<CoursesRow>("courses") do
+                    select x
+                }
+
+            Assert.Equal("SELECT * FROM teste_calendar", ResultKind.toRawSql qCalendar)
+            Assert.Equal("SELECT Id AS Id, PersonName AS Name FROM teste_names", ResultKind.toRawSql qNames)
+            Assert.Equal("SELECT * FROM teste_courses", ResultKind.toRawSql qCourses)
+
+            let calRows = qCalendar |> Seq.toList
+            let nameRows = qNames |> Seq.toList
+            let courseRows = qCourses |> Seq.toList
+            Assert.Equal(1, calRows.Length)
+            Assert.Equal("Semester Start", calRows.[0].EventName)
+            Assert.Equal(1, nameRows.Length)
+            Assert.Equal("Maria", nameRows.[0].Name)
+            Assert.Equal(1, courseRows.Length)
+            Assert.Equal("F# Programming", courseRows.[0].CourseTitle)
         finally
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
             try Directory.Delete(tmp, true) with _ -> ()

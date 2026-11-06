@@ -137,39 +137,17 @@ type ExcelEntityGenerator() =
                             sb.AppendLine($"                {CodeGenerationHelpers.escapeIdent col}: {colType}") |> ignore
                     sb.AppendLine("            }") |> ignore
                     sb.AppendLine() |> ignore
-                    sb.AppendLine($"        let rows () : System.Linq.IQueryable<Row> = (FSharpQueryStudio.Connectors.Connections.getExcelConnection(\"{connectionName}\")).SheetQueryable<Row>(\"{sheetName}\")") |> ignore
+                    sb.AppendLine($"        let rows () : FSharpQueryStudio.Connectors.SqlPushdownQueryable<Row> = (FSharpQueryStudio.Connectors.Connections.getExcelConnection(\"{connectionName}\")).SheetPushdownQueryable<Row>(\"{sheetName}\")") |> ignore
                     sb.AppendLine() |> ignore
 
                 sb.AppendLine("    type Data(conn: FSharpQueryStudio.Connectors.Connections.ExcelConnection) =") |> ignore
-                match sheetEntries with
-                | (firstSheetName, _, firstModIdent) :: _ ->
-                    sb.AppendLine($"        let defaultQueryable = conn.SheetQueryable<{CodeGenerationHelpers.escapeIdent firstModIdent}.Row>(\"{firstSheetName}\")") |> ignore
-                | [] -> ()
                 sb.AppendLine($"        new(name: string) = Data(FSharpQueryStudio.Connectors.Connections.getExcelConnection(name))") |> ignore
                 sb.AppendLine($"        new() = Data(\"{connectionName}\")") |> ignore
                 sb.AppendLine("        member _.Raw(?maxRows: int) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.Raw(?maxRows = maxRows)") |> ignore
                 sb.AppendLine("        member _.Connection : FSharpQueryStudio.Connectors.Connections.ExcelConnection = conn") |> ignore
                 for sheetName, propIdent, modIdent in sheetEntries do
-                    sb.AppendLine($"        member _.{CodeGenerationHelpers.escapeIdent propIdent} : System.Linq.IQueryable<{CodeGenerationHelpers.escapeIdent modIdent}.Row> = conn.SheetQueryable<{CodeGenerationHelpers.escapeIdent modIdent}.Row>(\"{sheetName}\")") |> ignore
-                match sheetEntries with
-                | (_, _, firstModIdent) :: _ ->
-                    let escMod = CodeGenerationHelpers.escapeIdent firstModIdent
-                    sb.AppendLine($"        member _.Rows : System.Linq.IQueryable<{escMod}.Row> = defaultQueryable") |> ignore
-                    sb.AppendLine($"        interface System.Linq.IQueryable<{escMod}.Row> with") |> ignore
-                    sb.AppendLine("            member _.ElementType = (defaultQueryable :> System.Linq.IQueryable).ElementType") |> ignore
-                    sb.AppendLine("            member _.Expression = (defaultQueryable :> System.Linq.IQueryable).Expression") |> ignore
-                    sb.AppendLine("            member _.Provider = (defaultQueryable :> System.Linq.IQueryable).Provider") |> ignore
-                    sb.AppendLine($"        interface System.Collections.Generic.IEnumerable<{escMod}.Row> with") |> ignore
-                    sb.AppendLine($"            member _.GetEnumerator() = (defaultQueryable :> System.Collections.Generic.IEnumerable<{escMod}.Row>).GetEnumerator()") |> ignore
-                    sb.AppendLine("        interface System.Collections.IEnumerable with") |> ignore
-                    sb.AppendLine("            member _.GetEnumerator() = (defaultQueryable :> System.Collections.IEnumerable).GetEnumerator()") |> ignore
-                | [] -> ()
+                    sb.AppendLine($"        member _.{CodeGenerationHelpers.escapeIdent propIdent} : FSharpQueryStudio.Connectors.SqlPushdownQueryable<{CodeGenerationHelpers.escapeIdent modIdent}.Row> = conn.SheetPushdownQueryable<{CodeGenerationHelpers.escapeIdent modIdent}.Row>(\"{sheetName}\")") |> ignore
                 sb.AppendLine() |> ignore
-                match sheetEntries with
-                | (_, _, firstModIdent) :: _ ->
-                    let escMod = CodeGenerationHelpers.escapeIdent firstModIdent
-                    sb.AppendLine($"    let rows () : System.Linq.IQueryable<{escMod}.Row> = (Data()).Rows") |> ignore
-                | [] -> ()
                 sb.AppendLine("    let data () : Data = Data()") |> ignore
                 sb.ToString()
             | _ -> ""

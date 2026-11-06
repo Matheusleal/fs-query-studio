@@ -1,4 +1,4 @@
-﻿namespace FSharpQueryStudio.Worker
+namespace FSharpQueryStudio.Worker
 
 open System
 open System.Collections.Concurrent
@@ -171,7 +171,7 @@ module Handlers =
         Prologue.resolveWorkspaceForDocument docUriStr
         |> Option.defaultValue (workspaceDir ())
 
-    let private ensureSampleFilesHealed (connections: ConnectionDefinition list) : unit =
+    let private ensureSampleFilesHealed (targetWs: string) (connections: ConnectionDefinition list) : unit =
         for def in connections do
             try
                 if def.Configuration.ValueKind = JsonValueKind.Object then
@@ -179,18 +179,21 @@ module Handlers =
                     if def.Configuration.TryGetProperty("filePath", &fpProp) && fpProp.ValueKind = JsonValueKind.String then
                         let fp = fpProp.GetString()
                         if not (String.IsNullOrWhiteSpace fp) then
-                            let isMissingOrEmpty = not (File.Exists fp) || (FileInfo(fp).Length = 0L)
+                            let fullFp = if Path.IsPathRooted fp then fp else Path.Combine(targetWs, fp)
+                            let isMissingOrEmpty = not (File.Exists fullFp) || (FileInfo(fullFp).Length = 0L)
                             if isMissingOrEmpty then
                                 if String.Equals(def.Name, "SampleStore", StringComparison.OrdinalIgnoreCase) then
-                                    SampleDataGenerator.createSampleStoreDatabase fp
+                                    SampleDataGenerator.createSampleStoreDatabase fullFp
                                 elif String.Equals(def.Name, "InventoryStore", StringComparison.OrdinalIgnoreCase) then
-                                    SampleDataGenerator.createInventoryDatabase fp
+                                    SampleDataGenerator.createInventoryDatabase fullFp
                                 elif String.Equals(def.Name, "SalesFeed", StringComparison.OrdinalIgnoreCase) then
-                                    SampleDataGenerator.createSampleCsv fp
+                                    SampleDataGenerator.createSampleCsv fullFp
                                 elif String.Equals(def.Name, "CustomersFeed", StringComparison.OrdinalIgnoreCase) then
-                                    SampleDataGenerator.createSampleCustomersCsv fp
+                                    SampleDataGenerator.createSampleCustomersCsv fullFp
                                 elif String.Equals(def.Name, "RegionalTargets", StringComparison.OrdinalIgnoreCase) then
-                                    SampleDataGenerator.createSampleExcelWorkbook fp
+                                    SampleDataGenerator.createSampleExcelWorkbook fullFp
+                                elif String.Equals(def.Name, "CommerceOps", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.createSampleCommerceExcelWorkbook fullFp
             with _ -> ()
 
     let runEvaluate (request: WorkerRequestFrame) (workDir: string) : WorkerResponseFrame =
@@ -202,7 +205,7 @@ module Handlers =
 
             let targetWs = resolveWorkspaceForDocument evalParams.DocumentUri
             let connections = Workspace.readConnections targetWs
-            ensureSampleFilesHealed connections
+            ensureSampleFilesHealed targetWs connections
             Connections.configure (WorkspaceConnectionResolver(connections, secretStore, targetWs))
             EntityBackgroundGenerator.ensureGenerated targetWs connections secretStore
 
@@ -642,7 +645,7 @@ module Handlers =
 
     let private cleanLeakedGlobalSampleConnections (globalWs: string) : ConnectionDefinition list =
         let conns = Workspace.readConnections globalWs
-        let sampleNames = set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "GitHubFSharp" ]
+        let sampleNames = set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "GitHubFSharp" ]
         let isLeakedSample (c: ConnectionDefinition) =
             sampleNames.Contains c.Name && (
                 try
@@ -650,7 +653,8 @@ module Handlers =
                     let mutable fpProp = Unchecked.defaultof<JsonElement>
                     if doc.RootElement.ValueKind = JsonValueKind.Object && doc.RootElement.TryGetProperty("filePath", &fpProp) && fpProp.ValueKind = JsonValueKind.String then
                         let fp = fpProp.GetString()
-                        not (File.Exists fp) || not (fp.StartsWith(globalWs, StringComparison.OrdinalIgnoreCase))
+                        let fullFp = if Path.IsPathRooted fp then fp else Path.Combine(globalWs, fp)
+                        not (File.Exists fullFp) || not (fullFp.StartsWith(globalWs, StringComparison.OrdinalIgnoreCase))
                     else
                         false
                 with _ -> false

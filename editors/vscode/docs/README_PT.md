@@ -186,7 +186,7 @@ As informações públicas são gravadas em `workspace.json`. Quando uma senha �
 | **F# Query Studio: New F# Query Notebook Here** | Menu de contexto de pastas no Explorer — cria um `.fsqnb` na pasta selecionada. |
 | **F# Query Studio: Auto-Import Data Sources Directory** | Detecta e adiciona automaticamente arquivos compatíveis da pasta `data_sources/`. |
 | **F# Query Studio: Sync Data Sources Cache** | Dispara a sincronização e cache assíncrono em disco (`.fsqs/cache/engine.db`) para arquivos CSV e Excel. |
-| **F# Query Studio: Create Sample Data (SQLite & CSV)** | Gera arquivos de dados de exemplo e os notebooks de demonstração (`sample_demo.fsqnb` e `sample_demo_pt.fsqnb`). |
+| **F# Query Studio: Create Sample Data (SQLite, CSV & XLSX)** | Gera arquivos de dados de exemplo em `data_sources/` e os notebooks de demonstração (`sample_demo.fsqnb` e `sample_demo_pt.fsqnb`). |
 | **F# Query Studio: Restart Notebook Session** | Reinicia a sessão FSI do notebook atual, limpando o estado em memória. |
 | **F# Query Studio: Check Worker** | Diagnostica a integridade do processo worker F# e a compatibilidade do ambiente .NET. |
 | **F# Query Studio: Connections: Add / Edit / Remove / Refresh** | Gerencia as conexões de dados cadastradas na árvore. |

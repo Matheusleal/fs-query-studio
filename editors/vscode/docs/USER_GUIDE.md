@@ -64,11 +64,11 @@ F# Query Studio integrates into three key areas of VS Code:
 1. **Activity Bar**: Look for the F# Query Studio logo on the left sidebar. It displays registered connections, schemas, tables, and column metadata.
 2. **Title Icons**:
    - `$(book)` **Documentation**: Opens this guide right next to your active code (available on both the Connections view title and the notebook editor header).
-   - `$(database)` **Create Sample Data**: Automatically creates sample SQLite and CSV databases along with a demo notebook in 1 click.
+   - `$(database)` **Create Sample Data**: Automatically creates sample SQLite, CSV, and XLSX data sources in `data_sources/` along with a demo notebook in 1 click.
    - `$(add)` **Add Connection**: Prompts you step-by-step to register a new database, file, or API.
    - `$(refresh)` **Refresh**: Reloads schema discovery and regenerates entity types.
 3. **Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`)**:
-   - `F# Query Studio: Create Sample Data (SQLite & CSV)`
+   - `F# Query Studio: Create Sample Data (SQLite, CSV & XLSX)`
    - `F# Query Studio: Open Documentation`
    - `F# Query Studio: New F# Query Notebook`
    - `F# Query Studio: Restart Notebook Session`
@@ -76,11 +76,11 @@ F# Query Studio integrates into three key areas of VS Code:
 
 ---
 
-## 3. Quick Start: Generating Sample Data (SQLite & CSV)
+## 3. Quick Start: Generating Sample Data (SQLite, CSV & XLSX)
 
 Want to try queries immediately without configuring an external database?
 
-Click the **`Create Sample Data`** button (`$(database)`) on the Connections panel header, or run `F# Query Studio: Create Sample Data (SQLite & CSV)` from the Command Palette.
+Click the **`Create Sample Data`** button (`$(database)`) on the Connections panel header, or run `F# Query Studio: Create Sample Data (SQLite, CSV & XLSX)` from the Command Palette.
 
 ### What Gets Created:
 1. **`sample_store.db` (SQLite)**: A full relational database containing 5 populated tables:
