@@ -4,4 +4,4 @@
 - [x] TASK-202: Update demo notebooks (`sample_demo.fsqnb` & `sample_demo_pt.fsqnb`) descriptions, tables, and summary cell
 - [x] TASK-203: Update integration test assertions in `sample-notebook.integration.test.ts` and `HandlersTests.fs`
 - [x] TASK-204: Execute and validate all tests locally and in Linux container
-- [/] TASK-205: Push branch and create pull request
+- [x] TASK-205: Push branch and create pull request (PR #38)
