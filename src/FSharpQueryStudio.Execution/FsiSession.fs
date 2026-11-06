@@ -95,6 +95,9 @@ module FsiSession =
         let protocolAssemblyPath =
             typeof<FSharpQueryStudio.Protocol.ConnectorKind>.Assembly.Location
 
+        let securityAssemblyPath =
+            typeof<FSharpQueryStudio.Security.ISecretStore>.Assembly.Location
+
         let abstractionsAssemblyPath =
             typeof<FSharpQueryStudio.Connectors.IConnector>.Assembly.Location
 
@@ -105,16 +108,21 @@ module FsiSession =
             typeof<FSharpQueryStudio.Results.PagingCursor>.Assembly.Location
 
         let baseDir = Path.GetDirectoryName(connectorsAssemblyPath)
-        let connectorModulePaths =
+        let studioAssemblies =
             if not (String.IsNullOrEmpty baseDir) && Directory.Exists baseDir then
-                Directory.GetFiles(baseDir, "FSharpQueryStudio.Connectors.*.dll")
+                Directory.GetFiles(baseDir, "FSharpQueryStudio.*.dll")
+                |> Array.filter (fun p ->
+                    let name = Path.GetFileName p
+                    not (name.EndsWith(".Tests.dll", StringComparison.OrdinalIgnoreCase))
+                    && not (name.Equals("FSharpQueryStudio.Worker.dll", StringComparison.OrdinalIgnoreCase))
+                    && not (name.Equals("FSharpQueryStudio.Fsac.dll", StringComparison.OrdinalIgnoreCase)))
                 |> Array.sort
                 |> Array.toList
             else
                 [ abstractionsAssemblyPath ]
 
         let allRefs =
-            ([ protocolAssemblyPath; abstractionsAssemblyPath ] @ connectorModulePaths @ [ connectorsAssemblyPath; resultsAssemblyPath ])
+            ([ protocolAssemblyPath; securityAssemblyPath; abstractionsAssemblyPath ] @ studioAssemblies @ [ connectorsAssemblyPath; resultsAssemblyPath ])
             |> List.filter (fun p -> not (String.IsNullOrWhiteSpace p))
             |> List.distinct
             |> List.map (fun p -> $"#r @\"{p}\"")

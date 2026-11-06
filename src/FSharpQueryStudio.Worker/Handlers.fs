@@ -72,6 +72,7 @@ module Handlers =
 
     let waitForPendingGeneration () : unit =
         EntityBackgroundGenerator.waitForPendingGeneration()
+        Connections.waitForPendingSync()
 
     /// The secret store the worker's connection resolver reads `{password}`
     /// tokens from. The default `InMemorySecretStore` serves a standalone

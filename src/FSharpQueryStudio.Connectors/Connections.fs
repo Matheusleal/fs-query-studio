@@ -1321,14 +1321,27 @@ module Connections =
     /// Synchronizes and pre-stages all CSV and Excel connections without progress callback.
     let syncDataSources = syncDataSourcesAsync
 
+    let mutable private currentSyncTask: Task = Task.CompletedTask
+    let private syncLock = obj()
+
     /// Triggers fire-and-forget background pre-staging of tabular files into the persistent disk cache.
     let triggerBackgroundSync (workspaceDir: string) (connections: ConnectionDefinition list) (secretStore: FSharpQueryStudio.Security.ISecretStore) : unit =
-        Task.Run(fun () ->
-            try
-                (syncDataSourcesAsync workspaceDir connections secretStore).GetAwaiter().GetResult() |> ignore
-            with ex ->
-                Log.Warning("FS Query Studio: Fire-and-forget background sync failed: {Error}", ex.Message)
-        ) |> ignore
+        lock syncLock (fun () ->
+            let t =
+                Task.Run(fun () ->
+                    try
+                        (syncDataSourcesAsync workspaceDir connections secretStore).GetAwaiter().GetResult() |> ignore
+                    with ex ->
+                        Log.Warning("FS Query Studio: Fire-and-forget background sync failed: {Error}", ex.Message)
+                )
+            currentSyncTask <- t
+        )
+
+    /// Waits for any in-flight background staging task to complete. Useful for tests and cleanups.
+    let waitForPendingSync () : unit =
+        try
+            currentSyncTask.Wait()
+        with _ -> ()
 
     /// Displays the raw generated SQL query for a queryable or SQL expression without executing it against the database.
     let toRawSql (query: obj) : string = ResultKind.toRawSql query
