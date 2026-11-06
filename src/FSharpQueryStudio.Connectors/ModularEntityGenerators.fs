@@ -155,6 +155,158 @@ type ExcelEntityGenerator() =
         member _.EmitExtensionCode(connectionName: string, uniqueModuleName: string, propertyName: string) : string =
             $"        member _.{CodeGenerationHelpers.escapeIdent propertyName} : {uniqueModuleName}.Data = {uniqueModuleName}.Data(\"{connectionName}\")"
 
+type JsonEntityGenerator() =
+    interface IConnectorEntityGenerator with
+        member _.Category = ConnectorCategory.Json
+        member _.EmitModuleCode(connectionName: string, connector: IConnector, uniqueModuleName: string) : string =
+            match connector with
+            | :? JsonConnector as jc ->
+                let tables = (jc :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result
+                let sb = System.Text.StringBuilder()
+                sb.AppendLine($"module {uniqueModuleName} =") |> ignore
+                let seenTables = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                let tableEntries =
+                    tables
+                    |> List.map (fun tbl ->
+                        let rawClean = CodeGenerationHelpers.cleanIdentifier tbl.Name
+                        let baseClean = if String.IsNullOrWhiteSpace rawClean then "Items" else rawClean
+                        let mutable propIdent = baseClean
+                        let mutable counter = 2
+                        while seenTables.Contains propIdent do
+                            propIdent <- $"{baseClean}_{counter}"
+                            counter <- counter + 1
+                        seenTables.Add propIdent |> ignore
+                        let modIdent =
+                            if String.Equals(propIdent, "Data", StringComparison.OrdinalIgnoreCase) then
+                                "Data_Table"
+                            else
+                                propIdent
+                        (tbl.Name, propIdent, modIdent))
+
+                for tableName, _, modIdent in tableEntries do
+                    let qr = jc.ReadRows(tableName = tableName, maxRows = 200)
+                    let rowsSample = qr.Rows |> Seq.truncate 200 |> Seq.toList
+                    let sanitizedCols = CodeGenerationHelpers.sanitizeColumns qr.Columns
+
+                    sb.AppendLine($"    module {CodeGenerationHelpers.escapeIdent modIdent} =") |> ignore
+                    sb.AppendLine("        type Row =") |> ignore
+                    sb.AppendLine("            {") |> ignore
+                    if List.isEmpty sanitizedCols then
+                        sb.AppendLine("                Value: string") |> ignore
+                    else
+                        for idx, col in List.indexed sanitizedCols do
+                            let colType =
+                                match jc.Options.ColumnTypes.TryFind col with
+                                | Some t -> t
+                                | None ->
+                                    match jc.Options.ColumnTypes.TryFind qr.Columns.[idx] with
+                                    | Some t -> t
+                                    | None ->
+                                        let samples =
+                                            rowsSample
+                                            |> Seq.map (fun r ->
+                                                if idx < r.Length && not (isNull r.[idx]) then
+                                                    Convert.ToString(r.[idx], System.Globalization.CultureInfo.InvariantCulture)
+                                                else
+                                                    "")
+                                        TabularTypeInference.inferType samples
+                            sb.AppendLine($"                {CodeGenerationHelpers.escapeIdent col}: {colType}") |> ignore
+                    sb.AppendLine("            }") |> ignore
+                    sb.AppendLine() |> ignore
+                    sb.AppendLine($"        let rows () : FSharpQueryStudio.Connectors.SqlPushdownQueryable<Row> = (FSharpQueryStudio.Connectors.Connections.getJsonConnection(\"{connectionName}\")).TablePushdownQueryable<Row>(\"{tableName}\")") |> ignore
+                    sb.AppendLine() |> ignore
+
+                sb.AppendLine("    type Data(conn: FSharpQueryStudio.Connectors.Connections.JsonConnection) =") |> ignore
+                sb.AppendLine($"        new(name: string) = Data(FSharpQueryStudio.Connectors.Connections.getJsonConnection(name))") |> ignore
+                sb.AppendLine($"        new() = Data(\"{connectionName}\")") |> ignore
+                sb.AppendLine("        member _.Raw(?maxRows: int) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.Raw(?maxRows = maxRows)") |> ignore
+                sb.AppendLine("        member _.Connection : FSharpQueryStudio.Connectors.Connections.JsonConnection = conn") |> ignore
+                for tableName, propIdent, modIdent in tableEntries do
+                    sb.AppendLine($"        member _.{CodeGenerationHelpers.escapeIdent propIdent} : FSharpQueryStudio.Connectors.SqlPushdownQueryable<{CodeGenerationHelpers.escapeIdent modIdent}.Row> = conn.TablePushdownQueryable<{CodeGenerationHelpers.escapeIdent modIdent}.Row>(\"{tableName}\")") |> ignore
+                sb.AppendLine() |> ignore
+                sb.AppendLine("    let data () : Data = Data()") |> ignore
+                sb.ToString()
+            | _ -> ""
+
+        member _.EmitExtensionCode(connectionName: string, uniqueModuleName: string, propertyName: string) : string =
+            $"        member _.{CodeGenerationHelpers.escapeIdent propertyName} : {uniqueModuleName}.Data = {uniqueModuleName}.Data(\"{connectionName}\")"
+
+type XmlEntityGenerator() =
+    interface IConnectorEntityGenerator with
+        member _.Category = ConnectorCategory.Xml
+        member _.EmitModuleCode(connectionName: string, connector: IConnector, uniqueModuleName: string) : string =
+            match connector with
+            | :? XmlConnector as xc ->
+                let tables = (xc :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result
+                let sb = System.Text.StringBuilder()
+                sb.AppendLine($"module {uniqueModuleName} =") |> ignore
+                let seenTables = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                let tableEntries =
+                    tables
+                    |> List.map (fun tbl ->
+                        let rawClean = CodeGenerationHelpers.cleanIdentifier tbl.Name
+                        let baseClean = if String.IsNullOrWhiteSpace rawClean then "Items" else rawClean
+                        let mutable propIdent = baseClean
+                        let mutable counter = 2
+                        while seenTables.Contains propIdent do
+                            propIdent <- $"{baseClean}_{counter}"
+                            counter <- counter + 1
+                        seenTables.Add propIdent |> ignore
+                        let modIdent =
+                            if String.Equals(propIdent, "Data", StringComparison.OrdinalIgnoreCase) then
+                                "Data_Table"
+                            else
+                                propIdent
+                        (tbl.Name, propIdent, modIdent))
+
+                for tableName, _, modIdent in tableEntries do
+                    let qr = xc.ReadRows(tableName = tableName, maxRows = 200)
+                    let rowsSample = qr.Rows |> Seq.truncate 200 |> Seq.toList
+                    let sanitizedCols = CodeGenerationHelpers.sanitizeColumns qr.Columns
+
+                    sb.AppendLine($"    module {CodeGenerationHelpers.escapeIdent modIdent} =") |> ignore
+                    sb.AppendLine("        type Row =") |> ignore
+                    sb.AppendLine("            {") |> ignore
+                    if List.isEmpty sanitizedCols then
+                        sb.AppendLine("                Value: string") |> ignore
+                    else
+                        for idx, col in List.indexed sanitizedCols do
+                            let colType =
+                                match xc.Options.ColumnTypes.TryFind col with
+                                | Some t -> t
+                                | None ->
+                                    match xc.Options.ColumnTypes.TryFind qr.Columns.[idx] with
+                                    | Some t -> t
+                                    | None ->
+                                        let samples =
+                                            rowsSample
+                                            |> Seq.map (fun r ->
+                                                if idx < r.Length && not (isNull r.[idx]) then
+                                                    Convert.ToString(r.[idx], System.Globalization.CultureInfo.InvariantCulture)
+                                                else
+                                                    "")
+                                        TabularTypeInference.inferType samples
+                            sb.AppendLine($"                {CodeGenerationHelpers.escapeIdent col}: {colType}") |> ignore
+                    sb.AppendLine("            }") |> ignore
+                    sb.AppendLine() |> ignore
+                    sb.AppendLine($"        let rows () : FSharpQueryStudio.Connectors.SqlPushdownQueryable<Row> = (FSharpQueryStudio.Connectors.Connections.getXmlConnection(\"{connectionName}\")).TablePushdownQueryable<Row>(\"{tableName}\")") |> ignore
+                    sb.AppendLine() |> ignore
+
+                sb.AppendLine("    type Data(conn: FSharpQueryStudio.Connectors.Connections.XmlConnection) =") |> ignore
+                sb.AppendLine($"        new(name: string) = Data(FSharpQueryStudio.Connectors.Connections.getXmlConnection(name))") |> ignore
+                sb.AppendLine($"        new() = Data(\"{connectionName}\")") |> ignore
+                sb.AppendLine("        member _.Raw(?maxRows: int) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.Raw(?maxRows = maxRows)") |> ignore
+                sb.AppendLine("        member _.Connection : FSharpQueryStudio.Connectors.Connections.XmlConnection = conn") |> ignore
+                for tableName, propIdent, modIdent in tableEntries do
+                    sb.AppendLine($"        member _.{CodeGenerationHelpers.escapeIdent propIdent} : FSharpQueryStudio.Connectors.SqlPushdownQueryable<{CodeGenerationHelpers.escapeIdent modIdent}.Row> = conn.TablePushdownQueryable<{CodeGenerationHelpers.escapeIdent modIdent}.Row>(\"{tableName}\")") |> ignore
+                sb.AppendLine() |> ignore
+                sb.AppendLine("    let data () : Data = Data()") |> ignore
+                sb.ToString()
+            | _ -> ""
+
+        member _.EmitExtensionCode(connectionName: string, uniqueModuleName: string, propertyName: string) : string =
+            $"        member _.{CodeGenerationHelpers.escapeIdent propertyName} : {uniqueModuleName}.Data = {uniqueModuleName}.Data(\"{connectionName}\")"
+
 open System.Globalization
 open System.Text.Json
 

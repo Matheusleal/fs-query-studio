@@ -72,6 +72,7 @@ module Handlers =
 
     let waitForPendingGeneration () : unit =
         EntityBackgroundGenerator.waitForPendingGeneration()
+        Connections.waitForPendingSync()
 
     /// The secret store the worker's connection resolver reads `{password}`
     /// tokens from. The default `InMemorySecretStore` serves a standalone
@@ -194,6 +195,10 @@ module Handlers =
                                     SampleDataGenerator.createSampleExcelWorkbook fullFp
                                 elif String.Equals(def.Name, "CommerceOps", StringComparison.OrdinalIgnoreCase) then
                                     SampleDataGenerator.createSampleCommerceExcelWorkbook fullFp
+                                elif String.Equals(def.Name, "ProductCatalog", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.createSampleJsonFile fullFp
+                                elif String.Equals(def.Name, "LogisticsHub", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.createSampleXmlFile fullFp
             with _ -> ()
 
     let runEvaluate (request: WorkerRequestFrame) (workDir: string) : WorkerResponseFrame =
@@ -645,7 +650,7 @@ module Handlers =
 
     let private cleanLeakedGlobalSampleConnections (globalWs: string) : ConnectionDefinition list =
         let conns = Workspace.readConnections globalWs
-        let sampleNames = set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "GitHubFSharp" ]
+        let sampleNames = set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "ProductCatalog"; "LogisticsHub"; "GitHubFSharp" ]
         let isLeakedSample (c: ConnectionDefinition) =
             sampleNames.Contains c.Name && (
                 try

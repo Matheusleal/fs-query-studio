@@ -22,6 +22,8 @@ type SampleCreateResult =
       Csv2Path: string
       ExcelPath: string
       Excel2Path: string
+      JsonPath: string
+      XmlPath: string
       RestUrl: string
       NotebookPath: string
       NotebookPtPath: string
@@ -78,7 +80,7 @@ module WorkspaceOperations =
             if not (File.Exists readmePath) then
                 File.WriteAllText(
                     readmePath,
-                    "Place your .csv, .xlsx, .xls, or .sqlite/.db files in this directory.\nF# Query Studio will automatically detect and register them as queryable data sources.\n"
+                    "Place your .csv, .xlsx, .xls, .json, .xml, or .sqlite/.db files in this directory.\nF# Query Studio will automatically detect and register them as queryable data sources.\n"
                 )
 
         let fsqsDir = Path.Combine(rootDir, ".fsqs")
@@ -92,6 +94,8 @@ module WorkspaceOperations =
             [ ".csv", ConnectorKind("Csv")
               ".xlsx", ConnectorKind("Excel")
               ".xls", ConnectorKind("Excel")
+              ".json", ConnectorKind("Json")
+              ".xml", ConnectorKind("Xml")
               ".sqlite", ConnectorKind("Sqlite")
               ".sqlite3", ConnectorKind("Sqlite")
               ".db", ConnectorKind("Sqlite") ]
@@ -203,6 +207,10 @@ module WorkspaceOperations =
                     match kind.Id with
                     | "Excel" ->
                         JsonSerializer.SerializeToElement({| filePath = relPath; hasHeader = true |}, Serialization.options)
+                    | "Json" ->
+                        JsonSerializer.SerializeToElement({| filePath = relPath; flattenNested = true |}, Serialization.options)
+                    | "Xml" ->
+                        JsonSerializer.SerializeToElement({| filePath = relPath; includeAttributes = true; flattenNested = true |}, Serialization.options)
                     | "Sqlite" ->
                         JsonSerializer.SerializeToElement({| filePath = relPath |}, Serialization.options)
                     | _ -> // Csv
@@ -272,7 +280,7 @@ module WorkspaceOperations =
         let files = SampleDataGenerator.generateAllSamples dir
 
         let sampleFileNames =
-            set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "GitHubFSharp" ]
+            set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "ProductCatalog"; "LogisticsHub"; "GitHubFSharp" ]
 
         let existingNonSample =
             Workspace.readConnections dir
@@ -303,8 +311,10 @@ module WorkspaceOperations =
           Csv2Path = files.Csv2Path
           ExcelPath = files.ExcelPath
           Excel2Path = files.Excel2Path
+          JsonPath = files.JsonPath
+          XmlPath = files.XmlPath
           RestUrl = files.RestUrl
           NotebookPath = files.NotebookPath
           NotebookPtPath = files.NotebookPtPath
-          RegisteredConnections = [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "GitHubFSharp" ] }
+          RegisteredConnections = [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "ProductCatalog"; "LogisticsHub"; "GitHubFSharp" ] }
 

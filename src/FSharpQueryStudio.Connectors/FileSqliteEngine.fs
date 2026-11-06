@@ -119,7 +119,10 @@ type FileSqliteEngine(dbPath: string) =
                 not (s.Contains('.') || s.Contains(','))
                 && (match Int64.TryParse(s, System.Globalization.NumberStyles.Integer ||| System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture) with
                     | true, _ -> true
-                    | false, _ -> false)) then
+                    | false, _ ->
+                        match Boolean.TryParse(s) with
+                        | true, _ -> true
+                        | false, _ -> false)) then
                 "INTEGER"
             elif nonNulls |> List.forall (fun s ->
                 let clean = s.Replace(",", ".")
@@ -387,11 +390,14 @@ type FileSqliteEngine(dbPath: string) =
                                                 match Int64.TryParse(clean, System.Globalization.NumberStyles.Integer ||| System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture) with
                                                 | true, v -> p.Value <- box v
                                                 | false, _ ->
-                                                    match Double.TryParse(clean.Replace(",", "."), System.Globalization.NumberStyles.Float ||| System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture) with
-                                                    | true, d when Double.IsFinite d ->
-                                                        if d % 1.0 = 0.0 then p.Value <- box (int64 d)
-                                                        else p.Value <- box d // Do not truncate decimals!
-                                                    | _ -> p.Value <- DBNull.Value
+                                                    match Boolean.TryParse(clean) with
+                                                    | true, b -> p.Value <- box (if b then 1L else 0L)
+                                                    | false, _ ->
+                                                        match Double.TryParse(clean.Replace(",", "."), System.Globalization.NumberStyles.Float ||| System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture) with
+                                                        | true, d when Double.IsFinite d ->
+                                                            if d % 1.0 = 0.0 then p.Value <- box (int64 d)
+                                                            else p.Value <- box d // Do not truncate decimals!
+                                                        | _ -> p.Value <- DBNull.Value
                                             elif aff = "NUMERIC" then
                                                 match Double.TryParse(clean.Replace(",", "."), System.Globalization.NumberStyles.Float ||| System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture) with
                                                 | true, v when Double.IsFinite v -> p.Value <- box v

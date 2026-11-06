@@ -1414,6 +1414,8 @@ let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or em
             let csv2 = r1.GetProperty("csv2Path").GetString()
             let excel1 = r1.GetProperty("excelPath").GetString()
             let excel2 = r1.GetProperty("excel2Path").GetString()
+            let json1 = r1.GetProperty("jsonPath").GetString()
+            let xml1 = r1.GetProperty("xmlPath").GetString()
             let restUrl = r1.GetProperty("restUrl").GetString()
             let nb1 = r1.GetProperty("notebookPath").GetString()
             let nb2 = r1.GetProperty("notebookPtPath").GetString()
@@ -1423,12 +1425,16 @@ let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or em
             Assert.True(File.Exists csv2, $"csv2Path should exist: {csv2}")
             Assert.True(File.Exists excel1, $"excelPath should exist: {excel1}")
             Assert.True(File.Exists excel2, $"excel2Path should exist: {excel2}")
+            Assert.True(File.Exists json1, $"jsonPath should exist: {json1}")
+            Assert.True(File.Exists xml1, $"xmlPath should exist: {xml1}")
             Assert.Contains("data_sources", sqlite1)
             Assert.Contains("data_sources", sqlite2)
             Assert.Contains("data_sources", csv1)
             Assert.Contains("data_sources", csv2)
             Assert.Contains("data_sources", excel1)
             Assert.Contains("data_sources", excel2)
+            Assert.Contains("data_sources", json1)
+            Assert.Contains("data_sources", xml1)
             Assert.StartsWith("https://", restUrl)
             Assert.Contains("github.com", restUrl)
             Assert.True(File.Exists nb1, $"notebookPath should exist: {nb1}")
@@ -1439,7 +1445,7 @@ let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or em
                 |> Seq.map (fun el -> el.GetString())
                 |> Seq.toList
             Assert.Equal<string list>(
-                [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "GitHubFSharp" ],
+                [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "ProductCatalog"; "LogisticsHub"; "GitHubFSharp" ],
                 regConns
             )
 
@@ -1490,7 +1496,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(13, codeCells.Length)
+            Assert.Equal(15, codeCells.Length)
 
             for idx, code in List.indexed codeCells do
                 let evalReq = notebookCellRequest $"cell-{idx + 1}" code "sample_demo.fsqnb"
@@ -1515,7 +1521,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(13, codeCellsPt.Length)
+            Assert.Equal(15, codeCellsPt.Length)
 
             for idx, code in List.indexed codeCellsPt do
                 let evalReq = notebookCellRequest $"cell-pt-{idx + 1}" code "sample_demo_pt.fsqnb"
@@ -1639,13 +1645,15 @@ let ``connector/list returns all registered connector descriptors with form sche
         let listResult =
             JsonSerializer.Deserialize<ConnectorListResult>(res.Result.Value.GetRawText(), Serialization.options)
 
-        Assert.True(listResult.Connectors.Length >= 6)
+        Assert.True(listResult.Connectors.Length >= 8)
         let kindIds = listResult.Connectors |> List.map (fun c -> c.KindId) |> Set.ofList
         Assert.True(Set.contains "Sqlite" kindIds)
         Assert.True(Set.contains "SqlServer" kindIds)
         Assert.True(Set.contains "PostgreSql" kindIds)
         Assert.True(Set.contains "Csv" kindIds)
         Assert.True(Set.contains "Excel" kindIds)
+        Assert.True(Set.contains "Json" kindIds)
+        Assert.True(Set.contains "Xml" kindIds)
         Assert.True(Set.contains "RestJson" kindIds)
 
         for desc in listResult.Connectors do
@@ -2225,6 +2233,77 @@ $"{sqlCal} | {sqlNames} | {sqlCourses}"
             Assert.Equal(ResultKind.Text, envSql.Kind)
             Assert.Equal(
                 Some "SELECT * FROM teste_calendar | SELECT Id AS Id, FullName AS Name FROM teste_names | SELECT * FROM teste_courses",
+                envSql.DisplayText
+            )
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
+[<Fact>]
+let ``evaluating Connections.json and Connections.xml sub-properties translates to prefixed SQLite tables and executes LINQ joins`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-json-xml-schema-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let jsonPath = Path.Combine(tmp, "catalog.json")
+            SampleDataGenerator.createSampleJsonFile jsonPath
+
+            let xmlPath = Path.Combine(tmp, "logistics.xml")
+            SampleDataGenerator.createSampleXmlFile xmlPath
+
+            let connJson: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "ProductCatalog"
+                  Kind = ConnectorKind.Json
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = jsonPath; flattenNested = true |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let connXml: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "LogisticsHub"
+                  Kind = ConnectorKind.Xml
+                  Configuration = JsonSerializer.SerializeToElement({| filePath = xmlPath; includeAttributes = true; flattenNested = true |}, Serialization.options)
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let! r1 = Handlers.dispatch (registerConnectionRequest "reg-json" connJson)
+            Assert.True(r1.Error.IsNone)
+            let! r2 = Handlers.dispatch (registerConnectionRequest "reg-xml" connXml)
+            Assert.True(r2.Error.IsNone)
+            Handlers.waitForPendingGeneration ()
+
+            let syncReq: WorkerRequestFrame =
+                { Id = "sync-json-xml"
+                  Method = "workspace/syncDataSources"
+                  Params = JsonSerializer.SerializeToElement({| targetDir = tmp |}, Serialization.options) }
+            let! syncResp = Handlers.dispatch syncReq
+            Assert.True(syncResp.Error.IsNone)
+
+            let docUri = Path.Combine(tmp, "test_json_xml.fsqnb")
+            let codeSqlCheck = """
+let sqlJson =
+    query {
+        for p in Connections.json.ProductCatalog.Products do
+        select p.Title
+    } |> ResultKind.toRawSql
+
+let sqlXml =
+    query {
+        for s in Connections.xml.LogisticsHub.Shipments do
+        select s.Destination
+    } |> ResultKind.toRawSql
+
+$"{sqlJson} | {sqlXml}"
+"""
+            let! respSql = Handlers.dispatch (notebookCellRequest "eval-json-xml-sql" codeSqlCheck docUri)
+            Assert.True(respSql.Error.IsNone, (match respSql.Error with Some e -> e.Message | None -> ""))
+            let envSql = JsonSerializer.Deserialize<ResultEnvelope>(respSql.Result.Value.GetRawText(), Serialization.options)
+            Assert.Equal(ResultKind.Text, envSql.Kind)
+            Assert.Equal(
+                Some "SELECT Title AS Title FROM ProductCatalog_Products | SELECT Destination AS Destination FROM LogisticsHub_Shipments",
                 envSql.DisplayText
             )
         finally
