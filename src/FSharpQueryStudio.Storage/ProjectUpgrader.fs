@@ -34,9 +34,9 @@ module ProjectUpgradeConstants =
 
     let currentExtensionVersion () : string =
         match System.Reflection.Assembly.GetExecutingAssembly().GetName().Version with
-        | null -> "0.4.0"
-        | v when v.Major = 0 && v.Minor = 0 && v.Build = 0 -> "0.4.0"
-        | v when v.Major = 1 && v.Minor = 0 && v.Build = 0 -> "0.4.0"
+        | null -> "0.5.0"
+        | v when v.Major = 0 && v.Minor = 0 && v.Build = 0 -> "0.5.0"
+        | v when v.Major = 1 && v.Minor = 0 && v.Build = 0 -> "0.5.0"
         | v -> sprintf "%d.%d.%d" v.Major v.Minor v.Build
 
     let parseConnectionsFromRawJson (json: string) : ConnectionDefinition list =
