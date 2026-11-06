@@ -974,19 +974,31 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
 
         SqliteConnection.ClearAllPools()
 
+    let private writeTextShared (filePath: string) (content: string) =
+        let bytes = System.Text.Encoding.UTF8.GetBytes(content)
+        use fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite)
+        fs.Write(bytes, 0, bytes.Length)
+
+    let private saveWorkbookShared (workbook: XLWorkbook) (filePath: string) =
+        use ms = new MemoryStream()
+        workbook.SaveAs(ms)
+        let bytes = ms.ToArray()
+        use fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite)
+        fs.Write(bytes, 0, bytes.Length)
+
     let createSampleCsv (filePath: string) : unit =
         let dir = Path.GetDirectoryName(filePath)
         if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
             Directory.CreateDirectory(dir) |> ignore
 
-        File.WriteAllText(filePath, sampleCsvContent)
+        writeTextShared filePath sampleCsvContent
 
     let createSampleCustomersCsv (filePath: string) : unit =
         let dir = Path.GetDirectoryName(filePath)
         if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
             Directory.CreateDirectory(dir) |> ignore
 
-        File.WriteAllText(filePath, sampleCustomersCsvContent)
+        writeTextShared filePath sampleCustomersCsvContent
 
     let createSampleExcelWorkbook (filePath: string) : unit =
         let dir = Path.GetDirectoryName(filePath)
@@ -1037,7 +1049,7 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
             budgetSheet.Cell(r, 4).Value <- actual
             budgetSheet.Cell(r, 5).Value <- status
 
-        workbook.SaveAs(filePath)
+        saveWorkbookShared workbook filePath
 
     let createSampleCommerceExcelWorkbook (filePath: string) : unit =
         let dir = Path.GetDirectoryName(filePath)
@@ -1143,7 +1155,7 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
             deliverySheet.Cell(r, 6).Value <- dispatched
             deliverySheet.Cell(r, 7).Value <- arrival
 
-        workbook.SaveAs(filePath)
+        saveWorkbookShared workbook filePath
 
     let createSampleDemoNotebook (filePath: string) : unit =
         let dir = Path.GetDirectoryName(filePath)
