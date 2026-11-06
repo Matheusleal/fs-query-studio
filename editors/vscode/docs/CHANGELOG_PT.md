@@ -8,6 +8,22 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-06
+
+### Adicionado
+
+- **Conector Nativo de Fontes de Dados JSON** — Suporte completo para documentos locais `.json` (`FSharpQueryStudio.Connectors.Json`) utilizando `System.Text.Json`. Inspeciona automaticamente coleções de array ou propriedades de objetos em nível raiz, realizando o staging em SQLite para consultas LINQ ultra-rápidas com SQL pushdown.
+- **Conector Nativo de Fontes de Dados XML** — Suporte completo para documentos locais `.xml` (`FSharpQueryStudio.Connectors.Xml`) utilizando `System.Xml.Linq` com proteção total contra XXE (`DtdProcessing.Prohibit`). Mapeia automaticamente elementos recorrentes como tabelas relacionais consultáveis.
+- **Descoberta de Esquema com Sub-Propriedades no Estilo Excel** — Arquivos tabulares multi-coleção expõem sub-propriedades fortemente tipadas no F# interativo (`Connections.json.<Conn>.<Tabela>`, `Connections.xml.<Conn>.<Tabela>` e `Connections.excel.<Planilha>.<Aba>`), respaldadas por tabelas de staging no SQLite (`<Conn>_<Tabela>`).
+- **Auto-Importação de JSON e XML em `data_sources/`** — Arquivos `.json` e `.xml` adicionados à pasta `data_sources/` são detectados em tempo real, registrados nas conexões do workspace e pré-carregados em background.
+- **SQL Pushdown por Aba em Planilhas Excel Multi-Aba** — Resolução precisa do nome da aba no motor de SQL pushdown para pastas de trabalho Excel com múltiplas abas.
+- **Conjuntos de Dados de Amostra CommerceOps, Product Catalog e Logistics Hub** — Notebooks de exemplo (`sample_demo.fsqnb` e `sample_demo_pt.fsqnb`) atualizados com consultas interativas a Excel multi-aba, catálogo de produtos em JSON e hub de logística em XML.
+
+### Corrigido
+
+- **Deadlock de Carregamento Dinâmico de Assemblies no FSI** — Pré-carregamento explícito de todos os assemblies companion do estúdio (`FSharpQueryStudio.*.dll`) e `FSharpQueryStudio.Security.dll` nas diretivas `#r` do `FsiSession`, prevenindo travamentos de recursão de locks em `TcImports.ImplicitLoadIfAllowed`.
+- **Sincronização do Staging Tabular em Segundo Plano** — Implementado `waitForPendingSync()` para assegurar que tarefas de staging assíncrono finalizem antes de reinicializações de conexão ou testes automatizados.
+
 ## [0.4.0] — 2026-11-03
 
 ### Adicionado

@@ -8,6 +8,22 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-06
+
+### Added
+
+- **Native JSON Data Source Connector** — Full support for local `.json` documents (`FSharpQueryStudio.Connectors.Json`) using `System.Text.Json`. Automatically inspects top-level object keys or array collections, staging multi-collection datasets into SQLite for sub-millisecond LINQ pushdown queries.
+- **Native XML Data Source Connector** — Full support for local `.xml` documents (`FSharpQueryStudio.Connectors.Xml`) using `System.Xml.Linq` with XXE protection (`DtdProcessing.Prohibit`). Automatically discovers recurring element nodes as queryable relational collections.
+- **Excel-Style Sub-Property Schema Discovery** — Multi-collection tabular files expose strongly-typed sub-properties in F# Interactive (`Connections.json.<Conn>.<Table>`, `Connections.xml.<Conn>.<Table>`, and `Connections.excel.<Workbook>.<Sheet>`), backed by isolated SQLite staging tables (`<Conn>_<Table>`).
+- **Data Sources Auto-Import for JSON & XML** — Files placed in `data_sources/` ending in `.json` and `.xml` are automatically discovered, registered in workspace connections, and pre-staged in background.
+- **Excel Workbook Multi-Sheet Pushdown** — Resolved per-sheet table resolution for multi-worksheet Excel workbooks in LINQ SQL pushdown.
+- **CommerceOps, Product Catalog, and Logistics Hub Sample Data** — Updated bilingual sample notebooks (`sample_demo.fsqnb` and `sample_demo_pt.fsqnb`) with multi-sheet Excel, multi-collection JSON, and XML query demonstrations.
+
+### Fixed
+
+- **FSI Dynamic Assembly Loading Deadlock** — Pre-loaded companion studio assemblies (`FSharpQueryStudio.*.dll`) and `FSharpQueryStudio.Security.dll` directly in `FsiSession` startup references, preventing threadpool recursion deadlocks in `TcImports.ImplicitLoadIfAllowed`.
+- **Tabular Background Staging Synchronization** — Added `waitForPendingSync()` tracking to guarantee background file sync completion before running workspace reload or connection cleanup in automated tests.
+
 ## [0.4.0] — 2026-11-03
 
 ### Added
