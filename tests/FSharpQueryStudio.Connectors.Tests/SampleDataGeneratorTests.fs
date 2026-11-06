@@ -15,11 +15,13 @@ module SampleDataGeneratorTests =
             Directory.CreateDirectory tempDir |> ignore
             let res = SampleDataGenerator.generateAllSamples tempDir
 
-            // Assert all 4 data files exist
+            // Assert all data files exist
             Assert.True(File.Exists res.SqlitePath, $"First SQLite db should exist at {res.SqlitePath}")
             Assert.True(File.Exists res.Sqlite2Path, $"Second SQLite db should exist at {res.Sqlite2Path}")
             Assert.True(File.Exists res.CsvPath, $"First CSV file should exist at {res.CsvPath}")
             Assert.True(File.Exists res.Csv2Path, $"Second CSV file should exist at {res.Csv2Path}")
+            Assert.True(File.Exists res.JsonPath, $"Sample JSON file should exist at {res.JsonPath}")
+            Assert.True(File.Exists res.XmlPath, $"Sample XML file should exist at {res.XmlPath}")
             Assert.True(File.Exists res.NotebookPath, $"English notebook should exist at {res.NotebookPath}")
             Assert.True(File.Exists res.NotebookPtPath, $"Portuguese notebook should exist at {res.NotebookPtPath}")
 

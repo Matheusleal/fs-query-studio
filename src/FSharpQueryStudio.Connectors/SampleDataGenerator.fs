@@ -19,6 +19,8 @@ module SampleDataGenerator =
           Csv2Path: string
           ExcelPath: string
           Excel2Path: string
+          JsonPath: string
+          XmlPath: string
           RestUrl: string
           NotebookPath: string
           NotebookPtPath: string }
@@ -193,6 +195,62 @@ INSERT OR IGNORE INTO Suppliers (Id, CompanyName, ContactEmail, Country, Rating)
 6,Ana Pereira,Bronze,87.50,8.9,2026-02-18,Atendimento cordial e catalogo diversificado
 """
 
+    let private sampleJsonContent = """{
+  "Products": [
+    { "ProductId": 101, "Sku": "PRD-AI-01", "Title": "Neural Compute Stick X2", "Category": "AI Hardware", "Price": 249.90, "InStock": true, "Rating": 4.9 },
+    { "ProductId": 102, "Sku": "PRD-NET-02", "Title": "10GbE Smart Switch", "Category": "Networking", "Price": 389.50, "InStock": true, "Rating": 4.8 },
+    { "ProductId": 103, "Sku": "PRD-DEV-03", "Title": "Ergonomic Split Keyboard", "Category": "Peripherals", "Price": 179.00, "InStock": true, "Rating": 4.7 },
+    { "ProductId": 104, "Sku": "PRD-CLD-04", "Title": "NVMe Gen5 Raid Enclosure", "Category": "Storage", "Price": 319.99, "InStock": false, "Rating": 4.6 }
+  ],
+  "Reviews": [
+    { "ReviewId": 1, "ProductId": 101, "Reviewer": "Elena Rostova", "Stars": 5, "VerifiedPurchase": true, "Comment": "Blazing fast local inference throughput" },
+    { "ReviewId": 2, "ProductId": 102, "Reviewer": "Marcus Vance", "Stars": 5, "VerifiedPurchase": true, "Comment": "Rock-solid VLAN tagging and low latency" },
+    { "ReviewId": 3, "ProductId": 103, "Reviewer": "Camila Rocha", "Stars": 4, "VerifiedPurchase": true, "Comment": "Great tactile switches for long coding sessions" },
+    { "ReviewId": 4, "ProductId": 101, "Reviewer": "Kenji Sato", "Stars": 5, "VerifiedPurchase": true, "Comment": "Seamless ONNX runtime integration" }
+  ]
+}
+"""
+
+    let private sampleXmlContent = """<?xml version="1.0" encoding="utf-8"?>
+<LogisticsHub>
+  <Carriers>
+    <Carrier CarrierId="1" Code="DHL-INT" Name="DHL Global Express" HubCountry="Germany" OnTimeRate="98.4" />
+    <Carrier CarrierId="2" Code="FDX-PRI" Name="FedEx Priority Air" HubCountry="USA" OnTimeRate="97.8" />
+    <Carrier CarrierId="3" Code="LAT-CAR" Name="Latam Cargo Logistics" HubCountry="Brazil" OnTimeRate="96.5" />
+  </Carriers>
+  <Shipments>
+    <Shipment ShipmentId="9001" CarrierId="1">
+      <TrackingNumber>DHL-2026-8841</TrackingNumber>
+      <Destination>Sao Paulo</Destination>
+      <WeightKg>14.5</WeightKg>
+      <ShippingCost>128.90</ShippingCost>
+      <Status>Delivered</Status>
+    </Shipment>
+    <Shipment ShipmentId="9002" CarrierId="2">
+      <TrackingNumber>FDX-2026-3319</TrackingNumber>
+      <Destination>London</Destination>
+      <WeightKg>8.2</WeightKg>
+      <ShippingCost>94.50</ShippingCost>
+      <Status>In Transit</Status>
+    </Shipment>
+    <Shipment ShipmentId="9003" CarrierId="3">
+      <TrackingNumber>LAT-2026-5502</TrackingNumber>
+      <Destination>Madrid</Destination>
+      <WeightKg>22.0</WeightKg>
+      <ShippingCost>185.00</ShippingCost>
+      <Status>Delivered</Status>
+    </Shipment>
+    <Shipment ShipmentId="9004" CarrierId="1">
+      <TrackingNumber>DHL-2026-9104</TrackingNumber>
+      <Destination>Tokyo</Destination>
+      <WeightKg>5.4</WeightKg>
+      <ShippingCost>112.40</ShippingCost>
+      <Status>Customs Cleared</Status>
+    </Shipment>
+  </Shipments>
+</LogisticsHub>
+"""
+
     type private NotebookCell =
         { kind: string
           language: string option
@@ -242,6 +300,8 @@ INSERT OR IGNORE INTO Suppliers (Id, CompanyName, ContactEmail, Country, Rating)
 | **`CustomersFeed`** | CSV | Flat-file loyalty & satisfaction feed | `CustomerId`, `CustomerName`, `LoyaltyTier`, `TotalSpent`, `Score`, `Feedback` |
 | **`RegionalTargets`** | Excel (`.xlsx`) | Multi-sheet regional revenue targets & budgets | `RegionalTargets`, `QuarterlyBudget` |
 | **`CommerceOps`** | Excel (`.xlsx`) | 4-sheet e-commerce operations & logistics workbook | `Customers`, `ProductsStock`, `Sales`, `DeliveryLogs` |
+| **`ProductCatalog`** | JSON (`.json`) | Multi-collection product catalog & customer reviews | `Products`, `Reviews` |
+| **`LogisticsHub`** | XML (`.xml`) | Multi-collection carrier network & international shipments | `Carriers`, `Shipments` |
 | **`GitHubFSharp`** | REST (`https://`) | Secure GitHub REST API (`fsprojects` repositories) | `name`, `full_name`, `language`, `stargazers_count`, `forks_count`, `html_url` |
 
 ---
@@ -518,13 +578,63 @@ query {
 """
 
                 mkMarkdown """
-## 11. 🔒 Secure GitHub REST API (`https://`): F# Community Repositories (`GitHubFSharp`)
+## 11. 🗂️ Local JSON Document (`.json`): Multi-Collection Catalog & Reviews (`ProductCatalog`)
+
+Local JSON files (`.json`) work just like Excel workbooks: each discovered array collection is exposed as a strongly-typed sub-property (`Connections.json.ProductCatalog.Products` and `Connections.json.ProductCatalog.Reviews`) staged in SQLite (`ProductCatalog_Products`, `ProductCatalog_Reviews`) with full LINQ-to-SQL pushdown!
+"""
+
+                mkCode """
+// 11. Join Products and Reviews inside the local JSON file (ProductCatalog.json) via Connections.json
+query {
+    for p in Connections.json.ProductCatalog.Products do
+    join r in Connections.json.ProductCatalog.Reviews on (p.ProductId = r.ProductId)
+    where (r.Stars >= 4)
+    sortByDescending p.Price
+    select {|
+        Sku = p.Sku
+        Product = p.Title
+        Category = p.Category
+        Price = p.Price
+        Reviewer = r.Reviewer
+        Stars = r.Stars
+        Comment = r.Comment
+    |}
+}
+"""
+
+                mkMarkdown """
+## 12. 📄 Local XML Document (`.xml`): Carrier Network & Shipments (`LogisticsHub`)
+
+Local XML files (`.xml`) automatically extract both XML attributes (`@CarrierId`, `@Code`) and child elements (`<TrackingNumber>`, `<Destination>`, `<ShippingCost>`) into strongly-typed sub-properties (`Connections.xml.LogisticsHub.Carriers` and `Connections.xml.LogisticsHub.Shipments`).
+"""
+
+                mkCode """
+// 12. Join Shipments and Carriers inside the local XML file (logistics_hub.xml) via Connections.xml
+query {
+    for s in Connections.xml.LogisticsHub.Shipments do
+    join c in Connections.xml.LogisticsHub.Carriers on (s.CarrierId = c.CarrierId)
+    sortByDescending s.ShippingCost
+    select {|
+        ShipmentId = s.ShipmentId
+        TrackingNumber = s.TrackingNumber
+        Carrier = c.Name
+        HubCountry = c.HubCountry
+        Destination = s.Destination
+        WeightKg = s.WeightKg
+        ShippingCost = s.ShippingCost
+        Status = s.Status
+    |}
+}
+"""
+
+                mkMarkdown """
+## 13. 🔒 Secure GitHub REST API (`https://`): F# Community Repositories (`GitHubFSharp`)
 
 REST/JSON endpoints over HTTPS are automatically sampled and mapped into strongly-typed F# records. Here we query public F# repositories from `https://api.github.com/orgs/fsprojects/repos` via `Connections.rest.GitHubFSharp`.
 """
 
                 mkCode """
-// 11. Query public F# repositories from GitHub HTTPS REST API via Connections.rest
+// 13. Query public F# repositories from GitHub HTTPS REST API via Connections.rest
 query {
     for repo in Connections.rest.GitHubFSharp do
     sortByDescending repo.stargazers_count
@@ -541,19 +651,21 @@ query {
 """
 
                 mkMarkdown """
-## 12. 🌐 Cross-Database & Cross-Kind Overview: 7-Source Pipeline
+## 14. 🌐 Cross-Database & Cross-Kind Overview: 9-Source Pipeline
 
-Because F# Query Studio executes queries in an integrated F# Interactive session, you can aggregate metadata and counts across all 7 sources (`SQLite`, `CSV`, `Excel`, and `REST/JSON`) simultaneously.
+Because F# Query Studio executes queries in an integrated F# Interactive session, you can aggregate metadata and counts across all 9 sources (`SQLite`, `CSV`, `Excel`, `JSON`, `XML`, and `REST/JSON`) simultaneously.
 """
 
                 mkCode """
-// 12. Comprehensive summary across all 7 registered data sources
+// 14. Comprehensive summary across all 9 registered data sources
 let sampleStoreOrders = Connections.sql.SampleStore.Orders |> Seq.length
 let inventoryWarehouses = Connections.sql.InventoryStore.Warehouses |> Seq.length
 let salesCount = Connections.csv.SalesFeed |> Seq.length
 let loyaltyCount = Connections.csv.CustomersFeed |> Seq.length
 let excelTargetsCount = Connections.excel.RegionalTargets.RegionalTargets |> Seq.length
 let commerceSalesCount = Connections.excel.CommerceOps.Sales |> Seq.length
+let jsonProductsCount = Connections.json.ProductCatalog.Products |> Seq.length
+let xmlShipmentsCount = Connections.xml.LogisticsHub.Shipments |> Seq.length
 let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
 
 [
@@ -563,6 +675,8 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
     {| Source = "CustomersFeed";   Kind = "CSV (Flat-File)";     RecordCount = loyaltyCount;        PrimaryEntity = "Loyalty Profiles" |}
     {| Source = "RegionalTargets"; Kind = "Excel (.xlsx)";       RecordCount = excelTargetsCount;   PrimaryEntity = "RegionalTargets" |}
     {| Source = "CommerceOps";     Kind = "Excel (.xlsx)";       RecordCount = commerceSalesCount;  PrimaryEntity = "Customers / Stock / Sales / Delivery" |}
+    {| Source = "ProductCatalog";  Kind = "JSON (.json)";        RecordCount = jsonProductsCount;   PrimaryEntity = "Products / Reviews" |}
+    {| Source = "LogisticsHub";    Kind = "XML (.xml)";          RecordCount = xmlShipmentsCount;   PrimaryEntity = "Carriers / Shipments" |}
     {| Source = "GitHubFSharp";    Kind = "REST JSON (HTTPS)";   RecordCount = githubReposCount;    PrimaryEntity = "GitHub Repositories" |}
 ]
 """
@@ -599,6 +713,8 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
 | **`CustomersFeed`** | CSV | Feed de fidelidade e avaliação de clientes | `CustomerId`, `CustomerName`, `LoyaltyTier`, `TotalSpent`, `Score`, `Feedback` |
 | **`RegionalTargets`** | Excel (`.xlsx`) | Planilha multi-abas de metas regionais e orçamento | `RegionalTargets`, `QuarterlyBudget` |
 | **`CommerceOps`** | Excel (`.xlsx`) | Planilha em inglês com 4 abas (clientes, estoque, vendas e delivery) | `Customers`, `ProductsStock`, `Sales`, `DeliveryLogs` |
+| **`ProductCatalog`** | JSON (`.json`) | Catálogo multi-coleções de produtos e avaliações | `Products`, `Reviews` |
+| **`LogisticsHub`** | XML (`.xml`) | Hub logístico com transportadoras e remessas internacionais | `Carriers`, `Shipments` |
 | **`GitHubFSharp`** | REST (`https://`) | API REST segura do GitHub (`fsprojects` repos) | `name`, `full_name`, `language`, `stargazers_count`, `forks_count`, `html_url` |
 
 ---
@@ -875,13 +991,63 @@ query {
 """
 
                 mkMarkdown """
-## 11. 🔒 API REST Segura do GitHub (`https://`): Repositórios da Comunidade F# (`GitHubFSharp`)
+## 11. 🗂️ Documento JSON Local (`.json`): Catálogo Multi-Coleções e Avaliações (`ProductCatalog`)
+
+Arquivos JSON locais (`.json`) funcionam exatamente como planilhas Excel: cada array descoberto é exposto como uma sub-propriedade fortemente tipada (`Connections.json.ProductCatalog.Products` e `Connections.json.ProductCatalog.Reviews`) com staging em SQLite (`ProductCatalog_Products`, `ProductCatalog_Reviews`) e pushdown de LINQ para SQL!
+"""
+
+                mkCode """
+// 11. Join entre Products e Reviews dentro do arquivo JSON local (product_catalog.json) via Connections.json
+query {
+    for p in Connections.json.ProductCatalog.Products do
+    join r in Connections.json.ProductCatalog.Reviews on (p.ProductId = r.ProductId)
+    where (r.Stars >= 4)
+    sortByDescending p.Price
+    select {|
+        Sku = p.Sku
+        Produto = p.Title
+        Categoria = p.Category
+        Preco = p.Price
+        Avaliador = r.Reviewer
+        Estrelas = r.Stars
+        Comentario = r.Comment
+    |}
+}
+"""
+
+                mkMarkdown """
+## 12. 📄 Documento XML Local (`.xml`): Rede de Transportadoras e Remessas (`LogisticsHub`)
+
+Arquivos XML locais (`.xml`) extraem automaticamente tanto atributos XML (`@CarrierId`, `@Code`) quanto elementos filhos (`<TrackingNumber>`, `<Destination>`, `<ShippingCost>`) em sub-propriedades fortemente tipadas (`Connections.xml.LogisticsHub.Carriers` e `Connections.xml.LogisticsHub.Shipments`).
+"""
+
+                mkCode """
+// 12. Join entre Shipments e Carriers dentro do arquivo XML local (logistics_hub.xml) via Connections.xml
+query {
+    for s in Connections.xml.LogisticsHub.Shipments do
+    join c in Connections.xml.LogisticsHub.Carriers on (s.CarrierId = c.CarrierId)
+    sortByDescending s.ShippingCost
+    select {|
+        RemessaId = s.ShipmentId
+        CodigoRastreio = s.TrackingNumber
+        Transportadora = c.Name
+        PaisHub = c.HubCountry
+        Destino = s.Destination
+        PesoKg = s.WeightKg
+        CustoEnvio = s.ShippingCost
+        Status = s.Status
+    |}
+}
+"""
+
+                mkMarkdown """
+## 13. 🔒 API REST Segura do GitHub (`https://`): Repositórios da Comunidade F# (`GitHubFSharp`)
 
 Endpoints REST/JSON em páginas seguras (`https://`) são inspecionados e mapeados em registros F# fortemente tipados. Aqui consultamos os repositórios públicos de F# em `https://api.github.com/orgs/fsprojects/repos` via `Connections.rest.GitHubFSharp`.
 """
 
                 mkCode """
-// 11. Consulta repositórios públicos da comunidade F# via API HTTPS do GitHub em Connections.rest
+// 13. Consulta repositórios públicos da comunidade F# via API HTTPS do GitHub em Connections.rest
 query {
     for repo in Connections.rest.GitHubFSharp do
     sortByDescending repo.stargazers_count
@@ -898,19 +1064,21 @@ query {
 """
 
                 mkMarkdown """
-## 12. 🌐 Visão Consolidada Multi-Fontes: SQLite + CSV + Excel + REST
+## 14. 🌐 Visão Consolidada Multi-Fontes: SQLite + CSV + Excel + JSON + XML + REST
 
-Como as consultas no F# Query Studio rodam em uma sessão FSI unificada, você pode cruzar e comparar dados das 7 fontes simultaneamente:
+Como as consultas no F# Query Studio rodam em uma sessão FSI unificada, você pode cruzar e comparar dados das 9 fontes simultaneamente:
 """
 
                 mkCode """
-// 12. Resumo consolidado das 7 fontes de dados registradas
+// 14. Resumo consolidado das 9 fontes de dados registradas
 let sampleStoreOrders = Connections.sql.SampleStore.Orders |> Seq.length
 let inventoryWarehouses = Connections.sql.InventoryStore.Warehouses |> Seq.length
 let salesCount = Connections.csv.SalesFeed |> Seq.length
 let loyaltyCount = Connections.csv.CustomersFeed |> Seq.length
 let excelTargetsCount = Connections.excel.RegionalTargets.RegionalTargets |> Seq.length
 let commerceSalesCount = Connections.excel.CommerceOps.Sales |> Seq.length
+let jsonProductsCount = Connections.json.ProductCatalog.Products |> Seq.length
+let xmlShipmentsCount = Connections.xml.LogisticsHub.Shipments |> Seq.length
 let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
 
 [
@@ -920,6 +1088,8 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
     {| Fonte = "CustomersFeed";   Tipo = "CSV (Arquivo Plano)"; TotalRegistros = loyaltyCount;        EntidadePrincipal = "Perfis de Fidelidade" |}
     {| Fonte = "RegionalTargets"; Tipo = "Excel (.xlsx)";       TotalRegistros = excelTargetsCount;   EntidadePrincipal = "RegionalTargets" |}
     {| Fonte = "CommerceOps";     Tipo = "Excel (.xlsx)";       TotalRegistros = commerceSalesCount;  EntidadePrincipal = "Customers / Stock / Sales / Delivery" |}
+    {| Fonte = "ProductCatalog";  Tipo = "JSON (.json)";        TotalRegistros = jsonProductsCount;   EntidadePrincipal = "Products / Reviews" |}
+    {| Fonte = "LogisticsHub";    Tipo = "XML (.xml)";          TotalRegistros = xmlShipmentsCount;   EntidadePrincipal = "Carriers / Shipments" |}
     {| Fonte = "GitHubFSharp";    Tipo = "REST JSON (HTTPS)";   TotalRegistros = githubReposCount;    EntidadePrincipal = "Repositórios GitHub" |}
 ]
 """
@@ -1157,6 +1327,20 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
 
         saveWorkbookShared workbook filePath
 
+    let createSampleJsonFile (filePath: string) : unit =
+        let dir = Path.GetDirectoryName(filePath)
+        if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
+            Directory.CreateDirectory(dir) |> ignore
+
+        writeTextShared filePath sampleJsonContent
+
+    let createSampleXmlFile (filePath: string) : unit =
+        let dir = Path.GetDirectoryName(filePath)
+        if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
+            Directory.CreateDirectory(dir) |> ignore
+
+        writeTextShared filePath sampleXmlContent
+
     let createSampleDemoNotebook (filePath: string) : unit =
         let dir = Path.GetDirectoryName(filePath)
         if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
@@ -1180,7 +1364,7 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
         if not (File.Exists readmePath) then
             File.WriteAllText(
                 readmePath,
-                "Place your .csv, .xlsx, .xls, or .sqlite/.db files in this directory.\nF# Query Studio will automatically detect and register them as queryable data sources.\n"
+                "Place your .csv, .xlsx, .xls, .json, .xml, or .sqlite/.db files in this directory.\nF# Query Studio will automatically detect and register them as queryable data sources.\n"
             )
 
         let dbPath = Path.Combine(sampleDir, "sample_store.db")
@@ -1189,6 +1373,8 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
         let csv2Path = Path.Combine(sampleDir, "customers_feed.csv")
         let excelPath = Path.Combine(sampleDir, "regional_targets.xlsx")
         let excel2Path = Path.Combine(sampleDir, "commerce_ops.xlsx")
+        let jsonPath = Path.Combine(sampleDir, "product_catalog.json")
+        let xmlPath = Path.Combine(sampleDir, "logistics_hub.xml")
         let notebookPath = Path.Combine(targetDir, "sample_demo.fsqnb")
         let notebookPtPath = Path.Combine(targetDir, "sample_demo_pt.fsqnb")
 
@@ -1198,6 +1384,8 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
         createSampleCustomersCsv csv2Path
         createSampleExcelWorkbook excelPath
         createSampleCommerceExcelWorkbook excel2Path
+        createSampleJsonFile jsonPath
+        createSampleXmlFile xmlPath
         createSampleDemoNotebook notebookPath
         createSampleDemoNotebookPt notebookPtPath
 
@@ -1207,6 +1395,8 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
           Csv2Path = csv2Path
           ExcelPath = excelPath
           Excel2Path = excel2Path
+          JsonPath = jsonPath
+          XmlPath = xmlPath
           RestUrl = DefaultGitHubRestUrl
           NotebookPath = notebookPath
           NotebookPtPath = notebookPtPath }

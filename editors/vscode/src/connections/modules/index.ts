@@ -4,6 +4,8 @@ import { postgreSqlFrontendModule } from "./postgresql";
 import { sqliteFrontendModule } from "./sqlite";
 import { csvFrontendModule } from "./csv";
 import { excelFrontendModule } from "./excel";
+import { jsonFrontendModule } from "./json";
+import { xmlFrontendModule } from "./xml";
 import { restFrontendModule } from "./rest";
 
 /**
@@ -16,6 +18,8 @@ export const BUILTIN_FRONTEND_CONNECTORS: readonly FrontendConnectorModule[] = [
   sqliteFrontendModule,
   csvFrontendModule,
   excelFrontendModule,
+  jsonFrontendModule,
+  xmlFrontendModule,
   restFrontendModule,
 ];
 

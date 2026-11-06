@@ -401,7 +401,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
       return false;
     }
     const ext = path.extname(filePath).toLowerCase();
-    return [".csv", ".xlsx", ".xls", ".sqlite", ".sqlite3", ".db"].includes(ext);
+    return [".csv", ".xlsx", ".xls", ".json", ".xml", ".sqlite", ".sqlite3", ".db"].includes(ext);
   };
 
   let dataSourcesDebounceTimer: NodeJS.Timeout | undefined;

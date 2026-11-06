@@ -408,6 +408,22 @@ module Connections =
             { result with Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows }
         | other -> unsupported name "Connections.excel" other
 
+    let readJsonFileRaw (name: string) (maxRows: int option) : ConnectorQueryResult =
+        match resolve name with
+        | :? JsonConnector as c ->
+            let stopwatch = Stopwatch.StartNew()
+            let result = c.ReadRows(?maxRows = maxRows)
+            { result with Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows }
+        | other -> unsupported name "Connections.json" other
+
+    let readXmlRaw (name: string) (maxRows: int option) : ConnectorQueryResult =
+        match resolve name with
+        | :? XmlConnector as c ->
+            let stopwatch = Stopwatch.StartNew()
+            let result = c.ReadRows(?maxRows = maxRows)
+            { result with Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows }
+        | other -> unsupported name "Connections.xml" other
+
     let sendRestAsync (name: string) (options: RestRequestOptions) (ct: CancellationToken) : Task<JsonElement> =
         match resolve name with
         | :? RestConnector as c -> c.SendAsync options ct
@@ -496,6 +512,48 @@ module Connections =
                 for row in logged.Rows do
                     yield mapper row
             | other -> unsupported name "Connections.queryExcelSheet" other
+        }
+
+    let queryJsonFile<'T> (name: string) (maxRows: int option) : 'T seq =
+        seq {
+            let r = readJsonFileRaw name maxRows
+            let mapper = getMapper<'T> r.Columns
+            for row in r.Rows do
+                yield mapper row
+        }
+
+    let queryJsonFileTable<'T> (name: string) (tableName: string option) (maxRows: int option) : 'T seq =
+        seq {
+            match resolve name with
+            | :? JsonConnector as c ->
+                let stopwatch = Stopwatch.StartNew()
+                let result = c.ReadRows(?tableName = tableName, ?maxRows = maxRows)
+                let logged = { result with Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows }
+                let mapper = getMapper<'T> logged.Columns
+                for row in logged.Rows do
+                    yield mapper row
+            | other -> unsupported name "Connections.queryJsonFileTable" other
+        }
+
+    let queryXml<'T> (name: string) (maxRows: int option) : 'T seq =
+        seq {
+            let r = readXmlRaw name maxRows
+            let mapper = getMapper<'T> r.Columns
+            for row in r.Rows do
+                yield mapper row
+        }
+
+    let queryXmlTable<'T> (name: string) (tableName: string option) (maxRows: int option) : 'T seq =
+        seq {
+            match resolve name with
+            | :? XmlConnector as c ->
+                let stopwatch = Stopwatch.StartNew()
+                let result = c.ReadRows(?tableName = tableName, ?maxRows = maxRows)
+                let logged = { result with Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows }
+                let mapper = getMapper<'T> logged.Columns
+                for row in logged.Rows do
+                    yield mapper row
+            | other -> unsupported name "Connections.queryXmlTable" other
         }
 
     let private jsonElementToBoxedValue (v: JsonElement) : obj =
@@ -842,6 +900,82 @@ module Connections =
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
         member _.Raw(?maxRows: int) : ConnectorQueryResult = readExcelRaw name maxRows
 
+    /// Represents an active local JSON file connection with multi-collection typed queries.
+    type JsonConnection(name: string, connector: JsonConnector) =
+        let resolveDefaultTableName () =
+            match connector.Options.TableName with
+            | Some t when not (String.IsNullOrWhiteSpace t) -> t
+            | _ ->
+                let tables =
+                    try
+                        (connector :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
+                    with _ -> []
+                match tables with
+                | first :: _ -> first.Name
+                | [] -> "Items"
+        member _.Name = name
+        member _.Connector = connector
+        member _.FilePath = connector.FilePath
+        member _.Rows<'T>(?maxRows: int) : 'T seq = queryJsonFile<'T> name maxRows
+        member _.Table<'T>(tableName: string, ?maxRows: int) : 'T seq = queryJsonFileTable<'T> name (Some tableName) maxRows
+        member this.Queryable<'T>(?maxRows: int) : IQueryable<'T> =
+            this.PushdownQueryable<'T>(?maxRows = maxRows) :> IQueryable<'T>
+        member this.PushdownQueryable<'T>(?maxRows: int) : SqlPushdownQueryable<'T> =
+            let tableName = resolveDefaultTableName ()
+            this.TablePushdownQueryable<'T>(tableName, ?maxRows = maxRows)
+        member this.TableQueryable<'T>(tableName: string, ?maxRows: int) : IQueryable<'T> =
+            this.TablePushdownQueryable<'T>(tableName, ?maxRows = maxRows) :> IQueryable<'T>
+        member this.TablePushdownQueryable<'T>(tableName: string, ?maxRows: int) : SqlPushdownQueryable<'T> =
+            let eng = getEngine ()
+            let compoundKey = $"{name}_{tableName}"
+            let cleanTableName =
+                eng.EnsureStaged(
+                    compoundKey,
+                    connector.FilePath,
+                    (fun () -> connector.ReadRows(tableName = tableName, ?maxRows = maxRows)),
+                    ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes)
+                )
+            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
+        member _.Raw(?maxRows: int) : ConnectorQueryResult = readJsonFileRaw name maxRows
+
+    /// Represents an active local XML file connection with multi-collection typed queries.
+    type XmlConnection(name: string, connector: XmlConnector) =
+        let resolveDefaultTableName () =
+            match connector.Options.RowElement with
+            | Some t when not (String.IsNullOrWhiteSpace t) -> t
+            | _ ->
+                let tables =
+                    try
+                        (connector :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
+                    with _ -> []
+                match tables with
+                | first :: _ -> first.Name
+                | [] -> "Items"
+        member _.Name = name
+        member _.Connector = connector
+        member _.FilePath = connector.FilePath
+        member _.Rows<'T>(?maxRows: int) : 'T seq = queryXml<'T> name maxRows
+        member _.Table<'T>(tableName: string, ?maxRows: int) : 'T seq = queryXmlTable<'T> name (Some tableName) maxRows
+        member this.Queryable<'T>(?maxRows: int) : IQueryable<'T> =
+            this.PushdownQueryable<'T>(?maxRows = maxRows) :> IQueryable<'T>
+        member this.PushdownQueryable<'T>(?maxRows: int) : SqlPushdownQueryable<'T> =
+            let tableName = resolveDefaultTableName ()
+            this.TablePushdownQueryable<'T>(tableName, ?maxRows = maxRows)
+        member this.TableQueryable<'T>(tableName: string, ?maxRows: int) : IQueryable<'T> =
+            this.TablePushdownQueryable<'T>(tableName, ?maxRows = maxRows) :> IQueryable<'T>
+        member this.TablePushdownQueryable<'T>(tableName: string, ?maxRows: int) : SqlPushdownQueryable<'T> =
+            let eng = getEngine ()
+            let compoundKey = $"{name}_{tableName}"
+            let cleanTableName =
+                eng.EnsureStaged(
+                    compoundKey,
+                    connector.FilePath,
+                    (fun () -> connector.ReadRows(tableName = tableName, ?maxRows = maxRows)),
+                    ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes)
+                )
+            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
+        member _.Raw(?maxRows: int) : ConnectorQueryResult = readXmlRaw name maxRows
+
     /// Represents an active REST/JSON connection with typed queries.
     type RestConnection(name: string, connector: RestConnector) =
         member _.Name = name
@@ -901,6 +1035,12 @@ module Connections =
     /// Category container for registered Excel workbook connections (e.g. Connections.excel.Reports).
     type ExcelCategory() = class end
 
+    /// Category container for registered local JSON file connections (e.g. Connections.json.Catalog).
+    type JsonCategory() = class end
+
+    /// Category container for registered local XML file connections (e.g. Connections.xml.Invoices).
+    type XmlCategory() = class end
+
     /// Category container for registered REST/JSON API connections (e.g. Connections.rest.WeatherApi).
     type RestCategory() = class end
 
@@ -912,6 +1052,12 @@ module Connections =
 
     /// Access registered Excel spreadsheet connections with strongly-typed sheet records.
     let excel = ExcelCategory()
+
+    /// Access registered local JSON file connections with strongly-typed collection records.
+    let json = JsonCategory()
+
+    /// Access registered local XML file connections with strongly-typed element collection records.
+    let xml = XmlCategory()
 
     /// Access registered REST/JSON endpoint connections with strongly-typed response items.
     let rest = RestCategory()
@@ -930,6 +1076,16 @@ module Connections =
         match resolve name with
         | :? ExcelConnector as c -> ExcelConnection(name, c)
         | other -> unsupported name "Connections.excel" other
+
+    let getJsonConnection (name: string) : JsonConnection =
+        match resolve name with
+        | :? JsonConnector as c -> JsonConnection(name, c)
+        | other -> unsupported name "Connections.json" other
+
+    let getXmlConnection (name: string) : XmlConnection =
+        match resolve name with
+        | :? XmlConnector as c -> XmlConnection(name, c)
+        | other -> unsupported name "Connections.xml" other
 
     let getRestConnection (name: string) : RestConnection =
         match resolve name with
@@ -968,7 +1124,11 @@ module Connections =
             let mutable skippedCount = 0
             let fileConns =
                 connections
-                |> List.filter (fun c -> c.Kind.Id = "Csv" || c.Kind.Id = "Excel")
+                |> List.filter (fun c ->
+                    c.Kind.Id = "Csv"
+                    || c.Kind.Id = "Excel"
+                    || c.Kind.Id = "Json"
+                    || c.Kind.Id = "Xml")
 
             let total = fileConns.Length
 
@@ -1049,6 +1209,94 @@ module Connections =
                                         fullPath,
                                         (fun () -> excelConn.ReadRows(sheetName = sheetName)),
                                         ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes),
+                                        currentIndex = currentIdx,
+                                        totalCount = total,
+                                        ?onProgress = onProgress
+                                    ) |> ignore
+                                    stagedCount <- stagedCount + 1
+                    | "Json" ->
+                        let jsonConn = conn :?> JsonConnector
+                        let filePath = jsonConn.FilePath
+                        let fullPath = if System.IO.Path.IsPathRooted filePath then filePath else System.IO.Path.Combine(workspaceDir, filePath)
+                        if System.IO.File.Exists fullPath then
+                            eng.DropStaleTableIfExists(connDef.Name, fullPath)
+
+                            let tables =
+                                try
+                                    (jsonConn :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
+                                with ex ->
+                                    Log.Warning("FS Query Studio: Could not discover tables for JSON connection '{Name}': {Error}", connDef.Name, ex.Message)
+                                    []
+
+                            for tbl in tables do
+                                let tableName = tbl.Name
+                                let compoundKey = $"{connDef.Name}_{tableName}"
+
+                                if eng.IsStagedAndCurrent(compoundKey, fullPath) then
+                                    skippedCount <- skippedCount + 1
+                                    match onProgress with
+                                    | Some cb ->
+                                        cb {
+                                            TableName = compoundKey
+                                            FilePath = fullPath
+                                            Phase = "Skipped"
+                                            RowCount = None
+                                            CurrentIndex = Some currentIdx
+                                            TotalCount = Some total
+                                            ElapsedMs = Some 0L
+                                            Message = Some $"'{compoundKey}' is up-to-date in cache"
+                                        }
+                                    | None -> ()
+                                else
+                                    eng.EnsureStaged(
+                                        compoundKey,
+                                        fullPath,
+                                        (fun () -> jsonConn.ReadRows(tableName = tableName)),
+                                        ?columnTypes = (if jsonConn.Options.ColumnTypes.IsEmpty then None else Some jsonConn.Options.ColumnTypes),
+                                        currentIndex = currentIdx,
+                                        totalCount = total,
+                                        ?onProgress = onProgress
+                                    ) |> ignore
+                                    stagedCount <- stagedCount + 1
+                    | "Xml" ->
+                        let xmlConn = conn :?> XmlConnector
+                        let filePath = xmlConn.FilePath
+                        let fullPath = if System.IO.Path.IsPathRooted filePath then filePath else System.IO.Path.Combine(workspaceDir, filePath)
+                        if System.IO.File.Exists fullPath then
+                            eng.DropStaleTableIfExists(connDef.Name, fullPath)
+
+                            let tables =
+                                try
+                                    (xmlConn :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
+                                with ex ->
+                                    Log.Warning("FS Query Studio: Could not discover tables for XML connection '{Name}': {Error}", connDef.Name, ex.Message)
+                                    []
+
+                            for tbl in tables do
+                                let tableName = tbl.Name
+                                let compoundKey = $"{connDef.Name}_{tableName}"
+
+                                if eng.IsStagedAndCurrent(compoundKey, fullPath) then
+                                    skippedCount <- skippedCount + 1
+                                    match onProgress with
+                                    | Some cb ->
+                                        cb {
+                                            TableName = compoundKey
+                                            FilePath = fullPath
+                                            Phase = "Skipped"
+                                            RowCount = None
+                                            CurrentIndex = Some currentIdx
+                                            TotalCount = Some total
+                                            ElapsedMs = Some 0L
+                                            Message = Some $"'{compoundKey}' is up-to-date in cache"
+                                        }
+                                    | None -> ()
+                                else
+                                    eng.EnsureStaged(
+                                        compoundKey,
+                                        fullPath,
+                                        (fun () -> xmlConn.ReadRows(tableName = tableName)),
+                                        ?columnTypes = (if xmlConn.Options.ColumnTypes.IsEmpty then None else Some xmlConn.Options.ColumnTypes),
                                         currentIndex = currentIdx,
                                         totalCount = total,
                                         ?onProgress = onProgress

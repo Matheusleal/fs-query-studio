@@ -295,4 +295,58 @@ let ``generateForConnectionsAsync emits Excel connection as schema container wit
     finally
         try Directory.Delete(tempDir, true) with _ -> ()
 
+[<Fact>]
+let ``generateForConnectionsAsync emits Json and Xml connections as schema containers with sub-properties`` () =
+    BuiltinConnectors.registerDefaults ()
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fqs-jsonxml-gen-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(tempDir) |> ignore
+    try
+        let jsonPath = Path.Combine(tempDir, "catalog.json")
+        SampleDataGenerator.createSampleJsonFile jsonPath
+
+        let xmlPath = Path.Combine(tempDir, "logistics.xml")
+        SampleDataGenerator.createSampleXmlFile xmlPath
+
+        let connJson =
+            { Id = Guid.NewGuid()
+              Name = "ProductCatalog"
+              Kind = ConnectorKind.Json
+              Configuration = JsonSerializer.SerializeToElement({| filePath = jsonPath; flattenNested = true |})
+              SecretReference = None
+              IsTrusted = true }
+
+        let connXml =
+            { Id = Guid.NewGuid()
+              Name = "LogisticsHub"
+              Kind = ConnectorKind.Xml
+              Configuration = JsonSerializer.SerializeToElement({| filePath = xmlPath; includeAttributes = true; flattenNested = true |})
+              SecretReference = None
+              IsTrusted = true }
+
+        let secretStore = InMemorySecretStore()
+        let result =
+            (EntityBackgroundGenerator.generateForConnectionsAsync tempDir [ connJson; connXml ] secretStore)
+                .GetAwaiter()
+                .GetResult()
+
+        Assert.True(result)
+        let generatedFile = EntityBackgroundGenerator.generatedFilePath tempDir
+        let code = File.ReadAllText(generatedFile)
+
+        // JSON schema container and sub-properties
+        Assert.Contains("module ProductCatalogJson =", code)
+        Assert.Contains("member _.Products : FSharpQueryStudio.Connectors.SqlPushdownQueryable<Products.Row> = conn.TablePushdownQueryable<Products.Row>(\"Products\")", code)
+        Assert.Contains("member _.Reviews : FSharpQueryStudio.Connectors.SqlPushdownQueryable<Reviews.Row> = conn.TablePushdownQueryable<Reviews.Row>(\"Reviews\")", code)
+        Assert.Contains("type FSharpQueryStudio.Connectors.Connections.JsonCategory with", code)
+        Assert.Contains("member _.ProductCatalog : ProductCatalogJson.Data = ProductCatalogJson.Data(\"ProductCatalog\")", code)
+
+        // XML schema container and sub-properties
+        Assert.Contains("module LogisticsHubXml =", code)
+        Assert.Contains("member _.Carriers : FSharpQueryStudio.Connectors.SqlPushdownQueryable<Carriers.Row> = conn.TablePushdownQueryable<Carriers.Row>(\"Carriers\")", code)
+        Assert.Contains("member _.Shipments : FSharpQueryStudio.Connectors.SqlPushdownQueryable<Shipments.Row> = conn.TablePushdownQueryable<Shipments.Row>(\"Shipments\")", code)
+        Assert.Contains("type FSharpQueryStudio.Connectors.Connections.XmlCategory with", code)
+        Assert.Contains("member _.LogisticsHub : LogisticsHubXml.Data = LogisticsHubXml.Data(\"LogisticsHub\")", code)
+    finally
+        try Directory.Delete(tempDir, true) with _ -> ()
+
 

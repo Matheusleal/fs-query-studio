@@ -38,6 +38,8 @@
     <ProjectReference Include="..\FSharpQueryStudio.Connectors.PostgreSql\FSharpQueryStudio.Connectors.PostgreSql.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Connectors.Csv\FSharpQueryStudio.Connectors.Csv.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Connectors.Excel\FSharpQueryStudio.Connectors.Excel.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Connectors.Json\FSharpQueryStudio.Connectors.Json.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Connectors.Xml\FSharpQueryStudio.Connectors.Xml.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Connectors.Rest\FSharpQueryStudio.Connectors.Rest.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Protocol\FSharpQueryStudio.Protocol.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Security\FSharpQueryStudio.Security.fsproj" />

@@ -11,6 +11,8 @@
     <Project Path="src/FSharpQueryStudio.Connectors.PostgreSql/FSharpQueryStudio.Connectors.PostgreSql.fsproj" />
     <Project Path="src/FSharpQueryStudio.Connectors.Csv/FSharpQueryStudio.Connectors.Csv.fsproj" />
     <Project Path="src/FSharpQueryStudio.Connectors.Excel/FSharpQueryStudio.Connectors.Excel.fsproj" />
+    <Project Path="src/FSharpQueryStudio.Connectors.Json/FSharpQueryStudio.Connectors.Json.fsproj" />
+    <Project Path="src/FSharpQueryStudio.Connectors.Xml/FSharpQueryStudio.Connectors.Xml.fsproj" />
     <Project Path="src/FSharpQueryStudio.Connectors.Rest/FSharpQueryStudio.Connectors.Rest.fsproj" />
     <Project Path="src/FSharpQueryStudio.Connectors/FSharpQueryStudio.Connectors.fsproj" />
     <Project Path="src/FSharpQueryStudio.Execution/FSharpQueryStudio.Execution.fsproj" />

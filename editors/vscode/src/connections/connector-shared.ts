@@ -1,6 +1,6 @@
 import type { ConnectorDescriptorDto, ConnectorKindName } from "../protocol";
 
-export type TargetConnectorCategory = "Database" | "Csv" | "Excel" | "RestJson" | (string & {});
+export type TargetConnectorCategory = "Database" | "Csv" | "Excel" | "Json" | "Xml" | "RestJson" | (string & {});
 
 export interface ConnectionFormInput {
   kind: ConnectorKindName;
@@ -8,6 +8,8 @@ export interface ConnectionFormInput {
   filePath?: string;
   delimiter?: string;
   sheetName?: string;
+  jsonPath?: string;
+  rowElement?: string;
   columnTypes?: string;
   columnTransforms?: string;
   connectionString?: string;

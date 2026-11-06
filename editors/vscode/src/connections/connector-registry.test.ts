@@ -3,10 +3,10 @@ import { ConnectorFrontRegistry } from "./connector-registry";
 import type { FrontendConnectorModule } from "./connector-shared";
 
 describe("ConnectorFrontRegistry & Per-Connector Frontend Modules", () => {
-  it("exposes default descriptors for all 6 built-in connectors", () => {
+  it("exposes default descriptors for all 8 built-in connectors", () => {
     const descriptors = ConnectorFrontRegistry.defaultDescriptors;
     const kindIds = descriptors.map((d) => d.kindId);
-    expect(kindIds).toEqual(["SqlServer", "PostgreSql", "Sqlite", "Csv", "Excel", "RestJson"]);
+    expect(kindIds).toEqual(["SqlServer", "PostgreSql", "Sqlite", "Csv", "Excel", "Json", "Xml", "RestJson"]);
   });
 
   describe("SQL Server module rules", () => {
@@ -115,6 +115,32 @@ describe("ConnectorFrontRegistry & Per-Connector Frontend Modules", () => {
       }) as { filePath: string };
       expect(cfg.filePath).toBe("/data/book.xlsx");
       expect(ConnectorFrontRegistry.validateConfiguration("Excel", cfg)).toBeUndefined();
+    });
+
+    it("builds and validates JSON configuration", () => {
+      const cfg = ConnectorFrontRegistry.configurationFor({
+        kind: "Json",
+        name: "CatalogJson",
+        filePath: "/data/catalog.json",
+        jsonPath: "data.items",
+      }) as { filePath: string; jsonPath?: string };
+      expect(cfg.filePath).toBe("/data/catalog.json");
+      expect(cfg.jsonPath).toBe("data.items");
+      expect(ConnectorFrontRegistry.validateConfiguration("Json", cfg)).toBeUndefined();
+      expect(ConnectorFrontRegistry.validateConfiguration("Json", { filePath: "" })).toContain("filePath");
+    });
+
+    it("builds and validates XML configuration", () => {
+      const cfg = ConnectorFrontRegistry.configurationFor({
+        kind: "Xml",
+        name: "LogisticsXml",
+        filePath: "/data/logistics.xml",
+        rowElement: "Shipment",
+      }) as { filePath: string; rowElement?: string };
+      expect(cfg.filePath).toBe("/data/logistics.xml");
+      expect(cfg.rowElement).toBe("Shipment");
+      expect(ConnectorFrontRegistry.validateConfiguration("Xml", cfg)).toBeUndefined();
+      expect(ConnectorFrontRegistry.validateConfiguration("Xml", { filePath: "" })).toContain("filePath");
     });
 
     it("builds and validates REST JSON configuration", () => {
