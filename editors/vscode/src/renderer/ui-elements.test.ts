@@ -168,6 +168,16 @@ describe("Results Grid UI Elements & Interactivity", () => {
       expect(cells[3].classList.contains("fsq-num")).toBe(false); // in_stock
       expect(cells[4].classList.contains("fsq-num")).toBe(false); // notes
     });
+
+    it("places .fsq-head inside .fsq-viewport for synchronized horizontal scrolling", () => {
+      host.renderOutputItem(createItem("out-1", samplePayload()), container);
+
+      const viewport = container.querySelector(".fsq-viewport");
+      const head = container.querySelector(".fsq-head");
+      expect(viewport).toBeTruthy();
+      expect(head).toBeTruthy();
+      expect(viewport?.contains(head!)).toBe(true);
+    });
   });
 
   describe("Data Viewport & Cell Formatting", () => {

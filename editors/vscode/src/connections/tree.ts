@@ -107,7 +107,13 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
         return [{ t: "error", message: `Could not list connections: ${frame.error.message}` }];
       }
       const result = frame.result as ConnectionListResult;
-      return (result.connections ?? []).map((def) => ({ t: "connection", def }));
+      const connections = result.connections ?? [];
+      for (const def of connections) {
+        if (!this.deps.schemaCache.get(def.id)) {
+          void this.fetchSchema(def);
+        }
+      }
+      return connections.map((def) => ({ t: "connection", def }));
     } catch (err) {
       this.deps.log(`connection/list failed: ${(err as Error).message}`);
       return [{ t: "error", message: `Connections unavailable: ${(err as Error).message}` }];

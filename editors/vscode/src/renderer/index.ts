@@ -41,15 +41,16 @@ const STYLE = `
 .fsq-count { margin-left: auto; padding: 0 4px; opacity: 0.7; font-variant-numeric: tabular-nums; }
 
 .fsq-viewport { overflow: auto; max-height: 420px; }
-.fsq-sizer { position: relative; }
+.fsq-sizer { position: relative; width: max-content; min-width: 100%; }
 .fsq-rows { position: absolute; left: 0; right: 0; }
-.fsq-row { display: flex; height: ${GRID_ROW_HEIGHT_PX}px; line-height: ${GRID_ROW_HEIGHT_PX}px; }
+.fsq-row { display: flex; height: ${GRID_ROW_HEIGHT_PX}px; line-height: ${GRID_ROW_HEIGHT_PX}px; width: max-content; min-width: 100%; }
 .fsq-rows .fsq-row.fsq-odd { background: var(--vscode-tree-tableOddRowsBackground, rgba(128, 128, 128, 0.04)); }
 .fsq-rows .fsq-row:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-list-hoverForeground, inherit); }
 .fsq-empty { padding: 8px 10px; opacity: 0.6; }
 
 .fsq-head { display: flex; height: ${GRID_ROW_HEIGHT_PX}px; line-height: ${GRID_ROW_HEIGHT_PX}px;
-  position: sticky; top: 0; z-index: 1; font-weight: 600;
+  position: sticky; top: 0; z-index: 2; font-weight: 600;
+  width: max-content; min-width: 100%;
   background: var(--vscode-keybindingTable-headerBackground, var(--vscode-editorWidget-background, var(--vscode-editor-background)));
   border-bottom: 1px solid var(--fsq-border);
   box-shadow: 0 1px 0 var(--fsq-border); }
@@ -265,10 +266,11 @@ export function activate(context: RendererContextLike): {
       cell.title = `${col.name} · ${col.displayType}`;
       head.appendChild(cell);
     });
-    panel.appendChild(head);
 
     const viewport = document.createElement("div");
     viewport.className = "fsq-viewport";
+    viewport.appendChild(head);
+
     const sizer = document.createElement("div");
     sizer.className = "fsq-sizer";
     const rowsHost = document.createElement("div");
