@@ -849,6 +849,7 @@ module Handlers =
                 let targetDir = tryGetWorkspaceDir request.Params
                 let connections = Workspace.readConnections targetDir
                 let! summary = Connections.syncDataSources targetDir connections secretStore
+                EntityBackgroundGenerator.triggerBackgroundGeneration targetDir connections secretStore
                 let result : SyncDataSourcesResult =
                     { TargetDir = targetDir
                       StagedCount = summary.StagedCount

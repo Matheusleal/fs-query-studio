@@ -669,6 +669,89 @@ let ``SqlPushdownQueryable translates ToString and Date properties in Select`` (
     Assert.Contains("strftime('%d-%m-%Y'", sql)
     Assert.Contains("CAST(strftime('%Y'", sql)
 
+[<CLIMutable>]
+type TestOptionProduct = {
+    Id: int
+    Name: string
+    Description: string option
+    Rating: decimal option
+    Discount: Nullable<decimal>
+}
+
+[<Fact>]
+let ``SqlPushdownQueryable translates option .Value in where clause to column name instead of Value`` () =
+    use db = new TempSqliteDb()
+    use conn = new SqliteConnection($"Data Source={db.Path}")
+    conn.Open()
+    use cmd = conn.CreateCommand()
+    cmd.CommandText <-
+        "CREATE TABLE OptionProducts (Id INTEGER PRIMARY KEY, Name TEXT, Description TEXT, Rating NUMERIC, Discount NUMERIC); \
+         INSERT INTO OptionProducts VALUES (1, 'Widget', 'HighQuality', 4.5, 10.0); \
+         INSERT INTO OptionProducts VALUES (2, 'Gadget', NULL, NULL, NULL); \
+         INSERT INTO OptionProducts VALUES (3, 'Doohickey', 'Budget', 3.0, 5.0);"
+    cmd.ExecuteNonQuery() |> ignore
+
+    let connector = SqliteConnector(db.Path)
+    let queryable = SqlPushdownQueryable<TestOptionProduct>(connector, "OptionProducts")
+
+    let q =
+        query {
+            for p in queryable do
+            where (p.Description.Value = "HighQuality")
+            select p
+        }
+
+    let sql = SqlPushdownQuery.extractRawSql (box q)
+    Assert.Contains("Description", sql)
+    Assert.DoesNotContain("WHERE Value =", sql)
+
+    let rows = q |> Seq.toList
+    Assert.Single(rows) |> ignore
+    Assert.Equal("Widget", rows.[0].Name)
+
+[<Fact>]
+let ``SqlPushdownQueryable translates option IsSome and IsNone to IS NOT NULL and IS NULL`` () =
+    use db = new TempSqliteDb()
+    use conn = new SqliteConnection($"Data Source={db.Path}")
+    conn.Open()
+    use cmd = conn.CreateCommand()
+    cmd.CommandText <-
+        "CREATE TABLE OptionProducts2 (Id INTEGER PRIMARY KEY, Name TEXT, Description TEXT, Rating NUMERIC, Discount NUMERIC); \
+         INSERT INTO OptionProducts2 VALUES (1, 'Widget', 'HighQuality', 4.5, 10.0); \
+         INSERT INTO OptionProducts2 VALUES (2, 'Gadget', NULL, NULL, NULL);"
+    cmd.ExecuteNonQuery() |> ignore
+
+    let connector = SqliteConnector(db.Path)
+    let queryable = SqlPushdownQueryable<TestOptionProduct>(connector, "OptionProducts2")
+
+    let qSome =
+        query {
+            for p in queryable do
+            where p.Description.IsSome
+            select p
+        }
+
+    let sqlSome = SqlPushdownQuery.extractRawSql (box qSome)
+    Assert.Contains("Description IS NOT NULL", sqlSome)
+
+    let rowsSome = qSome |> Seq.toList
+    Assert.Single(rowsSome) |> ignore
+    Assert.Equal("Widget", rowsSome.[0].Name)
+
+    let qNone =
+        query {
+            for p in queryable do
+            where p.Description.IsNone
+            select p
+        }
+
+    let sqlNone = SqlPushdownQuery.extractRawSql (box qNone)
+    Assert.Contains("Description IS NULL", sqlNone)
+
+    let rowsNone = qNone |> Seq.toList
+    Assert.Single(rowsNone) |> ignore
+    Assert.Equal("Gadget", rowsNone.[0].Name)
+
 
 
 
