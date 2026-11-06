@@ -282,28 +282,34 @@ module WorkspaceOperations =
         let sampleFileNames =
             set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "ProductCatalog"; "LogisticsHub"; "GitHubFSharp" ]
 
-        let existingNonSample =
-            Workspace.readConnections dir
-            |> List.filter (fun c -> not (sampleFileNames |> Set.exists (fun s -> String.Equals(s, c.Name, StringComparison.OrdinalIgnoreCase))))
+        let currentConns = Workspace.readConnections dir
+        let hasAllSamples =
+            sampleFileNames
+            |> Set.forall (fun name -> currentConns |> List.exists (fun c -> String.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)))
 
-        let restDef: ConnectionDefinition =
-            { Id = Guid.NewGuid()
-              Name = "GitHubFSharp"
-              Kind = ConnectorKind.RestJson
-              Configuration =
-                  JsonSerializer.SerializeToElement(
-                      {| url = files.RestUrl
-                         method = "GET"
-                         headers = [ ("Accept", "application/vnd.github+json"); ("User-Agent", "FSharpQueryStudio/1.0") ] |},
-                      Serialization.options
-                  )
-              SecretReference = None
-              IsTrusted = true }
+        if not hasAllSamples then
+            let existingNonSample =
+                currentConns
+                |> List.filter (fun c -> not (sampleFileNames |> Set.exists (fun s -> String.Equals(s, c.Name, StringComparison.OrdinalIgnoreCase))))
 
-        Workspace.writeConnections dir (existingNonSample @ [ restDef ])
+            let restDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "GitHubFSharp"
+                  Kind = ConnectorKind.RestJson
+                  Configuration =
+                      JsonSerializer.SerializeToElement(
+                          {| url = files.RestUrl
+                             method = "GET"
+                             headers = [ ("Accept", "application/vnd.github+json"); ("User-Agent", "FSharpQueryStudio/1.0") ] |},
+                          Serialization.options
+                      )
+                  SecretReference = None
+                  IsTrusted = true }
 
-        let _ = autoImportDataSources dir secretStore
-        SessionStore.resetAll ()
+            Workspace.writeConnections dir (existingNonSample @ [ restDef ])
+
+            let _ = autoImportDataSources dir secretStore
+            SessionStore.resetAll ()
 
         { SqlitePath = files.SqlitePath
           Sqlite2Path = files.Sqlite2Path
