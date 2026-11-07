@@ -1327,9 +1327,11 @@ module Connections =
     /// Triggers fire-and-forget background pre-staging of tabular files into the persistent disk cache.
     let triggerBackgroundSync (workspaceDir: string) (connections: ConnectionDefinition list) (secretStore: FSharpQueryStudio.Security.ISecretStore) : unit =
         lock syncLock (fun () ->
+            let prev = currentSyncTask
             let t =
                 Task.Run(fun () ->
                     try
+                        try prev.Wait() with _ -> ()
                         (syncDataSourcesAsync workspaceDir connections secretStore).GetAwaiter().GetResult() |> ignore
                     with ex ->
                         Log.Warning("FS Query Studio: Fire-and-forget background sync failed: {Error}", ex.Message)

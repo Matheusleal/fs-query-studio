@@ -105,12 +105,12 @@ type ExcelEntityGenerator() =
                                 "Data_Sheet"
                             else
                                 propIdent
-                        (tbl.Name, propIdent, modIdent))
+                        (tbl, propIdent, modIdent))
 
-                for sheetName, _, modIdent in sheetEntries do
-                    let qr = ec.ReadRows(sheetName = sheetName, maxRows = 200)
-                    let rowsSample = qr.Rows |> Seq.truncate 200 |> Seq.toList
-                    let sanitizedCols = CodeGenerationHelpers.sanitizeColumns qr.Columns
+                for tbl, _, modIdent in sheetEntries do
+                    let sheetName = tbl.Name
+                    let sanitizedCols = CodeGenerationHelpers.sanitizeColumns (tbl.Columns |> List.map (fun c -> c.Name))
+                    let colTypesMap = tbl.Columns |> List.map (fun c -> c.Name, c.DataType) |> Map.ofList
 
                     sb.AppendLine($"    module {CodeGenerationHelpers.escapeIdent modIdent} =") |> ignore
                     sb.AppendLine("        type Row =") |> ignore
@@ -119,21 +119,17 @@ type ExcelEntityGenerator() =
                         sb.AppendLine("                Value: string") |> ignore
                     else
                         for idx, col in List.indexed sanitizedCols do
+                            let origName = tbl.Columns.[idx].Name
                             let colType =
                                 match ec.Options.ColumnTypes.TryFind col with
                                 | Some t -> t
                                 | None ->
-                                    match ec.Options.ColumnTypes.TryFind qr.Columns.[idx] with
+                                    match ec.Options.ColumnTypes.TryFind origName with
                                     | Some t -> t
                                     | None ->
-                                        let samples =
-                                            rowsSample
-                                            |> Seq.map (fun r ->
-                                                if idx < r.Length && not (isNull r.[idx]) then
-                                                    Convert.ToString(r.[idx], System.Globalization.CultureInfo.InvariantCulture)
-                                                else
-                                                    "")
-                                        TabularTypeInference.inferType samples
+                                        match colTypesMap.TryFind origName with
+                                        | Some t -> t
+                                        | None -> "string"
                             sb.AppendLine($"                {CodeGenerationHelpers.escapeIdent col}: {colType}") |> ignore
                     sb.AppendLine("            }") |> ignore
                     sb.AppendLine() |> ignore
@@ -145,8 +141,8 @@ type ExcelEntityGenerator() =
                 sb.AppendLine($"        new() = Data(\"{connectionName}\")") |> ignore
                 sb.AppendLine("        member _.Raw(?maxRows: int) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.Raw(?maxRows = maxRows)") |> ignore
                 sb.AppendLine("        member _.Connection : FSharpQueryStudio.Connectors.Connections.ExcelConnection = conn") |> ignore
-                for sheetName, propIdent, modIdent in sheetEntries do
-                    sb.AppendLine($"        member _.{CodeGenerationHelpers.escapeIdent propIdent} : FSharpQueryStudio.Connectors.SqlPushdownQueryable<{CodeGenerationHelpers.escapeIdent modIdent}.Row> = conn.SheetPushdownQueryable<{CodeGenerationHelpers.escapeIdent modIdent}.Row>(\"{sheetName}\")") |> ignore
+                for tbl, propIdent, modIdent in sheetEntries do
+                    sb.AppendLine($"        member _.{CodeGenerationHelpers.escapeIdent propIdent} : FSharpQueryStudio.Connectors.SqlPushdownQueryable<{CodeGenerationHelpers.escapeIdent modIdent}.Row> = conn.SheetPushdownQueryable<{CodeGenerationHelpers.escapeIdent modIdent}.Row>(\"{tbl.Name}\")") |> ignore
                 sb.AppendLine() |> ignore
                 sb.AppendLine("    let data () : Data = Data()") |> ignore
                 sb.ToString()
