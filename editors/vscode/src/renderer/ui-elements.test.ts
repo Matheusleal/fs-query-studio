@@ -178,6 +178,46 @@ describe("Results Grid UI Elements & Interactivity", () => {
       expect(head).toBeTruthy();
       expect(viewport?.contains(head!)).toBe(true);
     });
+
+    it("locks .fsq-head and .fsq-row to identical CSS Grid column templates", () => {
+      host.renderOutputItem(createItem("out-1", samplePayload()), container);
+
+      const viewport = container.querySelector(".fsq-viewport") as HTMLElement;
+      const head = container.querySelector(".fsq-head") as HTMLElement;
+      const row = container.querySelector(".fsq-rows .fsq-row") as HTMLElement;
+
+      const gridCols = viewport.style.getPropertyValue("--fsq-grid-cols");
+      expect(gridCols).toBeTruthy();
+      expect(head.style.gridTemplateColumns).toBe(gridCols);
+      expect(row.style.gridTemplateColumns).toBe(gridCols);
+    });
+
+    it("synchronizes column width expansions between header and row when wide content exists", () => {
+      const widePayload = {
+        ...samplePayload(),
+        columns: [
+          { name: "id", displayType: "int" },
+          { name: "short", displayType: "string" },
+          { name: "detailed_operational_customer_description", displayType: "string" },
+        ],
+        rows: [
+          [1, "ok", "Enterprise Client Alpha 123456789 with Multi-Region Distribution Network"],
+        ],
+      };
+      host.renderOutputItem(createItem("out-wide", widePayload), container);
+
+      const head = container.querySelector(".fsq-head") as HTMLElement;
+      const row = container.querySelector(".fsq-rows .fsq-row") as HTMLElement;
+      const viewport = container.querySelector(".fsq-viewport") as HTMLElement;
+
+      const template = viewport.style.getPropertyValue("--fsq-grid-cols");
+      expect(head.style.gridTemplateColumns).toBe(template);
+      expect(row.style.gridTemplateColumns).toBe(template);
+
+      const tracks = template.match(/minmax\([^)]+\)/g) ?? [];
+      expect(tracks).toHaveLength(3);
+      expect(tracks[2]).toMatch(/minmax\(\d{3,}px,\s*1fr\)/);
+    });
   });
 
   describe("Data Viewport & Cell Formatting", () => {
@@ -382,6 +422,9 @@ describe("Results Grid UI Elements & Interactivity", () => {
       const rows = container.querySelectorAll(".fsq-rows .fsq-row");
       expect(rows).toHaveLength(4);
       expect(rows[3].textContent).toContain("New Device");
+
+      const head = container.querySelector(".fsq-head") as HTMLElement;
+      expect((rows[3] as HTMLElement).style.gridTemplateColumns).toBe(head.style.gridTemplateColumns);
     });
   });
 

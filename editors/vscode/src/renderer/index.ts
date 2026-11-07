@@ -1,4 +1,4 @@
-import { visibleRange, formatCell } from "./grid-core";
+import { visibleRange, formatCell, computeColWidths, computeGridColumnsCss } from "./grid-core";
 import {
   GRID_ROW_HEIGHT_PX,
   type HostToRendererMessage,
@@ -41,29 +41,30 @@ const STYLE = `
 .fsq-count { margin-left: auto; padding: 0 4px; opacity: 0.7; font-variant-numeric: tabular-nums; }
 
 .fsq-viewport { overflow: auto; max-height: 420px; }
-.fsq-sizer { position: relative; width: max-content; min-width: 100%; }
-.fsq-rows { position: absolute; left: 0; right: 0; }
-.fsq-row { display: flex; height: ${GRID_ROW_HEIGHT_PX}px; line-height: ${GRID_ROW_HEIGHT_PX}px; width: max-content; min-width: 100%; }
+.fsq-sizer { position: relative; width: max(100%, var(--fsq-grid-width, max-content)); min-width: 100%; }
+.fsq-rows { position: absolute; left: 0; right: 0; width: 100%; }
+.fsq-row { display: grid; grid-template-columns: var(--fsq-grid-cols, 1fr); height: ${GRID_ROW_HEIGHT_PX}px; line-height: ${GRID_ROW_HEIGHT_PX}px; width: 100%; }
 .fsq-rows .fsq-row.fsq-odd { background: var(--vscode-tree-tableOddRowsBackground, rgba(128, 128, 128, 0.04)); }
 .fsq-rows .fsq-row:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-list-hoverForeground, inherit); }
 .fsq-empty { padding: 8px 10px; opacity: 0.6; }
 
-.fsq-head { display: flex; height: ${GRID_ROW_HEIGHT_PX}px; line-height: ${GRID_ROW_HEIGHT_PX}px;
+.fsq-head { display: grid; grid-template-columns: var(--fsq-grid-cols, 1fr); height: ${GRID_ROW_HEIGHT_PX}px; line-height: ${GRID_ROW_HEIGHT_PX}px;
   position: sticky; top: 0; z-index: 2; font-weight: 600;
-  width: max-content; min-width: 100%;
+  width: max(100%, var(--fsq-grid-width, max-content)); min-width: 100%;
   background: var(--vscode-keybindingTable-headerBackground, var(--vscode-editorWidget-background, var(--vscode-editor-background)));
   border-bottom: 1px solid var(--fsq-border);
   box-shadow: 0 1px 0 var(--fsq-border); }
 .fsq-head .fsq-cell { border-right: 1px solid var(--vscode-tree-tableColumnsBorder, transparent); }
 .fsq-head .fsq-cell:last-child { border-right: 0; }
 
-.fsq-cell { flex: 1 1 0; min-width: 96px; padding: 0 10px; overflow: hidden;
+.fsq-cell { min-width: 0; padding: 0 10px; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; user-select: text; }
 .fsq-cell.fsq-num { text-align: right; font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 .fsq-cell.fsq-null { opacity: 0.45; font-style: italic; }
 
-.fsq-schema .fsq-row { padding: 0 10px; }
+.fsq-schema .fsq-row { display: flex; padding: 0 10px; width: 100%; }
 .fsq-schema .fsq-row:first-child { font-weight: 600; border-bottom: 1px solid var(--fsq-border); }
+.fsq-schema .fsq-cell { flex: 1 1 0; min-width: 96px; }
 
 .fsq-loadmore { margin: 6px; padding: 2px 10px; cursor: pointer; font: inherit;
   background: var(--vscode-button-secondaryBackground, transparent);
@@ -84,6 +85,9 @@ interface Grid {
   /** Per-column: does its first non-null value read as a number? Drives
    *  right-alignment + tabular figures on the header and every cell. */
   numericCols: boolean[];
+  colWidths: number[];
+  gridTemplate: string;
+  totalWidth: number;
   els: {
     count: HTMLElement;
     head: HTMLElement;
@@ -120,12 +124,11 @@ function computeNumericCols(rows: unknown[][], colCount: number): boolean[] {
   const cols = new Array(colCount).fill(false);
   for (let c = 0; c < colCount; c++) {
     for (const row of rows) {
-      const v = row[c];
-      if (v === null || v === undefined) {
-        continue;
+      const v = row?.[c];
+      if (v !== null && v !== undefined) {
+        cols[c] = isNumeric(v);
+        break;
       }
-      cols[c] = isNumeric(v);
-      break;
     }
   }
   return cols;
@@ -146,6 +149,13 @@ export function activate(context: RendererContextLike): {
       grid.rows = grid.rows.concat(message.rows);
       grid.token = message.nextToken;
       grid.numericCols = computeNumericCols(grid.rows, grid.payload.columns.length);
+      grid.colWidths = computeColWidths(grid.payload.columns, grid.rows);
+      const layout = computeGridColumnsCss(grid.colWidths);
+      grid.gridTemplate = layout.template;
+      grid.totalWidth = layout.totalWidth;
+      grid.els.viewport.style.setProperty("--fsq-grid-cols", layout.template);
+      grid.els.viewport.style.setProperty("--fsq-grid-width", `${layout.totalWidth}px`);
+      grid.els.head.style.gridTemplateColumns = layout.template;
       grid.els.loadMore.disabled = false;
       grid.els.loadMore.hidden = !grid.token;
       grid.els.count.textContent = countLabel(grid.rows.length);
@@ -190,6 +200,7 @@ export function activate(context: RendererContextLike): {
     for (let i = start; i < end; i++) {
       const row = document.createElement("div");
       row.className = i % 2 === 1 ? "fsq-row fsq-odd" : "fsq-row";
+      row.style.gridTemplateColumns = grid.gridTemplate;
       const values = grid.rows[i] ?? [];
       const width = Math.max(grid.payload.columns.length, values.length, 1);
       for (let c = 0; c < width; c++) {
@@ -237,6 +248,8 @@ export function activate(context: RendererContextLike): {
     root.appendChild(panel);
 
     const numericCols = computeNumericCols(payload.rows, payload.columns.length);
+    const colWidths = computeColWidths(payload.columns, payload.rows);
+    const { template: gridTemplate, totalWidth } = computeGridColumnsCss(colWidths);
 
     const toolbar = document.createElement("div");
     toolbar.className = "fsq-toolbar";
@@ -259,6 +272,7 @@ export function activate(context: RendererContextLike): {
 
     const head = document.createElement("div");
     head.className = "fsq-head";
+    head.style.gridTemplateColumns = gridTemplate;
     payload.columns.forEach((col, c) => {
       const cell = document.createElement("div");
       cell.className = numericCols[c] ? "fsq-cell fsq-num" : "fsq-cell";
@@ -269,6 +283,8 @@ export function activate(context: RendererContextLike): {
 
     const viewport = document.createElement("div");
     viewport.className = "fsq-viewport";
+    viewport.style.setProperty("--fsq-grid-cols", gridTemplate);
+    viewport.style.setProperty("--fsq-grid-width", `${totalWidth}px`);
     viewport.appendChild(head);
 
     const sizer = document.createElement("div");
@@ -329,6 +345,9 @@ export function activate(context: RendererContextLike): {
       token: payload.continuationToken,
       view: "data",
       numericCols,
+      colWidths,
+      gridTemplate,
+      totalWidth,
       els: { count, head, viewport, sizer, rowsHost, schema, loadMore, notice, dataBtn, schemaBtn },
     };
 
@@ -355,7 +374,10 @@ export function activate(context: RendererContextLike): {
         token: grid.token,
       });
     });
-    viewport.addEventListener("scroll", () => raf(() => renderWindow(grid)));
+
+    viewport.addEventListener("scroll", () => {
+      raf(() => renderWindow(grid));
+    });
 
     renderWindow(grid);
     return grid;
@@ -363,8 +385,7 @@ export function activate(context: RendererContextLike): {
 
   return {
     renderOutputItem(item, element) {
-      const grid = build(item, element);
-      grids.set(item.id, grid);
+      grids.set(item.id, build(item, element));
     },
     disposeOutputItem(id) {
       grids.delete(id);
