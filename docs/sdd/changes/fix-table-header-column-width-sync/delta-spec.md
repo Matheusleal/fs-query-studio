@@ -11,6 +11,9 @@ the renderer shall compute content-proportional column widths for each column ba
 When mounting the grid viewport,
 the renderer shall define unified CSS Grid column track specifications (--fsq-grid-cols) and total layout width (--fsq-grid-width) on the viewport container.
 
+Where the sticky table header (.fsq-head) is positioned over vertically scrolled rows in .fsq-viewport,
+the table header shall render with an opaque solid background-color (var(--vscode-editorWidget-background, var(--vscode-editor-background))) and elevated z-index (z-index: 10), guaranteeing that rows scrolling behind top: 0 are completely obscured and never bleed into or overlap the header text.
+
 While scrolling horizontally or vertically in .fsq-viewport,
 the table header (.fsq-head) and every data row (.fsq-row) shall utilize display: grid with the identical track template (--fsq-grid-cols), guaranteeing exact column alignment.
 

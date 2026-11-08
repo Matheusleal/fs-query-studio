@@ -42,16 +42,17 @@ const STYLE = `
 
 .fsq-viewport { overflow: auto; max-height: 420px; }
 .fsq-sizer { position: relative; width: max(100%, var(--fsq-grid-width, max-content)); min-width: 100%; }
-.fsq-rows { position: absolute; left: 0; right: 0; width: 100%; }
+.fsq-rows { position: absolute; left: 0; right: 0; width: 100%; z-index: 1; }
 .fsq-row { display: grid; grid-template-columns: var(--fsq-grid-cols, 1fr); height: ${GRID_ROW_HEIGHT_PX}px; line-height: ${GRID_ROW_HEIGHT_PX}px; width: 100%; }
 .fsq-rows .fsq-row.fsq-odd { background: var(--vscode-tree-tableOddRowsBackground, rgba(128, 128, 128, 0.04)); }
 .fsq-rows .fsq-row:hover { background: var(--vscode-list-hoverBackground); color: var(--vscode-list-hoverForeground, inherit); }
 .fsq-empty { padding: 8px 10px; opacity: 0.6; }
 
 .fsq-head { display: grid; grid-template-columns: var(--fsq-grid-cols, 1fr); height: ${GRID_ROW_HEIGHT_PX}px; line-height: ${GRID_ROW_HEIGHT_PX}px;
-  position: sticky; top: 0; z-index: 2; font-weight: 600;
+  position: sticky; top: 0; z-index: 10; font-weight: 600;
   width: max(100%, var(--fsq-grid-width, max-content)); min-width: 100%;
-  background: var(--vscode-keybindingTable-headerBackground, var(--vscode-editorWidget-background, var(--vscode-editor-background)));
+  background-color: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+  background-image: linear-gradient(var(--vscode-keybindingTable-headerBackground, rgba(128, 128, 128, 0.08)), var(--vscode-keybindingTable-headerBackground, rgba(128, 128, 128, 0.08)));
   border-bottom: 1px solid var(--fsq-border);
   box-shadow: 0 1px 0 var(--fsq-border); }
 .fsq-head .fsq-cell { border-right: 1px solid var(--vscode-tree-tableColumnsBorder, transparent); }

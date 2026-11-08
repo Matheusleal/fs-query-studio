@@ -218,6 +218,16 @@ describe("Results Grid UI Elements & Interactivity", () => {
       expect(tracks).toHaveLength(3);
       expect(tracks[2]).toMatch(/minmax\(\d{3,}px,\s*1fr\)/);
     });
+
+    it("ensures .fsq-head has sticky positioning, high z-index, and solid background to prevent bleed-through", () => {
+      host.renderOutputItem(createItem("out-1", samplePayload()), container);
+
+      const style = container.querySelector("style")?.textContent ?? "";
+      expect(style).toContain(".fsq-head");
+      expect(style).toContain("position: sticky");
+      expect(style).toContain("z-index: 10");
+      expect(style).toContain("background-color: var(--vscode-editorWidget-background, var(--vscode-editor-background))");
+    });
   });
 
   describe("Data Viewport & Cell Formatting", () => {
