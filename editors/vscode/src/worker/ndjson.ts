@@ -1,7 +1,11 @@
 export function writeFrame(stream: NodeJS.WritableStream, frame: unknown): Promise<void> {
   return new Promise((resolve, reject) => {
-    const line = JSON.stringify(frame) + "\n";
-    stream.write(line, "utf8", (err) => (err ? reject(err) : resolve()));
+    try {
+      const line = JSON.stringify(frame) + "\n";
+      stream.write(line, "utf8", (err) => (err ? reject(err) : resolve()));
+    } catch (err) {
+      reject(err);
+    }
   });
 }
 
