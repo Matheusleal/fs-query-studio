@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
 export const QUERY_KEYWORDS = new Set([
+  "query",
   "select",
   "where",
   "join",

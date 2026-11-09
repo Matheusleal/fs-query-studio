@@ -1,12 +1,140 @@
 {
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-  "name": "F# Query Expression Keywords",
+  "name": "F# Query Expression and Interpolated Strings",
   "scopeName": "fsharp.query.injection",
   "injectionSelector": "L:source.fsharp",
   "patterns": [
     {
-      "name": "keyword.control.query.fsharp",
-      "match": "\\b(select|where|join|on|equals|into|groupBy|groupValBy|sortBy|sortByDescending|thenBy|thenByDescending|distinct|count|sumBy|minBy|maxBy|averageBy|all|head|nth|exists|contains|take|takeWhile|skip|skipWhile|find)\\b"
+      "include": "#keywords"
+    },
+    {
+      "include": "#interpolated_strings"
     }
-  ]
+  ],
+  "repository": {
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.query.fsharp",
+          "match": "\\b(query|select|where|join|on|equals|into|groupBy|groupValBy|sortBy|sortByDescending|thenBy|thenByDescending|distinct|count|sumBy|minBy|maxBy|averageBy|all|head|nth|exists|contains|take|takeWhile|skip|skipWhile|find)\\b"
+        }
+      ]
+    },
+    "interpolated_strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.triple.interpolated.fsharp",
+          "begin": "(\\$+)(@)?(\"{3,})",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.string.interpolated.fsharp keyword.other.interpolation.fsharp"
+            },
+            "2": {
+              "name": "storage.modifier.fsharp"
+            },
+            "3": {
+              "name": "punctuation.definition.string.begin.fsharp"
+            }
+          },
+          "end": "(\\3)",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.string.end.fsharp"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#interpolation_hole"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.interpolated.verbatim.fsharp",
+          "begin": "(\\$@|@\\$)(\")",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.string.interpolated.fsharp keyword.other.interpolation.fsharp"
+            },
+            "2": {
+              "name": "punctuation.definition.string.begin.fsharp"
+            }
+          },
+          "end": "(\")",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.string.end.fsharp"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.quote.fsharp",
+              "match": "\"\""
+            },
+            {
+              "include": "#interpolation_hole"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.interpolated.fsharp",
+          "begin": "(\\$+)(\")",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.string.interpolated.fsharp keyword.other.interpolation.fsharp"
+            },
+            "2": {
+              "name": "punctuation.definition.string.begin.fsharp"
+            }
+          },
+          "end": "(\")",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.string.end.fsharp"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.fsharp",
+              "match": "\\\\."
+            },
+            {
+              "include": "#interpolation_hole"
+            }
+          ]
+        }
+      ]
+    },
+    "interpolation_hole": {
+      "patterns": [
+        {
+          "name": "constant.character.escape.brace.fsharp",
+          "match": "\\{\\{|\\}\\}"
+        },
+        {
+          "name": "entity.name.type.format.specifier.fsharp",
+          "match": "(%0?-?(\\d+)?((a|t)|(\\.\\d+)?(f|F|e|E|g|G|M)|(b|c|s|d|i|x|X|o|u)|(s|b|O)|(\\+?A)))"
+        },
+        {
+          "name": "meta.interpolation.fsharp",
+          "begin": "(\\{)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.section.embedded.begin.fsharp punctuation.definition.template-expression.begin.fsharp"
+            }
+          },
+          "end": "(\\})",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.section.embedded.end.fsharp punctuation.definition.template-expression.end.fsharp"
+            }
+          },
+          "patterns": [
+            {
+              "include": "source.fsharp"
+            }
+          ]
+        }
+      ]
+    }
+  }
 }
