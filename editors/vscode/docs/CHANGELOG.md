@@ -8,6 +8,24 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-11-09
+
+### Added
+
+- **100k+ Rows & Expanded Columns Benchmark Demos** — Scaled sample datasets and schemas (`sample_demo.fsqnb` and `sample_demo_pt.fsqnb`) to 100k+ rows with rich columnar attributes across SQLite, CSV, Excel (`.xlsx`), JSON, and XML data sources.
+- **Worker & FSAC Workstation Garbage Collection** — Configured Workstation GC (`ServerGarbageCollection=false`), Concurrent GC, and Tiered PGO across worker processes and FSAC language service child processes (`DOTNET_GCServer=0`, `DOTNET_gcConcurrent=1`, `DOTNET_TieredPGO=1`), significantly reducing baseline process memory footprint on multi-core systems.
+- **Near-Zero Keystroke I/O Autocomplete Optimization** — Implemented file write timestamp caching for workspace and entity generation readiness (`Handlers.fs`, `EntityBackgroundGenerator.fs`, `FsiSession.fs`), eliminating repeated disk reads and JSON parsing on code editing keystrokes.
+- **Connection Name Autocomplete Deduplication** — Added short-lived caching (2s TTL) for registered connections and early request cancellation checks in the VS Code completion provider, preventing redundant worker IPC round-trips.
+
+### Fixed
+
+- **Table Header Horizontal Scroll & Column Width Alignment** — Fixed table header desynchronization with body columns during horizontal scrolling by introducing CSS Grid track specifications (`--fsq-grid-cols` and `--fsq-grid-width`) with content-proportional column widths.
+- **Sticky Table Header Opacity & Stacking** — Replaced semi-transparent header background fallback with solid opaque styling and elevated `z-index` (10), preventing scrolled rows from bleeding through or overlapping header labels.
+- **Eager Excel Connection Tree Sync** — Removed lazy-loading requirement on Excel connections in the sidebar tree, ensuring sheets and mappings are immediately visible on discovery without manual expansion.
+- **F# Option Property SQL Pushdown Translation** — Fixed LINQ SQL pushdown expression translation for nullable/optional properties where `.Value` access occurred in query filters (e.g. `where (x.Column.Value = "value")`), correctly translating the SQL condition to the underlying column name rather than literal `Value`.
+- **Language Service Memory Retention** — Pruned stale historical document version diagnostics and pending tasks in `FsacBridge.fs` to prevent unbounded dictionary growth during long editing sessions.
+- **Console Output Buffer & Session History Trimming** — Added automatic capacity trimming for `session.Output` and `session.Errors` (capping `StringBuilder` capacity at 4KB) and bounded `LastFragments` in `SessionStore.fs` to avoid retaining executed cell fragments indefinitely.
+
 ## [0.5.0] — 2026-11-06
 
 ### Added

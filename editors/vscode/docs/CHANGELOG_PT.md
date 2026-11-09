@@ -8,6 +8,24 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-11-09
+
+### Adicionado
+
+- **Datasets e Schemas de Benchmark com 100k+ Linhas** — Expansão dos notebooks de exemplo (`sample_demo.fsqnb` e `sample_demo_pt.fsqnb`) com schemas mais ricos e 100k+ linhas por fonte de dados (SQLite, CSV, Excel `.xlsx`, JSON e XML).
+- **Workstation Garbage Collection nos Workers e FSAC** — Configuração explícita de Workstation GC (`ServerGarbageCollection=false`), Concurrent GC e Tiered PGO nos workers e no processo filho do FSAC (`DOTNET_GCServer=0`, `DOTNET_gcConcurrent=1`, `DOTNET_TieredPGO=1`), reduzindo drasticamente o consumo base de memória em máquinas multi-core.
+- **Otimização de Autocomplete com I/O de Disco Quase Zero** — Cache de timestamp de modificação de arquivos para prontidão de entidades geradas (`Handlers.fs`, `EntityBackgroundGenerator.fs`, `FsiSession.fs`), eliminando leituras de disco e parsing de JSON repetidos a cada caractere digitado.
+- **Deduplicação e Cache no Autocomplete de Conexões** — Cache de curta duração (TTL de 2s) para conexões registradas e checagem antecipada de cancelamento no provedor de autocompletion do VS Code, eliminando round-trips de IPC redundantes.
+
+### Corrigido
+
+- **Scroll Horizontal e Alinhamento de Colunas do Header** — Correção da dessincronização do scroll horizontal entre o cabeçalho e o corpo da tabela com especificação de trilhas CSS Grid unificadas (`--fsq-grid-cols` e `--fsq-grid-width`) e larguras proporcionais ao conteúdo.
+- **Opacidade e Z-Index do Cabeçalho Fixo (Sticky Header)** — Substituição do fundo semitransparente por fundo sólido opaco e elevação de `z-index` (10), impedindo que linhas rolem por trás e se misturem visualmente com os nomes das colunas.
+- **Sincronização Eager da Árvore de Conexões Excel** — Carregamento imediato de abas e mapeamentos de pastas de trabalho Excel na barra lateral sem depender de expansões lazy manuais.
+- **Pushdown SQL para Propriedades Option (`.Value`)** — Correção na tradução de expressões LINQ SQL para propriedades anuláveis/opcionais que acessam `.Value` no filtro (ex.: `where (x.Coluna.Value = "valor")`), traduzindo para o nome real da coluna em vez do literal `Value`.
+- **Retenção de Memória no Serviço de Linguagem** — Prunagem de diagnósticos e tarefas pendentes de versões antigas do documento no `FsacBridge.fs`, evitando acúmulo de instâncias ao longo da edição.
+- **Poda de Capacidade de Buffers de Console e Histórico de Sessão** — Poda automática da capacidade do `StringBuilder` em `session.Output` e `session.Errors` para 4 KB após a execução de queries volumosas e controle do tamanho de `LastFragments` no `SessionStore.fs`.
+
 ## [0.5.0] — 2026-11-06
 
 ### Adicionado
