@@ -209,4 +209,26 @@ describe("registerConnectionNameCompletion", () => {
 
     sub.dispose();
   });
+
+  it("caches listConnections calls within the cache TTL to prevent repeated IPC roundtrips", async () => {
+    let callCount = 0;
+    const sub = registerConnectionNameCompletion({
+      listConnections: async () => {
+        callCount++;
+        return [{ name: "db-1", kind: "Sqlite" }];
+      },
+    });
+    const provider = vscode.languages._completion[vscode.languages._completion.length - 1]
+      .provider as {
+      provideCompletionItems(doc: unknown, pos: unknown, tok: unknown): Promise<unknown[] | undefined>;
+    };
+
+    const line = 'let db = Connections.sql "';
+    await provider.provideCompletionItems(cellDoc(line), new vscode.Position(0, line.length), token);
+    await provider.provideCompletionItems(cellDoc(line + "d"), new vscode.Position(0, line.length + 1), token);
+    await provider.provideCompletionItems(cellDoc(line + "db"), new vscode.Position(0, line.length + 2), token);
+
+    expect(callCount).toBe(1);
+    sub.dispose();
+  });
 });

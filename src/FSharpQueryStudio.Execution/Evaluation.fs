@@ -16,12 +16,17 @@ module Evaluation =
           Diagnostics: FSharpDiagnostic[]
           Exception: exn option }
 
+    let private trimStringBuilder (sb: System.Text.StringBuilder) =
+        sb.Clear() |> ignore
+        if sb.Capacity > 4096 then
+            sb.Capacity <- 4096
+
     let evaluate (session: FsiSession.Session) (source: string) : EvaluationOutcome =
         System.Console.SetOut(session.Output)
         System.Console.SetError(session.Errors)
         System.Console.SetIn(new System.IO.StringReader(""))
-        session.Output.GetStringBuilder().Clear() |> ignore
-        session.Errors.GetStringBuilder().Clear() |> ignore
+        trimStringBuilder (session.Output.GetStringBuilder())
+        trimStringBuilder (session.Errors.GetStringBuilder())
 
         let normalizedSource = if source.EndsWith("\n") then source else source + "\n"
         let result, diagnostics = session.Fsi.EvalInteractionNonThrowing(normalizedSource)
@@ -31,8 +36,14 @@ module Evaluation =
             | Choice1Of2 v -> v, None
             | Choice2Of2 ex -> None, Some ex
 
+        let outputStr = session.Output.ToString()
+        let errorStr = session.Errors.ToString()
+
+        trimStringBuilder (session.Output.GetStringBuilder())
+        trimStringBuilder (session.Errors.GetStringBuilder())
+
         { Value = value
-          Output = session.Output.ToString()
-          ErrorOutput = session.Errors.ToString()
+          Output = outputStr
+          ErrorOutput = errorStr
           Diagnostics = diagnostics
           Exception = exn }

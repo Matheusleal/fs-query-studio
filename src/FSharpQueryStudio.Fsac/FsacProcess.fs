@@ -41,6 +41,9 @@ type FsacProcess(fsautocompleteDllPath: string) =
                 RedirectStandardError = true,
                 UseShellExecute = false
             )
+        psi.EnvironmentVariables.["DOTNET_GCServer"] <- "0"
+        psi.EnvironmentVariables.["DOTNET_gcConcurrent"] <- "1"
+        psi.EnvironmentVariables.["DOTNET_TieredPGO"] <- "1"
 
         let proc = new Process(StartInfo = psi)
 

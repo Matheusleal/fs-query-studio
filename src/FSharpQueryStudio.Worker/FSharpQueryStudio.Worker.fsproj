@@ -5,6 +5,9 @@
     <!-- Transitively pulls FSharp.Compiler.Service via Execution; see the
          matching note in FSharpQueryStudio.Execution.fsproj. -->
     <NoWarn>$(NoWarn);NU1608</NoWarn>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+    <ConcurrentGarbageCollection>true</ConcurrentGarbageCollection>
+    <TieredPGO>true</TieredPGO>
   </PropertyGroup>
 
   <ItemGroup>

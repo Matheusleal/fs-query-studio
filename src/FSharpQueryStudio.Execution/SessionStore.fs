@@ -64,7 +64,7 @@ module SessionStore =
                 { Session = FsiSession.createInWorkspace workingDirectory workspaceDirectory; LastFragments = [] }
 
         let updated =
-            { entry with LastFragments = entry.LastFragments @ [ fragment ] }
+            { entry with LastFragments = [ fragment ] }
 
         sessions.[key] <- updated
         updated.Session
@@ -79,7 +79,12 @@ module SessionStore =
     /// `FsiEvaluationSession` has no `Dispose`; its collectible load
     /// context is reclaimed once nothing (including this dictionary)
     /// still references it.
-    let reset (key: string) : unit = sessions.TryRemove(key) |> ignore
+    let reset (key: string) : unit =
+        match sessions.TryRemove(key) with
+        | true, _ -> GC.Collect(2, GCCollectionMode.Optimized)
+        | false, _ -> ()
 
     /// Drops all tracked sessions across all keys.
-    let resetAll () : unit = sessions.Clear()
+    let resetAll () : unit =
+        sessions.Clear()
+        GC.Collect(2, GCCollectionMode.Optimized)

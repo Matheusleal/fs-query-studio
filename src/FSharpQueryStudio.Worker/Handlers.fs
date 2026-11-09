@@ -61,6 +61,16 @@ module Handlers =
     /// called from `Program.fs`.
     let mutable private workspaceDirOverride: string option = None
 
+    type private WorkspaceEntityReadiness =
+        { WorkspaceFileTimestamp: DateTime
+          GeneratedFileTimestamp: DateTime }
+
+    let private verifiedWorkspaceEntities = ConcurrentDictionary<string, WorkspaceEntityReadiness>()
+
+    let private invalidateWorkspaceEntitiesCache () : unit =
+        verifiedWorkspaceEntities.Clear()
+        EntityBackgroundGenerator.resetCache ()
+
     let workspaceDir () : string =
         defaultArg
             workspaceDirOverride
@@ -68,6 +78,7 @@ module Handlers =
 
     let setWorkspaceDirForTests (dir: string option) : unit =
         workspaceDirOverride <- dir
+        invalidateWorkspaceEntitiesCache ()
         FSharpQueryStudio.Fsac.Prologue.setWorkspaceDirForTests dir
 
     let waitForPendingGeneration () : unit =
@@ -367,8 +378,20 @@ module Handlers =
     let private ensureEntitiesReadyForDocument (docUriStr: string) =
         try
             let ws = resolveWorkspaceForDocument docUriStr
-            let connections = Workspace.readConnections ws
-            EntityBackgroundGenerator.ensureGenerated ws connections secretStore
+            let wsFile = Workspace.workspaceFilePath ws
+            let genFile = EntityBackgroundGenerator.generatedFilePath ws
+            let wsTimestamp = if File.Exists wsFile then File.GetLastWriteTimeUtc wsFile else DateTime.MinValue
+            let genTimestamp = if File.Exists genFile then File.GetLastWriteTimeUtc genFile else DateTime.MinValue
+
+            match verifiedWorkspaceEntities.TryGetValue(ws) with
+            | true, cached when cached.WorkspaceFileTimestamp = wsTimestamp && cached.GeneratedFileTimestamp = genTimestamp && genTimestamp <> DateTime.MinValue ->
+                // Both files exist and neither has been modified since our last verification.
+                ()
+            | _ ->
+                let connections = Workspace.readConnections ws
+                EntityBackgroundGenerator.ensureGenerated ws connections secretStore
+                let newGenTimestamp = if File.Exists genFile then File.GetLastWriteTimeUtc genFile else DateTime.MinValue
+                verifiedWorkspaceEntities.[ws] <- { WorkspaceFileTimestamp = wsTimestamp; GeneratedFileTimestamp = newGenTimestamp }
         with ex ->
             Log.Warning("FS Query Studio: Failed to ensure entities ready before analysis for {Uri}: {Error}", docUriStr, ex.Message)
 
@@ -640,6 +663,7 @@ module Handlers =
                 Directory.CreateDirectory fsqsDir |> ignore
 
         let updated = Workspace.registerConnection targetWs connection
+        invalidateWorkspaceEntitiesCache ()
         Connections.configure (WorkspaceConnectionResolver(updated, secretStore, targetWs))
         EntityBackgroundGenerator.triggerBackgroundGeneration targetWs updated secretStore
         Connections.triggerBackgroundSync targetWs updated secretStore
@@ -719,6 +743,7 @@ module Handlers =
             JsonSerializer.Deserialize<ConnectionRemoveParams>(request.Params, Serialization.options)
 
         let updated = Workspace.removeConnection targetWs removeParams.Id
+        invalidateWorkspaceEntitiesCache ()
         if targetWs <> (workspaceDir ()) then
             Workspace.removeConnection (workspaceDir ()) removeParams.Id |> ignore
         Connections.configure (WorkspaceConnectionResolver(updated, secretStore, targetWs))
