@@ -50,6 +50,30 @@ function linePrefixAt(text: string, position: vscode.Position): string {
 export function registerConnectionNameCompletion(
   deps: ConnectionNameCompletionDeps,
 ): vscode.Disposable {
+  let cachedConnections: { timestamp: number; items: ConnectionItem[] } | undefined;
+  let cachedNames: { timestamp: number; items: string[] } | undefined;
+  const CACHE_TTL_MS = 2000;
+
+  const getCachedConnections = async () => {
+    const now = Date.now();
+    if (cachedConnections && now - cachedConnections.timestamp < CACHE_TTL_MS) {
+      return cachedConnections.items;
+    }
+    const items = deps.listConnections ? await deps.listConnections() : [];
+    cachedConnections = { timestamp: now, items };
+    return items;
+  };
+
+  const getCachedNames = async () => {
+    const now = Date.now();
+    if (cachedNames && now - cachedNames.timestamp < CACHE_TTL_MS) {
+      return cachedNames.items;
+    }
+    const items = deps.listConnectionNames ? await deps.listConnectionNames() : [];
+    cachedNames = { timestamp: now, items };
+    return items;
+  };
+
   return vscode.languages.registerCompletionItemProvider(
     FSHARP_CELL_SELECTOR,
     {
@@ -61,7 +85,7 @@ export function registerConnectionNameCompletion(
         }
 
         if (deps.listConnections) {
-          const all = await deps.listConnections();
+          const all = await getCachedConnections();
           if (token.isCancellationRequested) {
             return undefined;
           }
@@ -80,7 +104,7 @@ export function registerConnectionNameCompletion(
           });
         }
 
-        const names = deps.listConnectionNames ? await deps.listConnectionNames() : [];
+        const names = await getCachedNames();
         if (token.isCancellationRequested) {
           return undefined;
         }

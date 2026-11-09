@@ -213,22 +213,53 @@ module EntityBackgroundGenerator =
             currentGenerationTask.Wait()
         with _ -> ()
 
+    type private GeneratedFileCache =
+        { Timestamp: DateTime
+          ConnectionFingerprint: int }
+
+    let private generatedFileCache = System.Collections.Concurrent.ConcurrentDictionary<string, GeneratedFileCache>()
+
+    let private computeConnectionFingerprint (connections: ConnectionDefinition list) : int =
+        let deduped = deduplicateByName connections
+        let hash = System.HashCode()
+        for def in deduped do
+            hash.Add(def.Name)
+            hash.Add(def.Kind.ToString())
+        hash.ToHashCode()
+
+    /// Resets memory caches (useful for test isolation).
+    let resetCache () : unit =
+        generatedFileCache.Clear()
+
     let private needsSynchronousGeneration (targetPath: string) (connections: ConnectionDefinition list) : bool =
         if not (File.Exists targetPath) then
             true
         else
-            try
-                let existing = File.ReadAllText targetPath
-                if existing.Contains("// No connections registered.") then
-                    not (List.isEmpty connections)
-                else
-                    let deduped = deduplicateByName connections
-                    deduped
-                    |> List.exists (fun def ->
-                        let cleanName = cleanIdentifier def.Name
-                        not (existing.Contains($"(\"{def.Name}\")") || existing.Contains($"(\"{cleanName}\")")))
-            with _ ->
+            let lastWrite =
+                try File.GetLastWriteTimeUtc targetPath
+                with _ -> DateTime.MinValue
+            let fingerprint = computeConnectionFingerprint connections
+
+            match generatedFileCache.TryGetValue(targetPath) with
+            | true, cached when cached.Timestamp = lastWrite && cached.ConnectionFingerprint = fingerprint ->
                 false
+            | _ ->
+                try
+                    let existing = File.ReadAllText targetPath
+                    let needsGen =
+                        if existing.Contains("// No connections registered.") then
+                            not (List.isEmpty connections)
+                        else
+                            let deduped = deduplicateByName connections
+                            deduped
+                            |> List.exists (fun def ->
+                                let cleanName = cleanIdentifier def.Name
+                                not (existing.Contains($"(\"{def.Name}\")") || existing.Contains($"(\"{cleanName}\")")))
+                    if not needsGen then
+                        generatedFileCache.[targetPath] <- { Timestamp = lastWrite; ConnectionFingerprint = fingerprint }
+                    needsGen
+                with _ ->
+                    false
 
     /// Ensures generated entities exist, generating synchronously when missing or stale.
     let ensureGenerated

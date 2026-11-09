@@ -14,7 +14,8 @@ module FsiSession =
         { Fsi: FsiEvaluationSession
           Output: StringWriter
           Errors: StringWriter
-          mutable GeneratedContent: string }
+          mutable GeneratedContent: string
+          mutable GeneratedTimestamp: DateTime }
 
     let private resolveGeneratedFile (workingDirectory: string) (workspaceDirectory: string) : string =
         let cleanWsDir =
@@ -52,20 +53,25 @@ module FsiSession =
     let refreshGeneratedEntities (workingDirectory: string) (workspaceDirectory: string) (session: Session) : unit =
         let generatedFile = resolveGeneratedFile workingDirectory workspaceDirectory
         if not (String.IsNullOrEmpty generatedFile) && File.Exists generatedFile then
-            let currentContent =
-                try File.ReadAllText generatedFile
-                with _ -> ""
-            if not (String.IsNullOrWhiteSpace currentContent) && currentContent <> session.GeneratedContent then
-                let generatedLoad = $"#load @\"{generatedFile}\"\nopen FSharpQueryStudio.Generated\n"
-                let choice, errs = session.Fsi.EvalInteractionNonThrowing(generatedLoad)
-                session.Output.GetStringBuilder().Clear() |> ignore
-                session.Errors.GetStringBuilder().Clear() |> ignore
-                match choice with
-                | Choice2Of2 ex ->
-                    let diag = errs |> Seq.map (fun (e: FSharp.Compiler.Diagnostics.FSharpDiagnostic) -> e.Message) |> String.concat "; "
-                    failwithf "#load of '%s' failed: %s (Diagnostics: %s)" generatedFile ex.Message diag
-                | Choice1Of2 _ ->
-                    session.GeneratedContent <- currentContent
+            let lastWrite =
+                try File.GetLastWriteTimeUtc generatedFile
+                with _ -> DateTime.UtcNow
+            if lastWrite <> session.GeneratedTimestamp then
+                let currentContent =
+                    try File.ReadAllText generatedFile
+                    with _ -> ""
+                if not (String.IsNullOrWhiteSpace currentContent) && currentContent <> session.GeneratedContent then
+                    let generatedLoad = $"#load @\"{generatedFile}\"\nopen FSharpQueryStudio.Generated\n"
+                    let choice, errs = session.Fsi.EvalInteractionNonThrowing(generatedLoad)
+                    session.Output.GetStringBuilder().Clear() |> ignore
+                    session.Errors.GetStringBuilder().Clear() |> ignore
+                    match choice with
+                    | Choice2Of2 ex ->
+                        let diag = errs |> Seq.map (fun (e: FSharp.Compiler.Diagnostics.FSharpDiagnostic) -> e.Message) |> String.concat "; "
+                        failwithf "#load of '%s' failed: %s (Diagnostics: %s)" generatedFile ex.Message diag
+                    | Choice1Of2 _ ->
+                        session.GeneratedContent <- currentContent
+                session.GeneratedTimestamp <- lastWrite
 
     /// Controlled working directory, redirected output/error, and no
     /// interactive console prompts (stdin reader is pre-exhausted so a
@@ -137,7 +143,8 @@ module FsiSession =
             { Fsi = fsi
               Output = output
               Errors = errors
-              GeneratedContent = "" }
+              GeneratedContent = ""
+              GeneratedTimestamp = DateTime.MinValue }
 
         refreshGeneratedEntities workingDirectory workspaceDirectory session
 

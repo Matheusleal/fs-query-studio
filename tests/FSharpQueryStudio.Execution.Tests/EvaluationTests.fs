@@ -50,6 +50,26 @@ let ``evaluate captures the exception's own message when a concretely-typed scri
             cleanupWorkingDirectory workDir
     }
 
+[<Fact>]
+let ``evaluate trims large StringBuilder output buffer capacity after large printing`` () =
+    task {
+        let workDir = tempWorkingDirectory ()
+
+        try
+            let work =
+                task {
+                    let session = FsiSession.create workDir
+                    let largeOutputScript = "for i in 1 .. 2000 do printfn \"Large output row number %d\" i"
+                    let _ = Evaluation.evaluate session largeOutputScript
+                    Assert.True(session.Output.GetStringBuilder().Capacity <= 4096)
+                    Assert.True(session.Errors.GetStringBuilder().Capacity <= 4096)
+                }
+
+            do! work |> withTimeout 45.0
+        finally
+            cleanupWorkingDirectory workDir
+    }
+
 /// Characterizes a real FSI gotcha, not a bug in `Evaluation`: `failwith`
 /// has type `string -> 'a`, so a bare top-level `failwith "boom"` never
 /// gets a concrete type. F#'s value restriction rejects the interaction

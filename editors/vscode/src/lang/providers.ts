@@ -179,6 +179,9 @@ export function registerLanguageFeatures(deps: LanguageFeaturesDeps): LanguageFe
           line,
           column,
         });
+        if (token.isCancellationRequested) {
+          return undefined;
+        }
         return items.map((entry) => {
           const item = new vscode.CompletionItem(
             entry.detail ? { label: entry.label, description: entry.detail } : entry.label,

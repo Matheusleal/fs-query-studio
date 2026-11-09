@@ -80,6 +80,20 @@ module FsacBridge =
     let mutable private lastKnownClient: LspClient option = None
     let private syncLock = obj ()
 
+    let private pruneOlderVersions (uri: string) (currentVersion: int) =
+        for kv in latestDiagnosticsByUriAndVersion do
+            let struct (u, v) = kv.Key
+            if u = uri && v < currentVersion then
+                latestDiagnosticsByUriAndVersion.TryRemove(kv.Key) |> ignore
+        for kv in diagnosticsPending do
+            let struct (u, v) = kv.Key
+            if u = uri && v < currentVersion then
+                match diagnosticsPending.TryRemove(kv.Key) with
+                | true, waiters ->
+                    for tcs in waiters do
+                        tcs.TrySetResult([]) |> ignore
+                | _ -> ()
+
     let private isNewClient (client: LspClient) : bool =
         match lastKnownClient with
         | Some c -> not (obj.ReferenceEquals(box c, box client))
@@ -99,6 +113,7 @@ module FsacBridge =
                     registerDiagnosticsHandler client
                     lastKnownClient <- Some client
 
+                pruneOlderVersions canonicalUri version
                 latestExpectedVersionByUri.[canonicalUri] <- version
                 latestDiagnosticsByUriAndVersion.[struct (canonicalUri, version)] <- []
                 openDocuments.TryAdd(documentUri, true))
