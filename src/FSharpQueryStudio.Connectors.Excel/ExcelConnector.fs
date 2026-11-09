@@ -79,12 +79,12 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
             | Some name -> workbook.Worksheet(name)
             | None -> selectSheet workbook
 
-        use rowEnum = sheet.RowsUsed().GetEnumerator()
+        let firstRow = sheet.FirstRowUsed()
+        let lastRow = sheet.LastRowUsed()
 
-        if not (rowEnum.MoveNext()) then
+        if isNull firstRow || isNull lastRow then
             { Columns = []; Rows = Seq.empty }
         else
-            let firstRow = rowEnum.Current
             let firstCell = firstRow.FirstCellUsed()
             let lastCell = firstRow.LastCellUsed()
 
@@ -109,22 +109,30 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
 
                 let readRowArray (row: IXLRow) : obj array =
                     let arr = Array.zeroCreate<obj> colCount
-                    for idx = 0 to colCount - 1 do
-                        let raw = ExcelCells.value (row.Cell(firstCol + idx))
-                        if hasTransforms && idx < columns.Length then
-                            arr.[idx] <- applyColTransform columns.[idx] raw
-                        else
-                            arr.[idx] <- raw
-                    arr
+                    let mutable hasAny = false
+                    for cell in row.Cells(firstCol, lastCol) do
+                        let idx = cell.Address.ColumnNumber - firstCol
+                        if idx >= 0 && idx < colCount then
+                            let raw = ExcelCells.value cell
+                            if not (isNull raw) then hasAny <- true
+                            if hasTransforms && idx < columns.Length then
+                                arr.[idx] <- applyColTransform columns.[idx] raw
+                            else
+                                arr.[idx] <- raw
+                    if hasAny then arr else [||]
 
                 let limit = defaultArg maxRows System.Int32.MaxValue
-                let collected = ResizeArray<obj array>()
+                let startRow = if options.HasHeader then firstRow.RowNumber() + 1 else firstRow.RowNumber()
+                let totalAvailable = lastRow.RowNumber() - startRow + 1
+                let rowsToTake = if totalAvailable <= 0 then 0 else min totalAvailable limit
 
-                if not options.HasHeader && collected.Count < limit then
-                    collected.Add(readRowArray firstRow)
-
-                while collected.Count < limit && rowEnum.MoveNext() do
-                    collected.Add(readRowArray rowEnum.Current)
+                let collected = ResizeArray<obj array>(if rowsToTake < 10000 then rowsToTake else 10000)
+                if rowsToTake > 0 then
+                    let endRow = startRow + rowsToTake - 1
+                    for r in sheet.Rows(startRow, endRow) do
+                        let rowArr = readRowArray r
+                        if rowArr.Length > 0 then
+                            collected.Add(rowArr)
 
                 { Columns = columns; Rows = collected.ToArray() :> seq<obj array> }
 
@@ -143,11 +151,11 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
             let tables =
                 workbook.Worksheets
                 |> Seq.map (fun sheet ->
-                    let rowsEnum = sheet.RowsUsed() |> Seq.truncate 200 |> Seq.toList
-                    match rowsEnum with
-                    | [] ->
+                    let firstRow = sheet.FirstRowUsed()
+                    let lastRow = sheet.LastRowUsed()
+                    if isNull firstRow || isNull lastRow then
                         { Name = sheet.Name; Columns = [] }: ConnectorTable
-                    | firstRow :: dataRows ->
+                    else
                         let firstCell = firstRow.FirstCellUsed()
                         let lastCell = firstRow.LastCellUsed()
                         if isNull firstCell || isNull lastCell then
@@ -162,6 +170,14 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
                                     [ for c in firstCol .. lastCol -> firstRow.Cell(c).Value.ToString() ]
                                 else
                                     [ for i in 1 .. colCount -> $"Column{i}" ]
+
+                            let startRow = if options.HasHeader then firstRow.RowNumber() + 1 else firstRow.RowNumber()
+                            let maxSample = min (lastRow.RowNumber()) (startRow + 200 - 1)
+                            let dataRows =
+                                if maxSample >= startRow then
+                                    sheet.Rows(startRow, maxSample) |> Seq.toList
+                                else
+                                    []
 
                             let effectiveDataRows =
                                 if options.HasHeader then dataRows
