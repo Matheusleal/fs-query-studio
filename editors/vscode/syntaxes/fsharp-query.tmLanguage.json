@@ -9,6 +9,18 @@
     },
     {
       "include": "#interpolated_strings"
+    },
+    {
+      "include": "#modules"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#properties"
+    },
+    {
+      "include": "#variables"
     }
   ],
   "repository": {
@@ -130,9 +142,64 @@
           },
           "patterns": [
             {
+              "include": "#keywords"
+            },
+            {
+              "include": "#modules"
+            },
+            {
+              "include": "#functions"
+            },
+            {
+              "include": "#properties"
+            },
+            {
+              "include": "#variables"
+            },
+            {
               "include": "source.fsharp"
             }
           ]
+        }
+      ]
+    },
+    "modules": {
+      "patterns": [
+        {
+          "name": "entity.name.type.module.fsharp support.class.fsharp",
+          "match": "\\b(Seq|List|Array|Option|Result|String|Map|Set|Dict|Async|Task|Char|Math|DateTime|DateOnly|TimeOnly|Guid|Convert|Console|File|Directory|Path|Regex|Json|Http|Connections|Results|Choice|NativePtr|Memory|Span)\\b"
+        },
+        {
+          "name": "entity.name.type.module.fsharp support.class.fsharp",
+          "match": "\\b[A-Z][a-zA-Z0-9_]*(?=\\.)"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "support.function.fsharp entity.name.function.fsharp",
+          "match": "\\b(sprintf|printfn|printf|eprintf|eprintfn|fprintf|fprintfn|failwith|failwithf|nullArg|invalidArg|invalidOp|reraise|defaultArg|nameof|typeof|sizeof|typedefof|box|unbox|ignore|id|fst|snd|map|filter|choose|iter|collect|fold|reduce|scan|zip|unzip|exists|forall|find|tryFind|findIndex|tryFindIndex|pick|tryPick|sortBy|sortByDescending|sort|sortDescending|groupBy|distinct|distinctBy|countBy)\\b"
+        },
+        {
+          "name": "entity.name.function.fsharp support.function.fsharp",
+          "match": "\\b(?!(?:abstract|and|as|assert|base|begin|class|default|delegate|do|done|downcast|downto|elif|else|end|exception|extern|false|finally|for|fun|function|global|if|in|inherit|inline|interface|internal|lazy|let|match|member|module|mutable|namespace|new|not|null|of|open|or|override|private|public|rec|return|static|struct|then|to|true|try|type|upcast|use|val|void|when|while|with|yield|query|select|where|join|on|equals|into|groupBy|groupValBy|sortBy|sortByDescending|thenBy|thenByDescending|distinct|count|sumBy|minBy|maxBy|averageBy|all|head|nth|exists|contains|take|takeWhile|skip|skipWhile|find)\\b)[a-zA-Z_][a-zA-Z0-9_]*(?=\\s*\\()"
+        }
+      ]
+    },
+    "properties": {
+      "patterns": [
+        {
+          "name": "variable.other.property.fsharp variable.other.fsharp",
+          "match": "(?<=\\.)[a-zA-Z_][a-zA-Z0-9_]*\\b"
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "name": "variable.other.readwrite.fsharp variable.other.fsharp",
+          "match": "\\b(?!(?:abstract|and|as|assert|base|begin|class|default|delegate|do|done|downcast|downto|elif|else|end|exception|extern|false|finally|for|fun|function|global|if|in|inherit|inline|interface|internal|lazy|let|match|member|module|mutable|namespace|new|not|null|of|open|or|override|private|public|rec|return|static|struct|then|to|true|try|type|upcast|use|val|void|when|while|with|yield|query|select|where|join|on|equals|into|groupBy|groupValBy|sortBy|sortByDescending|thenBy|thenByDescending|distinct|count|sumBy|minBy|maxBy|averageBy|all|head|nth|exists|contains|take|takeWhile|skip|skipWhile|find)\\b)[a-z_][a-zA-Z0-9_]*\\b"
         }
       ]
     }
