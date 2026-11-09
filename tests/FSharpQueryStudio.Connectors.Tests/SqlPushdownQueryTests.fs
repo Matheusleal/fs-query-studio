@@ -752,6 +752,70 @@ let ``SqlPushdownQueryable translates option IsSome and IsNone to IS NOT NULL an
     Assert.Single(rowsNone) |> ignore
     Assert.Equal("Gadget", rowsNone.[0].Name)
 
+[<Fact>]
+let ``SqlPushdownQueryable correctly maps scalar option projection without .Value`` () =
+    use db = new TempSqliteDb()
+    use conn = new SqliteConnection($"Data Source={db.Path}")
+    conn.Open()
+    use cmd = conn.CreateCommand()
+    cmd.CommandText <-
+        "CREATE TABLE OptionProducts3 (Id INTEGER PRIMARY KEY, Name TEXT, Description TEXT, Rating NUMERIC, Discount NUMERIC); \
+         INSERT INTO OptionProducts3 VALUES (1, 'Widget', 'HighQuality', 4.5, 10.0); \
+         INSERT INTO OptionProducts3 VALUES (2, 'Gadget', NULL, NULL, NULL); \
+         INSERT INTO OptionProducts3 VALUES (3, 'Gizmo', 'TopTier', NULL, NULL);"
+    cmd.ExecuteNonQuery() |> ignore
+
+    let connector = SqliteConnector(db.Path)
+    let queryable = SqlPushdownQueryable<TestOptionProduct>(connector, "OptionProducts3")
+
+    // 1. Direct scalar option projection without .Value
+    let qScalar =
+        query {
+            for p in queryable do
+            select p.Description
+        }
+
+    let rows = qScalar |> Seq.toList
+    Assert.Equal(3, rows.Length)
+    Assert.Equal(Some "HighQuality", rows.[0])
+    Assert.Equal(None, rows.[1])
+    Assert.Equal(Some "TopTier", rows.[2])
+
+    // 2. Seq.filter with IsSome
+    let filtered =
+        qScalar
+        |> Seq.filter (fun x -> x.IsSome)
+        |> Seq.map (fun x -> x.Value)
+        |> Seq.toList
+
+    Assert.Equal(2, filtered.Length)
+    Assert.Equal("HighQuality", filtered.[0])
+    Assert.Equal("TopTier", filtered.[1])
+
+    // 3. Seq.choose
+    let chosen =
+        qScalar
+        |> Seq.choose id
+        |> Seq.toList
+
+    Assert.Equal(2, chosen.Length)
+    Assert.Equal("HighQuality", chosen.[0])
+    Assert.Equal("TopTier", chosen.[1])
+
+    // 4. In-query pushdown with where .IsSome and select without .Value
+    let qPushdownSome =
+        query {
+            for p in queryable do
+            where p.Description.IsSome
+            select p.Description
+        }
+
+    let pushdownRows = qPushdownSome |> Seq.toList
+    Assert.Equal(2, pushdownRows.Length)
+    Assert.Equal(Some "HighQuality", pushdownRows.[0])
+    Assert.Equal(Some "TopTier", pushdownRows.[1])
+
+
 
 
 

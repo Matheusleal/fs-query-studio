@@ -83,7 +83,7 @@ module Connections =
         | true, v -> Some v
         | false, _ -> None
 
-    let private convertValue (raw: obj) (targetType: Type) : obj =
+    let rec private convertValue (raw: obj) (targetType: Type) : obj =
         if isNull raw || Convert.IsDBNull(raw) then
             null
         elif targetType.IsInstanceOfType(raw) then
@@ -91,6 +91,15 @@ module Connections =
             | :? double as d when not (Double.IsFinite d) -> null
             | :? single as f when not (Single.IsFinite f) -> null
             | _ -> raw
+        elif targetType.IsGenericType && targetType.GetGenericTypeDefinition() = typedefof<option<_>> then
+            let innerType = targetType.GetGenericArguments().[0]
+            if (raw :? string) && isSentinelString (raw :?> string) then null
+            else
+                let converted = convertValue raw innerType
+                if isNull converted then null
+                else
+                    let someMethod = typedefof<option<_>>.MakeGenericType(innerType).GetMethod("Some")
+                    someMethod.Invoke(null, [| converted |])
         elif raw :? string then
             let rawStr = (raw :?> string).Trim().Trim('"', '\'')
 
