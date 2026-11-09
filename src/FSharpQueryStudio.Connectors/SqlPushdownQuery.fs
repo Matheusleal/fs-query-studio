@@ -1,4 +1,4 @@
-﻿namespace FSharpQueryStudio.Connectors
+namespace FSharpQueryStudio.Connectors
 
 open System
 open System.Collections
@@ -119,10 +119,61 @@ module ExpressionPushdownTranslator =
         else
             0
 
+    let isOptionOrNullableType (t: Type) : bool =
+        if isNull t then false
+        elif t.IsGenericType then
+            let g = t.GetGenericTypeDefinition()
+            g = typedefof<option<_>>
+            || g = typedefof<voption<_>>
+            || g = typedefof<Nullable<_>>
+        else
+            false
+
+    let unwrapClientOption (v: obj) : obj =
+        if isNull v then null
+        else
+            let t = v.GetType()
+            if isOptionOrNullableType t then
+                let valProp = t.GetProperty("Value")
+                let hasValProp = t.GetProperty("IsSome")
+                let hasVal =
+                    if not (isNull hasValProp) then hasValProp.GetValue(v) :?> bool
+                    else
+                        let hasValProp2 = t.GetProperty("HasValue")
+                        if not (isNull hasValProp2) then hasValProp2.GetValue(v) :?> bool
+                        else true
+                if hasVal && not (isNull valProp) then
+                    valProp.GetValue(v)
+                else
+                    null
+            else
+                v
+
+    let rec unwrapOptionOrNullableMember (expr: Expression) : Expression =
+        match expr with
+        | null -> null
+        | :? MemberExpression as m when
+            not (isNull m.Expression)
+            && (m.Member.Name = "Value" || m.Member.Name = "get_Value")
+            && isOptionOrNullableType m.Expression.Type ->
+            unwrapOptionOrNullableMember m.Expression
+        | :? MethodCallExpression as mc when
+            (mc.Method.Name = "get_Value" || mc.Method.Name = "get" || mc.Method.Name = "Value")
+            && (
+                (not (isNull mc.Object) && isOptionOrNullableType mc.Object.Type)
+                || (mc.Arguments.Count > 0 && isOptionOrNullableType mc.Arguments.[0].Type)
+            ) ->
+            let target = if not (isNull mc.Object) then mc.Object else mc.Arguments.[0]
+            unwrapOptionOrNullableMember target
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ->
+            let inner = unwrapOptionOrNullableMember u.Operand
+            if inner <> u.Operand then inner else expr
+        | other -> other
+
     /// Resolves a member expression (possibly navigating a nested tuple hierarchy from multi-table joins)
     /// into an optional table alias and the column name.
     let resolveMemberRef (plan: PushdownQueryPlan) (expr: Expression) : (string option * string) =
-        let unwrapped = unwrapQuote expr
+        let unwrapped = unwrapQuote expr |> unwrapOptionOrNullableMember
         match unwrapped with
         | :? MemberExpression as m ->
             let colName = m.Member.Name
@@ -226,7 +277,7 @@ module ExpressionPushdownTranslator =
             (None, unwrapped.ToString())
 
     let rec extractColumnNameWithAlias (plan: PushdownQueryPlan) (expr: Expression) : string =
-        let unwrapped = unwrapQuote expr
+        let unwrapped = unwrapQuote expr |> unwrapOptionOrNullableMember
         match unwrapped with
         | :? LambdaExpression as l -> extractColumnNameWithAlias plan l.Body
         | :? MemberExpression as m ->
@@ -244,18 +295,19 @@ module ExpressionPushdownTranslator =
             unwrapped.ToString()
 
     let extractColumnName (param: ParameterExpression) (expr: Expression) : string =
-        match expr with
+        let unwrapped = unwrapOptionOrNullableMember expr
+        match unwrapped with
         | :? MemberExpression as m when m.Expression = (param :> Expression) ->
             m.Member.Name
         | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ->
-            match u.Operand with
+            match u.Operand |> unwrapOptionOrNullableMember with
             | :? MemberExpression as m when m.Expression = (param :> Expression) -> m.Member.Name
             | other -> other.ToString()
         | _ ->
-            expr.ToString()
+            unwrapped.ToString()
 
     let rec extractKeyColumns (plan: PushdownQueryPlan) (fallbackAlias: string) (param: ParameterExpression) (expr: Expression) : string list =
-        let unwrapped = unwrapQuote expr
+        let unwrapped = unwrapQuote expr |> unwrapOptionOrNullableMember
         match unwrapped with
         | :? MemberExpression as m ->
             let aliasOpt, colName = resolveMemberRef plan m
@@ -462,7 +514,8 @@ module ExpressionPushdownTranslator =
 
                 if leftHasParam && not rightHasParam then
                     let col = extractColumnNameWithAlias plan b.Left
-                    let clientVal = evaluateClientValue b.Right
+                    let rawVal = evaluateClientValue b.Right
+                    let clientVal = unwrapClientOption rawVal
                     if isNull clientVal then
                         if op = "=" then Some $"({col} IS NULL)"
                         elif op = "<>" then Some $"({col} IS NOT NULL)"
@@ -473,7 +526,8 @@ module ExpressionPushdownTranslator =
                         Some $"({col} {op} {pName})"
                 elif not leftHasParam && rightHasParam then
                     let col = extractColumnNameWithAlias plan b.Right
-                    let clientVal = evaluateClientValue b.Left
+                    let rawVal = evaluateClientValue b.Left
+                    let clientVal = unwrapClientOption rawVal
                     let invOp =
                         match op with
                         | ">" -> "<"
@@ -613,8 +667,26 @@ module ExpressionPushdownTranslator =
                         plan.Parameters.Add(pName, box ("%" + sVal))
                         Some $"({col} LIKE {pName})"
                     | _ -> None
+            elif (mc.Method.Name = "isSome" || mc.Method.Name = "IsSome" || mc.Method.Name = "get_IsSome") && mc.Arguments.Count = 1 && dependsOnParameter param mc.Arguments.[0] && isOptionOrNullableType mc.Arguments.[0].Type then
+                let col = extractColumnNameWithAlias plan mc.Arguments.[0]
+                Some $"({col} IS NOT NULL)"
+            elif (mc.Method.Name = "isNone" || mc.Method.Name = "IsNone" || mc.Method.Name = "get_IsNone") && mc.Arguments.Count = 1 && dependsOnParameter param mc.Arguments.[0] && isOptionOrNullableType mc.Arguments.[0].Type then
+                let col = extractColumnNameWithAlias plan mc.Arguments.[0]
+                Some $"({col} IS NULL)"
             else
                 None
+        | :? MemberExpression as m when not (isNull m.Expression) && isOptionOrNullableType m.Expression.Type && dependsOnParameter param m.Expression ->
+            let col = extractColumnNameWithAlias plan m.Expression
+            match m.Member.Name with
+            | "IsSome" | "HasValue" -> Some $"({col} IS NOT NULL)"
+            | "IsNone" -> Some $"({col} IS NULL)"
+            | _ -> None
+        | :? MemberExpression as m when m.Type = typeof<bool> && dependsOnParameter param m ->
+            let col = extractColumnNameWithAlias plan m
+            if dialect = SqlDialect.Sqlite || dialect = SqlDialect.SqlServer then
+                Some $"({col} = 1)"
+            else
+                Some $"({col} = TRUE)"
         | _ -> None
 
     and translateScalarCondition (dialect: SqlDialect) (plan: PushdownQueryPlan) (expr: Expression) : string option =
@@ -1128,11 +1200,20 @@ module ExpressionPushdownTranslator =
                 if ok && colParts.Count > 0 then
                     plan.Projection <- Some (String.concat ", " colParts)
             | :? MemberExpression as m ->
-                match translateScalarExpr dialect plan m with
-                | Some sqlExpr ->
-                    let qProp = SqlDialect.quoteIdentifier dialect m.Member.Name
-                    plan.Projection <- Some $"{sqlExpr} AS {qProp}"
-                | None -> ()
+                let unwrappedM = unwrapOptionOrNullableMember m
+                match unwrappedM with
+                | :? MemberExpression as realM ->
+                    match translateScalarExpr dialect plan realM with
+                    | Some sqlExpr ->
+                        let qProp = SqlDialect.quoteIdentifier dialect realM.Member.Name
+                        plan.Projection <- Some $"{sqlExpr} AS {qProp}"
+                    | None -> ()
+                | _ ->
+                    match translateScalarExpr dialect plan m with
+                    | Some sqlExpr ->
+                        let qProp = SqlDialect.quoteIdentifier dialect m.Member.Name
+                        plan.Projection <- Some $"{sqlExpr} AS {qProp}"
+                    | None -> ()
             | :? BinaryExpression as b ->
                 match translateScalarExpr dialect plan b with
                 | Some sqlExpr ->
