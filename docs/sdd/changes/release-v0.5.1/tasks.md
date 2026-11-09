@@ -5,3 +5,4 @@
 - [x] TASK-503: Run full local test suite verification (`npm test` and `sample_demo` tests)
 - [x] TASK-504: Build VSIX and sync compiled extension to `~/.vscode/extensions/...`
 - [x] TASK-505: Commit, push branch, and create Pull Request
+

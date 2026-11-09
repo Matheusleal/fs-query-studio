@@ -130,6 +130,13 @@ export class WorkerClient {
   dispose(): void {
     if (this.current) {
       this.log?.("[Host] Disposing worker process.");
+      try {
+        if ("end" in this.current.stdin && typeof (this.current.stdin as { end?: unknown }).end === "function") {
+          (this.current.stdin as { end: () => void }).end();
+        }
+      } catch {
+        // ignore
+      }
       this.current.kill();
       this.current = undefined;
     }
@@ -142,6 +149,12 @@ export class WorkerClient {
     const proc = this.spawn();
     this.current = proc;
     this.log?.(`[Worker] Started process with PID ${proc.pid ?? "unknown"}.`);
+
+    if (proc.stdin && typeof (proc.stdin as unknown as { on?: unknown }).on === "function") {
+      (proc.stdin as unknown as { on: (event: string, cb: (err: unknown) => void) => void }).on("error", (err: unknown) => {
+        this.log?.(`[Worker stdin error] ${(err as Error)?.message ?? String(err)}`);
+      });
+    }
 
     if (proc.stderr && typeof proc.stderr.on === "function") {
       let stderrBuffer = "";

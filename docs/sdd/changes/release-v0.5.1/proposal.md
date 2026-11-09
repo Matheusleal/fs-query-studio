@@ -8,3 +8,4 @@ Following the completion of multiple critical bug fixes, UI table header renderi
 2. Document all additions and fixes in English and Portuguese changelogs (`CHANGELOG.md`, `docs/CHANGELOG.md`, `docs/CHANGELOG_PT.md`).
 3. Update status and release references in `README.md` and `README_PT.md`.
 4. Run full test suite validation locally to ensure 100% test passing before release.
+

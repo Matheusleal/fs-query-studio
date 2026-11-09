@@ -15,3 +15,4 @@ the project changelogs and readmes shall document all v0.5.1 enhancements:
 - Worker and FSAC Workstation GC configuration and process memory optimization.
 - Autocomplete and analysis hot-path timestamp caching (near-zero keystroke disk I/O).
 - Diagnostic version pruning and session buffer capacity trimming.
+
