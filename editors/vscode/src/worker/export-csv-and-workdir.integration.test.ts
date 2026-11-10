@@ -47,6 +47,18 @@ const toVscodeUri = (filePath: string) => {
     : `file:///${normalized.replace(":", "%3A")}`;
 };
 
+function normalizeFsPath(p: string): string {
+  try {
+    let resolved = typeof fs.realpathSync.native === "function" ? fs.realpathSync.native(p) : fs.realpathSync(p);
+    if (resolved.startsWith("\\\\?\\")) {
+      resolved = resolved.slice(4);
+    }
+    return path.resolve(resolved).toLowerCase();
+  } catch {
+    return path.resolve(p).toLowerCase();
+  }
+}
+
 describe.skipIf(!workerDll)("working directory and CSV export integration", () => {
   it("evaluates in workspace dir, creates and disposes files without locks, and exports CSV relatively", async () => {
     const dotnet = await resolveDotnet();
@@ -76,9 +88,7 @@ describe.skipIf(!workerDll)("working directory and CSV export integration", () =
       expect(evalDirRes.error ?? undefined).toBeUndefined();
       const dirEnvelope = evalDirRes.result as ResultEnvelope;
       const returnedDir = dirEnvelope.displayText?.trim().replace(/"/g, "") ?? "";
-      const realExpected = fs.realpathSync(tempDir).toLowerCase();
-      const realReturned = fs.realpathSync(returnedDir).toLowerCase();
-      expect(realReturned).toBe(realExpected);
+      expect(normalizeFsPath(returnedDir)).toBe(normalizeFsPath(tempDir));
 
       // 2. File creation via File.Create, write, Dispose, verify, and immediate deletion
       const fileCode = [
