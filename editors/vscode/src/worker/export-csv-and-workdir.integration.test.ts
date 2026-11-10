@@ -76,7 +76,9 @@ describe.skipIf(!workerDll)("working directory and CSV export integration", () =
       expect(evalDirRes.error ?? undefined).toBeUndefined();
       const dirEnvelope = evalDirRes.result as ResultEnvelope;
       const returnedDir = dirEnvelope.displayText?.trim().replace(/"/g, "") ?? "";
-      expect(path.resolve(returnedDir).toLowerCase()).toBe(path.resolve(tempDir).toLowerCase());
+      const realExpected = fs.realpathSync(tempDir).toLowerCase();
+      const realReturned = fs.realpathSync(returnedDir).toLowerCase();
+      expect(realReturned).toBe(realExpected);
 
       // 2. File creation via File.Create, write, Dispose, verify, and immediate deletion
       const fileCode = [
