@@ -369,6 +369,8 @@ type RecordReaders =
         else
             null
 
+    static member internal MakeSome<'T>(v: 'T) : 'T option = Some v
+
     static member ConvertValue (raw: obj) (targetType: Type) : obj =
         try
             if isNull raw || Convert.IsDBNull(raw) then
@@ -377,6 +379,16 @@ type RecordReaders =
                 raw
             elif raw.GetType() = targetType then
                 raw
+            elif targetType.IsGenericType && targetType.GetGenericTypeDefinition() = typedefof<option<_>> then
+                let innerType = targetType.GetGenericArguments().[0]
+                if (raw :? string) && RecordReaders.IsSentinelString (raw :?> string) then
+                    null
+                else
+                    let converted = RecordReaders.ConvertValue raw innerType
+                    if isNull converted then null
+                    else
+                        let someMethod = typeof<RecordReaders>.GetMethod("MakeSome", BindingFlags.Static ||| BindingFlags.NonPublic).MakeGenericMethod([| innerType |])
+                        someMethod.Invoke(null, [| converted |])
             elif targetType = typeof<string> then
                 box (string raw)
             elif raw :? string then
@@ -591,6 +603,14 @@ module CompiledRecordMapper =
                                 values.[i] <- RecordReaders.ConvertValue raw elemTypes.[i]
                             tupleCtor values
                         )
+                    elif targetType.IsGenericType && targetType.GetGenericTypeDefinition() = typedefof<option<_>> then
+                        let elemType = targetType.GetGenericArguments().[0]
+                        let readOptMethod = typeof<RecordReaders>.GetMethod("ReadOption").MakeGenericMethod([| elemType |])
+                        let recordParam = Expression.Parameter(typeof<IDataRecord>, "record")
+                        let callExpr = Expression.Call(readOptMethod, recordParam, Expression.Constant(0))
+                        let lambda = Expression.Lambda<Func<IDataRecord, 'T>>(callExpr, recordParam)
+                        let compiled = lambda.Compile()
+                        box (fun (record: IDataRecord) -> compiled.Invoke(record) :> obj)
                     else
                         box (fun (record: IDataRecord) ->
                             if record.FieldCount > 0 && not (record.IsDBNull(0)) then

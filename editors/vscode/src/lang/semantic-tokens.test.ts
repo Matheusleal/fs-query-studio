@@ -8,6 +8,7 @@ import * as vscode from "vscode";
 
 describe("FSharpQuerySemanticTokensProvider", () => {
   it("recognizes LINQ query keywords", () => {
+    expect(QUERY_KEYWORDS.has("query")).toBe(true);
     expect(QUERY_KEYWORDS.has("select")).toBe(true);
     expect(QUERY_KEYWORDS.has("where")).toBe(true);
     expect(QUERY_KEYWORDS.has("join")).toBe(true);

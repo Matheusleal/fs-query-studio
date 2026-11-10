@@ -1,12 +1,237 @@
 {
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-  "name": "F# Query Expression Keywords",
+  "name": "F# Query Expression and Interpolated Strings",
   "scopeName": "fsharp.query.injection",
-  "injectionSelector": "L:source.fsharp",
+  "injectionSelector": "L:source.fsharp -comment -string",
   "patterns": [
     {
-      "name": "keyword.control.query.fsharp",
-      "match": "\\b(select|where|join|on|equals|into|groupBy|groupValBy|sortBy|sortByDescending|thenBy|thenByDescending|distinct|count|sumBy|minBy|maxBy|averageBy|all|head|nth|exists|contains|take|takeWhile|skip|skipWhile|find)\\b"
+      "include": "#keywords"
+    },
+    {
+      "include": "#interpolated_strings"
+    },
+    {
+      "include": "#module_members"
+    },
+    {
+      "include": "#modules"
+    },
+    {
+      "include": "#methods"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#properties"
+    },
+    {
+      "include": "#variables"
     }
-  ]
+  ],
+  "repository": {
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.query.fsharp",
+          "match": "\\b(query|select|where|join|on|equals|into|groupBy|groupValBy|sortBy|sortByDescending|thenBy|thenByDescending|distinct|count|sumBy|minBy|maxBy|averageBy|all|head|nth|exists|contains|take|takeWhile|skip|skipWhile|find)\\b"
+        }
+      ]
+    },
+    "interpolated_strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.triple.fsharp",
+          "begin": "(\\$+)(@)?(\"{3,})",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.interpolation.fsharp punctuation.definition.string.interpolated.fsharp"
+            },
+            "2": {
+              "name": "storage.modifier.fsharp"
+            },
+            "3": {
+              "name": "punctuation.definition.string.begin.fsharp"
+            }
+          },
+          "end": "(\\3)",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.string.end.fsharp"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#interpolation_hole"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.verbatim.fsharp string.quoted.double.fsharp",
+          "begin": "(\\$@|@\\$)(\")",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.interpolation.fsharp punctuation.definition.string.interpolated.fsharp"
+            },
+            "2": {
+              "name": "punctuation.definition.string.begin.fsharp"
+            }
+          },
+          "end": "(\")",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.string.end.fsharp"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.quote.fsharp",
+              "match": "\"\""
+            },
+            {
+              "include": "#interpolation_hole"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.fsharp",
+          "begin": "(\\$+)(\")",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.other.interpolation.fsharp punctuation.definition.string.interpolated.fsharp"
+            },
+            "2": {
+              "name": "punctuation.definition.string.begin.fsharp"
+            }
+          },
+          "end": "(\")",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.string.end.fsharp"
+            }
+          },
+          "patterns": [
+            {
+              "name": "constant.character.escape.fsharp",
+              "match": "\\\\."
+            },
+            {
+              "include": "#interpolation_hole"
+            }
+          ]
+        }
+      ]
+    },
+    "interpolation_hole": {
+      "patterns": [
+        {
+          "name": "constant.character.escape.brace.fsharp",
+          "match": "\\{\\{|\\}\\}"
+        },
+        {
+          "name": "entity.name.type.format.specifier.fsharp",
+          "match": "(%0?-?(\\d+)?((a|t)|(\\.\\d+)?(f|F|e|E|g|G|M)|(b|c|s|d|i|x|X|o|u)|(s|b|O)|(\\+?A)))"
+        },
+        {
+          "begin": "(\\{)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.template-expression.begin.fsharp punctuation.section.embedded.begin.fsharp keyword.other.interpolation.fsharp"
+            }
+          },
+          "end": "(\\})",
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.definition.template-expression.end.fsharp punctuation.section.embedded.end.fsharp keyword.other.interpolation.fsharp"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#keywords"
+            },
+            {
+              "include": "#module_members"
+            },
+            {
+              "include": "#modules"
+            },
+            {
+              "include": "#methods"
+            },
+            {
+              "include": "#functions"
+            },
+            {
+              "include": "#properties"
+            },
+            {
+              "include": "#variables"
+            },
+            {
+              "include": "source.fsharp"
+            }
+          ]
+        }
+      ]
+    },
+    "module_members": {
+      "patterns": [
+        {
+          "match": "\\b(Seq|List|Array|Option|Result|Choice|String|Map|Set|Dict|Async|Task|Results)\\.([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.module.fsharp support.class.fsharp"
+            },
+            "2": {
+              "name": "support.function.fsharp entity.name.function.fsharp"
+            }
+          }
+        }
+      ]
+    },
+    "modules": {
+      "patterns": [
+        {
+          "name": "entity.name.type.module.fsharp support.class.fsharp",
+          "match": "\\b(Connections|Results|Seq|List|Array|Option|Result|Choice|String|Char|Map|Set|Dict|Async|Task|Math|DateTime|DateOnly|TimeOnly|TimeSpan|Guid|Convert|Console|File|Directory|Path|Regex|Environment|Json|Http)\\b"
+        }
+      ]
+    },
+    "methods": {
+      "patterns": [
+        {
+          "match": "(?<=\\.)([a-zA-Z_][a-zA-Z0-9_]*)\\b(?=\\s*\\()",
+          "name": "entity.name.function.fsharp support.function.fsharp"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "support.function.fsharp entity.name.function.fsharp",
+          "match": "\\b(sprintf|printfn|printf|eprintf|eprintfn|fprintf|fprintfn|failwith|failwithf|nullArg|invalidArg|invalidOp|reraise|defaultArg|nameof|typeof|sizeof|typedefof|box|unbox|ignore|id|fst|snd)\\b"
+        },
+        {
+          "name": "entity.name.function.fsharp support.function.fsharp",
+          "match": "\\b(?!(?:abstract|and|as|assert|base|begin|class|default|delegate|do|done|downcast|downto|elif|else|end|exception|extern|false|finally|for|fun|function|global|if|in|inherit|inline|interface|internal|lazy|let|match|member|module|mutable|namespace|new|not|null|of|open|or|override|private|public|rec|return|static|struct|then|to|true|try|type|upcast|use|val|void|when|while|with|yield|query|select|where|join|on|equals|into|groupBy|groupValBy|sortBy|sortByDescending|thenBy|thenByDescending|distinct|count|sumBy|minBy|maxBy|averageBy|all|head|nth|exists|contains|take|takeWhile|skip|skipWhile|find)\\b)[a-zA-Z_][a-zA-Z0-9_]*(?=\\s*\\()"
+        }
+      ]
+    },
+    "properties": {
+      "patterns": [
+        {
+          "name": "variable.other.property.fsharp variable.other.fsharp",
+          "match": "(?<=\\.)[a-zA-Z_][a-zA-Z0-9_]*\\b"
+        }
+      ]
+    },
+    "variables": {
+      "patterns": [
+        {
+          "name": "variable.other.readwrite.fsharp variable.other.fsharp",
+          "match": "\\b(?!(?:abstract|and|as|assert|base|begin|class|default|delegate|do|done|downcast|downto|elif|else|end|exception|extern|false|finally|for|fun|function|global|if|in|inherit|inline|interface|internal|lazy|let|match|member|module|mutable|namespace|new|not|null|of|open|or|override|private|public|rec|return|static|struct|then|to|true|try|type|upcast|use|val|void|when|while|with|yield|query|select|where|join|on|equals|into|groupBy|groupValBy|sortBy|sortByDescending|thenBy|thenByDescending|distinct|count|sumBy|minBy|maxBy|averageBy|all|head|nth|exists|contains|take|takeWhile|skip|skipWhile|find)\\b)[a-z_][a-zA-Z0-9_]*\\b"
+        }
+      ]
+    }
+  }
 }
