@@ -4,7 +4,7 @@
   "displayName": "F# Query Studio",
   "description": "Write, analyze, and run F# query scripts against SQL, files, and REST APIs.",
   "license": "MIT",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "icon": "media/icon.png",
   "repository": {
     "type": "git",
