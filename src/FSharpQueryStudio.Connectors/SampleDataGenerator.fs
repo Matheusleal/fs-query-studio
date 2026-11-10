@@ -1427,7 +1427,7 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
         if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
             Directory.CreateDirectory(dir) |> ignore
 
-        use fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite, 65536)
+        use fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite ||| FileShare.Delete, 65536)
         use writer = new StreamWriter(fs, Encoding.UTF8, 65536)
         writer.WriteLine("Date,OrderId,Customer,Product,Category,Quantity,UnitPrice,TotalAmount,Status,PaymentMethod,SalesChannel,Region,DiscountRate,TaxAmount,GrossMargin,SalesRep,Notes")
 
@@ -1474,7 +1474,7 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
         if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
             Directory.CreateDirectory(dir) |> ignore
 
-        use fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite, 65536)
+        use fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite ||| FileShare.Delete, 65536)
         use writer = new StreamWriter(fs, Encoding.UTF8, 65536)
         writer.WriteLine("CustomerId,CustomerName,LoyaltyTier,TotalSpent,Score,ActiveSince,Feedback,Email,Phone,Country,City,State,PostalCode,Segment,TotalOrders,AverageOrderValue,PreferredChannel")
 
@@ -1510,7 +1510,7 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
         use ms = new MemoryStream()
         workbook.SaveAs(ms)
         let bytes = ms.ToArray()
-        use fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite)
+        use fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite ||| FileShare.Delete)
         fs.Write(bytes, 0, bytes.Length)
 
     let inline private setCell (sheet: IXLWorksheet) (r: int) (c: int) (v: obj) =
@@ -1697,7 +1697,7 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
         if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
             Directory.CreateDirectory(dir) |> ignore
 
-        use fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite, 65536)
+        use fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite ||| FileShare.Delete, 65536)
         use writer = new Utf8JsonWriter(fs, JsonWriterOptions(Indented = false))
         writer.WriteStartObject()
 
@@ -1796,7 +1796,7 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
         if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
             Directory.CreateDirectory(dir) |> ignore
 
-        use fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite, 65536)
+        use fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.ReadWrite ||| FileShare.Delete, 65536)
         use writer = XmlWriter.Create(fs, XmlWriterSettings(OmitXmlDeclaration = false, Encoding = Encoding.UTF8))
         writer.WriteStartDocument()
         writer.WriteStartElement("LogisticsHub")

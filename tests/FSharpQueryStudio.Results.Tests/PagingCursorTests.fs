@@ -5,7 +5,7 @@ open Xunit
 open FSharpQueryStudio.Results
 
 let private cursorOver (items: int list) : PagingCursor =
-    PagingCursor((items |> List.map box :> IEnumerable).GetEnumerator())
+    new PagingCursor((items |> List.map box :> IEnumerable).GetEnumerator())
 
 [<Fact>]
 let ``TakePage returns every item and no-more when the source has fewer items than the page size`` () =

@@ -9,3 +9,4 @@ Following the resolution of CSV export path handling, working directory restorat
 3. Update status and release references in `README.md` and `README_PT.md`.
 4. Validate 100% test passing locally and verify packaged VSIX artifacts.
 5. Create release candidate tag `v0.5.3-rc1` and publish pre-release via GitHub Actions release workflow.
+

@@ -72,7 +72,7 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
     /// stops enumerating worksheet rows as soon as `maxRows` data rows have
     /// been read so large workbooks never materialize unneeded rows.
     member _.ReadRows(?sheetName: string, ?maxRows: int) : ConnectorQueryResult =
-        use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 65536)
+        use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete, 65536)
         use workbook = new XLWorkbook(fs)
         let sheet =
             match sheetName with
@@ -145,7 +145,7 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
         /// header-derived columns and inferred or explicitly configured
         /// data types per `options.ColumnTypes` and `options.ColumnTransforms`.
         member _.DiscoverSchemaAsync(_ct: CancellationToken) : Task<ConnectorTable list> =
-            use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 65536)
+            use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete, 65536)
             use workbook = new XLWorkbook(fs)
 
             let tables =
