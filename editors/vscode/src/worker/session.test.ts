@@ -41,6 +41,20 @@ afterEach(() => {
 });
 
 describe("resolveWorkerSession", () => {
+  it("forwards cwd to makeClient", async () => {
+    let capturedCwd: string | undefined;
+    await resolveWorkerSession(
+      baseDeps({
+        cwd: "/my/project/dir",
+        makeClient: (_cmd: string, _dll: string, cwd?: string) => {
+          capturedCwd = cwd;
+          return fakeClient(async (req) => ({ id: req.id, result: { version: "1.0.0", capabilities: [] } })).client;
+        },
+      }),
+    );
+    expect(capturedCwd).toBe("/my/project/dir");
+  });
+
   it("returns a session with the worker health on success", async () => {
     const session = await resolveWorkerSession(baseDeps({}));
     expect(session.health.version).toBe("1.0.0");

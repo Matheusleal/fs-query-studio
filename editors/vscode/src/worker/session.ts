@@ -31,9 +31,10 @@ export interface ResolveWorkerSessionDeps {
   extensionRoot: string;
   env: NodeJS.ProcessEnv;
   log: (line: string) => void;
+  cwd?: string;
   resolveDotnet?: typeof realResolveDotnet;
   resolveWorkerDll?: typeof realResolveWorkerDll;
-  makeClient?: (dotnetCommand: string, dll: string) => WorkerClient;
+  makeClient?: (dotnetCommand: string, dll: string, cwd?: string) => WorkerClient;
 }
 
 export async function resolveWorkerSession(deps: ResolveWorkerSessionDeps): Promise<WorkerSession> {
@@ -41,9 +42,9 @@ export async function resolveWorkerSession(deps: ResolveWorkerSessionDeps): Prom
   const resolveWorkerDll = deps.resolveWorkerDll ?? realResolveWorkerDll;
   const makeClient =
     deps.makeClient ??
-    ((command, dll) =>
+    ((command, dll, cwd) =>
       new WorkerClient({
-        spawn: () => spawnWorkerProcess(command, dll),
+        spawn: () => spawnWorkerProcess(command, dll, cwd ?? deps.cwd),
         log: deps.log,
       }));
 
@@ -72,7 +73,7 @@ export async function resolveWorkerSession(deps: ResolveWorkerSessionDeps): Prom
   }
   deps.log(`Worker dll: ${dll}`);
 
-  const client = makeClient(dotnet.command, dll);
+  const client = makeClient(dotnet.command, dll, deps.cwd);
   let health: HealthInfo;
   try {
     const response = await client.send({

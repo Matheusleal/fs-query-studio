@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import type { WorkerProcess } from "./client";
 
-export function spawnWorkerProcess(dotnetCommand: string, workerDllPath: string): WorkerProcess {
+export function spawnWorkerProcess(dotnetCommand: string, workerDllPath: string, cwd?: string): WorkerProcess {
   const env = {
     ...process.env,
     DOTNET_GCServer: "0",
@@ -9,6 +9,7 @@ export function spawnWorkerProcess(dotnetCommand: string, workerDllPath: string)
     DOTNET_TieredPGO: "1",
   };
   const child = spawn(dotnetCommand, [workerDllPath], {
+    cwd: cwd || undefined,
     stdio: ["pipe", "pipe", "pipe"],
     env,
   });

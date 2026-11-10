@@ -27,62 +27,86 @@ module Prologue =
 
     let resolveWorkspaceForDocument (docUriStr: string) : string option =
         try
-            if not (System.String.IsNullOrWhiteSpace docUriStr) then
-                let unescaped = System.Uri.UnescapeDataString docUriStr
-                let rawPath =
-                    if unescaped.StartsWith("vscode-notebook-cell:", System.StringComparison.OrdinalIgnoreCase) then
-                        let withoutScheme = unescaped.Substring("vscode-notebook-cell:".Length)
-                        let hashIdx = withoutScheme.IndexOf('#')
-                        let pathPart = if hashIdx >= 0 then withoutScheme.Substring(0, hashIdx) else withoutScheme
-                        if pathPart.StartsWith("///") then pathPart.Substring(2)
-                        elif pathPart.StartsWith("//") && pathPart.Length >= 4 && System.Char.IsLetter(pathPart.[2]) && pathPart.[3] = ':' then pathPart.Substring(2)
-                        elif pathPart.StartsWith("//") then pathPart.Substring(1)
-                        else pathPart
-                    elif unescaped.StartsWith("file:", System.StringComparison.OrdinalIgnoreCase) then
-                        try
-                            let uri = System.Uri(unescaped)
-                            let p = uri.LocalPath
-                            let parentDir = System.IO.Path.GetDirectoryName p
-                            if not (System.String.IsNullOrEmpty parentDir) && System.IO.Directory.Exists parentDir then
-                                p
-                            else
+            match workspaceDirOverride with
+            | Some dir when not (System.String.IsNullOrWhiteSpace dir) -> Some dir
+            | _ ->
+                if not (System.String.IsNullOrWhiteSpace docUriStr) then
+                    let unescaped = System.Uri.UnescapeDataString docUriStr
+                    let rawPath =
+                        if unescaped.StartsWith("vscode-notebook-cell:", System.StringComparison.OrdinalIgnoreCase) then
+                            let withoutScheme = unescaped.Substring("vscode-notebook-cell:".Length)
+                            let hashIdx = withoutScheme.IndexOf('#')
+                            let pathPart = if hashIdx >= 0 then withoutScheme.Substring(0, hashIdx) else withoutScheme
+                            if pathPart.StartsWith("///") then pathPart.Substring(2)
+                            elif pathPart.StartsWith("//") && pathPart.Length >= 4 && System.Char.IsLetter(pathPart.[2]) && pathPart.[3] = ':' then pathPart.Substring(2)
+                            elif pathPart.StartsWith("//") then pathPart.Substring(1)
+                            else pathPart
+                        elif unescaped.StartsWith("file:", System.StringComparison.OrdinalIgnoreCase) then
+                            try
+                                let uri = System.Uri(unescaped)
+                                let p = uri.LocalPath
+                                let parentDir = System.IO.Path.GetDirectoryName p
+                                if not (System.String.IsNullOrEmpty parentDir) && System.IO.Directory.Exists parentDir then
+                                    p
+                                else
+                                    let stripped = unescaped.Substring("file:".Length).TrimStart('/')
+                                    if stripped.Length >= 2 && System.Char.IsLetter(stripped.[0]) && stripped.[1] = ':' then stripped
+                                    else "/" + stripped
+                            with _ ->
                                 let stripped = unescaped.Substring("file:".Length).TrimStart('/')
                                 if stripped.Length >= 2 && System.Char.IsLetter(stripped.[0]) && stripped.[1] = ':' then stripped
                                 else "/" + stripped
-                        with _ ->
-                            let stripped = unescaped.Substring("file:".Length).TrimStart('/')
-                            if stripped.Length >= 2 && System.Char.IsLetter(stripped.[0]) && stripped.[1] = ':' then stripped
-                            else "/" + stripped
-                    else
-                        let colonIdx = unescaped.IndexOf(':')
-                        let pathPart = if colonIdx >= 0 then unescaped.Substring(colonIdx + 1) else unescaped
-                        let hashIdx = pathPart.IndexOf('#')
-                        if hashIdx >= 0 then pathPart.Substring(0, hashIdx) else pathPart
-                let rawDir = System.IO.Path.GetDirectoryName(rawPath)
-                let dir =
-                    if not (System.String.IsNullOrEmpty rawDir) && rawDir.Length >= 3 && (rawDir.[0] = '/' || rawDir.[0] = '\\') && System.Char.IsLetter(rawDir.[1]) && rawDir.[2] = ':' then
-                        rawDir.Substring(1)
-                    else
-                        rawDir
-                if not (System.String.IsNullOrWhiteSpace dir) && System.IO.Directory.Exists dir then
-                    let rec findWorkspace (current: System.IO.DirectoryInfo) (depth: int) =
-                        if depth <= 0 || isNull current then None
-                        elif System.IO.Directory.Exists(System.IO.Path.Combine(current.FullName, ".fsqs"))
-                             || System.IO.File.Exists(System.IO.Path.Combine(current.FullName, ".fsqs", "workspace.json"))
-                             || System.IO.File.Exists(System.IO.Path.Combine(current.FullName, ".fsqs", "generated", "GeneratedEntities.fs"))
-                             || System.IO.File.Exists(System.IO.Path.Combine(current.FullName, "workspace.json"))
-                             || System.IO.File.Exists(System.IO.Path.Combine(current.FullName, "generated", "GeneratedEntities.fs"))
-                             || System.IO.File.Exists(System.IO.Path.Combine(current.FullName, ".fsquery", "connections.json")) then
-                            Some current.FullName
+                        elif unescaped.Length >= 2 && System.Char.IsLetter(unescaped.[0]) && unescaped.[1] = ':' then
+                            unescaped
                         else
-                            findWorkspace current.Parent (depth - 1)
-                    match findWorkspace (System.IO.DirectoryInfo(dir)) 5 with
-                    | Some found -> Some found
-                    | None -> Some dir
+                            let colonIdx = unescaped.IndexOf(':')
+                            let pathPart = if colonIdx >= 0 then unescaped.Substring(colonIdx + 1) else unescaped
+                            let hashIdx = pathPart.IndexOf('#')
+                            if hashIdx >= 0 then pathPart.Substring(0, hashIdx) else pathPart
+                    let rawDir = System.IO.Path.GetDirectoryName(rawPath)
+                    let dir =
+                        if not (System.String.IsNullOrEmpty rawDir) && rawDir.Length >= 3 && (rawDir.[0] = '/' || rawDir.[0] = '\\') && System.Char.IsLetter(rawDir.[1]) && rawDir.[2] = ':' then
+                            rawDir.Substring(1)
+                        else
+                            rawDir
+                    let candidateDir =
+                        if not (System.String.IsNullOrWhiteSpace dir) && System.IO.Directory.Exists dir then
+                            dir
+                        elif not (System.String.IsNullOrWhiteSpace rawPath) && System.IO.File.Exists rawPath then
+                            System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath rawPath)
+                        elif not (System.String.IsNullOrWhiteSpace unescaped) && System.IO.File.Exists unescaped then
+                            System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath unescaped)
+                        else
+                            let curr = System.IO.Directory.GetCurrentDirectory()
+                            if not (System.String.IsNullOrWhiteSpace curr) && System.IO.Directory.Exists curr && curr <> System.IO.Path.GetTempPath() then
+                                curr
+                            else
+                                ""
+                    if not (System.String.IsNullOrWhiteSpace candidateDir) && System.IO.Directory.Exists candidateDir then
+                        let tempRoot =
+                            try System.IO.Path.GetFullPath(System.IO.Path.GetTempPath()).TrimEnd('\\', '/')
+                            with _ -> ""
+
+                        let rec findWorkspace (current: System.IO.DirectoryInfo) (depth: int) =
+                            if depth <= 0 || isNull current then None
+                            elif not (System.String.IsNullOrEmpty tempRoot) && System.String.Equals(current.FullName.TrimEnd('\\', '/'), tempRoot, System.StringComparison.OrdinalIgnoreCase) then
+                                None
+                            elif System.IO.Directory.Exists(System.IO.Path.Combine(current.FullName, ".fsqs"))
+                                 || System.IO.File.Exists(System.IO.Path.Combine(current.FullName, ".fsqs", "workspace.json"))
+                                 || System.IO.File.Exists(System.IO.Path.Combine(current.FullName, ".fsqs", "generated", "GeneratedEntities.fs"))
+                                 || System.IO.File.Exists(System.IO.Path.Combine(current.FullName, "workspace.json"))
+                                 || System.IO.File.Exists(System.IO.Path.Combine(current.FullName, "generated", "GeneratedEntities.fs"))
+                                 || System.IO.File.Exists(System.IO.Path.Combine(current.FullName, ".fsquery", "connections.json")) then
+                                Some current.FullName
+                            else
+                                findWorkspace current.Parent (depth - 1)
+                        match findWorkspace (System.IO.DirectoryInfo(candidateDir)) 5 with
+                        | Some found -> Some found
+                        | None -> Some candidateDir
+                    else
+                        None
                 else
                     None
-            else
-                None
         with _ ->
             None
 

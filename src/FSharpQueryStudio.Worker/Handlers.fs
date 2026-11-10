@@ -181,6 +181,12 @@ module Handlers =
     /// already keeps it from propagating.
     let resolveWorkspaceForDocument (docUriStr: string) : string =
         Prologue.resolveWorkspaceForDocument docUriStr
+        |> Option.orElseWith (fun () ->
+            let current = Directory.GetCurrentDirectory()
+            if not (String.IsNullOrWhiteSpace current) && Directory.Exists current && current <> Path.GetTempPath() then
+                Some current
+            else
+                None)
         |> Option.defaultValue (workspaceDir ())
 
     let private ensureSampleFilesHealed (targetWs: string) (connections: ConnectionDefinition list) : unit =
@@ -213,6 +219,10 @@ module Handlers =
             with _ -> ()
 
     let runEvaluate (request: WorkerRequestFrame) (workDir: string) : WorkerResponseFrame =
+        let initialCwd =
+            try Directory.GetCurrentDirectory()
+            with _ -> Path.GetTempPath()
+
         try
             let evalParams =
                 JsonSerializer.Deserialize<EvaluateParams>(request.Params, Serialization.options)
@@ -225,30 +235,39 @@ module Handlers =
             Connections.configure (WorkspaceConnectionResolver(connections, secretStore, targetWs))
             EntityBackgroundGenerator.ensureGenerated targetWs connections secretStore
 
+            let effectiveWorkDir =
+                if not (String.IsNullOrEmpty targetWs) && Directory.Exists targetWs then
+                    targetWs
+                else
+                    workDir
+
+            Directory.SetCurrentDirectory(effectiveWorkDir)
+            CancellationSignal.reset effectiveWorkDir
+
             let session =
                 match evalParams.Mode, evalParams.SessionId with
                 | Persistent, Some sessionId when evalParams.IsNotebookCell ->
                     Log.Information(
                         "Appending notebook cell to persistent FSI session {SessionId} in {WorkingDirectory} with workspace {WorkspaceDir}",
                         sessionId,
-                        workDir,
+                        effectiveWorkDir,
                         targetWs
                     )
-                    SessionStore.appendFragmentInWorkspace sessionId workDir evalParams.Source targetWs
+                    SessionStore.appendFragmentInWorkspace sessionId effectiveWorkDir evalParams.Source targetWs
                 | Persistent, Some sessionId ->
                     Log.Information(
                         "Evaluating persistent FSI session {SessionId} in {WorkingDirectory} with workspace {WorkspaceDir}",
                         sessionId,
-                        workDir,
+                        effectiveWorkDir,
                         targetWs
                     )
-                    SessionStore.getOrCreateInWorkspace sessionId workDir evalParams.Source targetWs
+                    SessionStore.getOrCreateInWorkspace sessionId effectiveWorkDir evalParams.Source targetWs
                 | Persistent, None ->
                     Log.Warning("Persistent mode requested without a SessionId; falling back to an isolated session")
-                    FsiSession.createInWorkspace workDir targetWs
+                    FsiSession.createInWorkspace effectiveWorkDir targetWs
                 | Isolated, _ ->
-                    Log.Information("Creating FSI session in {WorkingDirectory} with workspace {WorkspaceDir}", workDir, targetWs)
-                    FsiSession.createInWorkspace workDir targetWs
+                    Log.Information("Creating FSI session in {WorkingDirectory} with workspace {WorkspaceDir}", effectiveWorkDir, targetWs)
+                    FsiSession.createInWorkspace effectiveWorkDir targetWs
 
             let outcome = Evaluation.evaluate session evalParams.Source
             stopwatch.Stop()
@@ -325,8 +344,15 @@ module Handlers =
             currentWorkDir <- None
             Interlocked.Exchange(evaluationInFlight, 0) |> ignore
             try
-                Directory.SetCurrentDirectory(Path.GetTempPath())
-                if Directory.Exists workDir then
+                Directory.SetCurrentDirectory(initialCwd)
+
+                let targetWs =
+                    try
+                        let p = JsonSerializer.Deserialize<EvaluateParams>(request.Params, Serialization.options)
+                        resolveWorkspaceForDocument p.DocumentUri
+                    with _ -> ""
+
+                if Directory.Exists workDir && (String.IsNullOrEmpty targetWs || not (String.Equals(Path.GetFullPath workDir, Path.GetFullPath targetWs, StringComparison.OrdinalIgnoreCase))) then
                     Directory.Delete(workDir, true)
             with _ ->
                 ()
@@ -368,7 +394,13 @@ module Handlers =
         Log.Information("Cancellation requested")
 
         match currentWorkDir with
-        | Some workDir -> CancellationSignal.requestCancel workDir
+        | Some workDir ->
+            CancellationSignal.requestCancel workDir
+            try
+                let curr = Directory.GetCurrentDirectory()
+                if not (String.IsNullOrEmpty curr) && Directory.Exists curr && not (String.Equals(Path.GetFullPath curr, Path.GetFullPath workDir, StringComparison.OrdinalIgnoreCase)) then
+                    CancellationSignal.requestCancel curr
+            with _ -> ()
         | None -> ()
 
         { Id = request.Id
@@ -593,6 +625,13 @@ module Handlers =
         let exportParams =
             JsonSerializer.Deserialize<ExportCsvParams>(request.Params, Serialization.options)
 
+        let targetWs = resolveWorkspaceForDocument exportParams.DocumentUri
+        let fullPath =
+            if Path.IsPathRooted exportParams.FilePath then
+                exportParams.FilePath
+            else
+                Path.Combine(targetWs, exportParams.FilePath)
+
         match ResultRetention.tryGet exportParams.DocumentUri with
         | None ->
             { Id = request.Id
@@ -603,9 +642,13 @@ module Handlers =
                       Message = $"No retained table result for '{exportParams.DocumentUri}'." } }
         | Some retained ->
             try
+                let dir = Path.GetDirectoryName fullPath
+                if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
+                    Directory.CreateDirectory(dir) |> ignore
+
                 // `Encoding.UTF8` (not `UTF8NoBOM`) writes the BOM Excel
                 // needs to render non-ASCII CSV content correctly.
-                use writer = new StreamWriter(exportParams.FilePath, false, System.Text.Encoding.UTF8)
+                use writer = new StreamWriter(fullPath, false, System.Text.Encoding.UTF8)
                 CsvExport.write writer retained.Columns retained.Rows
 
                 { Id = request.Id

@@ -92,12 +92,6 @@ module FsiSession =
         Console.SetError(errors)
         Console.SetIn(stdin)
 
-        let argv = [| "fsi.exe"; "--noninteractive"; "--nologo"; "--gui-"; "--readline-"; "--simpleresolution" |]
-        let config = FsiEvaluationSession.GetDefaultConfiguration()
-
-        let fsi =
-            FsiEvaluationSession.Create(config, argv, stdin, output, errors, collectible = true)
-
         let protocolAssemblyPath =
             typeof<FSharpQueryStudio.Protocol.ConnectorKind>.Assembly.Location
 
@@ -127,15 +121,28 @@ module FsiSession =
             else
                 [ abstractionsAssemblyPath ]
 
-        let allRefs =
+        let allRefPaths =
             ([ protocolAssemblyPath; securityAssemblyPath; abstractionsAssemblyPath ] @ studioAssemblies @ [ connectorsAssemblyPath; resultsAssemblyPath ])
             |> List.filter (fun p -> not (String.IsNullOrWhiteSpace p))
             |> List.distinct
-            |> List.map (fun p -> $"#r @\"{p}\"")
-            |> String.concat "\n"
+
+        let refArgs =
+            allRefPaths
+            |> List.map (fun p -> $"-r:{p}")
+            |> List.toArray
+
+        let argv =
+            Array.concat [
+                [| "fsi.exe"; "--noninteractive"; "--nologo"; "--gui-"; "--readline-"; "--simpleresolution" |]
+                refArgs
+            ]
+        let config = FsiEvaluationSession.GetDefaultConfiguration()
+
+        let fsi =
+            FsiEvaluationSession.Create(config, argv, stdin, output, errors, collectible = true)
 
         let basePrologue =
-            $"{allRefs}\nopen System.Linq\nopen FSharpQueryStudio.Protocol\nopen FSharpQueryStudio.Connectors\n"
+            "open System.Linq\nopen FSharpQueryStudio.Protocol\nopen FSharpQueryStudio.Connectors\n"
 
         fsi.EvalInteractionNonThrowing(basePrologue) |> ignore
 

@@ -39,5 +39,20 @@ let ``discard removes a previously-set entry`` () =
     Assert.True((ResultRetention.tryGet "untitled:ToDiscard.fsx").IsNone)
 
 [<Fact>]
+let ``tryGet matches case-insensitively and across URL-encoded URI variants`` () =
+    let result: RetainedResult = { Columns = [ "col1" ]; Rows = [| [| box 42 |] |] }
+    ResultRetention.set "file:///d%3A/Projects/test.fsqnb" result
+
+    let retrieved1 = ResultRetention.tryGet "file:///D:/Projects/test.fsqnb"
+    Assert.True(retrieved1.IsSome)
+    Assert.Equal<string list>([ "col1" ], retrieved1.Value.Columns)
+
+    let retrieved2 = ResultRetention.tryGet "FILE:///d%3A/projects/test.fsqnb"
+    Assert.True(retrieved2.IsSome)
+
+    ResultRetention.discard "file:///D:/Projects/test.fsqnb"
+    Assert.True((ResultRetention.tryGet "file:///d%3A/Projects/test.fsqnb").IsNone)
+
+[<Fact>]
 let ``discard on a key nothing was ever set under does not throw`` () =
     ResultRetention.discard "untitled:NeverSetEither.fsx" // Must not throw.
