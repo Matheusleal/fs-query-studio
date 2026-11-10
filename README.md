@@ -11,11 +11,11 @@ in a bundled .NET worker process. A controlled API (`Connections.*`) reaches
 databases and files you register in the sidebar, and results render as a
 sortable grid with schema view and CSV export.
 
-> **Status:** `0.5.1`, ready for distribution. High-performance multi-source query & exploration
+> **Status:** `0.5.2`, ready for distribution. High-performance multi-source query & exploration
 > studio featuring full SQL pushdown translation, native JSON and XML connectors with Excel-like sub-properties,
 > asynchronous SQLite disk caching with composite B-tree indexes, multi-property join optimizations without memory explosions,
 > automated `data_sources/` discovery, raw SQL preview (`toRawSql`), verified sub-millisecond benchmarks, and 100% test coverage.
-> See [Release v0.5.1](https://github.com/Matheusleal/fs-query-studio/releases/tag/v0.5.1) and [`docs/vscode-extension-release.md`](docs/vscode-extension-release.md).
+> See [Release v0.5.2](https://github.com/Matheusleal/fs-query-studio/releases/tag/v0.5.2) and [`docs/vscode-extension-release.md`](docs/vscode-extension-release.md).
 
 ---
 

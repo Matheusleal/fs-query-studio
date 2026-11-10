@@ -8,6 +8,16 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-11-10
+
+### Fixed
+
+- **Scalar Option Projection Mapping** — Fixed query projection of optional scalar columns without `.Value` (e.g. `select l.Isins` returning `None` instead of `Some "..."`). Updated `CompiledRecordMapper.fs` and `SqlPushdownQueryable.fs` to route option types through `RecordReaders.ReadOption<'T>`, preventing `InvalidCastException` when converting DBNull or scalar option values.
+- **F# Query Expression Syntax Highlighting** — Added TextMate grammar injection for F# query expression keywords (`query`, `select`, `where`, `join`, `on`, `equals`, `into`, `groupBy`, etc.), rendering them consistently with standard F# control keywords.
+- **Interpolated Strings Highlighting & Text Preservation** — Resolved syntax highlighting for F# string interpolations (`$"..."`, `$@"..."`, `$"""..."""`), coloring the `$` and embedded `{...}` expressions as interpolation tokens while preserving native VS Code string color (`#CE9178`) for string literals and quotes.
+- **Module & Function vs Property Disambiguation** — Scoped module classification exclusively to known root modules (`Connections`, `Results`, `Seq`, `List`, `Array`, `Option`, etc.), preventing chained properties (e.g. `Connections.excel.RegionalTargets.RegionalTargets`) from being misclassified as modules. Standardized function coloring across `Seq.length`, `Seq.Length`, `Seq.filter`, and `.rawQuery(...)`.
+- **String and Comment Injection Protection** — Restricted TextMate grammar injection with `-comment -string` to prevent query expression and member rules from leaking into comments or multi-line verbatim SQL strings (such as `@"SELECT ..."`).
+
 ## [0.5.1] — 2026-11-09
 
 ### Added
