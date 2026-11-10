@@ -1496,7 +1496,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(15, codeCells.Length)
+            Assert.Equal(17, codeCells.Length)
 
             for idx, code in List.indexed codeCells do
                 let evalReq = notebookCellRequest $"cell-{idx + 1}" code "sample_demo.fsqnb"
@@ -1521,7 +1521,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(15, codeCellsPt.Length)
+            Assert.Equal(17, codeCellsPt.Length)
 
             for idx, code in List.indexed codeCellsPt do
                 let evalReq = notebookCellRequest $"cell-pt-{idx + 1}" code "sample_demo_pt.fsqnb"

@@ -578,6 +578,90 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
 """
 
                 mkMarkdown """
+## 15. 📁 File Operations & Custom Pipelines with `System.IO` (`data_sources`)
+
+F# Query Studio keeps the process working directory (`System.Environment.CurrentDirectory`) strictly aligned with your workspace root. You can create, stream, and manipulate local files using standard .NET APIs (`System.IO.File`, `FileStream`, `StreamWriter`) completely free of OS file locks across notebook cells!
+
+In this example, we stream raw records from `data_sources/sales_feed.csv`, extract top transactions, and generate a new summary file `data_sources/top_sales_exported.csv` using `System.IO.File.Create`.
+"""
+
+                mkCode """
+// 15. Create a filtered summary file from data_sources/sales_feed.csv using System.IO.File.Create
+open System.IO
+open System.Text
+
+let salesFeedPath = Path.Combine("data_sources", "sales_feed.csv")
+let summaryPath = Path.Combine("data_sources", "top_sales_exported.csv")
+
+// Stream lines from data_sources and write with explicit stream disposal
+let summaryRows =
+    File.ReadLines(salesFeedPath)
+    |> Seq.skip 1
+    |> Seq.take 100
+    |> Seq.map (fun line -> line.Split(','))
+    |> Seq.filter (fun p -> p.Length >= 7)
+    |> Seq.map (fun p ->
+        {|
+            OrderId = p.[1]
+            Customer = p.[2]
+            Product = p.[3]
+            Amount = p.[5]
+            Status = p.[6]
+        |})
+    |> Seq.toList
+
+do
+    use stream = File.Create(summaryPath)
+    use writer = new StreamWriter(stream, Encoding.UTF8)
+    writer.WriteLine("OrderId,Customer,Product,Amount,Status")
+    for r in summaryRows do
+        writer.WriteLine($"{r.OrderId},{r.Customer},{r.Product},{r.Amount},{r.Status}")
+    writer.Flush()
+
+printfn "Successfully generated: %s (Total records: %d, File size: %d bytes)"
+    summaryPath summaryRows.Length (FileInfo(summaryPath).Length)
+
+summaryRows
+"""
+
+                mkMarkdown """
+## 16. 🔄 Multi-Cell Lock-Free Verification Across Notebook Sessions
+
+Next, in this subsequent cell, we inspect and update the `top_sales_exported.csv` file created in the previous cell. F# Query Studio actively releases superseded continuation cursors and finalizes file handles between cell evaluations, ensuring that reading (`File.ReadAllLines`) and appending (`File.AppendAllText`) proceed seamlessly without sharing violations (`IOException`).
+"""
+
+                mkCode """
+// 16. Verify lock-free access across cells: read, append metadata, and project to table
+open System.IO
+
+let summaryPath = Path.Combine("data_sources", "top_sales_exported.csv")
+
+// Read lines back from the file created in the previous cell
+let lines = File.ReadAllLines(summaryPath)
+
+// Append metadata to verify write access is immediately available
+File.AppendAllText(summaryPath, "# Processed by F# Query Studio\n")
+
+printfn "Verified lock-free access to %s: read %d lines, updated size %d bytes"
+    summaryPath lines.Length (FileInfo(summaryPath).Length)
+
+lines
+|> Seq.skip 1
+|> Seq.filter (fun l -> not (l.StartsWith("#")))
+|> Seq.take 20
+|> Seq.map (fun l ->
+    let p = l.Split(',')
+    {|
+        OrderId = p.[0]
+        Customer = p.[1]
+        Product = p.[2]
+        Amount = p.[3]
+        Status = p.[4]
+    |})
+|> Seq.toList
+"""
+
+                mkMarkdown """
 ---
 
 ### 📚 Official Documentation & References
@@ -988,6 +1072,90 @@ let githubReposCount = Connections.rest.GitHubFSharp |> Seq.length
     {| Fonte = "LogisticsHub";    Tipo = "XML (.xml)";          TotalRegistros = xmlShipmentsCount;   EntidadePrincipal = "Carriers / Shipments" |}
     {| Fonte = "GitHubFSharp";    Tipo = "REST JSON (HTTPS)";   TotalRegistros = githubReposCount;    EntidadePrincipal = "Repositórios GitHub" |}
 ]
+"""
+
+                mkMarkdown """
+## 15. 📁 Operações com Arquivos e Manipulação com `System.IO` (`data_sources`)
+
+O F# Query Studio garante que o diretório de trabalho (`System.Environment.CurrentDirectory`) esteja sempre alinhado à raiz do seu workspace. Você pode criar, escrever e manipular arquivos locais utilizando as APIs nativas do .NET (`System.IO.File`, `FileStream`, `StreamWriter`) sem bloqueios de arquivo (*file locks*) entre células!
+
+Neste exemplo, lemos registros brutos de `data_sources/sales_feed.csv`, processamos o cabeçalho e criamos um novo arquivo consolidado `data_sources/top_sales_exportado.csv` via `System.IO.File.Create`.
+"""
+
+                mkCode """
+// 15. Cria um arquivo resumo a partir de data_sources/sales_feed.csv usando System.IO.File.Create
+open System.IO
+open System.Text
+
+let salesFeedPath = Path.Combine("data_sources", "sales_feed.csv")
+let summaryPath = Path.Combine("data_sources", "top_sales_exportado.csv")
+
+// Lê linhas de data_sources e processa dados com descarte explícito da stream
+let summaryRows =
+    File.ReadLines(salesFeedPath)
+    |> Seq.skip 1
+    |> Seq.take 100
+    |> Seq.map (fun line -> line.Split(','))
+    |> Seq.filter (fun p -> p.Length >= 7)
+    |> Seq.map (fun p ->
+        {|
+            PedidoId = p.[1]
+            Cliente = p.[2]
+            Produto = p.[3]
+            Valor = p.[5]
+            Status = p.[6]
+        |})
+    |> Seq.toList
+
+do
+    use stream = File.Create(summaryPath)
+    use writer = new StreamWriter(stream, Encoding.UTF8)
+    writer.WriteLine("PedidoId,Cliente,Produto,Valor,Status")
+    for r in summaryRows do
+        writer.WriteLine($"{r.PedidoId},{r.Cliente},{r.Produto},{r.Valor},{r.Status}")
+    writer.Flush()
+
+printfn "Arquivo gerado com sucesso: %s (Total de registros: %d, Tamanho: %d bytes)"
+    summaryPath summaryRows.Length (FileInfo(summaryPath).Length)
+
+summaryRows
+"""
+
+                mkMarkdown """
+## 16. 🔄 Validação de Arquivo Livre de Lock Entre Células do Notebook
+
+Em seguida, nesta célula subsequente, lemos, inspecionamos e atualizamos o arquivo `top_sales_exportado.csv` criado na célula anterior. O F# Query Studio descarta automaticamente cursores anteriores e handles de sistema operacional, garantindo que operações de releitura (`File.ReadAllLines`) e escrita/adição (`File.AppendAllText`) ocorram sem violações de compartilhamento (*sharing violation / IOException*).
+"""
+
+                mkCode """
+// 16. Valida acesso livre de locks entre células: releitura, acréscimo e projeção em tabela
+open System.IO
+
+let summaryPath = Path.Combine("data_sources", "top_sales_exportado.csv")
+
+// Relê o arquivo gerado na célula anterior
+let lines = File.ReadAllLines(summaryPath)
+
+// Acrescenta metadados ao final para certificar permissão de escrita imediata
+File.AppendAllText(summaryPath, "# Processado pelo F# Query Studio\n")
+
+printfn "Acesso sem lock confirmado para %s: lidas %d linhas, tamanho atualizado %d bytes"
+    summaryPath lines.Length (FileInfo(summaryPath).Length)
+
+lines
+|> Seq.skip 1
+|> Seq.filter (fun l -> not (l.StartsWith("#")))
+|> Seq.take 20
+|> Seq.map (fun l ->
+    let p = l.Split(',')
+    {|
+        PedidoId = p.[0]
+        Cliente = p.[1]
+        Produto = p.[2]
+        Valor = p.[3]
+        Status = p.[4]
+    |})
+|> Seq.toList
 """
 
                 mkMarkdown """
