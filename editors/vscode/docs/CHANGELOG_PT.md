@@ -6,7 +6,15 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ## [Não Lançado]
 
-## [Unreleased]
+## [0.5.2] — 2026-11-10
+
+### Corrigido
+
+- **Mapeamento de Projeção Escalar Option** — Correção na projeção de colunas escalares opcionais sem `.Value` (ex.: `select l.Isins` retornando `None` em vez de `Some "..."`). Atualizados `CompiledRecordMapper.fs` e `SqlPushdownQueryable.fs` para direcionar tipos opcionais via `RecordReaders.ReadOption<'T>`, prevenindo `InvalidCastException` na conversão de DBNull ou valores escalares Option.
+- **Destaque de Sintaxe para Expressões de Consulta F#** — Injeção de gramática TextMate para palavras-chave de query expressions (`query`, `select`, `where`, `join`, `on`, `equals`, `into`, `groupBy`, etc.), destacando-as consistentemente como palavras-chave de controle do F#.
+- **Destaque de Interpolação de Strings e Preservação de Texto** — Destaque de sintaxe para strings interpoladas do F# (`$"..."`, `$@"..."`, `$"""..."""`), colorindo o `$` e as chaves `{...}` como tokens de interpolação em rosa enquanto preserva a cor nativa de strings do VS Code (`#CE9178`) para o conteúdo literal e as aspas.
+- **Desambiguação de Módulos, Funções e Propriedades** — Escopo de módulos restrito a módulos reais conhecidos (`Connections`, `Results`, `Seq`, `List`, `Array`, `Option`, etc.), evitando que propriedades encadeadas (ex.: `Connections.excel.RegionalTargets.RegionalTargets`) sejam marcadas como módulos. Padronização de cores de funções para `Seq.length`, `Seq.Length`, `Seq.filter` e `.rawQuery(...)`.
+- **Proteção Contra Injeção em Strings e Comentários** — Restrição da injeção TextMate com `-comment -string` para evitar vazamento de regras de query e membros para dentro de comentários ou strings SQL literais/multilinha (como `@"SELECT ..."`).
 
 ## [0.5.1] — 2026-11-09
 
