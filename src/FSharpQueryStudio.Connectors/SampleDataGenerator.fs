@@ -591,7 +591,7 @@ open System.IO
 open System.Text
 
 let salesFeedPath = Path.Combine("data_sources", "sales_feed.csv")
-let summaryPath = Path.Combine("data_sources", "top_sales_exported.csv")
+let exportedSummaryPath = Path.Combine("data_sources", "top_sales_exported.csv")
 
 // Stream lines from data_sources and write with explicit stream disposal
 let summaryRows =
@@ -611,7 +611,7 @@ let summaryRows =
     |> Seq.toList
 
 do
-    use stream = File.Create(summaryPath)
+    use stream = File.Create(exportedSummaryPath)
     use writer = new StreamWriter(stream, Encoding.UTF8)
     writer.WriteLine("OrderId,Customer,Product,Amount,Status")
     for r in summaryRows do
@@ -619,7 +619,7 @@ do
     writer.Flush()
 
 printfn "Successfully generated: %s (Total records: %d, File size: %d bytes)"
-    summaryPath summaryRows.Length (FileInfo(summaryPath).Length)
+    exportedSummaryPath summaryRows.Length (FileInfo(exportedSummaryPath).Length)
 
 summaryRows
 """
@@ -634,16 +634,16 @@ Next, in this subsequent cell, we inspect and update the `top_sales_exported.csv
 // 16. Verify lock-free access across cells: read, append metadata, and project to table
 open System.IO
 
-let summaryPath = Path.Combine("data_sources", "top_sales_exported.csv")
+let verifiedSummaryPath = Path.Combine("data_sources", "top_sales_exported.csv")
 
 // Read lines back from the file created in the previous cell
-let lines = File.ReadAllLines(summaryPath)
+let lines = File.ReadAllLines(verifiedSummaryPath)
 
 // Append metadata to verify write access is immediately available
-File.AppendAllText(summaryPath, "# Processed by F# Query Studio\n")
+File.AppendAllText(verifiedSummaryPath, "# Processed by F# Query Studio\n")
 
 printfn "Verified lock-free access to %s: read %d lines, updated size %d bytes"
-    summaryPath lines.Length (FileInfo(summaryPath).Length)
+    verifiedSummaryPath lines.Length (FileInfo(verifiedSummaryPath).Length)
 
 lines
 |> Seq.skip 1
@@ -1088,7 +1088,7 @@ open System.IO
 open System.Text
 
 let salesFeedPath = Path.Combine("data_sources", "sales_feed.csv")
-let summaryPath = Path.Combine("data_sources", "top_sales_exportado.csv")
+let caminhoExportado = Path.Combine("data_sources", "top_sales_exportado.csv")
 
 // Lê linhas de data_sources e processa dados com descarte explícito da stream
 let summaryRows =
@@ -1108,7 +1108,7 @@ let summaryRows =
     |> Seq.toList
 
 do
-    use stream = File.Create(summaryPath)
+    use stream = File.Create(caminhoExportado)
     use writer = new StreamWriter(stream, Encoding.UTF8)
     writer.WriteLine("PedidoId,Cliente,Produto,Valor,Status")
     for r in summaryRows do
@@ -1116,7 +1116,7 @@ do
     writer.Flush()
 
 printfn "Arquivo gerado com sucesso: %s (Total de registros: %d, Tamanho: %d bytes)"
-    summaryPath summaryRows.Length (FileInfo(summaryPath).Length)
+    caminhoExportado summaryRows.Length (FileInfo(caminhoExportado).Length)
 
 summaryRows
 """
@@ -1131,16 +1131,16 @@ Em seguida, nesta célula subsequente, lemos, inspecionamos e atualizamos o arqu
 // 16. Valida acesso livre de locks entre células: releitura, acréscimo e projeção em tabela
 open System.IO
 
-let summaryPath = Path.Combine("data_sources", "top_sales_exportado.csv")
+let caminhoVerificado = Path.Combine("data_sources", "top_sales_exportado.csv")
 
 // Relê o arquivo gerado na célula anterior
-let lines = File.ReadAllLines(summaryPath)
+let lines = File.ReadAllLines(caminhoVerificado)
 
 // Acrescenta metadados ao final para certificar permissão de escrita imediata
-File.AppendAllText(summaryPath, "# Processado pelo F# Query Studio\n")
+File.AppendAllText(caminhoVerificado, "# Processado pelo F# Query Studio\n")
 
 printfn "Acesso sem lock confirmado para %s: lidas %d linhas, tamanho atualizado %d bytes"
-    summaryPath lines.Length (FileInfo(summaryPath).Length)
+    caminhoVerificado lines.Length (FileInfo(caminhoVerificado).Length)
 
 lines
 |> Seq.skip 1

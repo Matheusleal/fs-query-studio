@@ -74,6 +74,15 @@ describe("buildAnalysisInput", () => {
     expect(r.cellLineOffset).toBe(0);
   });
 
+  it("excludes cells that executed after the target cell from the prefix", () => {
+    const first = cell("first", "let a = 1", { executionOrder: 1 });
+    const t = cell("t", "let b = 2", { executionOrder: 2 });
+    const later = cell("later", "let c = 3", { executionOrder: 3 });
+    const r = buildAnalysisInput([first, t, later], t, { line: 0, character: 0 });
+    expect(r.source).toBe("let a = 1\nlet b = 2");
+    expect(r.cellLineOffset).toBe(1);
+  });
+
   it("returns line 0 / column 0 when no position is given (the check path)", () => {
     const a = cell("a", "let a = 1", { executionOrder: 1 });
     const t = cell("t", "a");

@@ -53,6 +53,9 @@ export function buildAnalysisInput(
 
   const anyExecuted = cells.some((c) => c.kind === CODE_CELL_KIND && hasExecuted(c));
 
+  const targetExecuted = hasExecuted(target);
+  const targetOrder = targetExecuted ? (target.executionSummary!.executionOrder ?? Infinity) : Infinity;
+
   const prefixCells = anyExecuted
     ? cells
         .filter(
@@ -60,7 +63,8 @@ export function buildAnalysisInput(
             c.kind === CODE_CELL_KIND &&
             c.document.languageId === "fsharp" &&
             c.document.uri.toString() !== targetUri &&
-            hasExecuted(c),
+            hasExecuted(c) &&
+            (c.executionSummary!.executionOrder ?? 0) < targetOrder,
         )
         .sort(
           (a, b) =>
