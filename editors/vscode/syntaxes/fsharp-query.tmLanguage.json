@@ -2,7 +2,7 @@
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
   "name": "F# Query Expression and Interpolated Strings",
   "scopeName": "fsharp.query.injection",
-  "injectionSelector": "L:source.fsharp",
+  "injectionSelector": "L:source.fsharp -comment -string",
   "patterns": [
     {
       "include": "#keywords"
@@ -11,7 +11,13 @@
       "include": "#interpolated_strings"
     },
     {
+      "include": "#module_members"
+    },
+    {
       "include": "#modules"
+    },
+    {
+      "include": "#methods"
     },
     {
       "include": "#functions"
@@ -144,7 +150,13 @@
               "include": "#keywords"
             },
             {
+              "include": "#module_members"
+            },
+            {
               "include": "#modules"
+            },
+            {
+              "include": "#methods"
             },
             {
               "include": "#functions"
@@ -162,6 +174,21 @@
         }
       ]
     },
+    "module_members": {
+      "patterns": [
+        {
+          "match": "\\b(Seq|List|Array|Option|Result|Choice|String|Map|Set|Dict|Async|Task|Results)\\.([a-zA-Z_][a-zA-Z0-9_]*)\\b",
+          "captures": {
+            "1": {
+              "name": "entity.name.type.module.fsharp support.class.fsharp"
+            },
+            "2": {
+              "name": "support.function.fsharp entity.name.function.fsharp"
+            }
+          }
+        }
+      ]
+    },
     "modules": {
       "patterns": [
         {
@@ -170,12 +197,16 @@
         }
       ]
     },
-    "functions": {
+    "methods": {
       "patterns": [
         {
-          "name": "support.function.fsharp entity.name.function.fsharp",
-          "match": "(?<=\\b(Seq|List|Array|Option|Result|Choice|String|Map|Set|Dict|Async|Task|Results)\\.)[a-zA-Z_][a-zA-Z0-9_]*\\b"
-        },
+          "match": "(?<=\\.)([a-zA-Z_][a-zA-Z0-9_]*)\\b(?=\\s*\\()",
+          "name": "entity.name.function.fsharp support.function.fsharp"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
         {
           "name": "support.function.fsharp entity.name.function.fsharp",
           "match": "\\b(sprintf|printfn|printf|eprintf|eprintfn|fprintf|fprintfn|failwith|failwithf|nullArg|invalidArg|invalidOp|reraise|defaultArg|nameof|typeof|sizeof|typedefof|box|unbox|ignore|id|fst|snd)\\b"
