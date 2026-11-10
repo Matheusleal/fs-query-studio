@@ -126,7 +126,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
       resolveWorkerDll,
       makeClient: (dotnetCommand, dll) => {
         const client = new WorkerClient({
-          spawn: () => spawnWorkerProcess(dotnetCommand, dll),
+          spawn: () => spawnWorkerProcess(dotnetCommand, dll, vscode.workspace.workspaceFolders?.[0]?.uri.fsPath),
           log,
         });
         return { send: (req) => client.send(req), dispose: () => client.dispose() };
@@ -537,6 +537,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     const session = await getWorkerSession({
       extensionRoot: context.extensionPath,
       env: process.env,
+      cwd: vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
       log,
     });
     if (lastRegisteredClient !== session.client) {
@@ -590,8 +591,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     messaging: rendererMessaging,
     getWorker,
     pickSaveFile: async (defaultName, documentUri) => {
+      let defaultUri: vscode.Uri | undefined;
+      try {
+        if (documentUri && documentUri.startsWith("file:")) {
+          const parsed = vscode.Uri.parse(documentUri);
+          const dir = vscode.Uri.joinPath(parsed, "..");
+          defaultUri = vscode.Uri.joinPath(dir, defaultName);
+        } else {
+          const wsFolder = vscode.workspace.workspaceFolders?.[0]?.uri;
+          if (wsFolder) {
+            defaultUri = vscode.Uri.joinPath(wsFolder, defaultName);
+          }
+        }
+      } catch {
+        defaultUri = undefined;
+      }
+
       const picked = await vscode.window.showSaveDialog({
-        defaultUri: vscode.Uri.joinPath(vscode.Uri.parse(documentUri), "..", defaultName),
+        defaultUri,
         filters: { CSV: ["csv"] },
         saveLabel: "Export",
       });

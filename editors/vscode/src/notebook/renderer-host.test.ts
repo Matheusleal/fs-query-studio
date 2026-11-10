@@ -136,6 +136,24 @@ describe("registerRendererHost — exportCsv", () => {
       /fully-materialized grid result/,
     );
   });
+
+  it("surfaces generic worker errors on exportCsv", async () => {
+    const h = harness({
+      getWorker: async () => ({
+        send: async (r) => ({
+          id: r.id,
+          error: { code: "io_error", message: "disk full" },
+        }),
+      }),
+    });
+    await h.send({ type: "exportCsv", outputId: "o1", documentUri: "u" });
+    expect(h.posted[0].message).toMatchObject({
+      type: "error",
+      scope: "exportCsv",
+      outputId: "o1",
+      message: "disk full",
+    });
+  });
 });
 
 describe("registerRendererHost — hygiene", () => {

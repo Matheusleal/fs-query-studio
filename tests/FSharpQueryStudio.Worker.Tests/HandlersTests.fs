@@ -2310,3 +2310,117 @@ $"{sqlJson} | {sqlXml}"
             Handlers.setWorkspaceDirForTests None
             cleanTempDir tmp
     }
+
+[<Fact>]
+let ``evaluating a cell returns document workspace directory as System.Environment.CurrentDirectory`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-curdir-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tmp) |> ignore
+        Handlers.setWorkspaceDirForTests (Some tmp)
+
+        try
+            let docUri = Path.Combine(tmp, "curdir_test.fsqnb")
+            let cellSource = "System.Environment.CurrentDirectory"
+            let! resp = Handlers.dispatch (notebookCellRequest "eval-curdir" cellSource docUri)
+            Assert.True(resp.Error.IsNone, (match resp.Error with Some e -> e.Message | None -> ""))
+
+            let env = JsonSerializer.Deserialize<ResultEnvelope>(resp.Result.Value.GetRawText(), Serialization.options)
+            Assert.True(env.DisplayText.IsSome)
+            let returnedDir = env.DisplayText.Value.Trim('"')
+            Assert.Equal(Path.GetFullPath(tmp).ToLowerInvariant(), Path.GetFullPath(returnedDir).ToLowerInvariant())
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
+[<Fact>]
+let ``creating a file with File.Create and Dispose creates file in current directory and does not lock it`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-filecreate-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tmp) |> ignore
+        Handlers.setWorkspaceDirForTests (Some tmp)
+
+        try
+            let docUri = Path.Combine(tmp, "filecreate_test.fsqnb")
+            let cellSource = """
+let relativeName = "created_test_file.txt"
+let stream = System.IO.File.Create(relativeName)
+stream.Dispose()
+"ok"
+"""
+            let! resp = Handlers.dispatch (notebookCellRequest "eval-filecreate" cellSource docUri)
+            Assert.True(resp.Error.IsNone, (match resp.Error with Some e -> e.Message | None -> ""))
+
+            // File must exist in the workspace directory (tmp), not in worker/temp path
+            let expectedFile = Path.Combine(tmp, "created_test_file.txt")
+            Assert.True(File.Exists expectedFile, $"Expected {expectedFile} to exist in the current workspace directory")
+
+            // File must NOT be locked: opening exclusively and deleting must succeed immediately
+            do
+                use fs = new FileStream(expectedFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None)
+                fs.WriteByte(42uy)
+            File.Delete expectedFile
+            Assert.False(File.Exists expectedFile)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
+[<Fact>]
+let ``results/exportCsv with relative path generates CSV file in current workspace directory`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-csvexport-rel-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tmp) |> ignore
+        Handlers.setWorkspaceDirForTests (Some tmp)
+
+        try
+            let docUri = Path.Combine(tmp, "export_rel.fsqnb")
+            let cellSource = "({ Columns = [ \"ID\"; \"Title\" ]; Rows = seq { yield [| box 101; box \"Hello CSV\" |] } }: ConnectorQueryResult)"
+            let! evalResp = Handlers.dispatch (notebookCellRequest "eval-export-rel" cellSource docUri)
+            Assert.True(evalResp.Error.IsNone, (match evalResp.Error with Some e -> e.Message | None -> ""))
+
+            // Export using a relative path with subfolder
+            let relExportPath = "exports/relative_result.csv"
+            let! exportResp = Handlers.dispatch (exportCsvRequest "req-export-rel" docUri relExportPath)
+            Assert.True(exportResp.Error.IsNone, (match exportResp.Error with Some e -> e.Message | None -> ""))
+
+            let expectedExportFile = Path.Combine(tmp, "exports", "relative_result.csv")
+            Assert.True(File.Exists expectedExportFile, $"Expected {expectedExportFile} to exist in workspace directory")
+
+            let content = File.ReadAllText expectedExportFile
+            Assert.Contains("ID,Title", content)
+            Assert.Contains("101,Hello CSV", content)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
+[<Fact>]
+let ``results/exportCsv resolves unescaped Windows URI when stored with encoded DocumentUri`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-csvexport-uri-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tmp) |> ignore
+        Handlers.setWorkspaceDirForTests (Some tmp)
+
+        try
+            // Simulate VS Code on Windows URI format
+            let encodedDocUri = "file:///c%3A/Projects/my_nb.fsqnb"
+            let unescapedDocUri = "file:///C:/Projects/my_nb.fsqnb"
+
+            let cellSource = "({ Columns = [ \"Val\" ]; Rows = seq { yield [| box 999 |] } }: ConnectorQueryResult)"
+            let! evalResp = Handlers.dispatch (notebookCellRequest "eval-encoded-uri" cellSource encodedDocUri)
+            Assert.True(evalResp.Error.IsNone, (match evalResp.Error with Some e -> e.Message | None -> ""))
+
+            let exportPath = Path.Combine(tmp, "unescaped_out.csv")
+            // Send export request using the unescaped URI
+            let! exportResp = Handlers.dispatch (exportCsvRequest "req-unescaped-export" unescapedDocUri exportPath)
+            Assert.True(exportResp.Error.IsNone, (match exportResp.Error with Some e -> e.Message | None -> ""))
+
+            Assert.True(File.Exists exportPath)
+            let content = File.ReadAllText exportPath
+            Assert.Contains("Val", content)
+            Assert.Contains("999", content)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
