@@ -6,8 +6,8 @@ Escreva, analise e execute scripts de consulta F# contra bancos de dados SQL, ar
 
 O F# Query Studio é uma **extensão para o VS Code**. Você abre arquivos `.fsqnb` como *F# Query Notebooks*; cada célula de código executa F# em uma sessão FSI persistente hospedada em um processo worker .NET nativo. Uma API unificada e segura (`Connections.*`) conecta-se aos bancos de dados e arquivos registrados na barra lateral, renderizando os resultados em um grid interativo virtualizado com visualização de esquema e exportação para CSV.
 
-> **Status:** `0.5.2`, pronto para distribuição. Estúdio de consultas e exploração multi-fonte de alta performance com pushdown completo de SQL, conectores nativos para JSON e XML com sub-propriedades no estilo Excel, cache persistente assíncrono em disco SQLite com índices B-tree compostos, otimização de joins multi-propriedade sem explosão de memória, descoberta automatizada de arquivos em `data_sources/`, visualização de SQL gerado (`toRawSql`), benchmarks sub-milissegundo comprovados e 100% de cobertura de testes.
-> Veja o [Release v0.5.2](https://github.com/Matheusleal/fs-query-studio/releases/tag/v0.5.2) e o guia de publicação em [`docs/vscode-extension-release.md`](docs/vscode-extension-release.md).
+> **Status:** `0.5.3`, pronto para distribuição. Estúdio de consultas e exploração multi-fonte de alta performance com pushdown completo de SQL, conectores nativos para JSON e XML com sub-propriedades no estilo Excel, cache persistente assíncrono em disco SQLite com índices B-tree compostos, otimização de joins multi-propriedade sem explosão de memória, descoberta automatizada de arquivos em `data_sources/`, visualização de SQL gerado (`toRawSql`), benchmarks sub-milissegundo comprovados e 100% de cobertura de testes.
+> Veja o [Release v0.5.3](https://github.com/Matheusleal/fs-query-studio/releases/tag/v0.5.3) e o guia de publicação em [`docs/vscode-extension-release.md`](docs/vscode-extension-release.md).
 
 ---
 
