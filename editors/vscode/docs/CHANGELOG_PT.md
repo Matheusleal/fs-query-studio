@@ -6,13 +6,15 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ## [Não Lançado]
 
-## [0.5.3-rc1] — 2026-11-10
+## [0.5.3] — 2026-11-11
 
 ### Corrigido
 
 - **Resolução de Caminho na Exportação CSV** — Correção na exportação de resultados para CSV para resolver caminhos relativos de destino a partir do diretório raiz do workspace do notebook ativo, em vez do diretório do executável do worker. Criação automática de diretórios pais ausentes antes da escrita do arquivo.
 - **Alinhamento do Diretório de Trabalho (`System.Environment.CurrentDirectory`)** — Ajuste do diretório de trabalho do worker diretamente para a raiz do workspace do documento de notebook ativo durante a avaliação de células, garantindo que operações de arquivo e resoluções relativas operem consistentemente no diretório do workspace.
-- **Prevenção de Travamento de Arquivos em Sessões FSI Persistentes** — Eliminação de bloqueios de arquivos gerados pelo usuário (ex.: `System.IO.File.Create(...)` seguido de `.Dispose()`), restaurando com segurança o CWD inicial do worker no bloco `finally` e protegendo o diretório ativo do workspace contra deleções de limpeza transitória.
+- **Eliminação de Bloqueios de Arquivos Multi-Célula no Windows** — Resolução de locks de arquivo na execução sequencial de células: `PagingCursor` implementa `IDisposable` para liberar enumeradores, conectores tabulares (`Csv`, `Excel`, `Json`, `Xml`) e gerador de amostras utilizam `FileShare.Delete`, cursores e valores `IDisposable` superseded são proativamente descartados, e `SqliteConnection.ClearAllPools()` com `GC.WaitForPendingFinalizers()` libera handles de sistema operacional.
+- **Otimização de Prefixo na Análise de Células de Notebook** — Correção em `buildAnalysisInput` para excluir células executadas após a célula sob foco (`executionOrder < targetOrder`), prevenindo avisos falsos de definição duplicada (`FS0037`) na navegação ou reavaliação de células.
+- **Casos de Uso de Manipulação de Arquivos no Projeto Demo** — Inclusão das seções 15 e 16 em `sample_demo.fsqnb` e `sample_demo_pt.fsqnb` demonstrando streaming a partir de `data_sources/sales_feed.csv`, escrita via `File.Create`, descarte da stream e validação multi-célula de releitura e append livre de locks sem parênteses redundantes.
 - **Normalização de URIs na Retenção de Resultados** — Normalização de representações de URI de documento (letras de unidade com percent-encoding versus decodificadas) no `ResultRetention.fs`, garantindo recuperação e exportação confiáveis de resultados independentemente das convenções de URI do cliente.
 - **Prevenção de Locks no Conector SQLite** — Desativação do pool de conexões (`Pooling=false`) na string de conexão do SQLite e liberação imediata de recursos de reader, command e connection na execução de comandos DDL/DML sem colunas de retorno.
 - **Referências Antecipadas de Assemblies no FSI** — Pré-passagem de referências de assemblies do studio e conectores diretamente via argumentos CLI (`-r:`) na inicialização do `FsiSession`, prevenindo travamentos e deadlocks por inversão de locks no `TcImports` do FCS em tempo de execução.

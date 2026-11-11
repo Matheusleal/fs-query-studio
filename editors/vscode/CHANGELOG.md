@@ -8,13 +8,15 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
-## [0.5.3-rc1] — 2026-11-10
+## [0.5.3] — 2026-11-11
 
 ### Fixed
 
 - **CSV Export Path Resolution** — Fixed CSV result export to resolve relative destination paths against the active notebook's workspace directory rather than the worker executable location. Automatically creates missing parent directories before writing output.
 - **Working Directory (`System.Environment.CurrentDirectory`) Alignment** — Set the worker's current working directory directly to the active notebook document workspace root during cell evaluation, ensuring relative file operations and path lookups consistently target the workspace.
-- **File Lock Prevention in Persistent FSI Sessions** — Prevented file locks on user-created files (e.g. `System.IO.File.Create(...)` followed by `.Dispose()`) by safely caching and restoring the worker process's initial working directory and guarding cleanup against active workspace paths.
+- **Elimination of Multi-Cell File Locks on Windows** — Resolved file locking across sequential cell executions: `PagingCursor` implements `IDisposable` to close sequence enumerators, tabular connectors (`Csv`, `Excel`, `Json`, `Xml`) and sample generators enable `FileShare.Delete`, superseded continuation cursors and unassigned `IDisposable` values are actively disposed, and `SqliteConnection.ClearAllPools()` with `GC.WaitForPendingFinalizers()` flushes OS file handles.
+- **Language Service Cell Analysis Prefix Optimization** — Corrected `buildAnalysisInput` to exclude cells executed subsequent to the active target cell (`executionOrder < targetOrder`), preventing duplicate definition warnings (`FS0037`) when navigating or re-evaluating preceding cells.
+- **Interactive Demo File Pipeline Cases** — Added Sections 15 & 16 to `sample_demo.fsqnb` and `sample_demo_pt.fsqnb` demonstrating streaming from `data_sources/sales_feed.csv`, writing with `File.Create`, stream disposal, and verifying lock-free multi-cell re-reading/appending without sharing violations or redundant parentheses.
 - **Result Retention URI Normalization** — Normalized document URI representations (percent-encoded vs unescaped drive letters) in `ResultRetention.fs`, ensuring reliable cache retrieval and export for queries executed across different client URI conventions.
 - **SQLite Connector File Lock Prevention** — Disabled connection pooling (`Pooling=false`) in SQLite connection strings and ensured immediate disposal of reader, command, and connection resources upon executing 0-column non-query operations.
 - **Upfront FSI Assembly Referencing** — Pre-passed studio runtime and connector assembly references upfront via CLI arguments (`-r:`) during `FsiSession` startup, completely eliminating runtime `TcImports` lock-inversion deadlocks in FCS.
