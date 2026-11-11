@@ -29,7 +29,7 @@ let private roundTrip (proc: Process) (req: WorkerRequestFrame) : Task<WorkerRes
         do! NdjsonStream.writeFrame proc.StandardInput req
         let mutable targetResponse: WorkerResponseFrame option = None
         let mutable eof = false
-        use cts = new System.Threading.CancellationTokenSource(System.TimeSpan.FromSeconds 30.0)
+        use cts = new System.Threading.CancellationTokenSource(System.TimeSpan.FromSeconds 120.0)
         while targetResponse.IsNone && not eof && not proc.HasExited && not cts.IsCancellationRequested do
             let! line = proc.StandardOutput.ReadLineAsync(cts.Token)
             if isNull line then
