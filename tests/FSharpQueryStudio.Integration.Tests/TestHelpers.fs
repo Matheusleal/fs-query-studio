@@ -9,7 +9,7 @@ let workerDllPath () =
     Path.Combine(AppContext.BaseDirectory, "FSharpQueryStudio.Worker.dll")
 
 let withTimeout (seconds: float) (work: Task<'T>) : Task<'T> =
-    let timeoutSec = min seconds 45.0
+    let timeoutSec = max seconds 60.0
     task {
         let! winner = Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds timeoutSec))
 
