@@ -42,40 +42,29 @@ type SqliteConnector(filePath: string) =
         SqliteConnector.BindParameters(initialCmd, parameters)
         let initialReader = initialCmd.ExecuteReader(CommandBehavior.CloseConnection)
         let columns = [ for i in 0 .. initialReader.FieldCount - 1 -> initialReader.GetName(i) ]
+        let fieldCount = initialReader.FieldCount
+        initialReader.Dispose()
+        initialCmd.Dispose()
+        initialConn.Dispose()
 
         let rows =
-            if initialReader.FieldCount = 0 then
-                initialReader.Dispose()
-                initialCmd.Dispose()
-                initialConn.Dispose()
+            if fieldCount = 0 then
                 Seq.empty
             else
-                let mutable firstRun = Some (initialConn, initialCmd, initialReader)
                 Seq.delay (fun () ->
-                    match firstRun with
-                    | Some (conn, cmd, reader) ->
-                        firstRun <- None
-                        seq {
-                            use _c = conn
-                            use _cmd = cmd
-                            use _r = reader
-                            while reader.Read() do
-                                yield [| for i in 0 .. reader.FieldCount - 1 -> reader.GetValue(i) |]
-                        }
-                    | None ->
-                        let conn = new SqliteConnection(connectionString)
-                        conn.Open()
-                        let cmd = conn.CreateCommand()
-                        cmd.CommandText <- sql
-                        SqliteConnector.BindParameters(cmd, parameters)
-                        let reader = cmd.ExecuteReader(CommandBehavior.CloseConnection)
-                        seq {
-                            use _c = conn
-                            use _cmd = cmd
-                            use _r = reader
-                            while reader.Read() do
-                                yield [| for i in 0 .. reader.FieldCount - 1 -> reader.GetValue(i) |]
-                        }
+                    let conn = new SqliteConnection(connectionString)
+                    conn.Open()
+                    let cmd = conn.CreateCommand()
+                    cmd.CommandText <- sql
+                    SqliteConnector.BindParameters(cmd, parameters)
+                    let reader = cmd.ExecuteReader(CommandBehavior.CloseConnection)
+                    seq {
+                        use _c = conn
+                        use _cmd = cmd
+                        use _r = reader
+                        while reader.Read() do
+                            yield [| for i in 0 .. reader.FieldCount - 1 -> reader.GetValue(i) |]
+                    }
                 )
 
         { Columns = columns; Rows = rows }

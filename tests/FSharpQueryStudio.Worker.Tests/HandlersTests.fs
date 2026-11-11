@@ -1496,7 +1496,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(15, codeCells.Length)
+            Assert.Equal(17, codeCells.Length)
 
             for idx, code in List.indexed codeCells do
                 let evalReq = notebookCellRequest $"cell-{idx + 1}" code "sample_demo.fsqnb"
@@ -1521,7 +1521,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(15, codeCellsPt.Length)
+            Assert.Equal(17, codeCellsPt.Length)
 
             for idx, code in List.indexed codeCellsPt do
                 let evalReq = notebookCellRequest $"cell-pt-{idx + 1}" code "sample_demo_pt.fsqnb"
@@ -2361,6 +2361,84 @@ stream.Dispose()
                 fs.WriteByte(42uy)
             File.Delete expectedFile
             Assert.False(File.Exists expectedFile)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
+[<Fact>]
+let ``multi-cell notebook evaluations manipulating files create, delete, and recreate without file locks`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-multicell-filelock-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tmp) |> ignore
+        Handlers.setWorkspaceDirForTests (Some tmp)
+
+        try
+            let docUri = Path.Combine(tmp, "multicell_test.fsqnb")
+
+            // Cell 1: Create file, write, and dispose
+            let cell1 = """
+let testFile = "cell_data.txt"
+let stream = System.IO.File.Create(testFile)
+stream.Write([| 72uy; 105uy |], 0, 2)
+stream.Dispose()
+System.IO.File.Exists(testFile)
+"""
+            let! resp1 = Handlers.dispatch (notebookCellRequest "cell-1" cell1 docUri)
+            Assert.True(resp1.Error.IsNone, (match resp1.Error with Some e -> e.Message | None -> ""))
+
+            // Cell 2: Delete the file in a subsequent cell
+            let cell2 = """
+System.IO.File.Delete(testFile)
+not (System.IO.File.Exists(testFile))
+"""
+            let! resp2 = Handlers.dispatch (notebookCellRequest "cell-2" cell2 docUri)
+            Assert.True(resp2.Error.IsNone, (match resp2.Error with Some e -> e.Message | None -> ""))
+
+            // Cell 3: Recreate the same file and write content
+            let cell3 = """
+System.IO.File.WriteAllText(testFile, "recreated content")
+System.IO.File.ReadAllText(testFile)
+"""
+            let! resp3 = Handlers.dispatch (notebookCellRequest "cell-3" cell3 docUri)
+            Assert.True(resp3.Error.IsNone, (match resp3.Error with Some e -> e.Message | None -> ""))
+
+            // Cell 4: Expression returns a FileStream (IDisposable) directly
+            let cell4 = """
+let streamReturned = System.IO.File.Create("returned_stream.txt")
+streamReturned
+"""
+            let! resp4 = Handlers.dispatch (notebookCellRequest "cell-4" cell4 docUri)
+            Assert.True(resp4.Error.IsNone, (match resp4.Error with Some e -> e.Message | None -> ""))
+
+            // Cell 5: Must be able to delete returned_stream.txt without sharing violation
+            let cell5 = """
+System.IO.File.Delete("returned_stream.txt")
+not (System.IO.File.Exists("returned_stream.txt"))
+"""
+            let! resp5 = Handlers.dispatch (notebookCellRequest "cell-5" cell5 docUri)
+            Assert.True(resp5.Error.IsNone, (match resp5.Error with Some e -> e.Message | None -> ""))
+
+            // Cell 6: Sequence with continuation cursor (PagingCursor) over lines
+            let multiLinesPath = Path.Combine(tmp, "many_lines.txt")
+            let lines = [ for i in 1 .. 600 -> $"line {i}" ]
+            File.WriteAllLines(multiLinesPath, lines)
+
+            let cell6 = """
+System.IO.File.ReadLines("many_lines.txt")
+"""
+            let! resp6 = Handlers.dispatch (notebookCellRequest "cell-6" cell6 docUri)
+            Assert.True(resp6.Error.IsNone, (match resp6.Error with Some e -> e.Message | None -> ""))
+            let env6 = JsonSerializer.Deserialize<ResultEnvelope>(resp6.Result.Value.GetRawText(), Serialization.options)
+            Assert.True(env6.ContinuationToken.IsSome)
+
+            // Cell 7: Running a new cell displaces and disposes the previous cursor; many_lines.txt can be deleted
+            let cell7 = """
+System.IO.File.Delete("many_lines.txt")
+not (System.IO.File.Exists("many_lines.txt"))
+"""
+            let! resp7 = Handlers.dispatch (notebookCellRequest "cell-7" cell7 docUri)
+            Assert.True(resp7.Error.IsNone, (match resp7.Error with Some e -> e.Message | None -> ""))
         finally
             Handlers.setWorkspaceDirForTests None
             cleanTempDir tmp

@@ -205,7 +205,7 @@ type XmlConnector(filePath: string, ?options: XmlOptions) =
     let options = defaultArg options XmlOptions.Default
 
     let loadRootElement () : XElement option =
-        use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 65536)
+        use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete, 65536)
         let settings =
             XmlReaderSettings(
                 DtdProcessing = DtdProcessing.Prohibit,

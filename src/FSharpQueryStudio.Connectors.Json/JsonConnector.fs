@@ -233,7 +233,7 @@ type JsonConnector(filePath: string, ?options: JsonOptions) =
     let options = defaultArg options JsonOptions.Default
 
     let parseDocument () : JsonDocument =
-        use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 65536)
+        use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete, 65536)
         let docOpts = JsonDocumentOptions(AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip)
         JsonDocument.Parse(fs, docOpts)
 

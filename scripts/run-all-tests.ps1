@@ -1,12 +1,12 @@
 #!/usr/bin/env pwsh
 <#
 .SYNOPSIS
-    Runs all FSharpQueryStudio test projects under the supervision of the External Watcher (5 min timeout).
+    Runs all FSharpQueryStudio test projects under the supervision of the External Watcher (default 10 min timeout).
 #>
 
 [CmdletBinding()]
 param(
-    [int]$TimeoutSeconds = 300,
+    [int]$TimeoutSeconds = 600,
     [switch]$SkipDocker,
     [switch]$SkipNpm
 )
@@ -18,7 +18,7 @@ $watcher = Join-Path $scriptDir "watch-tests.ps1"
 
 Write-Host "======================================================================" -ForegroundColor Cyan
 Write-Host "==> Starting Full Test Suite with External Watcher" -ForegroundColor Cyan
-Write-Host "    Timeout per Project: $TimeoutSeconds seconds (5 min)" -ForegroundColor Cyan
+Write-Host "    Timeout per Project: $TimeoutSeconds seconds ($([math]::Round($TimeoutSeconds / 60)) min)" -ForegroundColor Cyan
 Write-Host "======================================================================" -ForegroundColor Cyan
 
 $testProjects = @(

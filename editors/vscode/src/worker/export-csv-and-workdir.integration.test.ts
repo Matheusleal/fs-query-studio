@@ -120,6 +120,49 @@ describe.skipIf(!workerDll)("working directory and CSV export integration", () =
       expect(() => fs.unlinkSync(createdFilePath)).not.toThrow();
       expect(fs.existsSync(createdFilePath)).toBe(false);
 
+      // Multi-cell file lifecycle within notebook: Cell A creates & writes, Cell B deletes
+      const cellACode = [
+        'let chainedFile = "chained_test.txt"',
+        'let s = System.IO.File.Create(chainedFile)',
+        's.Write([| 88uy; 89uy; 90uy |], 0, 3)',
+        's.Dispose()',
+        'System.IO.File.Exists(chainedFile)',
+      ].join("\n");
+
+      const evalCellARes = await client.send({
+        id: newRequestId(),
+        method: "execution/evaluate",
+        params: {
+          source: cellACode,
+          sessionId: notebookUri,
+          mode: SESSION_MODE_PERSISTENT,
+          documentUri: notebookUri,
+          isNotebookCell: true,
+        },
+      });
+      expect(evalCellARes.error ?? undefined).toBeUndefined();
+      const chainedFilePath = path.join(tempDir, "chained_test.txt");
+      expect(fs.existsSync(chainedFilePath)).toBe(true);
+
+      const cellBCode = [
+        'System.IO.File.Delete("chained_test.txt")',
+        'not (System.IO.File.Exists("chained_test.txt"))',
+      ].join("\n");
+
+      const evalCellBRes = await client.send({
+        id: newRequestId(),
+        method: "execution/evaluate",
+        params: {
+          source: cellBCode,
+          sessionId: notebookUri,
+          mode: SESSION_MODE_PERSISTENT,
+          documentUri: notebookUri,
+          isNotebookCell: true,
+        },
+      });
+      expect(evalCellBRes.error ?? undefined).toBeUndefined();
+      expect(fs.existsSync(chainedFilePath)).toBe(false);
+
       // 3. Evaluate tabular data to retain in session
       const tableCode = '[ {| Id = 1; Name = "Alice" |}; {| Id = 2; Name = "Bob" |} ]';
       const evalTableRes = await client.send({

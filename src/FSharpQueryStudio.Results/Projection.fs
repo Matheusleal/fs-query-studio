@@ -719,7 +719,7 @@ module Projection =
                         // path — feed the *lazy* `full` enumerator to
                         // `PagingCursor`, so only ~PreviewRowLimit+1
                         // elements are ever pulled.
-                        let cursor = PagingCursor(full.GetEnumerator())
+                        let cursor = new PagingCursor(full.GetEnumerator())
                         let page, hasMore = cursor.TakePage(PreviewRowLimit)
 
                         let envelope =

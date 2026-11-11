@@ -337,7 +337,7 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
     /// throwaway reader closed before this method returns.
     member _.ReadRows() : ConnectorQueryResult =
         let columns =
-            use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 4096)
+            use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete, 4096)
             use headerReader = new StreamReader(fs, resolvedOptions.Encoding, true, 4096)
 
             match CsvParsing.readRecord headerReader resolvedOptions.Delimiter with
@@ -368,7 +368,7 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
 
         let rows =
             seq {
-                use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 65536)
+                use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete, 65536)
                 use streamReader = new StreamReader(fs, resolvedOptions.Encoding, true, 65536)
                 let sb = StringBuilder(256)
                 let first = CsvParsing.readRecordAsObjArray streamReader resolvedOptions.Delimiter sb expectedCols

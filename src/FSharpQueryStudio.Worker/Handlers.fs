@@ -51,6 +51,15 @@ module Handlers =
     /// `ResultEnvelope.ContinuationToken`. Supports concurrent notebook tabs.
     let private pagingCursors = ConcurrentDictionary<string, PagingCursor>()
     let private sessionTokens = ConcurrentDictionary<string, string>()
+    let private disposeCursor (cursor: PagingCursor) : unit =
+        try cursor.Dispose() with _ -> ()
+
+    let private resolveSessionKey (evalParams: EvaluateParams) : string =
+        match evalParams.SessionId with
+        | Some sid when not (String.IsNullOrWhiteSpace sid) -> sid
+        | _ ->
+            if not (String.IsNullOrWhiteSpace evalParams.DocumentUri) then evalParams.DocumentUri
+            else "default"
 
     /// The persistent, single per-machine workspace directory — connections,
     /// trust metadata, package approvals — `%LOCALAPPDATA%\FSharpQueryStudio`
@@ -157,11 +166,7 @@ module Handlers =
             currentWorkDir <- Some workDir
             try
                 let evalParams = JsonSerializer.Deserialize<EvaluateParams>(request.Params, Serialization.options)
-                let sessionKey =
-                    evalParams.SessionId
-                    |> Option.defaultValue (
-                        if String.IsNullOrEmpty evalParams.DocumentUri then "default" else evalParams.DocumentUri
-                    )
+                let sessionKey = resolveSessionKey evalParams
                 match sessionTokens.TryGetValue(sessionKey) with
                 | true, oldToken -> pagingCursors.TryRemove(oldToken) |> ignore
                 | false, _ -> ()
@@ -278,6 +283,15 @@ module Handlers =
             let envelope =
                 match outcome.Exception with
                 | Some ex ->
+                    let sessionKey = resolveSessionKey evalParams
+
+                    match sessionTokens.TryGetValue(sessionKey) with
+                    | true, oldToken ->
+                        match pagingCursors.TryRemove(oldToken) with
+                        | true, oldCursor -> disposeCursor oldCursor
+                        | false, _ -> ()
+                    | false, _ -> ()
+
                     let diagMsg =
                         if outcome.Diagnostics.Length > 0 then
                             outcome.Diagnostics
@@ -297,6 +311,12 @@ module Handlers =
                     let projected, cursor, retained =
                         Projection.projectWithCursorDetailed value stopwatch.ElapsedMilliseconds (Some evalParams.Source) None
 
+                    if cursor.IsNone && not (isNull value) then
+                        match value with
+                        | :? IDisposable as d ->
+                            try d.Dispose() with _ -> ()
+                        | _ -> ()
+
                     // Export CSV targets the notebook's most recent MATERIALIZED
                     // grid. A run that produced no such table (a scalar, a
                     // streamed scalar seq, a printfn) leaves any earlier
@@ -309,14 +329,13 @@ module Handlers =
                                 { Columns = t.Columns; Rows = t.Rows }
                         | None -> ()
 
-                    let sessionKey =
-                        evalParams.SessionId
-                        |> Option.defaultValue (
-                            if String.IsNullOrEmpty evalParams.DocumentUri then "default" else evalParams.DocumentUri
-                        )
+                    let sessionKey = resolveSessionKey evalParams
 
                     match sessionTokens.TryGetValue(sessionKey) with
-                    | true, oldToken -> pagingCursors.TryRemove(oldToken) |> ignore
+                    | true, oldToken ->
+                        match pagingCursors.TryRemove(oldToken) with
+                        | true, oldCursor -> disposeCursor oldCursor
+                        | false, _ -> ()
                     | false, _ -> ()
 
                     let continuationToken =
@@ -356,6 +375,11 @@ module Handlers =
                     Directory.Delete(workDir, true)
             with _ ->
                 ()
+            try
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+            with _ -> ()
+            GC.Collect()
+            GC.WaitForPendingFinalizers()
             GC.Collect()
 
 
@@ -376,11 +400,22 @@ module Handlers =
         let resetParams =
             JsonSerializer.Deserialize<SessionResetParams>(request.Params, Serialization.options)
 
-        Log.Information("Resetting persistent session {SessionId}", resetParams.SessionId)
-        SessionStore.reset resetParams.SessionId
-        match sessionTokens.TryRemove(resetParams.SessionId) with
-        | true, oldToken -> pagingCursors.TryRemove(oldToken) |> ignore
-        | false, _ -> ()
+        if not (String.IsNullOrWhiteSpace resetParams.SessionId) then
+            Log.Information("Resetting persistent session {SessionId}", resetParams.SessionId)
+            SessionStore.reset resetParams.SessionId
+            match sessionTokens.TryRemove(resetParams.SessionId) with
+            | true, oldToken ->
+                match pagingCursors.TryRemove(oldToken) with
+                | true, oldCursor -> disposeCursor oldCursor
+                | false, _ -> ()
+            | false, _ -> ()
+
+        try
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+        with _ -> ()
+        GC.Collect()
+        GC.WaitForPendingFinalizers()
+        GC.Collect()
 
         { Id = request.Id
           Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
@@ -599,7 +634,9 @@ module Handlers =
         | true, cursor ->
             let rows, hasMore = cursor.TakePage(Projection.PreviewRowLimit)
             if not hasMore then
-                pagingCursors.TryRemove(pageParams.ContinuationToken) |> ignore
+                match pagingCursors.TryRemove(pageParams.ContinuationToken) with
+                | true, c -> disposeCursor c
+                | false, _ -> ()
 
             let page: ResultPage =
                 { Rows = rows |> Array.map (fun r -> [| r |])
