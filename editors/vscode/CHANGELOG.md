@@ -8,6 +8,17 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.5.3-rc1] — 2026-11-10
+
+### Fixed
+
+- **CSV Export Path Resolution** — Fixed CSV result export to resolve relative destination paths against the active notebook's workspace directory rather than the worker executable location. Automatically creates missing parent directories before writing output.
+- **Working Directory (`System.Environment.CurrentDirectory`) Alignment** — Set the worker's current working directory directly to the active notebook document workspace root during cell evaluation, ensuring relative file operations and path lookups consistently target the workspace.
+- **File Lock Prevention in Persistent FSI Sessions** — Prevented file locks on user-created files (e.g. `System.IO.File.Create(...)` followed by `.Dispose()`) by safely caching and restoring the worker process's initial working directory and guarding cleanup against active workspace paths.
+- **Result Retention URI Normalization** — Normalized document URI representations (percent-encoded vs unescaped drive letters) in `ResultRetention.fs`, ensuring reliable cache retrieval and export for queries executed across different client URI conventions.
+- **SQLite Connector File Lock Prevention** — Disabled connection pooling (`Pooling=false`) in SQLite connection strings and ensured immediate disposal of reader, command, and connection resources upon executing 0-column non-query operations.
+- **Upfront FSI Assembly Referencing** — Pre-passed studio runtime and connector assembly references upfront via CLI arguments (`-r:`) during `FsiSession` startup, completely eliminating runtime `TcImports` lock-inversion deadlocks in FCS.
+
 ## [0.5.2] — 2026-11-10
 
 ### Fixed

@@ -6,6 +6,17 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ## [Não Lançado]
 
+## [0.5.3-rc1] — 2026-11-10
+
+### Corrigido
+
+- **Resolução de Caminho na Exportação CSV** — Correção na exportação de resultados para CSV para resolver caminhos relativos de destino a partir do diretório raiz do workspace do notebook ativo, em vez do diretório do executável do worker. Criação automática de diretórios pais ausentes antes da escrita do arquivo.
+- **Alinhamento do Diretório de Trabalho (`System.Environment.CurrentDirectory`)** — Ajuste do diretório de trabalho do worker diretamente para a raiz do workspace do documento de notebook ativo durante a avaliação de células, garantindo que operações de arquivo e resoluções relativas operem consistentemente no diretório do workspace.
+- **Prevenção de Travamento de Arquivos em Sessões FSI Persistentes** — Eliminação de bloqueios de arquivos gerados pelo usuário (ex.: `System.IO.File.Create(...)` seguido de `.Dispose()`), restaurando com segurança o CWD inicial do worker no bloco `finally` e protegendo o diretório ativo do workspace contra deleções de limpeza transitória.
+- **Normalização de URIs na Retenção de Resultados** — Normalização de representações de URI de documento (letras de unidade com percent-encoding versus decodificadas) no `ResultRetention.fs`, garantindo recuperação e exportação confiáveis de resultados independentemente das convenções de URI do cliente.
+- **Prevenção de Locks no Conector SQLite** — Desativação do pool de conexões (`Pooling=false`) na string de conexão do SQLite e liberação imediata de recursos de reader, command e connection na execução de comandos DDL/DML sem colunas de retorno.
+- **Referências Antecipadas de Assemblies no FSI** — Pré-passagem de referências de assemblies do studio e conectores diretamente via argumentos CLI (`-r:`) na inicialização do `FsiSession`, prevenindo travamentos e deadlocks por inversão de locks no `TcImports` do FCS em tempo de execução.
+
 ## [0.5.2] — 2026-11-10
 
 ### Corrigido
