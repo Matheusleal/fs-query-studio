@@ -595,10 +595,10 @@ let exportedSummaryPath = Path.Combine("data_sources", "top_sales_exported.csv")
 
 // Stream lines from data_sources and write with explicit stream disposal
 let summaryRows =
-    File.ReadLines(salesFeedPath)
+    File.ReadLines salesFeedPath
     |> Seq.skip 1
     |> Seq.take 100
-    |> Seq.map (fun line -> line.Split(','))
+    |> Seq.map (fun line -> line.Split ',')
     |> Seq.filter (fun p -> p.Length >= 7)
     |> Seq.map (fun p ->
         {|
@@ -611,15 +611,15 @@ let summaryRows =
     |> Seq.toList
 
 do
-    use stream = File.Create(exportedSummaryPath)
+    use stream = File.Create exportedSummaryPath
     use writer = new StreamWriter(stream, Encoding.UTF8)
-    writer.WriteLine("OrderId,Customer,Product,Amount,Status")
+    writer.WriteLine "OrderId,Customer,Product,Amount,Status"
     for r in summaryRows do
-        writer.WriteLine($"{r.OrderId},{r.Customer},{r.Product},{r.Amount},{r.Status}")
+        writer.WriteLine $"{r.OrderId},{r.Customer},{r.Product},{r.Amount},{r.Status}"
     writer.Flush()
 
 printfn "Successfully generated: %s (Total records: %d, File size: %d bytes)"
-    exportedSummaryPath summaryRows.Length (FileInfo(exportedSummaryPath).Length)
+    exportedSummaryPath summaryRows.Length (FileInfo exportedSummaryPath).Length
 
 summaryRows
 """
@@ -637,20 +637,20 @@ open System.IO
 let verifiedSummaryPath = Path.Combine("data_sources", "top_sales_exported.csv")
 
 // Read lines back from the file created in the previous cell
-let lines = File.ReadAllLines(verifiedSummaryPath)
+let lines = File.ReadAllLines verifiedSummaryPath
 
 // Append metadata to verify write access is immediately available
 File.AppendAllText(verifiedSummaryPath, "# Processed by F# Query Studio\n")
 
 printfn "Verified lock-free access to %s: read %d lines, updated size %d bytes"
-    verifiedSummaryPath lines.Length (FileInfo(verifiedSummaryPath).Length)
+    verifiedSummaryPath lines.Length (FileInfo verifiedSummaryPath).Length
 
 lines
 |> Seq.skip 1
-|> Seq.filter (fun l -> not (l.StartsWith("#")))
+|> Seq.filter (fun l -> not (l.StartsWith "#"))
 |> Seq.take 20
 |> Seq.map (fun l ->
-    let p = l.Split(',')
+    let p = l.Split ','
     {|
         OrderId = p.[0]
         Customer = p.[1]
@@ -1092,10 +1092,10 @@ let caminhoExportado = Path.Combine("data_sources", "top_sales_exportado.csv")
 
 // Lê linhas de data_sources e processa dados com descarte explícito da stream
 let summaryRows =
-    File.ReadLines(salesFeedPath)
+    File.ReadLines salesFeedPath
     |> Seq.skip 1
     |> Seq.take 100
-    |> Seq.map (fun line -> line.Split(','))
+    |> Seq.map (fun line -> line.Split ',')
     |> Seq.filter (fun p -> p.Length >= 7)
     |> Seq.map (fun p ->
         {|
@@ -1108,15 +1108,15 @@ let summaryRows =
     |> Seq.toList
 
 do
-    use stream = File.Create(caminhoExportado)
+    use stream = File.Create caminhoExportado
     use writer = new StreamWriter(stream, Encoding.UTF8)
-    writer.WriteLine("PedidoId,Cliente,Produto,Valor,Status")
+    writer.WriteLine "PedidoId,Cliente,Produto,Valor,Status"
     for r in summaryRows do
-        writer.WriteLine($"{r.PedidoId},{r.Cliente},{r.Produto},{r.Valor},{r.Status}")
+        writer.WriteLine $"{r.PedidoId},{r.Cliente},{r.Produto},{r.Valor},{r.Status}"
     writer.Flush()
 
 printfn "Arquivo gerado com sucesso: %s (Total de registros: %d, Tamanho: %d bytes)"
-    caminhoExportado summaryRows.Length (FileInfo(caminhoExportado).Length)
+    caminhoExportado summaryRows.Length (FileInfo caminhoExportado).Length
 
 summaryRows
 """
@@ -1134,20 +1134,20 @@ open System.IO
 let caminhoVerificado = Path.Combine("data_sources", "top_sales_exportado.csv")
 
 // Relê o arquivo gerado na célula anterior
-let lines = File.ReadAllLines(caminhoVerificado)
+let lines = File.ReadAllLines caminhoVerificado
 
 // Acrescenta metadados ao final para certificar permissão de escrita imediata
 File.AppendAllText(caminhoVerificado, "# Processado pelo F# Query Studio\n")
 
 printfn "Acesso sem lock confirmado para %s: lidas %d linhas, tamanho atualizado %d bytes"
-    caminhoVerificado lines.Length (FileInfo(caminhoVerificado).Length)
+    caminhoVerificado lines.Length (FileInfo caminhoVerificado).Length
 
 lines
 |> Seq.skip 1
-|> Seq.filter (fun l -> not (l.StartsWith("#")))
+|> Seq.filter (fun l -> not (l.StartsWith "#"))
 |> Seq.take 20
 |> Seq.map (fun l ->
-    let p = l.Split(',')
+    let p = l.Split ','
     {|
         PedidoId = p.[0]
         Cliente = p.[1]
