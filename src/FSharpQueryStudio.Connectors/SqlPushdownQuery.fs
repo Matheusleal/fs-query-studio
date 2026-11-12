@@ -88,12 +88,25 @@ module ExpressionPushdownTranslator =
     let rec dependsOnParameter (param: ParameterExpression) (expr: Expression) : bool =
         match expr with
         | null -> false
-        | :? ParameterExpression as p -> p = param
+        | :? ParameterExpression as p -> p = param || (not (isNull p.Name) && not (isNull param.Name) && p.Name = param.Name)
         | :? MemberExpression as m -> dependsOnParameter param m.Expression
         | :? BinaryExpression as b -> dependsOnParameter param b.Left || dependsOnParameter param b.Right
         | :? UnaryExpression as u -> dependsOnParameter param u.Operand
+        | :? LambdaExpression as l -> dependsOnParameter param l.Body
         | :? MethodCallExpression as mc ->
             dependsOnParameter param mc.Object || (mc.Arguments |> Seq.exists (dependsOnParameter param))
+        | _ -> false
+
+    let rec hasAnyParameter (expr: Expression) : bool =
+        match expr with
+        | null -> false
+        | :? ParameterExpression -> true
+        | :? MemberExpression as m -> hasAnyParameter m.Expression
+        | :? BinaryExpression as b -> hasAnyParameter b.Left || hasAnyParameter b.Right
+        | :? UnaryExpression as u -> hasAnyParameter u.Operand
+        | :? LambdaExpression as l -> hasAnyParameter l.Body
+        | :? MethodCallExpression as mc ->
+            hasAnyParameter mc.Object || (mc.Arguments |> Seq.exists hasAnyParameter)
         | _ -> false
 
     let evaluateClientValue (expr: Expression) : obj =
@@ -189,6 +202,44 @@ module ExpressionPushdownTranslator =
             if inner <> u.Operand then inner else expr
         | other -> other
 
+    let isGroupingType (t: Type) : bool =
+        if isNull t then false
+        else
+            t.Name.StartsWith("IGrouping")
+            || (t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>)
+
+    let rec exprHasParamName (paramName: string) (expr: Expression) : bool =
+        match expr with
+        | null -> false
+        | :? ParameterExpression as p -> p.Name = paramName
+        | :? MemberExpression as m -> exprHasParamName paramName m.Expression
+        | :? BinaryExpression as b -> exprHasParamName paramName b.Left || exprHasParamName paramName b.Right
+        | :? UnaryExpression as u -> exprHasParamName paramName u.Operand
+        | :? MethodCallExpression as mc ->
+            exprHasParamName paramName mc.Object || (mc.Arguments |> Seq.exists (exprHasParamName paramName))
+        | :? LambdaExpression as l -> exprHasParamName paramName l.Body
+        | _ -> false
+
+    let hasAnyOuterParam (plan: PushdownQueryPlan) (expr: Expression) : bool =
+        plan.OuterAliases.Keys |> Seq.exists (fun name -> exprHasParamName name expr)
+
+    let rec isHavingPredicate (expr: Expression) : bool =
+        match expr with
+        | null -> false
+        | :? MethodCallExpression as mc ->
+            match mc.Method.Name with
+            | "Count" | "LongCount" | "Sum" | "Min" | "Max" | "Average" | "Avg" -> true
+            | _ ->
+                (not (isNull mc.Object) && isHavingPredicate mc.Object)
+                || (mc.Arguments |> Seq.exists isHavingPredicate)
+        | :? MemberExpression as m ->
+            m.Member.Name = "Key" || (not (isNull m.Expression) && isHavingPredicate m.Expression)
+        | :? BinaryExpression as b ->
+            isHavingPredicate b.Left || isHavingPredicate b.Right
+        | :? UnaryExpression as u ->
+            isHavingPredicate u.Operand
+        | _ -> false
+
     /// Resolves a member expression (possibly navigating a nested tuple hierarchy from multi-table joins)
     /// into an optional table alias and the column name.
     let resolveMemberRef (plan: PushdownQueryPlan) (expr: Expression) : (string option * string) =
@@ -196,102 +247,116 @@ module ExpressionPushdownTranslator =
         match unwrapped with
         | :? MemberExpression as m ->
             let colName = m.Member.Name
-            let mutable matchedAlias: string option = None
-            if not (isNull m.Expression) && plan.Joins.Count > 0 then
-                let exprType = m.Expression.Type
-                if not (exprType.Name.StartsWith("AnonymousObject") || exprType.Name.StartsWith("Tuple") || exprType.Name.StartsWith("ValueTuple")) then
-                    let baseMatches = if plan.BaseRowType = Some exprType then 1 else 0
-                    let matchingJoins = plan.Joins |> Seq.filter (fun j -> j.RowType = Some exprType) |> Seq.toList
-                    let totalMatches = baseMatches + matchingJoins.Length
-                    if totalMatches = 1 then
-                        if baseMatches = 1 then
-                            matchedAlias <- Some plan.BaseAlias
-                        else
-                            matchedAlias <- Some matchingJoins.[0].Alias
-
-            match matchedAlias with
-            | Some alias -> (Some alias, colName)
-            | None | _ ->
-                let path = ResizeArray<string>()
-                let mutable curr: Expression = m.Expression
-                let mutable rootParam: ParameterExpression option = None
-
-                let mutable keepWalking = true
-                while keepWalking && not (isNull curr) do
-                    match curr with
-                    | :? MemberExpression as parentM ->
-                        path.Add(parentM.Member.Name)
-                        curr <- parentM.Expression
-                    | :? ParameterExpression as p ->
-                        rootParam <- Some p
-                        keepWalking <- false
-                    | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ->
-                        curr <- u.Operand
-                    | _ ->
-                        keepWalking <- false
-
-                path.Reverse()
-
-                if path.Count = 0 then
-                    (None, colName)
+            if colName = "Key" && not (isNull m.Expression) && isGroupingType m.Expression.Type then
+                if plan.GroupBy.Count > 0 then
+                    (None, plan.GroupBy.[0])
                 else
-                    let tupleItems = path |> Seq.filter (fun s -> s.StartsWith("Item")) |> Seq.toList
-                    if not (List.isEmpty tupleItems) then
-                        if tupleItems.Length = 1 then
-                            // Flat tuple / AnonymousObject: root.Item{X}
-                            let itemStr = tupleItems.[0].Substring(4)
-                            match Int32.TryParse(itemStr) with
-                            | true, n when n >= 1 ->
-                                let tableIdx = n - 1
-                                let alias = if tableIdx = 0 then plan.BaseAlias else sprintf "_t%d" tableIdx
-                                (Some alias, colName)
-                            | _ ->
-                                (None, colName)
-                        else
-                            // Check for overflow tuple (Item8)
-                            let first = tupleItems.[0]
-                            if first = "Item8" && tupleItems.Length = 2 then
-                                let subStr = tupleItems.[1].Substring(4)
-                                match Int32.TryParse(subStr) with
-                                | true, subIdx when subIdx >= 1 ->
-                                    let leftJoins = plan.Joins |> Seq.filter (fun j -> j.JoinType = "LEFT JOIN") |> Seq.toList
-                                    let tableIdx =
-                                        if leftJoins.Length >= subIdx then
-                                            let joinTarget = leftJoins.[subIdx - 1]
-                                            let idx = plan.Joins |> Seq.findIndex (fun j -> obj.ReferenceEquals(j, joinTarget))
-                                            idx + 1
-                                        else
-                                            let baseOffset = max 0 (plan.Joins.Count - leftJoins.Length)
-                                            baseOffset + subIdx
-                                    (Some (sprintf "_t%d" tableIdx), colName)
-                                | _ -> (None, colName)
+                    (None, "Key")
+            else
+                let mutable matchedAlias: string option = None
+                if not (isNull m.Expression) && (match m.Expression with :? ParameterExpression as p when not (isNull p.Name) && plan.OuterAliases.ContainsKey p.Name -> true | _ -> false) then
+                    let p = m.Expression :?> ParameterExpression
+                    matchedAlias <- Some plan.OuterAliases.[p.Name]
+                elif not (isNull m.Expression) && plan.Joins.Count = 0 && (match m.Expression with :? ParameterExpression as p when plan.BaseRowType = Some p.Type -> true | _ -> false) then
+                    matchedAlias <- Some plan.BaseAlias
+                elif not (isNull m.Expression) && (match m.Expression with :? ParameterExpression as p when plan.OuterAliases.Count > 0 -> true | _ -> false) then
+                    let defaultOuter = plan.OuterAliases.Values |> Seq.tryHead |> defaultArg <| plan.BaseAlias
+                    matchedAlias <- Some defaultOuter
+                elif not (isNull m.Expression) && plan.Joins.Count > 0 then
+                    let exprType = m.Expression.Type
+                    if not (exprType.Name.StartsWith("AnonymousObject") || exprType.Name.StartsWith("Tuple") || exprType.Name.StartsWith("ValueTuple")) then
+                        let baseMatches = if plan.BaseRowType = Some exprType then 1 else 0
+                        let matchingJoins = plan.Joins |> Seq.filter (fun j -> j.RowType = Some exprType) |> Seq.toList
+                        let totalMatches = baseMatches + matchingJoins.Length
+                        if totalMatches = 1 then
+                            if baseMatches = 1 then
+                                matchedAlias <- Some plan.BaseAlias
                             else
-                                // Nested left-associative tuple tree: root.Item1.Item2...
-                                let k =
-                                    match rootParam with
-                                    | Some p ->
-                                        let d = getTupleDepth p.Type
-                                        if d > 0 then d else plan.Joins.Count
-                                    | None | _ -> plan.Joins.Count
+                                matchedAlias <- Some matchingJoins.[0].Alias
 
-                                let leadingOnes =
-                                    let mutable count = 0
-                                    let mutable stopped = false
-                                    for item in tupleItems do
-                                        if not stopped then
-                                            if item = "Item1" then count <- count + 1
-                                            else stopped <- true
-                                    count
+                match matchedAlias with
+                | Some alias -> (Some alias, colName)
+                | None | _ ->
+                    let path = ResizeArray<string>()
+                    let mutable curr: Expression = m.Expression
+                    let mutable rootParam: ParameterExpression option = None
 
-                                let hasItem2 = tupleItems |> List.exists (fun s -> s = "Item2")
-                                let tableIdx =
-                                    if not hasItem2 then 0
-                                    else max 0 (k - leadingOnes)
+                    let mutable keepWalking = true
+                    while keepWalking && not (isNull curr) do
+                        match curr with
+                        | :? MemberExpression as parentM ->
+                            path.Add(parentM.Member.Name)
+                            curr <- parentM.Expression
+                        | :? ParameterExpression as p ->
+                            rootParam <- Some p
+                            keepWalking <- false
+                        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ->
+                            curr <- u.Operand
+                        | _ ->
+                            keepWalking <- false
 
-                                let alias = if tableIdx = 0 then plan.BaseAlias else sprintf "_t%d" tableIdx
-                                (Some alias, colName)
-                    else
+                    path.Reverse()
+
+                    if path.Count = 0 then
                         (None, colName)
+                    else
+                        let tupleItems = path |> Seq.filter (fun s -> s.StartsWith("Item")) |> Seq.toList
+                        if not (List.isEmpty tupleItems) then
+                            if tupleItems.Length = 1 then
+                                // Flat tuple / AnonymousObject: root.Item{X}
+                                let itemStr = tupleItems.[0].Substring(4)
+                                match Int32.TryParse(itemStr) with
+                                | true, n when n >= 1 ->
+                                    let tableIdx = n - 1
+                                    let alias = if tableIdx = 0 then plan.BaseAlias else sprintf "_t%d" tableIdx
+                                    (Some alias, colName)
+                                | _ ->
+                                    (None, colName)
+                            else
+                                // Check for overflow tuple (Item8)
+                                let first = tupleItems.[0]
+                                if first = "Item8" && tupleItems.Length = 2 then
+                                    let subStr = tupleItems.[1].Substring(4)
+                                    match Int32.TryParse(subStr) with
+                                    | true, subIdx when subIdx >= 1 ->
+                                        let leftJoins = plan.Joins |> Seq.filter (fun j -> j.JoinType = "LEFT JOIN") |> Seq.toList
+                                        let tableIdx =
+                                            if leftJoins.Length >= subIdx then
+                                                let joinTarget = leftJoins.[subIdx - 1]
+                                                let idx = plan.Joins |> Seq.findIndex (fun j -> obj.ReferenceEquals(j, joinTarget))
+                                                idx + 1
+                                            else
+                                                let baseOffset = max 0 (plan.Joins.Count - leftJoins.Length)
+                                                baseOffset + subIdx
+                                        (Some (sprintf "_t%d" tableIdx), colName)
+                                    | _ -> (None, colName)
+                                else
+                                    // Nested left-associative tuple tree: root.Item1.Item2...
+                                    let k =
+                                        match rootParam with
+                                        | Some p ->
+                                            let d = getTupleDepth p.Type
+                                            if d > 0 then d else plan.Joins.Count
+                                        | None | _ -> plan.Joins.Count
+
+                                    let leadingOnes =
+                                        let mutable count = 0
+                                        let mutable stopped = false
+                                        for item in tupleItems do
+                                            if not stopped then
+                                                if item = "Item1" then count <- count + 1
+                                                else stopped <- true
+                                        count
+
+                                    let hasItem2 = tupleItems |> List.exists (fun s -> s = "Item2")
+                                    let tableIdx =
+                                        if not hasItem2 then 0
+                                        else max 0 (k - leadingOnes)
+
+                                    let alias = if tableIdx = 0 then plan.BaseAlias else sprintf "_t%d" tableIdx
+                                    (Some alias, colName)
+                        else
+                            (None, colName)
         | _ ->
             (None, unwrapped.ToString())
 
@@ -302,9 +367,10 @@ module ExpressionPushdownTranslator =
         | :? MemberExpression as m ->
             let aliasOpt, colName = resolveMemberRef plan m
             match aliasOpt with
-            | Some alias when plan.Joins.Count > 0 -> $"{alias}.{colName}"
-            | _ ->
-                if plan.Joins.Count > 0 && not (colName.Contains ".") then
+            | Some alias when plan.Joins.Count > 0 || plan.OuterAliases.Count > 0 -> $"{alias}.{colName}"
+            | Some alias -> $"{alias}.{colName}"
+            | None ->
+                if (plan.Joins.Count > 0 || plan.OuterAliases.Count > 0) && not (colName.Contains ".") then
                     $"{plan.BaseAlias}.{colName}"
                 else
                     colName
@@ -328,6 +394,8 @@ module ExpressionPushdownTranslator =
     let rec extractKeyColumns (plan: PushdownQueryPlan) (fallbackAlias: string) (param: ParameterExpression) (expr: Expression) : string list =
         let unwrapped = unwrapQuote expr |> unwrapOptionOrNullableMember
         match unwrapped with
+        | :? MemberExpression as m when not (isNull param) && m.Expression = (param :> Expression) ->
+            [ $"{fallbackAlias}.{m.Member.Name}" ]
         | :? MemberExpression as m ->
             let aliasOpt, colName = resolveMemberRef plan m
             let alias = defaultArg aliasOpt fallbackAlias
@@ -433,6 +501,19 @@ module ExpressionPushdownTranslator =
         | _ ->
             None
 
+    let tryExtractSubqueryCall (expr: Expression) : (string * MethodCallExpression) option =
+        let unwrapped = unwrapQuote expr
+        match unwrapped with
+        | :? MethodCallExpression as mc when mc.Arguments.Count > 0 ->
+            match mc.Method.Name with
+            | "Count" | "LongCount" | "Sum" | "Min" | "Max" | "Average" | "Avg" ->
+                match tryExtractQueryableInfo mc.Arguments.[0] with
+                | Some (table, _, _) when not (String.IsNullOrWhiteSpace table) ->
+                    Some (mc.Method.Name, mc)
+                | _ -> None
+            | _ -> None
+        | _ -> None
+
     let rec isDefaultIfEmptyFlattening (expr: Expression) : bool =
         let unwrapped = unwrapQuote expr
         match unwrapped with
@@ -481,23 +562,149 @@ module ExpressionPushdownTranslator =
                     | None | _ -> false
                 elif mc.Method.Name = "SelectMany" && mc.Arguments.Count >= 2 then
                     let innerArg = unwrapQuote mc.Arguments.[1]
-                    let innerExpr =
+                    let outerParamOpt, innerExpr =
                         match innerArg with
-                        | :? LambdaExpression as l -> l.Body
-                        | other -> other
-                    match tryExtractQueryableInfo innerExpr with
-                    | Some (_, innerConn, _) ->
-                        obj.ReferenceEquals(outerConn, innerConn)
-                        || (
-                            (outerConn :> IConnector).Kind = (innerConn :> IConnector).Kind
-                            && String.Equals(outerConn.ConnectionString, innerConn.ConnectionString, StringComparison.OrdinalIgnoreCase)
-                        )
-                    | None | _ ->
-                        isDefaultIfEmptyFlattening innerExpr
+                        | :? LambdaExpression as l -> Some l.Parameters.[0], l.Body
+                        | other -> None, other
+                    let isCorrelated =
+                        match outerParamOpt with
+                        | Some p -> dependsOnParameter p innerExpr
+                        | None -> false
+                    if isCorrelated && (outerConn :> IConnector).Kind = ConnectorKind.Sqlite then
+                        false
+                    else
+                        match tryExtractQueryableInfo innerExpr with
+                        | Some (_, innerConn, _) ->
+                            obj.ReferenceEquals(outerConn, innerConn)
+                            || (
+                                (outerConn :> IConnector).Kind = (innerConn :> IConnector).Kind
+                                && String.Equals(outerConn.ConnectionString, innerConn.ConnectionString, StringComparison.OrdinalIgnoreCase)
+                            )
+                        | None | _ ->
+                            isDefaultIfEmptyFlattening innerExpr
                 else false
             )
 
-    let rec translatePredicate (param: ParameterExpression) (plan: PushdownQueryPlan) (dialect: SqlDialect) (expr: Expression) : string option =
+    let rec tryTranslateSubqueryScalarExpr (dialect: SqlDialect) (plan: PushdownQueryPlan) (mc: MethodCallExpression) : string option =
+        match tryExtractSubqueryCall mc with
+        | Some (methodName, subMc) ->
+            match tryExtractQueryableInfo subMc.Arguments.[0] with
+            | Some (subTable, _, subRowType) ->
+                let subPlan = PushdownQueryPlan.Create(subTable, [], baseAlias = sprintf "_sub%d" (plan.Joins.Count + 1), ?baseRowType = subRowType)
+                for kv in plan.OuterAliases do
+                    subPlan.OuterAliases.[kv.Key] <- kv.Value
+                subPlan.OuterAliases.[plan.BaseAlias] <- plan.BaseAlias
+                if plan.BaseRowType.IsSome then
+                    subPlan.OuterAliases.[plan.BaseRowType.Value.Name] <- plan.BaseAlias
+                mergeExpressionIntoPlan subMc.Arguments.[0] subPlan dialect
+                match methodName with
+                | "Count" | "LongCount" ->
+                    subPlan.Projection <- Some "COUNT(*)"
+                | "Sum" ->
+                    let col = if subMc.Arguments.Count >= 2 then extractColumnNameWithAlias subPlan subMc.Arguments.[1] else "*"
+                    subPlan.Projection <- Some $"SUM({col})"
+                | "Min" ->
+                    let col = if subMc.Arguments.Count >= 2 then extractColumnNameWithAlias subPlan subMc.Arguments.[1] else "*"
+                    subPlan.Projection <- Some $"MIN({col})"
+                | "Max" ->
+                    let col = if subMc.Arguments.Count >= 2 then extractColumnNameWithAlias subPlan subMc.Arguments.[1] else "*"
+                    subPlan.Projection <- Some $"MAX({col})"
+                | "Average" | "Avg" ->
+                    let col = if subMc.Arguments.Count >= 2 then extractColumnNameWithAlias subPlan subMc.Arguments.[1] else "*"
+                    subPlan.Projection <- Some $"AVG({col})"
+                | _ -> ()
+                let mutable subSql = subPlan.BuildSql(dialect)
+                for (pName, pVal) in subPlan.Parameters do
+                    let uniqueName = $"@p{plan.Parameters.Count}"
+                    subSql <- subSql.Replace(pName, uniqueName)
+                    plan.Parameters.Add(uniqueName, pVal)
+                Some $"({subSql})"
+            | None -> None
+        | None -> None
+
+    and tryTranslateSubqueryPredicate (param: ParameterExpression) (plan: PushdownQueryPlan) (dialect: SqlDialect) (b: BinaryExpression) : string option =
+        let op =
+            match b.NodeType with
+            | ExpressionType.Equal -> "="
+            | ExpressionType.NotEqual -> "<>"
+            | ExpressionType.GreaterThan -> ">"
+            | ExpressionType.GreaterThanOrEqual -> ">="
+            | ExpressionType.LessThan -> "<"
+            | ExpressionType.LessThanOrEqual -> "<="
+            | _ -> "="
+
+        let checkSubquery (subCall: MethodCallExpression) (otherExpr: Expression) (isSubOnLeft: bool) =
+            match tryExtractQueryableInfo subCall.Arguments.[0] with
+            | Some (subTable, _, subRowType) ->
+                let subPlan = PushdownQueryPlan.Create(subTable, [], baseAlias = sprintf "_sub%d" (plan.Joins.Count + 1), ?baseRowType = subRowType)
+                subPlan.OuterAliases.[param.Name] <- plan.BaseAlias
+                for kv in plan.OuterAliases do
+                    subPlan.OuterAliases.[kv.Key] <- kv.Value
+                subPlan.OuterAliases.[plan.BaseAlias] <- plan.BaseAlias
+                if plan.BaseRowType.IsSome then
+                    subPlan.OuterAliases.[plan.BaseRowType.Value.Name] <- plan.BaseAlias
+                mergeExpressionIntoPlan subCall.Arguments.[0] subPlan dialect
+
+                let otherRaw = try Some (evaluateClientValue otherExpr) with _ -> None
+                let otherInt =
+                    match otherRaw with
+                    | Some r -> try Some (Convert.ToInt32 (unwrapClientOption r)) with _ -> None
+                    | None -> None
+
+                match otherInt with
+                | Some 0 when (if isSubOnLeft then op = ">" || op = "<>" else op = "<" || op = "<>") ->
+                    subPlan.Projection <- Some "1"
+                    let mutable subSql = subPlan.BuildSql(dialect)
+                    for (pName, pVal) in subPlan.Parameters do
+                        let uniqueName = $"@p{plan.Parameters.Count}"
+                        subSql <- subSql.Replace(pName, uniqueName)
+                        plan.Parameters.Add(uniqueName, pVal)
+                    Some $"EXISTS ({subSql})"
+                | Some 1 when (if isSubOnLeft then op = ">=" else op = "<=") ->
+                    subPlan.Projection <- Some "1"
+                    let mutable subSql = subPlan.BuildSql(dialect)
+                    for (pName, pVal) in subPlan.Parameters do
+                        let uniqueName = $"@p{plan.Parameters.Count}"
+                        subSql <- subSql.Replace(pName, uniqueName)
+                        plan.Parameters.Add(uniqueName, pVal)
+                    Some $"EXISTS ({subSql})"
+                | Some 0 when (if isSubOnLeft then op = "=" || op = "<=" else op = "=" || op = ">=") ->
+                    subPlan.Projection <- Some "1"
+                    let mutable subSql = subPlan.BuildSql(dialect)
+                    for (pName, pVal) in subPlan.Parameters do
+                        let uniqueName = $"@p{plan.Parameters.Count}"
+                        subSql <- subSql.Replace(pName, uniqueName)
+                        plan.Parameters.Add(uniqueName, pVal)
+                    Some $"NOT EXISTS ({subSql})"
+                | _ ->
+                    subPlan.Projection <- Some "COUNT(*)"
+                    let mutable subSql = subPlan.BuildSql(dialect)
+                    for (pName, pVal) in subPlan.Parameters do
+                        let uniqueName = $"@p{plan.Parameters.Count}"
+                        subSql <- subSql.Replace(pName, uniqueName)
+                        plan.Parameters.Add(uniqueName, pVal)
+                    match otherRaw with
+                    | Some rVal ->
+                        let pName = $"@p{plan.Parameters.Count}"
+                        plan.Parameters.Add(pName, unwrapClientOption rVal)
+                        if isSubOnLeft then
+                            Some $"({subSql} {op} {pName})"
+                        else
+                            Some $"({pName} {op} {subSql})"
+                    | None ->
+                        match translateScalarExpr dialect plan otherExpr with
+                        | Some oSql ->
+                            if isSubOnLeft then Some $"({subSql} {op} {oSql})"
+                            else Some $"({oSql} {op} {subSql})"
+                        | None -> None
+            | None -> None
+
+        match tryExtractSubqueryCall b.Left, tryExtractSubqueryCall b.Right with
+        | Some ("Count", subMc), _ -> checkSubquery subMc b.Right true
+        | _, Some ("Count", subMc) -> checkSubquery subMc b.Left false
+        | _ -> None
+
+    and translatePredicate (param: ParameterExpression) (plan: PushdownQueryPlan) (dialect: SqlDialect) (expr: Expression) : string option =
         match expr with
         | null -> None
         | :? BinaryExpression as b ->
@@ -528,49 +735,68 @@ module ExpressionPushdownTranslator =
                     | ExpressionType.LessThanOrEqual -> "<="
                     | _ -> "="
 
-                let leftHasParam = dependsOnParameter param b.Left
-                let rightHasParam = dependsOnParameter param b.Right
+                match tryTranslateSubqueryPredicate param plan dialect b with
+                | Some sql -> Some sql
+                | None ->
+                    let leftHasParam = dependsOnParameter param b.Left
+                    let rightHasParam = dependsOnParameter param b.Right
+                    let leftHasOuter = hasAnyOuterParam plan b.Left || (hasAnyParameter b.Left && not leftHasParam)
+                    let rightHasOuter = hasAnyOuterParam plan b.Right || (hasAnyParameter b.Right && not rightHasParam)
 
-                if leftHasParam && not rightHasParam then
-                    let col = extractColumnNameWithAlias plan b.Left
-                    let rawVal = evaluateClientValue b.Right
-                    let clientVal = unwrapClientOption rawVal
-                    if isNull clientVal then
-                        if op = "=" then Some $"({col} IS NULL)"
-                        elif op = "<>" then Some $"({col} IS NOT NULL)"
-                        else None
-                    else
-                        let pName = $"@p{plan.Parameters.Count}"
-                        plan.Parameters.Add(pName, clientVal)
-                        Some $"({col} {op} {pName})"
-                elif not leftHasParam && rightHasParam then
-                    let col = extractColumnNameWithAlias plan b.Right
-                    let rawVal = evaluateClientValue b.Left
-                    let clientVal = unwrapClientOption rawVal
-                    let invOp =
-                        match op with
-                        | ">" -> "<"
-                        | ">=" -> "<="
-                        | "<" -> ">"
-                        | "<=" -> ">="
-                        | other -> other
-                    if isNull clientVal then
-                        if invOp = "=" then Some $"({col} IS NULL)"
-                        elif invOp = "<>" then Some $"({col} IS NOT NULL)"
-                        else None
-                    else
-                        let pName = $"@p{plan.Parameters.Count}"
-                        plan.Parameters.Add(pName, clientVal)
-                        Some $"({col} {invOp} {pName})"
-                elif leftHasParam && rightHasParam then
-                    let leftCol = extractColumnNameWithAlias plan b.Left
-                    let rightCol = extractColumnNameWithAlias plan b.Right
-                    if not (String.IsNullOrWhiteSpace leftCol) && not (String.IsNullOrWhiteSpace rightCol) then
-                        Some $"({leftCol} {op} {rightCol})"
-                    else
-                        None
-                else
-                    None
+                    match translateScalarExpr dialect plan b.Left with
+                    | Some lSql when (lSql.StartsWith("COUNT(") || lSql.StartsWith("SUM(") || lSql.StartsWith("MIN(") || lSql.StartsWith("MAX(") || lSql.StartsWith("AVG(") || lSql.StartsWith("("))
+                                     && not rightHasParam && not rightHasOuter ->
+                        let rawVal = evaluateClientValue b.Right
+                        let clientVal = unwrapClientOption rawVal
+                        if isNull clientVal then
+                            if op = "=" then Some $"({lSql} IS NULL)"
+                            elif op = "<>" then Some $"({lSql} IS NOT NULL)"
+                            else None
+                        else
+                            let pName = $"@p{plan.Parameters.Count}"
+                            plan.Parameters.Add(pName, clientVal)
+                            Some $"({lSql} {op} {pName})"
+                    | _ ->
+                        if (leftHasParam || leftHasOuter) && (rightHasParam || rightHasOuter) then
+                            let leftCol = extractColumnNameWithAlias plan b.Left
+                            let rightCol = extractColumnNameWithAlias plan b.Right
+                            if not (String.IsNullOrWhiteSpace leftCol) && not (String.IsNullOrWhiteSpace rightCol) then
+                                Some $"({leftCol} {op} {rightCol})"
+                            else
+                                None
+                        elif (leftHasParam || leftHasOuter) && not (rightHasParam || rightHasOuter) then
+                            let col = extractColumnNameWithAlias plan b.Left
+                            let rawVal = evaluateClientValue b.Right
+                            let clientVal = unwrapClientOption rawVal
+                            if isNull clientVal then
+                                if op = "=" then Some $"({col} IS NULL)"
+                                elif op = "<>" then Some $"({col} IS NOT NULL)"
+                                else None
+                            else
+                                let pName = $"@p{plan.Parameters.Count}"
+                                plan.Parameters.Add(pName, clientVal)
+                                Some $"({col} {op} {pName})"
+                        elif not (leftHasParam || leftHasOuter) && (rightHasParam || rightHasOuter) then
+                            let col = extractColumnNameWithAlias plan b.Right
+                            let rawVal = evaluateClientValue b.Left
+                            let clientVal = unwrapClientOption rawVal
+                            let invOp =
+                                match op with
+                                | ">" -> "<"
+                                | ">=" -> "<="
+                                | "<" -> ">"
+                                | "<=" -> ">="
+                                | other -> other
+                            if isNull clientVal then
+                                if invOp = "=" then Some $"({col} IS NULL)"
+                                elif invOp = "<>" then Some $"({col} IS NOT NULL)"
+                                else None
+                            else
+                                let pName = $"@p{plan.Parameters.Count}"
+                                plan.Parameters.Add(pName, clientVal)
+                                Some $"({col} {invOp} {pName})"
+                        else
+                            None
             | _ -> None
         | :? UnaryExpression as u when u.NodeType = ExpressionType.Not ->
             match translatePredicate param plan dialect u.Operand with
@@ -897,7 +1123,31 @@ module ExpressionPushdownTranslator =
                     Some $"CASE WHEN {testExpr} THEN {trueExpr} ELSE {falseExpr} END"
                 | _ -> None
         | :? MethodCallExpression as mc ->
-            if mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "Concat" then
+            let isGrouping =
+                (not (isNull mc.Method.DeclaringType) && isGroupingType mc.Method.DeclaringType)
+                || (mc.Arguments.Count > 0 && isGroupingType mc.Arguments.[0].Type)
+                || (not (isNull mc.Object) && isGroupingType mc.Object.Type)
+
+            let subquerySqlOpt = tryTranslateSubqueryScalarExpr dialect plan mc
+            if subquerySqlOpt.IsSome then
+                subquerySqlOpt
+            elif isGrouping then
+                match mc.Method.Name with
+                | "Count" | "LongCount" -> Some "COUNT(*)"
+                | "Sum" ->
+                    let col = if mc.Arguments.Count >= 2 then extractColumnNameWithAlias plan mc.Arguments.[1] else "*"
+                    Some $"SUM({col})"
+                | "Min" ->
+                    let col = if mc.Arguments.Count >= 2 then extractColumnNameWithAlias plan mc.Arguments.[1] else "*"
+                    Some $"MIN({col})"
+                | "Max" ->
+                    let col = if mc.Arguments.Count >= 2 then extractColumnNameWithAlias plan mc.Arguments.[1] else "*"
+                    Some $"MAX({col})"
+                | "Average" | "Avg" ->
+                    let col = if mc.Arguments.Count >= 2 then extractColumnNameWithAlias plan mc.Arguments.[1] else "*"
+                    Some $"AVG({col})"
+                | _ -> None
+            elif mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "Concat" then
                 let op = if dialect = SqlDialect.SqlServer then " + " else " || "
                 let argParts = mc.Arguments |> Seq.map (translateScalarExpr dialect plan) |> Seq.toList
                 if argParts |> List.forall Option.isSome then
@@ -1174,30 +1424,67 @@ module ExpressionPushdownTranslator =
                 | None | _ -> ()
             | "SelectMany" when mc.Arguments.Count >= 2 ->
                 let innerArg = unwrapQuote mc.Arguments.[1]
-                let innerExpr =
+                let outerParamOpt, innerExpr =
                     match innerArg with
-                    | :? LambdaExpression as l -> l.Body
-                    | other -> other
+                    | :? LambdaExpression as l -> Some l.Parameters.[0], l.Body
+                    | other -> None, other
+                let isOuterApply = isDefaultIfEmptyFlattening innerExpr
                 match tryExtractQueryableInfo innerExpr with
                 | Some (innerTable, _, innerRowType) ->
                     let nextIdx = plan.Joins.Count + 1
                     let innerAlias = sprintf "_t%d" nextIdx
-                    plan.Joins.Add({
-                        JoinType = "INNER JOIN"
-                        SourceTable = innerTable
-                        Alias = innerAlias
-                        OnClause = "1=1"
-                        RowType = innerRowType
-                    })
+                    let isCorrelated =
+                        match outerParamOpt with
+                        | Some p -> dependsOnParameter p innerExpr
+                        | None -> false
+                    if isCorrelated then
+                        let subPlan = PushdownQueryPlan.Create(innerTable, [], baseAlias = innerAlias, ?baseRowType = innerRowType)
+                        match outerParamOpt with
+                        | Some p -> subPlan.OuterAliases.[p.Name] <- plan.BaseAlias
+                        | None -> ()
+                        for kv in plan.OuterAliases do
+                            subPlan.OuterAliases.[kv.Key] <- kv.Value
+                        subPlan.OuterAliases.[plan.BaseAlias] <- plan.BaseAlias
+                        mergeExpressionIntoPlan innerExpr subPlan dialect
+                        let mutable subSql = subPlan.BuildSql(dialect)
+                        for (pName, pVal) in subPlan.Parameters do
+                            let uniqueName = $"@p{plan.Parameters.Count}"
+                            subSql <- subSql.Replace(pName, uniqueName)
+                            plan.Parameters.Add(uniqueName, pVal)
+                        let joinType = if isOuterApply then "OUTER APPLY" else "CROSS APPLY"
+                        plan.Joins.Add({
+                            JoinType = joinType
+                            SourceTable = subSql
+                            Alias = innerAlias
+                            OnClause = ""
+                            RowType = innerRowType
+                        })
+                    else
+                        let joinType = if isOuterApply then "LEFT JOIN" else "INNER JOIN"
+                        plan.Joins.Add({
+                            JoinType = joinType
+                            SourceTable = innerTable
+                            Alias = innerAlias
+                            OnClause = "1=1"
+                            RowType = innerRowType
+                        })
                 | None | _ -> ()
             | "Where" when mc.Arguments.Count >= 2 ->
                 let arg1 = unwrapQuote mc.Arguments.[1]
                 match arg1 with
                 | :? LambdaExpression as l ->
                     let param = l.Parameters.[0]
+                    let isGrouping =
+                        (not (isNull param.Type)) && (
+                            param.Type.Name.StartsWith("IGrouping")
+                            || (param.Type.IsGenericType && param.Type.GetGenericTypeDefinition() = typedefof<IGrouping<_, _>>)
+                        )
                     match translatePredicate param plan dialect l.Body with
                     | Some sqlPred ->
-                        plan.WhereClauses.Add(sqlPred)
+                        if isGrouping || (plan.GroupBy.Count > 0 && isHavingPredicate l.Body) then
+                            plan.Having.Add(sqlPred)
+                        else
+                            plan.WhereClauses.Add(sqlPred)
                     | None | _ ->
                         let compiled = l.Compile()
                         plan.FallbackPredicates.Add(fun item -> unbox<bool> (compiled.DynamicInvoke(item)))

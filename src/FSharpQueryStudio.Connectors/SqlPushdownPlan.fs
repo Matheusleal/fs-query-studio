@@ -57,6 +57,7 @@ type PushdownQueryPlan = {
     mutable Take: int option
     mutable Projection: string option
     FallbackPredicates: ResizeArray<obj -> bool>
+    OuterAliases: Dictionary<string, string>
 } with
     static member Create(baseSql: string, baseParameters: (string * obj) list, ?baseAlias: string, ?baseRowType: Type) =
         {
@@ -75,6 +76,7 @@ type PushdownQueryPlan = {
             Take = None
             Projection = None
             FallbackPredicates = ResizeArray<obj -> bool>()
+            OuterAliases = Dictionary<string, string>()
         }
 
     member this.Clone() =
@@ -90,6 +92,8 @@ type PushdownQueryPlan = {
         p.Take <- this.Take
         p.Projection <- this.Projection
         p.FallbackPredicates.AddRange(this.FallbackPredicates)
+        for kv in this.OuterAliases do
+            p.OuterAliases.[kv.Key] <- kv.Value
         p
 
     member this.BuildRawSql(dialect: SqlDialect) : string =
@@ -139,6 +143,7 @@ type PushdownQueryPlan = {
             || (this.Having |> Seq.exists (fun h -> h.Contains(this.BaseAlias)))
             || (match this.Projection with Some p -> p.Contains(this.BaseAlias) | None -> false)
             || (this.OrderBy |> Seq.exists (fun o -> o.ColumnName.Contains(this.BaseAlias)))
+            || (this.Joins |> Seq.exists (fun j -> j.SourceTable.Contains(this.BaseAlias)))
 
         let fromSource =
             if this.Joins.Count > 0 then

@@ -1,8 +1,8 @@
 # SDD Task Ledger: Advanced DQL Support for SQL Server, PostgreSQL, and SQLite
 
 - **Change ID**: `advanced-dql-support-sqlserver-postgres-sqlite`
-- **Total Tasks**: 7
-- **Completed**: 7
+- **Total Tasks**: 8
+- **Completed**: 8
 - **In Progress**: 0
 
 ---
@@ -58,5 +58,13 @@
 ### TASK-DQL-07: Test Environment Containers & Interactive Showcase Notebook
 - **Goal**: Provision Docker containers for SQL Server 2022 (`fsqs-sqlserver-test`) and PostgreSQL 17 (`fsqs-postgres-test`), create seed databases (`Products`, `Customers`, `Orders`), local SQLite database (`demo.db`), and create an interactive showcase notebook (`dql_advanced_demo.fsqnb`) in `C:\Users\theus\Downloads\fs-qs`.
 - **Related Requirements**: All requirements
-- **Done When**: Containers are running and populated, and `dql_advanced_demo.fsqnb` with 16 cells is created with runnable queries and documentation in `C:\Users\theus\Downloads\fs-qs`.
+- **Done When**: Containers are running and populated, and `dql_advanced_demo.fsqnb` is created with runnable queries and documentation in `C:\Users\theus\Downloads\fs-qs`.
+- **Status**: Completed
+
+---
+
+### TASK-DQL-08: Pure F# Computation Expression DSL (`query { ... }`) Pushdown
+- **Goal**: Enable pushdown of pure F# `query { ... }` computation expressions for correlated subqueries, CROSS APPLY (SelectMany), EXISTS/NOT EXISTS (`count > 0` / `count = 0`), scalar subqueries in `select`, `where (query.Contains(col))`, and `groupBy ... into g; where (query { for x in g do count } >= n)` (HAVING) without any raw SQL strings.
+- **Related Requirements**: Delta Spec Section 1 & 2
+- **Done When**: Expressions using pure F# syntax compile to native SQL Server (`CROSS APPLY`), PostgreSQL (`CROSS JOIN LATERAL`), and SQLite (in-memory fallback where lateral FROM is not supported) with 100% test pass. Showcase notebook in `C:\Users\theus\Downloads\fs-qs\dql_advanced_demo.fsqnb` uses 100% pure F# DSL.
 - **Status**: Completed

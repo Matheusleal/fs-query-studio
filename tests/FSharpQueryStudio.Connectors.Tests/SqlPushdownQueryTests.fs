@@ -1133,6 +1133,149 @@ let ``SqlPushdownQueryable GroupBy and Having generate expected SQL`` () =
     Assert.Contains("GROUP BY Category", sql)
     Assert.Contains("HAVING (COUNT(*) >= @minItems)", sql)
 
+[<Fact>]
+let ``SqlPushdownQueryable translates pure F# query select column and count`` () =
+    use db = new TempSqliteDb()
+    let connector = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(connector, "Products")
+
+    let total =
+        query {
+            for p in products do
+            select p.Id
+            count
+        }
+    Assert.Equal(5, total)
+
+[<Fact>]
+let ``SqlPushdownQueryable translates pure F# query maxBy minBy sumBy`` () =
+    use db = new TempSqliteDb()
+    let connector = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(connector, "Products")
+
+    let maxPrice = query { for p in products do maxBy p.Price }
+    let minPrice = query { for p in products do minBy p.Price }
+    let sumPrice = query { for p in products do sumBy p.Price }
+
+    Assert.Equal(299.99M, maxPrice)
+    Assert.Equal(1.50M, minPrice)
+    Assert.Equal(377.98M, sumPrice)
+
+[<Fact>]
+let ``SqlPushdownQueryable translates pure F# query subquery in where with Contains to IN subquery`` () =
+    use db = new TempSqliteDb()
+    let connector = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(connector, "Products")
+    let orders = SqlPushdownQueryable<TestOrder>(connector, "Orders")
+
+    let q =
+        query {
+            for p in products do
+            where ((query { for o in orders do where (o.Amount >= 100.0M); select o.CustomerId }).Contains(p.Id))
+            select p.Name
+        }
+    let sql = SqlPushdownQuery.extractRawSql q
+    Assert.Contains("WHERE (Id IN (SELECT CustomerId AS CustomerId FROM Orders WHERE (Amount >= @p0)))", sql)
+    let result = q |> Seq.toList
+    Assert.Single(result) |> ignore
+    Assert.Equal("Keyboard", result.[0])
+
+[<Fact>]
+let ``SqlPushdownQueryable translates pure F# query subquery in where count greater than zero to EXISTS`` () =
+    use db = new TempSqliteDb()
+    let connector = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(connector, "Products")
+    let orders = SqlPushdownQueryable<TestOrder>(connector, "Orders")
+
+    let q =
+        query {
+            for p in products do
+            where (query { for o in orders do where (o.CustomerId = p.Id); count } > 0)
+            select p.Name
+        }
+    let sql = SqlPushdownQuery.extractRawSql q
+    Assert.Contains("EXISTS (SELECT 1 FROM Orders", sql)
+    let result = q |> Seq.toList
+    Assert.Equal(2, result.Length)
+    Assert.Contains("Keyboard", result)
+    Assert.Contains("Mouse", result)
+
+[<Fact>]
+let ``SqlPushdownQueryable translates pure F# scalar subquery in select projection`` () =
+    use db = new TempSqliteDb()
+    let connector = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(connector, "Products")
+    let orders = SqlPushdownQueryable<TestOrder>(connector, "Orders")
+
+    let q =
+        query {
+            for p in products do
+            select {|
+                ProductName = p.Name
+                OrderCount = query { for o in orders do where (o.CustomerId = p.Id); count }
+            |}
+        }
+    let sql = SqlPushdownQuery.extractRawSql q
+    Assert.Contains("(SELECT COUNT(*) FROM Orders _sub1 WHERE (_sub1.CustomerId = _t0.Id)) AS OrderCount", sql)
+    let result = q |> Seq.toList
+    Assert.Equal(5, result.Length)
+    let kb = result |> List.find (fun r -> r.ProductName = "Keyboard")
+    Assert.Equal(2, kb.OrderCount)
+    let pen = result |> List.find (fun r -> r.ProductName = "Pen")
+    Assert.Equal(0, pen.OrderCount)
+
+[<Fact>]
+let ``SqlPushdownQueryable translates pure F# query groupBy into g where count at least two to HAVING`` () =
+    use db = new TempSqliteDb()
+    let connector = SqliteConnector(db.Path)
+    let orders = SqlPushdownQueryable<TestOrder>(connector, "Orders")
+
+    let q =
+        query {
+            for o in orders do
+            groupBy o.CustomerId into g
+            where (query { for x in g do count } >= 2)
+            select {| CustomerId = g.Key; TotalOrders = query { for x in g do count } |}
+        }
+    let sql = SqlPushdownQuery.extractRawSql q
+    Assert.Contains("GROUP BY _t0.CustomerId", sql)
+    Assert.Contains("HAVING (COUNT(*) >= @p0)", sql)
+    let result = q |> Seq.toList
+    Assert.Single(result) |> ignore
+    Assert.Equal(1, result.[0].CustomerId)
+    Assert.Equal(2, result.[0].TotalOrders)
+
+[<Fact>]
+let ``SqlPushdownQueryable translates pure F# correlated SelectMany on SQL Server to CROSS APPLY`` () =
+    let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
+    let products = SqlPushdownQueryable<TestProduct>(dummyConn, "Products")
+    let orders = SqlPushdownQueryable<TestOrder>(dummyConn, "Orders")
+
+    let q =
+        query {
+            for p in products do
+            for o in (query { for o in orders do where (o.CustomerId = p.Id); sortByDescending o.Amount; take 1 }) do
+            select {| ProductName = p.Name; OrderId = o.OrderId; Amount = o.Amount |}
+        }
+    let sql = SqlPushdownQuery.extractRawSql q
+    Assert.Contains("CROSS APPLY (SELECT * FROM Orders _t1 WHERE (_t1.CustomerId = _t0.Id) ORDER BY _t1.Amount DESC OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY) AS _t1", sql)
+
+[<Fact>]
+let ``SqlPushdownQueryable translates pure F# correlated SelectMany on PostgreSQL to CROSS JOIN LATERAL`` () =
+    let dummyConn = PostgreSqlConnector("Host=dummy;Database=dummy;")
+    let products = SqlPushdownQueryable<TestProduct>(dummyConn, "products")
+    let orders = SqlPushdownQueryable<TestOrder>(dummyConn, "orders")
+
+    let q =
+        query {
+            for p in products do
+            for o in (query { for o in orders do where (o.CustomerId = p.Id); sortByDescending o.Amount; take 1 }) do
+            select {| ProductName = p.Name; OrderId = o.OrderId; Amount = o.Amount |}
+        }
+    let sql = SqlPushdownQuery.extractRawSql q
+    Assert.Contains("CROSS JOIN LATERAL (SELECT * FROM orders _t1 WHERE (_t1.CustomerId = _t0.Id) ORDER BY _t1.Amount DESC LIMIT 1) AS _t1", sql)
+
+
 
 
 
