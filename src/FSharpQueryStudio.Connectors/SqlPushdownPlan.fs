@@ -104,27 +104,48 @@ type PushdownQueryPlan = {
             && not (trimmed.StartsWith("with", StringComparison.OrdinalIgnoreCase))
             && not (trimmed.Contains(" from ", StringComparison.OrdinalIgnoreCase))
 
+        let joinsSql =
+            this.Joins
+            |> Seq.map (fun j ->
+                let tbl =
+                    let t = j.SourceTable.Trim()
+                    if t.StartsWith("select", StringComparison.OrdinalIgnoreCase) || t.StartsWith("(", StringComparison.Ordinal) || t.Contains(" ") then
+                        if t.StartsWith("(", StringComparison.Ordinal) then $"{t} AS {j.Alias}"
+                        else $"({t}) AS {j.Alias}"
+                    else $"{t} {j.Alias}"
+                match j.JoinType.Trim().ToUpperInvariant() with
+                | "CROSS APPLY" ->
+                    match dialect with
+                    | SqlDialect.SqlServer -> $"CROSS APPLY {tbl}"
+                    | SqlDialect.PostgreSql -> $"CROSS JOIN LATERAL {tbl}"
+                    | SqlDialect.Sqlite -> $"CROSS JOIN {tbl}"
+                | "OUTER APPLY" ->
+                    match dialect with
+                    | SqlDialect.SqlServer -> $"OUTER APPLY {tbl}"
+                    | SqlDialect.PostgreSql -> $"LEFT JOIN LATERAL {tbl} ON true"
+                    | SqlDialect.Sqlite ->
+                        let onPart = if String.IsNullOrWhiteSpace j.OnClause then "1=1" else j.OnClause
+                        $"LEFT JOIN {tbl} ON {onPart}"
+                | "CROSS JOIN" ->
+                    $"CROSS JOIN {tbl}"
+                | _ ->
+                    let onPart = if String.IsNullOrWhiteSpace j.OnClause then "1=1" else j.OnClause
+                    $"{j.JoinType} {tbl} ON {onPart}"
+            )
+            |> String.concat " "
         let fromSource =
             if this.Joins.Count > 0 then
                 let baseFrom =
                     if isTableOnly then $"{this.BaseSql.Trim()} {this.BaseAlias}"
                     else $"({this.BaseSql}) AS {this.BaseAlias}"
-                let joinsSql =
-                    this.Joins
-                    |> Seq.map (fun j ->
-                        let tbl =
-                            let t = j.SourceTable.Trim()
-                            if t.StartsWith("select", StringComparison.OrdinalIgnoreCase) || t.Contains(" ") then $"({t}) AS {j.Alias}"
-                            else $"{t} {j.Alias}"
-                        $"{j.JoinType} {tbl} ON {j.OnClause}"
-                    )
-                    |> String.concat " "
                 $"{baseFrom} {joinsSql}"
             else
                 if isTableOnly then
-                    this.BaseSql.Trim()
+                    if this.BaseAlias <> "_t0" then $"{this.BaseSql.Trim()} {this.BaseAlias}"
+                    else this.BaseSql.Trim()
                 else
-                    $"({this.BaseSql}) AS _src"
+                    if this.BaseAlias <> "_t0" then $"({this.BaseSql}) AS {this.BaseAlias}"
+                    else $"({this.BaseSql}) AS _src"
 
         let whereSql =
             if this.WhereClauses.Count > 0 then
@@ -144,18 +165,6 @@ type PushdownQueryPlan = {
             else
                 ""
 
-        let orderSql =
-            if this.OrderBy.Count > 0 then
-                let parts =
-                    this.OrderBy
-                    |> Seq.map (fun o ->
-                        let dir = if o.Direction = Ascending then "ASC" else "DESC"
-                        $"{o.ColumnName} {dir}"
-                    )
-                " ORDER BY " + String.concat ", " parts
-            else
-                ""
-
         let selectCols =
             match this.Projection with
             | Some proj -> proj
@@ -165,6 +174,29 @@ type PushdownQueryPlan = {
                     $"{this.BaseAlias}.*, {joinedCols}"
                 else
                     "*"
+
+        let orderSql =
+            if this.OrderBy.Count > 0 then
+                let isScalarAggregateOnly =
+                    this.GroupBy.Count = 0 &&
+                    match this.Projection with
+                    | Some proj ->
+                        let p = proj.Trim().ToUpperInvariant()
+                        p.StartsWith("COUNT(") || p.StartsWith("SUM(") || p.StartsWith("MIN(") || p.StartsWith("MAX(") || p.StartsWith("AVG(")
+                    | None -> false
+
+                if isScalarAggregateOnly then
+                    ""
+                else
+                    let parts =
+                        this.OrderBy
+                        |> Seq.map (fun o ->
+                            let dir = if o.Direction = Ascending then "ASC" else "DESC"
+                            $"{o.ColumnName} {dir}"
+                        )
+                    " ORDER BY " + String.concat ", " parts
+            else
+                ""
 
         let distinctKeyword = if this.IsDistinct then "DISTINCT " else ""
 

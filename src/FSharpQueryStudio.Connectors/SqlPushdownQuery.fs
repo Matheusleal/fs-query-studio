@@ -149,6 +149,25 @@ module ExpressionPushdownTranslator =
             else
                 v
 
+    let rec tryFindPushdownSource (expr: Expression) : (IQueryable * PushdownQueryPlan option) option =
+        match expr with
+        | null -> None
+        | :? ConstantExpression as c when not (isNull c.Value) ->
+            match c.Value with
+            | :? IQueryable as iq when not (isNull iq.Provider) && iq.Provider.GetType().Name.StartsWith("SqlPushdownQueryProvider") ->
+                let t = c.Value.GetType()
+                let planProp = t.GetProperty("Plan")
+                let plan = if isNull planProp then None else Some (planProp.GetValue(c.Value) :?> PushdownQueryPlan)
+                Some (iq, plan)
+            | _ -> None
+        | :? MethodCallExpression as m ->
+            m.Arguments
+            |> Seq.tryPick tryFindPushdownSource
+            |> Option.orElseWith (fun () -> if not (isNull m.Object) then tryFindPushdownSource m.Object else None)
+        | :? UnaryExpression as u ->
+            tryFindPushdownSource u.Operand
+        | _ -> None
+
     let rec unwrapOptionOrNullableMember (expr: Expression) : Expression =
         match expr with
         | null -> null
@@ -192,7 +211,7 @@ module ExpressionPushdownTranslator =
 
             match matchedAlias with
             | Some alias -> (Some alias, colName)
-            | None ->
+            | None | _ ->
                 let path = ResizeArray<string>()
                 let mutable curr: Expression = m.Expression
                 let mutable rootParam: ParameterExpression option = None
@@ -253,7 +272,7 @@ module ExpressionPushdownTranslator =
                                     | Some p ->
                                         let d = getTupleDepth p.Type
                                         if d > 0 then d else plan.Joins.Count
-                                    | None -> plan.Joins.Count
+                                    | None | _ -> plan.Joins.Count
 
                                 let leadingOnes =
                                     let mutable count = 0
@@ -368,7 +387,7 @@ module ExpressionPushdownTranslator =
                         let propVal = p.GetValue(value)
                         tryExtractFromValue propVal
                     with _ -> None
-                | None -> None
+                | None | _ -> None
 
     and tryExtractQueryableInfo (expr: Expression) : (string * IQueryableConnector * Type option) option =
         let unwrapped = unwrapQuote expr
@@ -399,7 +418,7 @@ module ExpressionPushdownTranslator =
                     let res = lambda.Compile().DynamicInvoke()
                     match tryExtractFromValue res with
                     | Some info -> Some info
-                    | None ->
+                    | None | _ ->
                         if mc.Arguments.Count > 0 then
                             tryExtractQueryableInfo mc.Arguments.[0]
                         else None
@@ -459,7 +478,7 @@ module ExpressionPushdownTranslator =
                             (outerConn :> IConnector).Kind = (innerConn :> IConnector).Kind
                             && String.Equals(outerConn.ConnectionString, innerConn.ConnectionString, StringComparison.OrdinalIgnoreCase)
                         )
-                    | None -> false
+                    | None | _ -> false
                 elif mc.Method.Name = "SelectMany" && mc.Arguments.Count >= 2 then
                     let innerArg = unwrapQuote mc.Arguments.[1]
                     let innerExpr =
@@ -473,7 +492,7 @@ module ExpressionPushdownTranslator =
                             (outerConn :> IConnector).Kind = (innerConn :> IConnector).Kind
                             && String.Equals(outerConn.ConnectionString, innerConn.ConnectionString, StringComparison.OrdinalIgnoreCase)
                         )
-                    | None ->
+                    | None | _ ->
                         isDefaultIfEmptyFlattening innerExpr
                 else false
             )
@@ -556,7 +575,7 @@ module ExpressionPushdownTranslator =
         | :? UnaryExpression as u when u.NodeType = ExpressionType.Not ->
             match translatePredicate param plan dialect u.Operand with
             | Some inner -> Some $"(NOT {inner})"
-            | None -> None
+            | None | _ -> None
         | :? MethodCallExpression as mc ->
             if mc.Method.Name = "Contains" then
                 let sourceExpr, itemExpr =
@@ -584,7 +603,7 @@ module ExpressionPushdownTranslator =
                             subSql <- subSql.Replace(pName, uniqueName)
                             plan.Parameters.Add(uniqueName, pVal)
                         Some $"({col} IN ({subSql}))"
-                    | None ->
+                    | None | _ ->
                         try
                             let collVal = evaluateClientValue sourceExpr
                             match collVal with
@@ -643,14 +662,14 @@ module ExpressionPushdownTranslator =
                             let predLambda = unwrapQuote mc.Arguments.[1] :?> LambdaExpression
                             match translatePredicate predLambda.Parameters.[0] subPlan dialect predLambda.Body with
                             | Some pSql -> subPlan.WhereClauses.Add(pSql)
-                            | None -> ()
+                            | None | _ -> ()
                         let mutable subSql = subPlan.BuildSql(dialect)
                         for (pName, pVal) in subPlan.Parameters do
                             let uniqueName = $"@p{plan.Parameters.Count}"
                             subSql <- subSql.Replace(pName, uniqueName)
                             plan.Parameters.Add(uniqueName, pVal)
                         Some $"EXISTS ({subSql})"
-                    | None -> None
+                    | None | _ -> None
                 else None
             elif mc.Method.DeclaringType = typeof<string> && mc.Arguments.Count = 1 && dependsOnParameter param mc.Object && not (dependsOnParameter param mc.Arguments.[0]) then
                 let col = extractColumnNameWithAlias plan mc.Object
@@ -716,13 +735,30 @@ module ExpressionPushdownTranslator =
         | :? UnaryExpression as u when u.NodeType = ExpressionType.Not ->
             match translateScalarCondition dialect plan u.Operand with
             | Some inner -> Some $"(NOT {inner})"
-            | None -> None
+            | None | _ -> None
         | _ -> None
 
     and translateScalarExpr (dialect: SqlDialect) (plan: PushdownQueryPlan) (expr: Expression) : string option =
         let unwrapped = unwrapQuote expr
         match unwrapped with
         | null -> None
+        | :? ConstantExpression as c when not (isNull c.Value) && typeof<IQueryable>.IsAssignableFrom(c.Type) ->
+            let iq = c.Value :?> IQueryable
+            match tryFindPushdownSource iq.Expression with
+            | Some (sourceIq, seedPlan) ->
+                let t = sourceIq.Provider.GetType()
+                let m = t.GetMethod("ToSqlWithParameters", [| typeof<Expression>; typeof<PushdownQueryPlan option> |])
+                if not (isNull m) then
+                    let res = m.Invoke(sourceIq.Provider, [| box iq.Expression; box seedPlan |]) :?> (string * (string * obj) list)
+                    let subSql, subParams = res
+                    let mutable remappedSql = subSql
+                    for (pName, pVal) in subParams do
+                        let uniqueName = $"@p{plan.Parameters.Count}"
+                        remappedSql <- remappedSql.Replace(pName, uniqueName)
+                        plan.Parameters.Add(uniqueName, pVal)
+                    Some $"({remappedSql})"
+                else None
+            | None | _ -> None
         | :? ConstantExpression as c ->
             if isNull c.Value then Some "NULL"
             elif c.Type = typeof<string> then
@@ -782,12 +818,12 @@ module ExpressionPushdownTranslator =
                     | SqlDialect.SqlServer -> Some $"DATEPART(SECOND, {o})"
                     | SqlDialect.PostgreSql -> Some $"EXTRACT(SECOND FROM {o})"
                 | _ -> None
-            | None -> None
+            | None | _ -> None
         | :? MemberExpression as m ->
             let aliasOpt, colName = resolveMemberRef plan m
             match aliasOpt with
             | Some alias -> Some $"{alias}.{colName}"
-            | None ->
+            | None | _ ->
                 match m.Expression with
                 | null ->
                     let v = evaluateClientValue expr
@@ -871,57 +907,112 @@ module ExpressionPushdownTranslator =
             elif mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "ToUpper" && mc.Arguments.Count = 0 then
                 match translateScalarExpr dialect plan mc.Object with
                 | Some o -> Some $"UPPER({o})"
-                | None -> None
+                | None | _ -> None
             elif mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "ToLower" && mc.Arguments.Count = 0 then
                 match translateScalarExpr dialect plan mc.Object with
                 | Some o -> Some $"LOWER({o})"
-                | None -> None
+                | None | _ -> None
             elif mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "Trim" && mc.Arguments.Count = 0 then
                 match translateScalarExpr dialect plan mc.Object with
                 | Some o -> Some $"TRIM({o})"
-                | None -> None
+                | None | _ -> None
             elif mc.Method.Name = "Count" then
+                let isDistinct =
+                    let isD (e: Expression) =
+                        match unwrapQuote e with
+                        | :? MethodCallExpression as innerMc -> innerMc.Method.Name = "Distinct"
+                        | _ -> false
+                    (mc.Arguments.Count > 0 && isD mc.Arguments.[0]) || (not (isNull mc.Object) && isD mc.Object)
+
+                let innerCol =
+                    let extractFromSource (e: Expression) =
+                        match unwrapQuote e with
+                        | :? MethodCallExpression as innerMc when innerMc.Method.Name = "Select" && innerMc.Arguments.Count >= 2 ->
+                            extractColumnNameWithAlias plan innerMc.Arguments.[1]
+                        | _ -> ""
+                    let fromArg = if mc.Arguments.Count > 0 then extractFromSource mc.Arguments.[0] else ""
+                    if fromArg <> "" then fromArg
+                    elif not (isNull mc.Object) then extractFromSource mc.Object
+                    else ""
+
                 if mc.Arguments.Count >= 2 then
-                    match translateScalarExpr dialect plan mc.Arguments.[1] with
-                    | Some col -> Some $"COUNT({col})"
-                    | None -> Some "COUNT(*)"
-                else Some "COUNT(*)"
+                    let arg1 = unwrapQuote mc.Arguments.[1]
+                    match arg1 with
+                    | :? LambdaExpression as l ->
+                        let col = extractColumnNameWithAlias plan l.Body
+                        let dPrefix = if isDistinct || plan.IsDistinct then "DISTINCT " else ""
+                        Some $"COUNT({dPrefix}{col})"
+                    | _ ->
+                        match translateScalarExpr dialect plan mc.Arguments.[1] with
+                        | Some col ->
+                            let dPrefix = if isDistinct || plan.IsDistinct then "DISTINCT " else ""
+                            Some $"COUNT({dPrefix}{col})"
+                        | None | _ -> Some (if isDistinct then "COUNT(DISTINCT *)" else "COUNT(*)")
+                elif innerCol <> "" then
+                    let dPrefix = if isDistinct || plan.IsDistinct then "DISTINCT " else ""
+                    Some $"COUNT({dPrefix}{innerCol})"
+                else
+                    let dPrefix = if isDistinct || plan.IsDistinct then "DISTINCT " else ""
+                    Some $"COUNT({dPrefix}*)"
             elif mc.Method.Name = "LongCount" then
-                Some "COUNT(*)"
-            elif mc.Method.Name = "Sum" && mc.Arguments.Count >= 2 then
-                match translateScalarExpr dialect plan mc.Arguments.[1] with
+                let dPrefix = if plan.IsDistinct then "DISTINCT " else ""
+                Some $"COUNT({dPrefix}*)"
+            elif mc.Method.Name = "Sum" then
+                let colOpt =
+                    if mc.Arguments.Count >= 2 then
+                        match unwrapQuote mc.Arguments.[1] with
+                        | :? LambdaExpression as l -> Some (extractColumnNameWithAlias plan l.Body)
+                        | other -> translateScalarExpr dialect plan other
+                    elif not (isNull mc.Object) then
+                        translateScalarExpr dialect plan mc.Object
+                    elif mc.Arguments.Count = 1 then
+                        translateScalarExpr dialect plan mc.Arguments.[0]
+                    else None
+                match colOpt with
                 | Some col -> Some $"SUM({col})"
-                | None -> None
+                | None | _ -> None
             elif mc.Method.Name = "Min" then
-                if mc.Arguments.Count >= 2 then
-                    match translateScalarExpr dialect plan mc.Arguments.[1] with
-                    | Some col -> Some $"MIN({col})"
-                    | None -> None
-                elif not (isNull mc.Object) then
-                    match translateScalarExpr dialect plan mc.Object with
-                    | Some col -> Some $"MIN({col})"
-                    | None -> None
-                else None
+                let colOpt =
+                    if mc.Arguments.Count >= 2 then
+                        match unwrapQuote mc.Arguments.[1] with
+                        | :? LambdaExpression as l -> Some (extractColumnNameWithAlias plan l.Body)
+                        | other -> translateScalarExpr dialect plan other
+                    elif not (isNull mc.Object) then
+                        translateScalarExpr dialect plan mc.Object
+                    elif mc.Arguments.Count = 1 then
+                        translateScalarExpr dialect plan mc.Arguments.[0]
+                    else None
+                match colOpt with
+                | Some col -> Some $"MIN({col})"
+                | None | _ -> None
             elif mc.Method.Name = "Max" then
-                if mc.Arguments.Count >= 2 then
-                    match translateScalarExpr dialect plan mc.Arguments.[1] with
-                    | Some col -> Some $"MAX({col})"
-                    | None -> None
-                elif not (isNull mc.Object) then
-                    match translateScalarExpr dialect plan mc.Object with
-                    | Some col -> Some $"MAX({col})"
-                    | None -> None
-                else None
+                let colOpt =
+                    if mc.Arguments.Count >= 2 then
+                        match unwrapQuote mc.Arguments.[1] with
+                        | :? LambdaExpression as l -> Some (extractColumnNameWithAlias plan l.Body)
+                        | other -> translateScalarExpr dialect plan other
+                    elif not (isNull mc.Object) then
+                        translateScalarExpr dialect plan mc.Object
+                    elif mc.Arguments.Count = 1 then
+                        translateScalarExpr dialect plan mc.Arguments.[0]
+                    else None
+                match colOpt with
+                | Some col -> Some $"MAX({col})"
+                | None | _ -> None
             elif (mc.Method.Name = "Average" || mc.Method.Name = "Avg") then
-                if mc.Arguments.Count >= 2 then
-                    match translateScalarExpr dialect plan mc.Arguments.[1] with
-                    | Some col -> Some $"AVG({col})"
-                    | None -> None
-                elif not (isNull mc.Object) then
-                    match translateScalarExpr dialect plan mc.Object with
-                    | Some col -> Some $"AVG({col})"
-                    | None -> None
-                else None
+                let colOpt =
+                    if mc.Arguments.Count >= 2 then
+                        match unwrapQuote mc.Arguments.[1] with
+                        | :? LambdaExpression as l -> Some (extractColumnNameWithAlias plan l.Body)
+                        | other -> translateScalarExpr dialect plan other
+                    elif not (isNull mc.Object) then
+                        translateScalarExpr dialect plan mc.Object
+                    elif mc.Arguments.Count = 1 then
+                        translateScalarExpr dialect plan mc.Arguments.[0]
+                    else None
+                match colOpt with
+                | Some col -> Some $"AVG({col})"
+                | None | _ -> None
             elif mc.Method.Name = "ToString" then
                 let objExpr =
                     if not (isNull mc.Object) then
@@ -979,12 +1070,12 @@ module ExpressionPushdownTranslator =
                                    .Replace("ss", "SS")
                                    .Replace("SS", "SS")
                             Some $"to_char({o}, '{pgFmt}')"
-                    | None ->
+                    | None | _ ->
                         match dialect with
                         | SqlDialect.Sqlite -> Some $"CAST({o} AS TEXT)"
                         | SqlDialect.SqlServer -> Some $"CAST({o} AS NVARCHAR(MAX))"
                         | SqlDialect.PostgreSql -> Some $"CAST({o} AS TEXT)"
-                | None -> None
+                | None | _ -> None
             elif mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "Substring" then
                 match translateScalarExpr dialect plan mc.Object with
                 | Some o ->
@@ -1000,7 +1091,7 @@ module ExpressionPushdownTranslator =
                         | SqlDialect.SqlServer -> Some $"SUBSTRING({o}, ({s}) + 1, LEN({o}))"
                         | _ -> Some $"SUBSTR({o}, ({s}) + 1)"
                     | _ -> None
-                | None -> None
+                | None | _ -> None
             elif mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "Replace" && mc.Arguments.Count = 2 then
                 match translateScalarExpr dialect plan mc.Object, translateScalarExpr dialect plan mc.Arguments.[0], translateScalarExpr dialect plan mc.Arguments.[1] with
                 | Some o, Some oldVal, Some newVal -> Some $"REPLACE({o}, {oldVal}, {newVal})"
@@ -1010,7 +1101,7 @@ module ExpressionPushdownTranslator =
                 | 1 ->
                     match translateScalarExpr dialect plan mc.Arguments.[0] with
                     | Some v -> Some $"ROUND({v})"
-                    | None -> None
+                    | None | _ -> None
                 | 2 ->
                     match translateScalarExpr dialect plan mc.Arguments.[0], translateScalarExpr dialect plan mc.Arguments.[1] with
                     | Some v, Some digits -> Some $"ROUND({v}, {digits})"
@@ -1019,7 +1110,7 @@ module ExpressionPushdownTranslator =
             elif mc.Method.DeclaringType = typeof<Math> && mc.Method.Name = "Abs" && mc.Arguments.Count = 1 then
                 match translateScalarExpr dialect plan mc.Arguments.[0] with
                 | Some v -> Some $"ABS({v})"
-                | None -> None
+                | None | _ -> None
             else
                 None
         | _ -> None
@@ -1039,6 +1130,8 @@ module ExpressionPushdownTranslator =
         // Process calls from inner to outer so Join -> Where -> OrderBy -> Select build naturally
         let reversed = methodCalls |> Seq.toArray |> Array.rev
         let mutable currentProjectionBody: Expression option = None
+        let mutable terminalAggregate: string option = None
+        let mutable terminalAggregateCol: string option = None
 
         for mc in reversed do
             match mc.Method.Name with
@@ -1046,7 +1139,7 @@ module ExpressionPushdownTranslator =
                 if plan.Joins.Count = 0 && plan.BaseRowType.IsNone then
                     match tryExtractQueryableInfo mc.Arguments.[0] with
                     | Some (_, _, outerRowType) -> plan.BaseRowType <- outerRowType
-                    | None -> ()
+                    | None | _ -> ()
 
                 let innerArg = mc.Arguments.[1]
                 match tryExtractQueryableInfo innerArg with
@@ -1078,7 +1171,7 @@ module ExpressionPushdownTranslator =
                         OnClause = onClause
                         RowType = innerRowType
                     })
-                | None -> ()
+                | None | _ -> ()
             | "SelectMany" when mc.Arguments.Count >= 2 ->
                 let innerArg = unwrapQuote mc.Arguments.[1]
                 let innerExpr =
@@ -1096,7 +1189,7 @@ module ExpressionPushdownTranslator =
                         OnClause = "1=1"
                         RowType = innerRowType
                     })
-                | None -> ()
+                | None | _ -> ()
             | "Where" when mc.Arguments.Count >= 2 ->
                 let arg1 = unwrapQuote mc.Arguments.[1]
                 match arg1 with
@@ -1105,7 +1198,7 @@ module ExpressionPushdownTranslator =
                     match translatePredicate param plan dialect l.Body with
                     | Some sqlPred ->
                         plan.WhereClauses.Add(sqlPred)
-                    | None ->
+                    | None | _ ->
                         let compiled = l.Compile()
                         plan.FallbackPredicates.Add(fun item -> unbox<bool> (compiled.DynamicInvoke(item)))
                 | _ -> ()
@@ -1143,19 +1236,34 @@ module ExpressionPushdownTranslator =
             | ("Single" | "SingleOrDefault") ->
                 plan.Take <- Some 2
             | ("Count" | "LongCount") ->
-                plan.Projection <- Some "COUNT(*)"
-            | "Sum" when mc.Arguments.Count >= 2 ->
-                let col = extractColumnNameWithAlias plan mc.Arguments.[1]
-                plan.Projection <- Some $"SUM({col})"
-            | "Min" when mc.Arguments.Count >= 2 ->
-                let col = extractColumnNameWithAlias plan mc.Arguments.[1]
-                plan.Projection <- Some $"MIN({col})"
-            | "Max" when mc.Arguments.Count >= 2 ->
-                let col = extractColumnNameWithAlias plan mc.Arguments.[1]
-                plan.Projection <- Some $"MAX({col})"
-            | ("Average" | "Avg") when mc.Arguments.Count >= 2 ->
-                let col = extractColumnNameWithAlias plan mc.Arguments.[1]
-                plan.Projection <- Some $"AVG({col})"
+                terminalAggregate <- Some "Count"
+                if mc.Arguments.Count >= 2 then
+                    let arg1 = unwrapQuote mc.Arguments.[1]
+                    match arg1 with
+                    | :? LambdaExpression as l when l.ReturnType = typeof<bool> ->
+                        match translatePredicate l.Parameters.[0] plan dialect l.Body with
+                        | Some pSql -> plan.WhereClauses.Add(pSql)
+                        | None | _ -> ()
+                    | :? LambdaExpression as l ->
+                        terminalAggregateCol <- Some (extractColumnNameWithAlias plan l.Body)
+                    | other ->
+                        terminalAggregateCol <- Some (extractColumnNameWithAlias plan other)
+            | "Sum" ->
+                terminalAggregate <- Some "Sum"
+                if mc.Arguments.Count >= 2 then
+                    terminalAggregateCol <- Some (extractColumnNameWithAlias plan mc.Arguments.[1])
+            | "Min" ->
+                terminalAggregate <- Some "Min"
+                if mc.Arguments.Count >= 2 then
+                    terminalAggregateCol <- Some (extractColumnNameWithAlias plan mc.Arguments.[1])
+            | "Max" ->
+                terminalAggregate <- Some "Max"
+                if mc.Arguments.Count >= 2 then
+                    terminalAggregateCol <- Some (extractColumnNameWithAlias plan mc.Arguments.[1])
+            | ("Average" | "Avg") ->
+                terminalAggregate <- Some "Avg"
+                if mc.Arguments.Count >= 2 then
+                    terminalAggregateCol <- Some (extractColumnNameWithAlias plan mc.Arguments.[1])
             | "Select" when mc.Arguments.Count >= 2 ->
                 let arg1 = unwrapQuote mc.Arguments.[1]
                 match arg1 with
@@ -1167,67 +1275,150 @@ module ExpressionPushdownTranslator =
                         let replacer = ParameterMemberReplacer(l.Parameters.[0], prevMap)
                         let inlined = replacer.Visit(unwrappedBody)
                         currentProjectionBody <- Some inlined
-                    | None ->
+                    | None | _ ->
                         currentProjectionBody <- Some unwrappedBody
                 | _ -> ()
             | _ -> ()
 
-        match currentProjectionBody with
-        | Some rawBody ->
-            let body = unwrapBlock rawBody
-            match body with
-            | :? NewExpression as newExpr ->
-                let ctor = newExpr.Constructor
-                let paramInfos = if isNull ctor then [||] else ctor.GetParameters()
-                let colParts = ResizeArray<string>()
-                let mutable ok = true
-                for idx in 0 .. newExpr.Arguments.Count - 1 do
-                    let arg = newExpr.Arguments.[idx]
-                    let itemNum = idx + 1
-                    let alias =
-                        if not (isNull newExpr.Members) && idx < newExpr.Members.Count then
-                            newExpr.Members.[idx].Name
-                        elif idx < paramInfos.Length then
-                            paramInfos.[idx].Name
-                        else
-                            sprintf "Item%d" itemNum
-                    match translateScalarExpr dialect plan arg with
+        match terminalAggregate with
+        | Some "Count" ->
+            let targetCol =
+                match terminalAggregateCol with
+                | Some c -> Some c
+                | None | _ ->
+                    match currentProjectionBody with
+                    | Some rawBody ->
+                        let body = unwrapBlock rawBody
+                        match body with
+                        | :? MemberExpression as m ->
+                            match translateScalarExpr dialect plan m with
+                            | Some sqlExpr -> Some sqlExpr
+                            | None | _ -> Some (extractColumnNameWithAlias plan m)
+                        | other ->
+                            match translateScalarExpr dialect plan other with
+                            | Some sqlExpr -> Some sqlExpr
+                            | None | _ -> Some (extractColumnNameWithAlias plan other)
+                    | None | _ -> None
+
+            match targetCol with
+            | Some col ->
+                let dPrefix = if plan.IsDistinct then "DISTINCT " else ""
+                plan.Projection <- Some $"COUNT({dPrefix}{col})"
+            | None | _ ->
+                let dPrefix = if plan.IsDistinct then "DISTINCT " else ""
+                plan.Projection <- Some $"COUNT({dPrefix}*)"
+
+        | Some "Sum" ->
+            let targetCol =
+                match terminalAggregateCol with
+                | Some c -> c
+                | None | _ ->
+                    match currentProjectionBody with
+                    | Some rawBody ->
+                        match translateScalarExpr dialect plan rawBody with
+                        | Some sqlExpr -> sqlExpr
+                        | None | _ -> extractColumnNameWithAlias plan rawBody
+                    | None | _ -> "*"
+            plan.Projection <- Some $"SUM({targetCol})"
+
+        | Some "Min" ->
+            let targetCol =
+                match terminalAggregateCol with
+                | Some c -> c
+                | None | _ ->
+                    match currentProjectionBody with
+                    | Some rawBody ->
+                        match translateScalarExpr dialect plan rawBody with
+                        | Some sqlExpr -> sqlExpr
+                        | None | _ -> extractColumnNameWithAlias plan rawBody
+                    | None | _ -> "*"
+            plan.Projection <- Some $"MIN({targetCol})"
+
+        | Some "Max" ->
+            let targetCol =
+                match terminalAggregateCol with
+                | Some c -> c
+                | None | _ ->
+                    match currentProjectionBody with
+                    | Some rawBody ->
+                        match translateScalarExpr dialect plan rawBody with
+                        | Some sqlExpr -> sqlExpr
+                        | None | _ -> extractColumnNameWithAlias plan rawBody
+                    | None | _ -> "*"
+            plan.Projection <- Some $"MAX({targetCol})"
+
+        | Some "Avg" ->
+            let targetCol =
+                match terminalAggregateCol with
+                | Some c -> c
+                | None | _ ->
+                    match currentProjectionBody with
+                    | Some rawBody ->
+                        match translateScalarExpr dialect plan rawBody with
+                        | Some sqlExpr -> sqlExpr
+                        | None | _ -> extractColumnNameWithAlias plan rawBody
+                    | None | _ -> "*"
+            plan.Projection <- Some $"AVG({targetCol})"
+
+        | Some _ -> ()
+
+        | None ->
+            match currentProjectionBody with
+            | Some rawBody ->
+                let body = unwrapBlock rawBody
+                match body with
+                | :? NewExpression as newExpr ->
+                    let ctor = newExpr.Constructor
+                    let paramInfos = if isNull ctor then [||] else ctor.GetParameters()
+                    let colParts = ResizeArray<string>()
+                    let mutable ok = true
+                    for idx in 0 .. newExpr.Arguments.Count - 1 do
+                        let arg = newExpr.Arguments.[idx]
+                        let itemNum = idx + 1
+                        let alias =
+                            if not (isNull newExpr.Members) && idx < newExpr.Members.Count then
+                                newExpr.Members.[idx].Name
+                            elif idx < paramInfos.Length then
+                                paramInfos.[idx].Name
+                            else
+                                sprintf "Item%d" itemNum
+                        match translateScalarExpr dialect plan arg with
+                        | Some sqlExpr ->
+                            let qAlias = SqlDialect.quoteIdentifier dialect alias
+                            colParts.Add($"{sqlExpr} AS {qAlias}")
+                        | None | _ ->
+                            ok <- false
+                    if ok && colParts.Count > 0 then
+                        plan.Projection <- Some (String.concat ", " colParts)
+                | :? MemberExpression as m ->
+                    let unwrappedM = unwrapOptionOrNullableMember m
+                    match unwrappedM with
+                    | :? MemberExpression as realM ->
+                        match translateScalarExpr dialect plan realM with
+                        | Some sqlExpr ->
+                            let qProp = SqlDialect.quoteIdentifier dialect realM.Member.Name
+                            plan.Projection <- Some $"{sqlExpr} AS {qProp}"
+                        | None | _ -> ()
+                    | _ ->
+                        match translateScalarExpr dialect plan m with
+                        | Some sqlExpr ->
+                            let qProp = SqlDialect.quoteIdentifier dialect m.Member.Name
+                            plan.Projection <- Some $"{sqlExpr} AS {qProp}"
+                        | None | _ -> ()
+                | :? BinaryExpression as b ->
+                    match translateScalarExpr dialect plan b with
                     | Some sqlExpr ->
-                        let qAlias = SqlDialect.quoteIdentifier dialect alias
-                        colParts.Add($"{sqlExpr} AS {qAlias}")
-                    | None ->
-                        ok <- false
-                if ok && colParts.Count > 0 then
-                    plan.Projection <- Some (String.concat ", " colParts)
-            | :? MemberExpression as m ->
-                let unwrappedM = unwrapOptionOrNullableMember m
-                match unwrappedM with
-                | :? MemberExpression as realM ->
-                    match translateScalarExpr dialect plan realM with
+                        let qVal = SqlDialect.quoteIdentifier dialect "Value"
+                        plan.Projection <- Some $"{sqlExpr} AS {qVal}"
+                    | None | _ -> ()
+                | :? MethodCallExpression as mcExpr ->
+                    match translateScalarExpr dialect plan mcExpr with
                     | Some sqlExpr ->
-                        let qProp = SqlDialect.quoteIdentifier dialect realM.Member.Name
-                        plan.Projection <- Some $"{sqlExpr} AS {qProp}"
-                    | None -> ()
-                | _ ->
-                    match translateScalarExpr dialect plan m with
-                    | Some sqlExpr ->
-                        let qProp = SqlDialect.quoteIdentifier dialect m.Member.Name
-                        plan.Projection <- Some $"{sqlExpr} AS {qProp}"
-                    | None -> ()
-            | :? BinaryExpression as b ->
-                match translateScalarExpr dialect plan b with
-                | Some sqlExpr ->
-                    let qVal = SqlDialect.quoteIdentifier dialect "Value"
-                    plan.Projection <- Some $"{sqlExpr} AS {qVal}"
-                | None -> ()
-            | :? MethodCallExpression as mcExpr ->
-                match translateScalarExpr dialect plan mcExpr with
-                | Some sqlExpr ->
-                    let qVal = SqlDialect.quoteIdentifier dialect "Value"
-                    plan.Projection <- Some $"{sqlExpr} AS {qVal}"
-                | None -> ()
-            | _ -> ()
-        | None -> ()
+                        let qVal = SqlDialect.quoteIdentifier dialect "Value"
+                        plan.Projection <- Some $"{sqlExpr} AS {qVal}"
+                    | None | _ -> ()
+                | _ -> ()
+            | None | _ -> ()
 
     let rec hasJoin (expr: Expression) : bool =
         match expr with
@@ -1320,7 +1511,7 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
             let cloned = sp.Clone()
             ExpressionPushdownTranslator.mergeExpressionIntoPlan expression cloned dialect
             cloned
-        | None ->
+        | None | _ ->
             ExpressionPushdownTranslator.extractPlanFromExpression expression baseSql baseParameters dialect
 
     member this.ToSqlWithParameters(expression: Expression, ?seedPlan: PushdownQueryPlan) : string * (string * obj) list =
@@ -1346,7 +1537,7 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
                     let cloned = sp.Clone()
                     ExpressionPushdownTranslator.mergeExpressionIntoPlan expression cloned dialect
                     cloned
-                | None ->
+                | None | _ ->
                     ExpressionPushdownTranslator.extractPlanFromExpression expression baseSql baseParameters dialect
             let sql = plan.BuildSql(dialect)
             let allParams = (plan.BaseParameters @ (plan.Parameters |> List.ofSeq))
@@ -1381,8 +1572,22 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
     member this.ExecuteStream<'T>(expression: Expression) : 'T seq =
         this.ExecutePlanOrStream<'T>(expression)
 
-    member this.ExecuteScalar<'TResult>(expression: Expression) : 'TResult =
-        let plan = ExpressionPushdownTranslator.extractPlanFromExpression expression baseSql baseParameters dialect
+    member this.ExecuteScalarWithPlan<'TResult>(expression: Expression, plan: PushdownQueryPlan) : 'TResult =
+        let initialProjection = plan.Projection
+        if not (isNull expression) && (match expression with :? ConstantExpression as c -> isNull c.Value | _ -> false) then
+            ()
+        elif not (isNull expression) then
+            ExpressionPushdownTranslator.mergeExpressionIntoPlan expression plan dialect
+
+        if initialProjection.IsSome then
+            match initialProjection.Value.Trim().ToUpperInvariant() with
+            | p when p.StartsWith("COUNT(") || p.StartsWith("SUM(") || p.StartsWith("MIN(") || p.StartsWith("MAX(") || p.StartsWith("AVG(") ->
+                match plan.Projection with
+                | Some newP when not (newP.Trim().ToUpperInvariant().StartsWith("COUNT(") || newP.Trim().ToUpperInvariant().StartsWith("SUM(") || newP.Trim().ToUpperInvariant().StartsWith("MIN(") || newP.Trim().ToUpperInvariant().StartsWith("MAX(") || newP.Trim().ToUpperInvariant().StartsWith("AVG(")) ->
+                    plan.Projection <- initialProjection
+                | _ -> ()
+            | _ -> ()
+
         let sql = plan.BuildSql(dialect)
         let allParams = (plan.BaseParameters @ (plan.Parameters |> List.ofSeq))
         let res = connector.ExecuteQuery sql allParams
@@ -1392,6 +1597,17 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
             unbox<'TResult> (RecordReaders.ConvertValue row.[0] typeof<'TResult>)
         | _ ->
             Unchecked.defaultof<'TResult>
+
+    member this.ExecuteScalar<'TResult>(expression: Expression, ?seedPlan: PushdownQueryPlan) : 'TResult =
+        let plan =
+            match seedPlan with
+            | Some sp ->
+                let cloned = sp.Clone()
+                ExpressionPushdownTranslator.mergeExpressionIntoPlan expression cloned dialect
+                cloned
+            | None | _ ->
+                ExpressionPushdownTranslator.extractPlanFromExpression expression baseSql baseParameters dialect
+        this.ExecuteScalarWithPlan<'TResult>(null, plan)
 
     interface IQueryProvider with
         member this.CreateQuery(expression: Expression) : IQueryable =
@@ -1412,7 +1628,11 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
             SqlPushdownQueryable<'TElement>(this, expression, connector, baseSql, baseParameters, plan) :> IQueryable<'TElement>
 
         member this.Execute(expression: Expression) : obj =
-            this.ExecuteScalar<obj>(expression)
+            let seedPlan =
+                match ExpressionPushdownTranslator.tryFindPushdownSource expression with
+                | Some (_, Some p) -> Some p
+                | _ -> None
+            this.ExecuteScalar<obj>(expression, ?seedPlan = seedPlan)
 
         member this.Execute<'TResult>(expression: Expression) : 'TResult =
             let targetType = typeof<'TResult>
@@ -1424,7 +1644,11 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
                 let method = typeof<SqlPushdownQueryProvider>.GetMethod("ExecuteStream").MakeGenericMethod([| elemType |])
                 method.Invoke(this, [| expression |]) :?> 'TResult
             else
-                this.ExecuteScalar<'TResult>(expression)
+                let seedPlan =
+                    match ExpressionPushdownTranslator.tryFindPushdownSource expression with
+                    | Some (_, Some p) -> Some p
+                    | _ -> None
+                this.ExecuteScalar<'TResult>(expression, ?seedPlan = seedPlan)
 
 /// Strongly-typed IQueryable that captures LINQ expressions and provides pushdown filtering, paging, and sorting.
 and SqlPushdownQueryable<'T>(
@@ -1464,6 +1688,212 @@ and SqlPushdownQueryable<'T>(
         newPlan.Skip <- Some skip
         newPlan.Take <- Some validSize
         SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Appends a raw HAVING clause for filtering aggregated results.
+    member this.Having(havingSql: string, ?parameters: (string * obj) list) : SqlPushdownQueryable<'T> =
+        let p = defaultArg parameters []
+        let newPlan = plan.Clone()
+        newPlan.Having.Add($"({havingSql})")
+        for (k, v) in p do
+            newPlan.Parameters.Add(k, v)
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Appends a CROSS APPLY join (transpiled to CROSS JOIN LATERAL on PostgreSQL, CROSS JOIN on SQLite).
+    member this.CrossApply(subquerySql: string, alias: string) : SqlPushdownQueryable<'T> =
+        let newPlan = plan.Clone()
+        newPlan.Joins.Add({
+            JoinType = "CROSS APPLY"
+            SourceTable = subquerySql
+            Alias = alias
+            OnClause = ""
+            RowType = None
+        })
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Appends an OUTER APPLY join (transpiled to LEFT JOIN LATERAL ... ON true on PostgreSQL, LEFT JOIN on SQLite).
+    member this.OuterApply(subquerySql: string, alias: string, ?onClause: string) : SqlPushdownQueryable<'T> =
+        let newPlan = plan.Clone()
+        newPlan.Joins.Add({
+            JoinType = "OUTER APPLY"
+            SourceTable = subquerySql
+            Alias = alias
+            OnClause = defaultArg onClause "1=1"
+            RowType = None
+        })
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Appends a standard CROSS JOIN clause without an ON predicate.
+    member this.CrossJoin(tableOrSubquery: string, alias: string) : SqlPushdownQueryable<'T> =
+        let newPlan = plan.Clone()
+        newPlan.Joins.Add({
+            JoinType = "CROSS JOIN"
+            SourceTable = tableOrSubquery
+            Alias = alias
+            OnClause = ""
+            RowType = None
+        })
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Overrides the SELECT projection columns directly (e.g. "Id, Name, COUNT(*) OVER() AS Total").
+    member this.SelectProjection(columnsSql: string) : SqlPushdownQueryable<'T> =
+        let newPlan = plan.Clone()
+        newPlan.Projection <- Some columnsSql
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Appends a WHERE EXISTS subquery clause.
+    member this.WhereExists(subquerySql: string, ?parameters: (string * obj) list) : SqlPushdownQueryable<'T> =
+        let p = defaultArg parameters []
+        let newPlan = plan.Clone()
+        newPlan.WhereClauses.Add($"EXISTS ({subquerySql})")
+        for (k, v) in p do
+            newPlan.Parameters.Add(k, v)
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Appends a WHERE NOT EXISTS subquery clause.
+    member this.WhereNotExists(subquerySql: string, ?parameters: (string * obj) list) : SqlPushdownQueryable<'T> =
+        let p = defaultArg parameters []
+        let newPlan = plan.Clone()
+        newPlan.WhereClauses.Add($"NOT EXISTS ({subquerySql})")
+        for (k, v) in p do
+            newPlan.Parameters.Add(k, v)
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Appends a WHERE column IN (subquery) clause.
+    member this.WhereIn(column: string, subquerySql: string, ?parameters: (string * obj) list) : SqlPushdownQueryable<'T> =
+        let p = defaultArg parameters []
+        let newPlan = plan.Clone()
+        newPlan.WhereClauses.Add($"({column} IN ({subquerySql}))")
+        for (k, v) in p do
+            newPlan.Parameters.Add(k, v)
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Appends a WHERE column NOT IN (subquery) clause.
+    member this.WhereNotIn(column: string, subquerySql: string, ?parameters: (string * obj) list) : SqlPushdownQueryable<'T> =
+        let p = defaultArg parameters []
+        let newPlan = plan.Clone()
+        newPlan.WhereClauses.Add($"({column} NOT IN ({subquerySql}))")
+        for (k, v) in p do
+            newPlan.Parameters.Add(k, v)
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Direct scalar Count pushdown.
+    member this.Count() : int =
+        let p = provider :?> SqlPushdownQueryProvider
+        let newPlan = plan.Clone()
+        let dPrefix = if newPlan.IsDistinct then "DISTINCT " else ""
+        newPlan.Projection <- Some $"COUNT({dPrefix}*)"
+        let pExpr = (this :> IQueryable<'T>).Expression
+        p.ExecuteScalarWithPlan<int>(pExpr, newPlan)
+
+    /// Direct scalar Count of a specific column (counting non-nulls).
+    member this.Count(columnName: string) : int =
+        let p = provider :?> SqlPushdownQueryProvider
+        let newPlan = plan.Clone()
+        let qCol = SqlDialect.quoteIdentifier (SqlDialect.fromConnectorKind (connector :> IConnector).Kind) columnName
+        let dPrefix = if newPlan.IsDistinct then "DISTINCT " else ""
+        newPlan.Projection <- Some $"COUNT({dPrefix}{qCol})"
+        let pExpr = (this :> IQueryable<'T>).Expression
+        p.ExecuteScalarWithPlan<int>(pExpr, newPlan)
+
+    /// Direct scalar Count of a strongly-typed column selector lambda (e.g. fun p -> p.Id).
+    member this.Count(colSelector: Expression<Func<'T, 'U>>) : int =
+        let p = provider :?> SqlPushdownQueryProvider
+        let newPlan = plan.Clone()
+        let col = ExpressionPushdownTranslator.extractColumnNameWithAlias newPlan colSelector.Body
+        let dPrefix = if newPlan.IsDistinct then "DISTINCT " else ""
+        newPlan.Projection <- Some $"COUNT({dPrefix}{col})"
+        let pExpr = (this :> IQueryable<'T>).Expression
+        p.ExecuteScalarWithPlan<int>(pExpr, newPlan)
+
+    /// Direct scalar COUNT(DISTINCT column) pushdown.
+    member this.CountDistinct(columnName: string) : int =
+        let p = provider :?> SqlPushdownQueryProvider
+        let newPlan = plan.Clone()
+        let qCol = SqlDialect.quoteIdentifier (SqlDialect.fromConnectorKind (connector :> IConnector).Kind) columnName
+        newPlan.Projection <- Some $"COUNT(DISTINCT {qCol})"
+        let pExpr = (this :> IQueryable<'T>).Expression
+        p.ExecuteScalarWithPlan<int>(pExpr, newPlan)
+
+    /// Direct scalar COUNT(DISTINCT colSelector) pushdown.
+    member this.CountDistinct(colSelector: Expression<Func<'T, 'U>>) : int =
+        let p = provider :?> SqlPushdownQueryProvider
+        let newPlan = plan.Clone()
+        let col = ExpressionPushdownTranslator.extractColumnNameWithAlias newPlan colSelector.Body
+        newPlan.Projection <- Some $"COUNT(DISTINCT {col})"
+        let pExpr = (this :> IQueryable<'T>).Expression
+        p.ExecuteScalarWithPlan<int>(pExpr, newPlan)
+
+    /// Direct scalar Sum pushdown on a column.
+    member this.Sum<'TResult>(columnName: string) : 'TResult =
+        let p = provider :?> SqlPushdownQueryProvider
+        let newPlan = plan.Clone()
+        let qCol = SqlDialect.quoteIdentifier (SqlDialect.fromConnectorKind (connector :> IConnector).Kind) columnName
+        newPlan.Projection <- Some $"SUM({qCol})"
+        let pExpr = (this :> IQueryable<'T>).Expression
+        p.ExecuteScalarWithPlan<'TResult>(pExpr, newPlan)
+
+    /// Direct scalar Sum pushdown on a strongly-typed column selector.
+    member this.Sum<'TResult>(colSelector: Expression<Func<'T, 'TResult>>) : 'TResult =
+        let p = provider :?> SqlPushdownQueryProvider
+        let newPlan = plan.Clone()
+        let col = ExpressionPushdownTranslator.extractColumnNameWithAlias newPlan colSelector.Body
+        newPlan.Projection <- Some $"SUM({col})"
+        let pExpr = (this :> IQueryable<'T>).Expression
+        p.ExecuteScalarWithPlan<'TResult>(pExpr, newPlan)
+
+    /// Direct scalar Min pushdown on a column.
+    member this.Min<'TResult>(columnName: string) : 'TResult =
+        let p = provider :?> SqlPushdownQueryProvider
+        let newPlan = plan.Clone()
+        let qCol = SqlDialect.quoteIdentifier (SqlDialect.fromConnectorKind (connector :> IConnector).Kind) columnName
+        newPlan.Projection <- Some $"MIN({qCol})"
+        let pExpr = (this :> IQueryable<'T>).Expression
+        p.ExecuteScalarWithPlan<'TResult>(pExpr, newPlan)
+
+    /// Direct scalar Min pushdown on a strongly-typed column selector.
+    member this.Min<'TResult>(colSelector: Expression<Func<'T, 'TResult>>) : 'TResult =
+        let p = provider :?> SqlPushdownQueryProvider
+        let newPlan = plan.Clone()
+        let col = ExpressionPushdownTranslator.extractColumnNameWithAlias newPlan colSelector.Body
+        newPlan.Projection <- Some $"MIN({col})"
+        let pExpr = (this :> IQueryable<'T>).Expression
+        p.ExecuteScalarWithPlan<'TResult>(pExpr, newPlan)
+
+    /// Direct scalar Max pushdown on a column.
+    member this.Max<'TResult>(columnName: string) : 'TResult =
+        let p = provider :?> SqlPushdownQueryProvider
+        let newPlan = plan.Clone()
+        let qCol = SqlDialect.quoteIdentifier (SqlDialect.fromConnectorKind (connector :> IConnector).Kind) columnName
+        newPlan.Projection <- Some $"MAX({qCol})"
+        let pExpr = (this :> IQueryable<'T>).Expression
+        p.ExecuteScalarWithPlan<'TResult>(pExpr, newPlan)
+
+    /// Direct scalar Max pushdown on a strongly-typed column selector.
+    member this.Max<'TResult>(colSelector: Expression<Func<'T, 'TResult>>) : 'TResult =
+        let p = provider :?> SqlPushdownQueryProvider
+        let newPlan = plan.Clone()
+        let col = ExpressionPushdownTranslator.extractColumnNameWithAlias newPlan colSelector.Body
+        newPlan.Projection <- Some $"MAX({col})"
+        let pExpr = (this :> IQueryable<'T>).Expression
+        p.ExecuteScalarWithPlan<'TResult>(pExpr, newPlan)
+
+    /// Direct scalar Average pushdown on a column.
+    member this.Average<'TResult>(columnName: string) : 'TResult =
+        let p = provider :?> SqlPushdownQueryProvider
+        let newPlan = plan.Clone()
+        let qCol = SqlDialect.quoteIdentifier (SqlDialect.fromConnectorKind (connector :> IConnector).Kind) columnName
+        newPlan.Projection <- Some $"AVG({qCol})"
+        let pExpr = (this :> IQueryable<'T>).Expression
+        p.ExecuteScalarWithPlan<'TResult>(pExpr, newPlan)
+
+    /// Direct scalar Average pushdown on a strongly-typed column selector.
+    member this.Average<'TResult>(colSelector: Expression<Func<'T, 'TResult>>) : 'TResult =
+        let p = provider :?> SqlPushdownQueryProvider
+        let newPlan = plan.Clone()
+        let col = ExpressionPushdownTranslator.extractColumnNameWithAlias newPlan colSelector.Body
+        newPlan.Projection <- Some $"AVG({col})"
+        let pExpr = (this :> IQueryable<'T>).Expression
+        p.ExecuteScalarWithPlan<'TResult>(pExpr, newPlan)
 
     /// Extracts the raw SQL query generated for this queryable without executing it against the database.
     member this.ToRawSql() : string =
@@ -1536,7 +1966,7 @@ module SqlPushdownQuery =
                 | Some (sourceIq, seedPlan) ->
                     let provider = sourceIq.Provider :?> SqlPushdownQueryProvider
                     provider.ToSqlWithParameters(iq.Expression, ?seedPlan = seedPlan)
-                | None ->
+                | None | _ ->
                     (string iq, [])
         | other ->
             let t = other.GetType()
