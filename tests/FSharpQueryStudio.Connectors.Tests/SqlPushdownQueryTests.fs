@@ -1106,6 +1106,33 @@ let ``SQLite advanced DQL query executes live with sub-select, cross join, and g
     Assert.Equal(3, (res.Rows |> Seq.length))
     Assert.Equal<string list>([ "CustomerId"; "CustomerName"; "OrderCount" ], res.Columns)
 
+[<Fact>]
+let ``SqlPushdownQueryable WhereIn with seq values generates parameterized query correctly`` () =
+    use db = new TempSqliteDb()
+    let connector = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(connector, "Products")
+
+    let filtered = products.WhereIn("Category", [ "Electronics"; "Stationery" ])
+    let sql = filtered.ToRawSql()
+    Assert.Contains("Category IN (@in_p", sql)
+    let list = filtered.ToList()
+    Assert.Equal(5, list.Count)
+
+[<Fact>]
+let ``SqlPushdownQueryable GroupBy and Having generate expected SQL`` () =
+    use db = new TempSqliteDb()
+    let connector = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(connector, "Products")
+
+    let grouped =
+        products
+            .GroupBy("Category")
+            .SelectProjection("Category, COUNT(*) AS ItemCount")
+            .Having("COUNT(*) >= @minItems", [ "@minItems", box 2 ])
+    let sql = grouped.ToRawSql()
+    Assert.Contains("GROUP BY Category", sql)
+    Assert.Contains("HAVING (COUNT(*) >= @minItems)", sql)
+
 
 
 

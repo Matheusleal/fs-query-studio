@@ -133,6 +133,13 @@ type PushdownQueryPlan = {
                     $"{j.JoinType} {tbl} ON {onPart}"
             )
             |> String.concat " "
+        let requiresBaseAlias =
+            this.BaseAlias <> "_t0"
+            || (this.WhereClauses |> Seq.exists (fun w -> w.Contains(this.BaseAlias)))
+            || (this.Having |> Seq.exists (fun h -> h.Contains(this.BaseAlias)))
+            || (match this.Projection with Some p -> p.Contains(this.BaseAlias) | None -> false)
+            || (this.OrderBy |> Seq.exists (fun o -> o.ColumnName.Contains(this.BaseAlias)))
+
         let fromSource =
             if this.Joins.Count > 0 then
                 let baseFrom =
@@ -141,10 +148,10 @@ type PushdownQueryPlan = {
                 $"{baseFrom} {joinsSql}"
             else
                 if isTableOnly then
-                    if this.BaseAlias <> "_t0" then $"{this.BaseSql.Trim()} {this.BaseAlias}"
+                    if requiresBaseAlias then $"{this.BaseSql.Trim()} {this.BaseAlias}"
                     else this.BaseSql.Trim()
                 else
-                    if this.BaseAlias <> "_t0" then $"({this.BaseSql}) AS {this.BaseAlias}"
+                    if requiresBaseAlias then $"({this.BaseSql}) AS {this.BaseAlias}"
                     else $"({this.BaseSql}) AS _src"
 
         let whereSql =

@@ -1689,6 +1689,15 @@ and SqlPushdownQueryable<'T>(
         newPlan.Take <- Some validSize
         SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
 
+    /// Appends one or more GROUP BY columns directly (e.g. "Category", "_t0.ProductId").
+    member this.GroupBy(columns: string) : SqlPushdownQueryable<'T> =
+        let newPlan = plan.Clone()
+        let parts = columns.Split(',', StringSplitOptions.RemoveEmptyEntries ||| StringSplitOptions.TrimEntries)
+        for p in parts do
+            if not (newPlan.GroupBy.Contains p) then
+                newPlan.GroupBy.Add p
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
     /// Appends a raw HAVING clause for filtering aggregated results.
     member this.Having(havingSql: string, ?parameters: (string * obj) list) : SqlPushdownQueryable<'T> =
         let p = defaultArg parameters []
@@ -1767,6 +1776,24 @@ and SqlPushdownQueryable<'T>(
             newPlan.Parameters.Add(k, v)
         SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
 
+    /// Appends a WHERE column IN (val1, val2, ...) clause with safe parameterized values.
+    member this.WhereIn(column: string, values: 'V seq) : SqlPushdownQueryable<'T> =
+        let valList = values |> Seq.map box |> List.ofSeq
+        if valList.IsEmpty then
+            let newPlan = plan.Clone()
+            newPlan.WhereClauses.Add("1 = 0")
+            SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+        else
+            let newPlan = plan.Clone()
+            let paramNames = ResizeArray<string>()
+            for i, v in valList |> List.indexed do
+                let pName = $"@in_p{newPlan.Parameters.Count}_{i}"
+                paramNames.Add(pName)
+                newPlan.Parameters.Add(pName, v)
+            let inList = String.concat ", " paramNames
+            newPlan.WhereClauses.Add($"({column} IN ({inList}))")
+            SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
     /// Appends a WHERE column NOT IN (subquery) clause.
     member this.WhereNotIn(column: string, subquerySql: string, ?parameters: (string * obj) list) : SqlPushdownQueryable<'T> =
         let p = defaultArg parameters []
@@ -1775,6 +1802,22 @@ and SqlPushdownQueryable<'T>(
         for (k, v) in p do
             newPlan.Parameters.Add(k, v)
         SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Appends a WHERE column NOT IN (val1, val2, ...) clause with safe parameterized values.
+    member this.WhereNotIn(column: string, values: 'V seq) : SqlPushdownQueryable<'T> =
+        let valList = values |> Seq.map box |> List.ofSeq
+        if valList.IsEmpty then
+            this
+        else
+            let newPlan = plan.Clone()
+            let paramNames = ResizeArray<string>()
+            for i, v in valList |> List.indexed do
+                let pName = $"@notin_p{newPlan.Parameters.Count}_{i}"
+                paramNames.Add(pName)
+                newPlan.Parameters.Add(pName, v)
+            let inList = String.concat ", " paramNames
+            newPlan.WhereClauses.Add($"({column} NOT IN ({inList}))")
+            SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
 
     /// Direct scalar Count pushdown.
     member this.Count() : int =

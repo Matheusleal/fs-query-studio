@@ -1,8 +1,8 @@
 # SDD Task Ledger: Advanced DQL Support for SQL Server, PostgreSQL, and SQLite
 
 - **Change ID**: `advanced-dql-support-sqlserver-postgres-sqlite`
-- **Total Tasks**: 6
-- **Completed**: 6
+- **Total Tasks**: 7
+- **Completed**: 7
 - **In Progress**: 0
 
 ---
@@ -51,4 +51,12 @@
 - **Goal**: Write extensive unit and integration tests verifying all advanced DQL features on SQL Server, PostgreSQL, and SQLite dialects, and run the complete test suite.
 - **Related Requirements**: All requirements
 - **Done When**: All tests pass 100% locally with no regressions.
+- **Status**: Completed
+
+---
+
+### TASK-DQL-07: Test Environment Containers & Interactive Showcase Notebook
+- **Goal**: Provision Docker containers for SQL Server 2022 (`fsqs-sqlserver-test`) and PostgreSQL 17 (`fsqs-postgres-test`), create seed databases (`Products`, `Customers`, `Orders`), local SQLite database (`demo.db`), and create an interactive showcase notebook (`dql_advanced_demo.fsqnb`) in `C:\Users\theus\Downloads\fs-qs`.
+- **Related Requirements**: All requirements
+- **Done When**: Containers are running and populated, and `dql_advanced_demo.fsqnb` with 16 cells is created with runnable queries and documentation in `C:\Users\theus\Downloads\fs-qs`.
 - **Status**: Completed
