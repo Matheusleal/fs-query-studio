@@ -2464,9 +2464,22 @@ module SqlComputationExtensions =
             let countMethod =
                 typeof<System.Linq.Enumerable>.GetMethods()
                 |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)
+            let queryBuilderRunMethod =
+                typeof<QueryBuilder>.GetMethods()
+                |> Seq.find (fun m ->
+                    m.Name = "Run"
+                    && m.IsGenericMethod
+                    && m.GetParameters().Length = 1)
 
             let rec rewrite (expr: Expr) : Expr =
                 match expr with
+                | Call(instanceOpt, mi, [ innerArg ]) when mi.Name = "Run" && mi.DeclaringType = typeof<FSqlQueryBuilder> ->
+                    let elemType = mi.GetGenericArguments().[0]
+                    let genericRun = queryBuilderRunMethod.MakeGenericMethod(elemType)
+                    let newInner = rewrite innerArg
+                    match instanceOpt with
+                    | Some inst -> Expr.Call(inst, genericRun, [ newInner ])
+                    | None -> Expr.Call(genericRun, [ newInner ])
                 | Call(Some instance, mi, [ source; Lambda(var, body) ]) when mi.Name = "WhereExists" ->
                     let srcType = mi.GetGenericArguments().[0]
                     let qType = mi.GetGenericArguments().[1]
@@ -2521,11 +2534,12 @@ module SqlComputationExtensions =
             let typedExpr = Expr.Cast<QuerySource<'T, System.Linq.IQueryable>>(rewritten)
             base.Run(typedExpr)
 
-    /// Instance of FSqlQueryBuilder providing descriptive DQL computation expressions.
-    let fquery = FSqlQueryBuilder()
+    /// Primary computation expression for F# Query Language (fsql) providing
+    /// descriptive DQL operations (whereExists, whereNotExists, having, crossApply, lateral, etc.).
+    let fsql = FSqlQueryBuilder()
 
-    /// Alias for fquery computation expression.
-    let fsql = fquery
+    /// Alias for backwards compatibility.
+    let fquery = fsql
 
     /// Extracts the formatted, indented raw SQL query for any queryable, plan, or expression.
     let toRawQuery (query: obj) : string = SqlPushdownQuery.toRawQuery query

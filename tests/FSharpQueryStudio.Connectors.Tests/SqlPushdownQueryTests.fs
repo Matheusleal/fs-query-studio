@@ -1276,46 +1276,46 @@ let ``SqlPushdownQueryable translates pure F# correlated SelectMany on PostgreSQ
     Assert.Contains("CROSS JOIN LATERAL (SELECT * FROM orders _t1 WHERE (_t1.CustomerId = _t0.Id) ORDER BY _t1.Amount DESC LIMIT 1) AS _t1", sql)
 
 [<Fact>]
-let ``fquery computation expression with whereExists compiles to SQL EXISTS subquery`` () =
+let ``fsql computation expression with whereExists compiles to SQL EXISTS subquery`` () =
     let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
     let products = SqlPushdownQueryable<TestProduct>(dummyConn, "Products")
     let orders = SqlPushdownQueryable<TestOrder>(dummyConn, "Orders")
 
     let q =
-        fquery {
+        fsql {
             for p in products do
-            whereExists (query { for o in orders do where (o.CustomerId = p.Id) })
+            whereExists (fsql { for o in orders do where (o.CustomerId = p.Id) })
             select p.Name
         }
     let sql = toRawSql q
     Assert.Contains("WHERE EXISTS (SELECT 1 FROM Orders _sub1 WHERE (_sub1.CustomerId = _t0.Id))", sql)
 
 [<Fact>]
-let ``fquery computation expression with whereNotExists compiles to SQL NOT EXISTS subquery`` () =
+let ``fsql computation expression with whereNotExists compiles to SQL NOT EXISTS subquery`` () =
     let dummyConn = PostgreSqlConnector("Host=dummy;Database=dummy;")
     let products = SqlPushdownQueryable<TestProduct>(dummyConn, "products")
     let orders = SqlPushdownQueryable<TestOrder>(dummyConn, "orders")
 
     let q =
-        fquery {
+        fsql {
             for p in products do
-            whereNotExists (query { for o in orders do where (o.CustomerId = p.Id) })
+            whereNotExists (fsql { for o in orders do where (o.CustomerId = p.Id) })
             select p.Name
         }
     let sql = toRawSql q
     Assert.Contains("WHERE NOT EXISTS (SELECT 1 FROM orders _sub1 WHERE (_sub1.CustomerId = _t0.Id))", sql)
 
 [<Fact>]
-let ``fquery computation expression with having compiles to SQL HAVING clause`` () =
+let ``fsql computation expression with having compiles to SQL HAVING clause`` () =
     let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
     let orders = SqlPushdownQueryable<TestOrder>(dummyConn, "Orders")
 
     let q =
-        fquery {
+        fsql {
             for o in orders do
             groupBy o.CustomerId into g
-            having (query { for x in g do count } >= 2)
-            select {| CustomerId = g.Key; Count = query { for x in g do count } |}
+            having (fsql { for x in g do count } >= 2)
+            select {| CustomerId = g.Key; Count = fsql { for x in g do count } |}
         }
     let sql = toRawSql q
     Assert.Contains("HAVING (COUNT(*) >= @p0)", sql)
@@ -1327,15 +1327,47 @@ let ``toRawQuery formats SQL with indentations and clause line breaks on complex
     let orders = SqlPushdownQueryable<TestOrder>(dummyConn, "Orders")
 
     let q =
-        fquery {
+        fsql {
             for p in products do
-            for o in (crossApply (query { for o in orders do where (o.CustomerId = p.Id); take 1 })) do
+            for o in (crossApply (fsql { for o in orders do where (o.CustomerId = p.Id); take 1 })) do
             select {| ProductName = p.Name; OrderId = o.OrderId |}
         }
     let formatted = toRawQuery q
     Assert.Contains("SELECT", formatted)
     Assert.Contains("\nFROM Products _t0", formatted)
     Assert.Contains("\nCROSS APPLY (", formatted)
+
+[<Fact>]
+let ``fsql computation expression with scalar subquery in select projection compiles to sub-select`` () =
+    let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
+    let products = SqlPushdownQueryable<TestProduct>(dummyConn, "Products")
+    let orders = SqlPushdownQueryable<TestOrder>(dummyConn, "Orders")
+
+    let q =
+        fsql {
+            for p in products do
+            select {|
+                ProductName = p.Name
+                TotalOrders = fsql { for o in orders do where (o.CustomerId = p.Id); count }
+            |}
+        }
+    let sql = toRawSql q
+    Assert.Contains("(SELECT COUNT(*) FROM Orders _sub1 WHERE (_sub1.CustomerId = _t0.Id)) AS TotalOrders", sql)
+
+[<Fact>]
+let ``fsql computation expression with IN subquery compiles to WHERE IN subquery`` () =
+    let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
+    let products = SqlPushdownQueryable<TestProduct>(dummyConn, "Products")
+    let orders = SqlPushdownQueryable<TestOrder>(dummyConn, "Orders")
+
+    let q =
+        fsql {
+            for p in products do
+            where ((fsql { for o in orders do where (o.Amount > 100.0M); select o.CustomerId }).Contains(p.Id))
+            select p.Name
+        }
+    let sql = toRawSql q
+    Assert.Contains("WHERE (Id IN (SELECT CustomerId AS CustomerId FROM Orders WHERE (Amount > @p0)))", sql)
 
 
 
