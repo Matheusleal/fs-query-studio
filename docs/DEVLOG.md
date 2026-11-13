@@ -1,6 +1,6 @@
 # Development Log
 
-Chronological record of what was done and why, alongside [`fs-studio-plan.md`](./fs-studio-plan.md) (architecture) and [`fs-studio-development-plan.md`](./fs-studio-development-plan.md) (task breakdown). Each entry is a real step taken, not a restatement of the plan — see the linked commit for the diff.
+Chronological record of what was done and why, alongside [`fs-studio-plan.md`](./archive/fs-studio-plan.md) (architecture) and [`fs-studio-development-plan.md`](./archive/fs-studio-development-plan.md) (task breakdown). Each entry is a real step taken, not a restatement of the plan — see the linked commit for the diff.
 
 ---
 

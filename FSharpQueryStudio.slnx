@@ -1,8 +1,21 @@
 <Solution>
   <Folder Name="/docs/">
+    <File Path="docs/README.md" />
+    <File Path="docs/USER_GUIDE.md" />
+    <File Path="docs/USER_GUIDE_PT.md" />
+    <File Path="docs/TUTORIAL.md" />
+    <File Path="docs/TUTORIAL_PT.md" />
+    <File Path="docs/FSQL_LANGUAGE_SPECIFICATION.md" />
+    <File Path="docs/FSQL_AI_AGENT_GUIDE.md" />
+    <File Path="docs/BENCHMARK_REPORT.md" />
+    <File Path="docs/CHANGELOG.md" />
     <File Path="docs/DEVLOG.md" />
-    <File Path="docs/fs-studio-development-plan.md" />
-    <File Path="docs/fs-studio-plan.md" />
+    <File Path="docs/vscode-extension-release.md" />
+  </Folder>
+  <Folder Name="/docs/archive/">
+    <File Path="docs/archive/fs-studio-development-plan.md" />
+    <File Path="docs/archive/fs-studio-plan.md" />
+    <File Path="docs/archive/f6-parity-checklist.md" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/FSharpQueryStudio.Connectors.Abstractions/FSharpQueryStudio.Connectors.Abstractions.fsproj" />
