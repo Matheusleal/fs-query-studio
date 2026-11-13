@@ -2,6 +2,7 @@ module EvaluationTests
 
 open System.Threading.Tasks
 open Xunit
+open FSharp.Compiler.Interactive.Shell
 open FSharpQueryStudio.Execution
 open TestHelpers
 
@@ -25,6 +26,28 @@ let ``evaluate captures printed output and returns the final expression's value`
             match outcome.Value with
             | Some fsiValue -> Assert.Equal(box 2, fsiValue.ReflectionValue)
             | None -> failwith "expected a value, got none"
+        finally
+            cleanupWorkingDirectory workDir
+    }
+
+[<Fact>]
+let ``evaluate does not truncate long string in let binding output`` () =
+    task {
+        let workDir = tempWorkingDirectory ()
+
+        try
+            let work =
+                task {
+                    let session = FsiSession.create workDir
+                    let longString = String.replicate 300 "X"
+                    let script = $"let mySql = (\"{longString}\", [ (\"@p0\", box 1) ])"
+                    return Evaluation.evaluate session script
+                }
+
+            let! outcome = work |> withTimeout 45.0
+            Assert.True(outcome.Exception.IsNone)
+            Assert.DoesNotContain("+[", outcome.Output)
+            Assert.Contains(String.replicate 300 "X", outcome.Output)
         finally
             cleanupWorkingDirectory workDir
     }

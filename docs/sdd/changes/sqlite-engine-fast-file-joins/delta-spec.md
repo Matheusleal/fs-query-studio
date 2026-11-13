@@ -12,7 +12,7 @@ the query executor shall map the returned columns into the target projected type
 
 ### [REQ-PUSHDOWN-003] Pushdown de Junções Relacionais (`Join`)
 Where two or more queryable sources reside within the same database connection or shared staging engine,
-when a LINQ query defines an inner join (`query { for a in ... join b in ... on (a.Key = b.Key) }`),
+when a query defines an inner join (`fsql { for a in ... join b in ... on (a.Key = b.Key) }`),
 the query translator shall compile the join into a native SQL `INNER JOIN` with corresponding `ON` equality clauses, executing the full relational operation inside the database engine.
 
 ### [REQ-PUSHDOWN-004] Suporte a Dialetos de Projeção e Expressões Simples
@@ -56,7 +56,7 @@ the generator shall emit typed table references (`conn.Table<schema.Table>("Tabl
 ### [REQ-CON-001] Conexões CSV e Excel Apoiadas por Staging Engine
 MODIFIED FROM: `Connections.csv.<Name>.Rows` e `Connections.excel.<Name>.Rows` retornando apenas `IEnumerable` em memória para queries LINQ.
 TO:
-When querying `Connections.csv.<Name>` or `Connections.excel.<Name>` through LINQ `query { ... }`,
+When querying `Connections.csv.<Name>` or `Connections.excel.<Name>` through `fsql { ... }`,
 the connector shall provide an `IQueryable` backed by the SQLite staging engine, enabling transparent pushdown of `Where`, `OrderBy`, `Select`, and multi-file `Join`.
 
 ---

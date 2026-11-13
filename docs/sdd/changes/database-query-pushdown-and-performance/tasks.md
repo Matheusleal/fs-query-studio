@@ -15,7 +15,7 @@
 - [x] **TASK-03: Provedor LINQ com SQL Pushdown (`SqlPushdownQueryable` e `SqlPushdownQueryProvider`)**
   - **Goal**: Construir a infraestrutura de tradução de expressões LINQ para SQL parametrizado, suportando filtros (`where`), ordenação (`sortBy`, `thenBy`), paginação (`take`, `skip`) e agregações (`count`, `sumBy`), com fallback em memória para predicados complexos.
   - **Related Requirements**: FR-QUERY-PUSHDOWN-PROVIDER, FR-QUERY-PUSHDOWN-PARAM-BINDING, FR-QUERY-PUSHDOWN-FALLBACK, FR-CONN-QUERYABLE-IMPL
-  - **Done When**: Expressões F# `query { for o in db.orders do where ... take ... }` geram e executam SQL com cláusulas `WHERE`, `ORDER BY`, `LIMIT`/`TOP` no banco de dados com parâmetros seguros (`@p0`, `@p1`).
+  - **Done When**: Expressões F# `fsql { for o in db.orders do where ... take ... }` geram e executam SQL com cláusulas `WHERE`, `ORDER BY`, `LIMIT`/`TOP` no banco de dados com parâmetros seguros (`@p0`, `@p1`).
   - **Status**: Completed
 
 - [x] **TASK-04: Integração no `GenerateEntities` e helpers de paginação e filtro**

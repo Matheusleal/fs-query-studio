@@ -34,7 +34,7 @@
 ### TASK-CQE-04: Implement Limiters (`distinct`, dialect-specific `top`/`take`/`skip`, `first`/`head`)
 - **Goal**: Support `distinct` (`SELECT DISTINCT`), dialect-aware `LIMIT`/`OFFSET` vs `TOP`/`FETCH NEXT`, and `first`/`head` pushdown.
 - **Related Requirements**: Delta Spec Section 1 (Limiters & Set Operations)
-- **Done When**: `query { distinct }` produces `SELECT DISTINCT` and `take`/`skip` produces correct SQL for SQLite, PostgreSQL, and SQL Server.
+- **Done When**: `fsql { distinct }` produces `SELECT DISTINCT` and `take`/`skip` produces correct SQL for SQLite, PostgreSQL, and SQL Server.
 - **Status**: Completed
 
 ---

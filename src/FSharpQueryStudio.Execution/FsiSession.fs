@@ -73,6 +73,29 @@ module FsiSession =
                         session.GeneratedContent <- currentContent
                 session.GeneratedTimestamp <- lastWrite
 
+    type private StudioFsiHostConfig(inner: FsiEvaluationSessionHostConfig) =
+        inherit FsiEvaluationSessionHostConfig()
+        override _.FormatProvider = inner.FormatProvider
+        override _.FloatingPointFormat = inner.FloatingPointFormat
+        override _.AddedPrinters = inner.AddedPrinters
+        override _.ShowDeclarationValues = inner.ShowDeclarationValues
+        override _.ShowIEnumerable = inner.ShowIEnumerable
+        override _.ShowProperties = inner.ShowProperties
+        // Allow wide string printing (e.g. full SQL query text in toRawSql / toRawQuery)
+        // without truncating with "+[N chars]". Keep PrintDepth, PrintLength and PrintSize
+        // at safe defaults to avoid stack overflow on deep/recursive object graphs.
+        override _.PrintSize = inner.PrintSize
+        override _.PrintDepth = inner.PrintDepth
+        override _.PrintWidth = 100_000
+        override _.PrintLength = inner.PrintLength
+        override _.ReportUserCommandLineArgs(args) = inner.ReportUserCommandLineArgs(args)
+        override _.GetOptionalConsoleReadLine(p) = inner.GetOptionalConsoleReadLine(p)
+        override _.StartServer(n) = inner.StartServer(n)
+        override _.EventLoopRun() = inner.EventLoopRun()
+        override _.EventLoopInvoke(f) = inner.EventLoopInvoke(f)
+        override _.EventLoopScheduleRestart() = inner.EventLoopScheduleRestart()
+        override _.UseFsiAuxLib = inner.UseFsiAuxLib
+
     /// Controlled working directory, redirected output/error, and no
     /// interactive console prompts (stdin reader is pre-exhausted so a
     /// prompt can never block waiting on it).
@@ -136,7 +159,7 @@ module FsiSession =
                 [| "fsi.exe"; "--noninteractive"; "--nologo"; "--gui-"; "--readline-"; "--simpleresolution" |]
                 refArgs
             ]
-        let config = FsiEvaluationSession.GetDefaultConfiguration()
+        let config = StudioFsiHostConfig(FsiEvaluationSession.GetDefaultConfiguration())
 
         let fsi =
             FsiEvaluationSession.Create(config, argv, stdin, output, errors, collectible = true)

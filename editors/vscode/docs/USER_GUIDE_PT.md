@@ -143,11 +143,11 @@ O F# Query Studio analisa as conexões do seu workspace e **gera automaticamente
 
 Você não precisa configurar Type Providers manuais nem compilar projetos auxiliares: os tipos de entidade estão disponíveis imediatamente sob cada categoria!
 
-### Filtragem Básica e Projeção
+### Filtragem Básica e Projeção com `fsql` (F# Query Language)
 
 ```fsharp
-// 1. Consulta LINQ direta no banco via Connections.sql
-query {
+// 1. Consulta funcional direta no banco via Connections.sql e fsql
+fsql {
     for p in Connections.sql.SampleStore.Products do
     where (p.UnitPrice > 50.0M)
     sortByDescending p.UnitPrice
@@ -160,8 +160,11 @@ query {
 Em vez de executar queries ingênuas com `SELECT *` e filtrar tudo na memória do cliente, o F# Query Studio conta com uma **Engine de Pushdown para SQL nível Entity Framework**:
 - **Projeções Específicas de Colunas**: `select {| Id = o.Id; Total = o.Total |}` gera `SELECT _t0.Id, _t0.Total FROM ...`
 - **Filtros Parametrizados**: `where (o.TotalAmount >= 100.0f)` gera `WHERE (_t0.TotalAmount >= @p0)`
-- **Ordenação e Paginação**: `sortBy`, `sortByDescending`, `take N`, `skip M` geram diretamente `ORDER BY ... LIMIT N OFFSET M`
-- **Agregações no Servidor**: `count` e `sum` traduzem diretamente para `COUNT(*)` e `SUM(...)`
+- **Ordenação e Paginação**: `sortBy`, `sortByDescending`, `take N`, `skip M` geram diretamente `ORDER BY ... LIMIT N OFFSET M` (ou `OFFSET N ROWS FETCH NEXT M ROWS ONLY` no SQL Server)
+- **Agregações no Servidor**: `count` (de tabela ou coluna projetada), `maxBy`, `minBy`, `sumBy`, `averageBy` traduzem diretamente para `COUNT(*)`, `MAX(...)`, `MIN(...)`, `SUM(...)`, `AVG(...)`
+- **Subqueries Correlacionadas**: `whereExists (fsql { ... })` e `whereNotExists (fsql { ... })` geram `WHERE EXISTS (SELECT 1 ...)`
+- **Joins Correlacionados**: `crossApply (fsql { ... })` (SQL Server) e `lateral (fsql { ... })` (PostgreSQL)
+- **Agrupamento e Having**: `groupBy ... into g; having (fsql { for item in g do count } >= n)` gera `GROUP BY ... HAVING (COUNT(*) >= @p0)`
 
 ### Joins Multi-Propriedades sem Explosão de Memória
 
@@ -169,7 +172,7 @@ As expressões de consulta F# suportam junções relacionais compostas usando tu
 
 ```fsharp
 // Join tipado multi-propriedade compilado para SQL sem produtos cartesianos
-query {
+fsql {
     for s in Connections.sql.Transactions.Sales do
     join t in Connections.sql.Transactions.Targets on ((s.StoreId, s.Region) = (t.StoreId, t.Region))
     where (s.TotalAmount >= 250.0M)
@@ -187,26 +190,29 @@ WHERE (_t0.TotalAmount >= @p0)
 
 Índices B-tree compostos automáticos (`ix_tabela_StoreId_Region`) garantem tempos de resposta inferiores a 100ms, mesmo cruzando centenas de milhares de linhas.
 
-### Inspeção do SQL Gerado (`toRawSql`)
+### Inspeção do SQL Gerado (`toRawQuery` e `toRawSql`)
 
-Deseja verificar o SQL parametrizado exato antes ou durante a execução contra a base de dados?
-Use `ResultKind.toRawSql` ou `Connections.toRawSql`:
+Deseja verificar o SQL parametrizado exato com indentação e documentação de parâmetros antes ou durante a execução contra a base de dados?
+Use `toRawQuery`:
 
 ```fsharp
 let minhaQuery =
-    query {
+    fsql {
         for o in Connections.sql.SampleStore.Orders do
         join c in Connections.sql.SampleStore.Customers on (o.CustomerId = c.Id)
         where (o.Status = "Completed")
+        whereExists (fsql { for i in Connections.sql.SampleStore.OrderItems do where (i.OrderId = o.Id) })
         select {| PedidoId = o.Id; Cliente = c.FirstName + " " + c.LastName; Total = o.TotalAmount |}
     }
 
-// Imprime o SQL parametrizado e seus parâmetros no terminal sem acessar o banco!
-printfn "SQL Gerado:\n%s" (Connections.toRawSql minhaQuery)
+// Imprime o SQL formatado e seus parâmetros no terminal sem acessar o banco!
+printfn "SQL Gerado:\n%s" (toRawQuery minhaQuery)
 
 // Executa e exibe o grid de dados interativo
 minhaQuery
 ```
+
+> **Guia para Agentes de IA**: Consulte [`docs/FSQL_AI_AGENT_GUIDE.md`](../../docs/FSQL_AI_AGENT_GUIDE.md) para especificações formais de prompts e geração de queries.
 
 ### Recursos Avançados de Consulta (Joins, Agregações, Subqueries e Pivot)
 
@@ -216,7 +222,7 @@ O F# Query Studio suporta o conjunto completo de operações analíticas relacio
 Para realizar `LEFT JOIN` com múltiplas tabelas, utilize a sintaxe canônica do F# `leftOuterJoin ... in ... on ... into g` combinado com `for ... in g.DefaultIfEmpty()`:
 
 ```fsharp
-query {
+fsql {
     for order in csv.Orders do
     join orderItem in csv.OrderItems on (order.order_id = orderItem.order_id)
     join customer in csv.Customers on (order.customer_id = customer.customer_id)
@@ -248,7 +254,7 @@ query {
 Agrupamentos compilam diretamente para instruções `GROUP BY` e `HAVING` indexadas no banco:
 
 ```fsharp
-query {
+fsql {
     for p in csv.Products do
     groupBy p.Category into g
     select {|
@@ -270,7 +276,7 @@ let faturamentoTotal = csv.OrderItems.Sum(fun i -> i.line_total)
 
 #### 3. Limitadores e Paginação (`distinct`, `take`, `skip`, `head`)
 ```fsharp
-query {
+fsql {
     for p in csv.Products do
     distinct
     sortByDescending p.Price
@@ -280,18 +286,18 @@ query {
 }
 ```
 
-#### 4. Subqueries e Subselects (`WHERE col IN (SELECT ...)`)
+#### 4. Subqueries e Subselects (`WHERE col IN (SELECT ...)`, `whereExists`, `whereNotExists`)
 Você pode compor subconsultas tipadas que são convertidas diretamente em subselects SQL nativos (`IN` e `EXISTS`):
 
 ```fsharp
 let pedidosComDesconto =
-    query {
+    fsql {
         for item in csv.OrderItems do
         where (item.discount > 0.0M)
         select item.order_id
     }
 
-query {
+fsql {
     for o in csv.Orders do
     where (pedidosComDesconto.Contains(o.order_id))
     select o
@@ -452,7 +458,7 @@ Se um CSV contém códigos de produtos, CPFs ou CEPs com zeros à esquerda (ex: 
 Após configuradas, o F# Query Studio gera tipos fortes e inteligência de código (`autocomplete` e verificação em tempo de compilação) que refletem os tipos sobrescritos em `Connections.csv.<Conn>` e `Connections.excel.<Conn>`:
 
 ```fsharp
-query {
+fsql {
     for pedido in Connections.excel.RelatorioFinanceiro.Receitas_Q4 do
     // pedido.Receita é tipado como System.Decimal, pedido.TaxaCambio como double
     where (pedido.Receita > 1000.0M && pedido.AliquotaImposto <= 0.20)
@@ -573,7 +579,7 @@ O F# Query Studio é submetido a rigorosos benchmarks automatizados de performan
 ### Benchmarks de Execução (CPU, Memória e Latência)
 - **Latência Sub-milissegundo**: Consultas subsequentes com pool reutilizado executam entre **0.05 ms e 0.20 ms** com 0% de uso contínuo de CPU e zero coletas Gen 0/1/2 no Garbage Collector.
 - **Escala Linear com Streaming**: Processa de 100 até 50.000+ linhas via streaming iterativo de cursores (`Results.fs`), com consumo de memória estável (~1.5 KB por aquisição de cursor) sem materialização antecipada no heap.
-- **LINQ e Records F# Dinâmicos**: Mapeamento de records fortemente tipados (`Connections.query<'T>`) e expressões `query { for ... in ... do where ... select ... }` processam 1.000 linhas em **~2.0 ms** utilizando cache de construtores pré-compilados.
+- **fsql e Records F# Dinâmicos**: Mapeamento de records fortemente tipados (`Connections.query<'T>`) e expressões `fsql { for ... in ... do where ... select ... }` processam 1.000 linhas em **~2.0 ms** utilizando cache de construtores pré-compilados.
 - **Processamento de Arquivos CSV**: Taxa de transferência contínua de **~500.000 registros/segundo**.
 
 Para detalhes da metodologia, métricas brutas e especificações de hardware, consulte o **[Relatório Completo de Benchmarks](BENCHMARK_REPORT.md)** ([ver no GitHub](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/BENCHMARK_REPORT.md)).

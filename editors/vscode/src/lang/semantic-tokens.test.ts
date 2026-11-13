@@ -7,8 +7,14 @@ import {
 import * as vscode from "vscode";
 
 describe("FSharpQuerySemanticTokensProvider", () => {
-  it("recognizes LINQ query keywords", () => {
+  it("recognizes LINQ and fsql query keywords", () => {
     expect(QUERY_KEYWORDS.has("query")).toBe(true);
+    expect(QUERY_KEYWORDS.has("fsql")).toBe(true);
+    expect(QUERY_KEYWORDS.has("whereExists")).toBe(true);
+    expect(QUERY_KEYWORDS.has("whereNotExists")).toBe(true);
+    expect(QUERY_KEYWORDS.has("having")).toBe(true);
+    expect(QUERY_KEYWORDS.has("crossApply")).toBe(true);
+    expect(QUERY_KEYWORDS.has("lateral")).toBe(true);
     expect(QUERY_KEYWORDS.has("select")).toBe(true);
     expect(QUERY_KEYWORDS.has("where")).toBe(true);
     expect(QUERY_KEYWORDS.has("join")).toBe(true);
@@ -17,13 +23,13 @@ describe("FSharpQuerySemanticTokensProvider", () => {
     expect(QUERY_KEYWORDS.has("sortBy")).toBe(true);
   });
 
-  it("builds tokens for query expressions", () => {
+  it("builds tokens for query and fsql expressions", () => {
     const provider = new FSharpQuerySemanticTokensProvider();
     const fakeDoc = {
-      getText: () => `query {
+      getText: () => `fsql {
     for c in conn.core.tenants do
-    join s in connCsv.test1.Rows on (c.id = s.id)
-    select (c, s)
+    whereExists (fsql { for s in connCsv.test1.Rows do where (c.id = s.id) })
+    select (c)
 }`,
     } as unknown as vscode.TextDocument;
 

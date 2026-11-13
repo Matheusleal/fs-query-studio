@@ -51,23 +51,30 @@ of building locally.
    later cells (one FSI session per notebook). **F# Query Studio: Restart
    Notebook Session** clears it.
 3. **Add or auto-import connections** — drop `.csv`, `.xlsx`, or `.db` files into the `data_sources/` folder and run **F# Query Studio: Auto-Import Data Sources Directory**, or use **Add Connection** in the Activity Bar sidebar. Tabular files are immediately and asynchronously pre-staged into a persistent SQLite disk cache (`.fsqs/cache/engine.db`) with automatic B-tree indexing.
-4. **Query with Full SQL Pushdown & LINQ** — queries are translated into database-side SQL (`SELECT`, `WHERE`, `JOIN`, `ORDER BY`, `LIMIT`, `SKIP`, `COUNT`, `SUM`) rather than pulling raw tables into memory:
+4. **Query with `fsql` (F# Query Language) & SQL Pushdown** — queries are translated into database-side SQL (`SELECT`, `WHERE`, `JOIN`, `ORDER BY`, `LIMIT`, `SKIP`, `COUNT`, `SUM`, `EXISTS`, `HAVING`, `CROSS APPLY`, `LATERAL`) rather than pulling raw tables into memory:
    ```fsharp
-   query {
+   // Pure functional DQL with fsql
+   fsql {
        for u in Connections.sql.MyConn.Users do
        where (u.IsActive && u.Age >= 21)
+       whereExists (fsql { for o in Connections.sql.MyConn.Orders do where (o.UserId = u.Id) })
        sortBy u.LastName
-       select {| Name = u.FirstName + " " + u.LastName; Email = u.Email |}
+       select {|
+           Name = u.FirstName + " " + u.LastName
+           Email = u.Email
+           TotalOrders = fsql { for o in Connections.sql.MyConn.Orders do where (o.UserId = u.Id); count }
+       |}
    }
    ```
-5. **Inspect Generated SQL** — preview the exact database query and parameters without executing round-trips:
+5. **Inspect Formatted SQL (`toRawQuery`)** — preview the indented SQL query and bound parameters without round-trips:
    ```fsharp
-   printfn "%s" (Connections.toRawSql myQuery)
+   printfn "%s" (toRawQuery myQuery)
    ```
    Or run raw SQL directly: `Connections.sql.MyConn.rawQuery "select * from Orders" []`.
    Results render in a virtualized interactive grid with schema view and **Export CSV**.
 
 Full walkthrough: **[`docs/TUTORIAL.md`](docs/TUTORIAL.md)**.
+Comprehensive AI Agent Guide: **[`docs/FSQL_AI_AGENT_GUIDE.md`](docs/FSQL_AI_AGENT_GUIDE.md)**.
 Comprehensive User Guide: **[`editors/vscode/docs/USER_GUIDE.md`](editors/vscode/docs/USER_GUIDE.md)** (or click `$(book)` in VS Code).
 
 ## What you get
@@ -101,7 +108,7 @@ F# Query Studio is engineered for low latency, deterministic memory consumption,
 
 - **Sub-millisecond queries**: Reused ADO.NET connection pools execute queries in `0.05 ms - 0.20 ms` with negligible CPU impact and zero Gen 1/2 garbage collections.
 - **Streaming Volume Scaling**: Seamlessly queries datasets from 100 to 50,000+ rows with lazy cursor streaming (`Results.fs`), maintaining a flat `1.5 KB` allocation baseline without full in-memory materialization.
-- **Precompiled LINQ & Reflection Cache**: Typed record mapping (`Connections.query<'T>`) and LINQ queries (`query { ... }`) execute 1,000 records in `~2.0 ms` using compiled constructor delegates.
+- **Precompiled LINQ & Reflection Cache**: Typed record mapping (`Connections.query<'T>`) and `fsql` queries (`fsql { ... }`) execute 1,000 records in `~2.0 ms` using compiled constructor delegates.
 - **High-Throughput File Queries**: Ingests and queries CSV feeds at `~500,000 rows/second`.
 - **100% UI Element Verification**: Every UI component (virtualized table grid, sticky headers, cell badging for nulls and numbers, segmented schema tabs, continuation pagination, notification banners, and Connections Explorer tree items) is verified by automated test suites.
 

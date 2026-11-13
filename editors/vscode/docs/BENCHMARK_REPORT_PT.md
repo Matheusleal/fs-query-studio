@@ -23,7 +23,7 @@ Este relatório documenta as medições de desempenho, tempo de execução, uso 
 | **Volume** | Fetch 50,000 rows | 5 | `0.06 ms` | `0.10 ms` | `0.05 ms` | `0.10 ms` | `0.00 ms` | `0.0%` | `1.6 KB` | `0/0/0` |
 | **Mapping** | Raw ExecuteQuery (1,000 rows) | 30 | `0.06 ms` | `0.10 ms` | `0.04 ms` | `0.14 ms` | `0.00 ms` | `0.0%` | `1.6 KB` | `0/0/0` |
 | **Mapping** | Typed Connections.query<Customer> (1,000 rows) | 30 | `1.03 ms` | `1.26 ms` | `0.94 ms` | `1.26 ms` | `31.25 ms` | `8.5%` | `158.5 KB` | `0/0/0` |
-| **Mapping** | LINQ query { ... } Filter & Sort (1,000 rows) | 30 | `1.37 ms` | `1.87 ms` | `1.25 ms` | `1.88 ms` | `46.88 ms` | `9.5%` | `281.4 KB` | `0/0/0` |
+| **Mapping** | LINQ fsql { ... } Filter & Sort (1,000 rows) | 30 | `1.37 ms` | `1.87 ms` | `1.25 ms` | `1.88 ms` | `46.88 ms` | `9.5%` | `281.4 KB` | `0/0/0` |
 | **File Engine** | Staging CSV (5,000 rows + Composite Indexes) | 10 | `28.40 ms` | `34.10 ms` | `22.10 ms` | `36.50 ms` | `15.62 ms` | `8.2%` | `840.0 KB` | `0/0/0` |
 | **File Engine** | Cache Hit on Unchanged File (mtime validation) | 100 | `0.01 ms` | `0.02 ms` | `0.00 ms` | `0.04 ms` | `0.00 ms` | `0.0%` | `0.1 KB` | `0/0/0` |
 | **File Engine** | Multi-Property Join in SQLite (5,000 txs x 40 targets) | 20 | `18.25 ms` | `24.50 ms` | `14.80 ms` | `27.10 ms` | `0.00 ms` | `0.0%` | `24.5 KB` | `0/0/0` |

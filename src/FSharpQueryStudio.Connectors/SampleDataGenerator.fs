@@ -662,6 +662,94 @@ lines
 """
 
                 mkMarkdown """
+## 17. 🎯 Advanced DQL: Correlated Subqueries with `whereExists` & `whereNotExists` (`SampleStore`)
+
+Using **`fsql`**, you can write correlated `EXISTS` and `NOT EXISTS` subqueries directly in pure F# syntax without string queries or manual count comparisons.
+Here we filter Brazilian and US customers who have placed high-value orders (>= $250).
+"""
+
+                mkCode """
+// 17. Query customers who have high-value orders (>= $250) using whereExists via fsql
+fsql {
+    for c in Connections.sql.SampleStore.Customers do
+    where (c.Country = "Brazil" || c.Country = "USA")
+    whereExists (fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id && o.TotalAmount >= 250.0f) })
+    sortBy c.FirstName
+    take 10
+    select {|
+        Id = c.Id
+        Customer = c.FirstName + " " + c.LastName
+        City = c.City
+        Country = c.Country
+    |}
+}
+"""
+
+                mkMarkdown """
+## 18. 🧮 Advanced DQL: Scalar Subqueries in SELECT Projections (`SampleStore`)
+
+Compute per-row correlated metrics (such as total order counts) directly within the `select` projection of an `fsql` query. The subquery compiles to a single database-side scalar sub-select.
+"""
+
+                mkCode """
+// 18. Enrich customer profiles with correlated order counts directly in the SELECT projection
+fsql {
+    for c in Connections.sql.SampleStore.Customers do
+    where (c.Country = "Brazil")
+    sortBy c.FirstName
+    take 10
+    select {|
+        Customer = c.FirstName + " " + c.LastName
+        Email = c.Email
+        City = c.City
+        TotalOrders = fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id); count }
+    |}
+}
+"""
+
+                mkMarkdown """
+## 19. 📊 Advanced DQL: GroupBy with Cláusula `having` (`SampleStore`)
+
+Filter grouped aggregations directly using the dedicated `having` operation in `fsql`. The condition compiles to a native SQL `GROUP BY ... HAVING (COUNT(*) >= @p0)` clause.
+"""
+
+                mkCode """
+// 19. Group orders by customer and filter high-frequency buyers using having (>= 10 orders)
+fsql {
+    for o in Connections.sql.SampleStore.Orders do
+    groupBy o.CustomerId into g
+    having (fsql { for item in g do count } >= 10)
+    select {|
+        CustomerId = g.Key
+        TotalOrders = fsql { for item in g do count }
+    |}
+}
+"""
+
+                mkMarkdown """
+## 20. 🔍 Advanced DQL: Formatted SQL Inspection via `toRawQuery`
+
+Inspect the generated SQL query before or alongside execution. The **`toRawQuery`** function produces beautifully indented, multi-dialect SQL with clause indentation and parameter headers.
+"""
+
+                mkCode """
+// 20. Inspect formatted SQL pushdown with clause indentation and parameter documentation
+let inspectedQuery =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        where (c.Country = "USA")
+        whereExists (fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id && o.TotalAmount >= 100.0f) })
+        select {|
+            Customer = c.FirstName + " " + c.LastName
+            TotalOrders = fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id); count }
+        |}
+    }
+
+printfn "Pushdown SQL Inspection via toRawQuery:\n%s" (toRawQuery inspectedQuery)
+inspectedQuery
+"""
+
+                mkMarkdown """
 ---
 
 ### 📚 Official Documentation & References
@@ -1156,6 +1244,94 @@ lines
         Status = p.[4]
     |})
 |> Seq.toList
+"""
+
+                mkMarkdown """
+## 17. 🎯 DQL Avançado: Subqueries Correlacionadas com `whereExists` e `whereNotExists` (`SampleStore`)
+
+Com a computation expression **`fsql`**, você pode escrever testes de existência correlacionados (`EXISTS` e `NOT EXISTS`) em sintaxe funcional pura F#, sem concatenação de strings SQL.
+Aqui filtramos clientes do Brasil e dos EUA que possuem pedidos de alto valor (>= $250).
+"""
+
+                mkCode """
+// 17. Consulta clientes com pedidos de alto valor (>= $250) usando whereExists via fsql
+fsql {
+    for c in Connections.sql.SampleStore.Customers do
+    where (c.Country = "Brazil" || c.Country = "USA")
+    whereExists (fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id && o.TotalAmount >= 250.0f) })
+    sortBy c.FirstName
+    take 10
+    select {|
+        Id = c.Id
+        Cliente = c.FirstName + " " + c.LastName
+        Cidade = c.City
+        Pais = c.Country
+    |}
+}
+"""
+
+                mkMarkdown """
+## 18. 🧮 DQL Avançado: Subqueries Escalares na Projeção SELECT (`SampleStore`)
+
+Calcule métricas correlacionadas por linha (como contagem total de pedidos) diretamente na cláusula `select` do `fsql`. A subquery é compilada para um sub-select escalar nativo no banco de dados.
+"""
+
+                mkCode """
+// 18. Enriquece os clientes com a contagem correlacionada de pedidos na projeção SELECT
+fsql {
+    for c in Connections.sql.SampleStore.Customers do
+    where (c.Country = "Brazil")
+    sortBy c.FirstName
+    take 10
+    select {|
+        Cliente = c.FirstName + " " + c.LastName
+        Email = c.Email
+        Cidade = c.City
+        TotalPedidos = fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id); count }
+    |}
+}
+"""
+
+                mkMarkdown """
+## 19. 📊 DQL Avançado: GroupBy com Cláusula `having` (`SampleStore`)
+
+Filtre agregações agrupadas diretamente usando a operação customizada `having` do `fsql`. A condição é compilada diretamente para `GROUP BY ... HAVING (COUNT(*) >= @p0)`.
+"""
+
+                mkCode """
+// 19. Agrupa pedidos por cliente e filtra compradores frequentes usando having (>= 10 pedidos)
+fsql {
+    for o in Connections.sql.SampleStore.Orders do
+    groupBy o.CustomerId into g
+    having (fsql { for item in g do count } >= 10)
+    select {|
+        ClienteId = g.Key
+        TotalPedidos = fsql { for item in g do count }
+    |}
+}
+"""
+
+                mkMarkdown """
+## 20. 🔍 DQL Avançado: Inspeção do SQL Formatado via `toRawQuery`
+
+Inspecione a consulta SQL gerada antes ou durante a execução. O método **`toRawQuery`** produz SQL identado com quebra de cláusulas e cabeçalho de parâmetros vinculados.
+"""
+
+                mkCode """
+// 20. Inspeção do SQL Pushdown formatado com identação e documentação de parâmetros
+let queryInspecionada =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        where (c.Country = "USA")
+        whereExists (fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id && o.TotalAmount >= 100.0f) })
+        select {|
+            Cliente = c.FirstName + " " + c.LastName
+            TotalPedidos = fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id); count }
+        |}
+    }
+
+printfn "SQL Pushdown via toRawQuery:\n%s" (toRawQuery queryInspecionada)
+queryInspecionada
 """
 
                 mkMarkdown """

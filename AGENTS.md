@@ -29,6 +29,11 @@
   - Frontend/Worker E2E: `npx vitest run src/worker/sample-notebook.integration.test.ts` (após publicar o worker para `editors/vscode/dist/worker` ou via `./scripts/run-all-tests.ps1`).
   - Quando a extensão estiver instalada localmente em `~/.vscode/extensions/fs-query-studio.fs-query-studio-*`, sincronizar os artefatos compilados (`dist/`) para garantir que o ambiente local do VS Code nunca execute código defasado.
 
+## Regra de Criação de Queries: Guia Canônico `fsql` para Agentes de IA
+- Todo código de consulta de dados deve seguir rigorosamente as especificações em [`docs/FSQL_AI_AGENT_GUIDE.md`](file:///docs/FSQL_AI_AGENT_GUIDE.md).
+- Use **exclusivamente** a computation expression `fsql { ... }` para queries e subqueries (`whereExists`, `whereNotExists`, `having`, `crossApply`, `lateral`, escalares na projeção).
+- **Nunca** gere templates em strings SQL crus e **nunca** misture a sintaxe antiga `query { ... }` com `fsql`.
+
 ---
 
 ## Strict Rule: Git & Branch Protection (English)

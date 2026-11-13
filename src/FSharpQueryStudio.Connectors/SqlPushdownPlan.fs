@@ -21,6 +21,38 @@ type JoinPlan = {
 }
 
 module SqlPushdownFormatting =
+    open System.Text
+    open System.Text.RegularExpressions
+
+    let formatSql (sql: string) : string =
+        if String.IsNullOrWhiteSpace sql then sql
+        else
+            let s = Regex.Replace(sql.Trim(), @"\s+", " ")
+            let re = Regex(@"(?i)\s*\b(SELECT|FROM|CROSS\s+APPLY|OUTER\s+APPLY|CROSS\s+JOIN\s+LATERAL|LEFT\s+JOIN\s+LATERAL|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|CROSS\s+JOIN|WHERE|GROUP\s+BY|HAVING|ORDER\s+BY)\b\s*")
+            let mutable openParens = 0
+            let sb = StringBuilder()
+            let mutable lastIndex = 0
+            let matches = re.Matches(s)
+            for m in matches do
+                if m.Index > lastIndex then
+                    let chunk = s.Substring(lastIndex, m.Index - lastIndex).Trim()
+                    if not (String.IsNullOrEmpty chunk) then
+                        sb.Append(" ").Append(chunk) |> ignore
+                        for c in chunk do
+                            if c = '(' then openParens <- openParens + 1
+                            elif c = ')' then openParens <- max 0 (openParens - 1)
+                let kw = Regex.Replace(m.Value.Trim(), @"\s+", " ").ToUpperInvariant()
+                if sb.Length > 0 then
+                    sb.AppendLine() |> ignore
+                let indent = String(' ', openParens * 4)
+                sb.Append(indent).Append(kw) |> ignore
+                lastIndex <- m.Index + m.Length
+            if lastIndex < s.Length then
+                let rest = s.Substring(lastIndex).Trim()
+                if not (String.IsNullOrEmpty rest) then
+                    sb.Append(" ").Append(rest) |> ignore
+            sb.ToString().Trim()
+
     let formatSqlAndParameters (sql: string) (parameters: (string * obj) list) : string =
         if List.isEmpty parameters then
             sql
@@ -56,9 +88,11 @@ type PushdownQueryPlan = {
     mutable Skip: int option
     mutable Take: int option
     mutable Projection: string option
+    mutable Dialect: SqlDialect option
     FallbackPredicates: ResizeArray<obj -> bool>
+    OuterAliases: Dictionary<string, string>
 } with
-    static member Create(baseSql: string, baseParameters: (string * obj) list, ?baseAlias: string, ?baseRowType: Type) =
+    static member Create(baseSql: string, baseParameters: (string * obj) list, ?baseAlias: string, ?baseRowType: Type, ?dialect: SqlDialect) =
         {
             BaseSql = baseSql
             BaseParameters = baseParameters
@@ -74,11 +108,13 @@ type PushdownQueryPlan = {
             Skip = None
             Take = None
             Projection = None
+            Dialect = dialect
             FallbackPredicates = ResizeArray<obj -> bool>()
+            OuterAliases = Dictionary<string, string>()
         }
 
     member this.Clone() =
-        let p = PushdownQueryPlan.Create(this.BaseSql, this.BaseParameters, this.BaseAlias, ?baseRowType = this.BaseRowType)
+        let p = PushdownQueryPlan.Create(this.BaseSql, this.BaseParameters, this.BaseAlias, ?baseRowType = this.BaseRowType, ?dialect = this.Dialect)
         p.Joins.AddRange(this.Joins)
         p.WhereClauses.AddRange(this.WhereClauses)
         p.Parameters.AddRange(this.Parameters)
@@ -90,12 +126,24 @@ type PushdownQueryPlan = {
         p.Take <- this.Take
         p.Projection <- this.Projection
         p.FallbackPredicates.AddRange(this.FallbackPredicates)
+        for kv in this.OuterAliases do
+            p.OuterAliases.[kv.Key] <- kv.Value
         p
 
     member this.BuildRawSql(dialect: SqlDialect) : string =
         let sql = this.BuildSql(dialect)
         let allParams = (this.BaseParameters @ (this.Parameters |> List.ofSeq))
         SqlPushdownFormatting.formatSqlAndParameters sql allParams
+
+    member this.BuildRawQuery(dialect: SqlDialect) : string =
+        let sql = this.BuildSql(dialect)
+        let formatted = SqlPushdownFormatting.formatSql sql
+        let allParams = (this.BaseParameters @ (this.Parameters |> List.ofSeq))
+        SqlPushdownFormatting.formatSqlAndParameters formatted allParams
+
+    member this.ToRawQuery(?dialect: SqlDialect) : string =
+        let d = defaultArg dialect (defaultArg this.Dialect SqlDialect.Sqlite)
+        this.BuildRawQuery(d)
 
     member this.BuildSql(dialect: SqlDialect) : string =
         let isTableOnly =
@@ -104,27 +152,56 @@ type PushdownQueryPlan = {
             && not (trimmed.StartsWith("with", StringComparison.OrdinalIgnoreCase))
             && not (trimmed.Contains(" from ", StringComparison.OrdinalIgnoreCase))
 
+        let joinsSql =
+            this.Joins
+            |> Seq.map (fun j ->
+                let tbl =
+                    let t = j.SourceTable.Trim()
+                    if t.StartsWith("select", StringComparison.OrdinalIgnoreCase) || t.StartsWith("(", StringComparison.Ordinal) || t.Contains(" ") then
+                        if t.StartsWith("(", StringComparison.Ordinal) then $"{t} AS {j.Alias}"
+                        else $"({t}) AS {j.Alias}"
+                    else $"{t} {j.Alias}"
+                match j.JoinType.Trim().ToUpperInvariant() with
+                | "CROSS APPLY" ->
+                    match dialect with
+                    | SqlDialect.SqlServer -> $"CROSS APPLY {tbl}"
+                    | SqlDialect.PostgreSql -> $"CROSS JOIN LATERAL {tbl}"
+                    | SqlDialect.Sqlite -> $"CROSS JOIN {tbl}"
+                | "OUTER APPLY" ->
+                    match dialect with
+                    | SqlDialect.SqlServer -> $"OUTER APPLY {tbl}"
+                    | SqlDialect.PostgreSql -> $"LEFT JOIN LATERAL {tbl} ON true"
+                    | SqlDialect.Sqlite ->
+                        let onPart = if String.IsNullOrWhiteSpace j.OnClause then "1=1" else j.OnClause
+                        $"LEFT JOIN {tbl} ON {onPart}"
+                | "CROSS JOIN" ->
+                    $"CROSS JOIN {tbl}"
+                | _ ->
+                    let onPart = if String.IsNullOrWhiteSpace j.OnClause then "1=1" else j.OnClause
+                    $"{j.JoinType} {tbl} ON {onPart}"
+            )
+            |> String.concat " "
+        let requiresBaseAlias =
+            this.BaseAlias <> "_t0"
+            || (this.WhereClauses |> Seq.exists (fun w -> w.Contains(this.BaseAlias)))
+            || (this.Having |> Seq.exists (fun h -> h.Contains(this.BaseAlias)))
+            || (match this.Projection with Some p -> p.Contains(this.BaseAlias) | None -> false)
+            || (this.OrderBy |> Seq.exists (fun o -> o.ColumnName.Contains(this.BaseAlias)))
+            || (this.Joins |> Seq.exists (fun j -> j.SourceTable.Contains(this.BaseAlias)))
+
         let fromSource =
             if this.Joins.Count > 0 then
                 let baseFrom =
                     if isTableOnly then $"{this.BaseSql.Trim()} {this.BaseAlias}"
                     else $"({this.BaseSql}) AS {this.BaseAlias}"
-                let joinsSql =
-                    this.Joins
-                    |> Seq.map (fun j ->
-                        let tbl =
-                            let t = j.SourceTable.Trim()
-                            if t.StartsWith("select", StringComparison.OrdinalIgnoreCase) || t.Contains(" ") then $"({t}) AS {j.Alias}"
-                            else $"{t} {j.Alias}"
-                        $"{j.JoinType} {tbl} ON {j.OnClause}"
-                    )
-                    |> String.concat " "
                 $"{baseFrom} {joinsSql}"
             else
                 if isTableOnly then
-                    this.BaseSql.Trim()
+                    if requiresBaseAlias then $"{this.BaseSql.Trim()} {this.BaseAlias}"
+                    else this.BaseSql.Trim()
                 else
-                    $"({this.BaseSql}) AS _src"
+                    if requiresBaseAlias then $"({this.BaseSql}) AS {this.BaseAlias}"
+                    else $"({this.BaseSql}) AS _src"
 
         let whereSql =
             if this.WhereClauses.Count > 0 then
@@ -144,18 +221,6 @@ type PushdownQueryPlan = {
             else
                 ""
 
-        let orderSql =
-            if this.OrderBy.Count > 0 then
-                let parts =
-                    this.OrderBy
-                    |> Seq.map (fun o ->
-                        let dir = if o.Direction = Ascending then "ASC" else "DESC"
-                        $"{o.ColumnName} {dir}"
-                    )
-                " ORDER BY " + String.concat ", " parts
-            else
-                ""
-
         let selectCols =
             match this.Projection with
             | Some proj -> proj
@@ -165,6 +230,29 @@ type PushdownQueryPlan = {
                     $"{this.BaseAlias}.*, {joinedCols}"
                 else
                     "*"
+
+        let orderSql =
+            if this.OrderBy.Count > 0 then
+                let isScalarAggregateOnly =
+                    this.GroupBy.Count = 0 &&
+                    match this.Projection with
+                    | Some proj ->
+                        let p = proj.Trim().ToUpperInvariant()
+                        p.StartsWith("COUNT(") || p.StartsWith("SUM(") || p.StartsWith("MIN(") || p.StartsWith("MAX(") || p.StartsWith("AVG(")
+                    | None -> false
+
+                if isScalarAggregateOnly then
+                    ""
+                else
+                    let parts =
+                        this.OrderBy
+                        |> Seq.map (fun o ->
+                            let dir = if o.Direction = Ascending then "ASC" else "DESC"
+                            $"{o.ColumnName} {dir}"
+                        )
+                    " ORDER BY " + String.concat ", " parts
+            else
+                ""
 
         let distinctKeyword = if this.IsDistinct then "DISTINCT " else ""
 

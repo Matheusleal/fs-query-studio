@@ -143,11 +143,11 @@ F# Query Studio automatically inspects registered connections and **generates st
 
 You don't need to configure manual Type Providers, install NuGet packages, or compile helper projects: typed entities are available immediately under each category!
 
-### Basic Filtering & Projection
+### Basic Filtering & Projection with `fsql` (F# Query Language)
 
 ```fsharp
-// 1. Query products with price > $50 sorted by unit price directly via Connections.sql
-query {
+// 1. Query products with price > $50 sorted by unit price directly via Connections.sql and fsql
+fsql {
     for p in Connections.sql.SampleStore.Products do
     where (p.UnitPrice > 50.0M)
     sortByDescending p.UnitPrice
@@ -160,8 +160,11 @@ query {
 Rather than executing naive `SELECT *` queries and filtering records in client memory, F# Query Studio features an **Entity Framework-grade SQL Pushdown Engine**:
 - **Column Projections**: `select {| Id = o.Id; Amount = o.Total |}` translates to `SELECT _t0.Id, _t0.Total FROM ...`
 - **Parameterized Filters**: `where (o.TotalAmount >= 100.0f)` translates to `WHERE (_t0.TotalAmount >= @p0)`
-- **Sorting & Slicing**: `sortBy`, `sortByDescending`, `take N`, `skip M` translate directly to `ORDER BY ... LIMIT N OFFSET M`
-- **Server-Side Aggregations**: `count` and `sum` translate directly to `COUNT(*)` and `SUM(...)`
+- **Sorting & Slicing**: `sortBy`, `sortByDescending`, `take N`, `skip M` translate directly to `ORDER BY ... LIMIT N OFFSET M` (or `OFFSET N ROWS FETCH NEXT M ROWS ONLY` on SQL Server)
+- **Server-Side Aggregations**: `count` (both table-level and column-level), `maxBy`, `minBy`, `sumBy`, `averageBy` translate directly to `COUNT(*)`, `MAX(...)`, `MIN(...)`, `SUM(...)`, `AVG(...)`
+- **Correlated Subqueries**: `whereExists (fsql { ... })` and `whereNotExists (fsql { ... })` translate to `WHERE EXISTS (SELECT 1 ...)`
+- **Correlated Joins**: `crossApply (fsql { ... })` (SQL Server) and `lateral (fsql { ... })` (PostgreSQL)
+- **Grouping & Having**: `groupBy ... into g; having (fsql { for item in g do count } >= n)` translates to `GROUP BY ... HAVING (COUNT(*) >= @p0)`
 
 ### Multi-Property Joins without Memory Explosions
 
@@ -169,7 +172,7 @@ F# query expressions support joins over compound keys using tuples:
 
 ```fsharp
 // Compile-time multi-property join translated to SQL without Cartesian products
-query {
+fsql {
     for s in Connections.sql.Transactions.Sales do
     join t in Connections.sql.Transactions.Targets on ((s.StoreId, s.Region) = (t.StoreId, t.Region))
     where (s.TotalAmount >= 250.0M)
@@ -187,26 +190,29 @@ WHERE (_t0.TotalAmount >= @p0)
 
 Automatic composite B-tree indexes (`ix_table_StoreId_Region`) ensure sub-100ms execution times even when joining hundreds of thousands of rows.
 
-### Inspecting Generated SQL (`toRawSql`)
+### Inspecting Generated SQL (`toRawQuery` & `toRawSql`)
 
-Want to inspect the exact SQL query and bound parameters that will run on your database engine before or alongside execution?
-Use `ResultKind.toRawSql` or `Connections.toRawSql`:
+Want to inspect the formatted SQL query and bound parameters that will run on your database engine before or alongside execution?
+Use `toRawQuery` for indented, beautified multi-dialect SQL with parameter declarations, or `toRawSql`:
 
 ```fsharp
 let myQuery =
-    query {
+    fsql {
         for o in Connections.sql.SampleStore.Orders do
         join c in Connections.sql.SampleStore.Customers on (o.CustomerId = c.Id)
         where (o.Status = "Completed")
+        whereExists (fsql { for i in Connections.sql.SampleStore.OrderItems do where (i.OrderId = o.Id) })
         select {| OrderId = o.Id; Customer = c.FirstName + " " + c.LastName; Total = o.TotalAmount |}
     }
 
-// Prints the exact parameterized SQL to stdout without touching the database!
-printfn "Generated SQL:\n%s" (Connections.toRawSql myQuery)
+// Prints the formatted parameterized SQL to stdout without touching the database!
+printfn "Generated SQL:\n%s" (toRawQuery myQuery)
 
 // Execute and render the interactive table grid
 myQuery
 ```
+
+> **AI Agent Reference**: When building automated agents or prompts, consult the [FSQL AI Agent Guide](../../docs/FSQL_AI_AGENT_GUIDE.md).
 
 ### Advanced Query Engine Features (Joins, Aggregations, Subqueries, and Pivot)
 
@@ -216,7 +222,7 @@ F# Query Studio supports the full range of relational analytics compiled directl
 To write left outer joins across multiple tables, use the standard F# `leftOuterJoin ... in ... on ... into g` syntax followed by `for ... in g.DefaultIfEmpty()`:
 
 ```fsharp
-query {
+fsql {
     for order in csv.Orders do
     join orderItem in csv.OrderItems on (order.order_id = orderItem.order_id)
     join customer in csv.Customers on (order.customer_id = customer.customer_id)
@@ -248,7 +254,7 @@ query {
 Groupings compile directly to indexed `GROUP BY` and `HAVING` queries:
 
 ```fsharp
-query {
+fsql {
     for p in csv.Products do
     groupBy p.Category into g
     select {|
@@ -270,7 +276,7 @@ let totalRevenue = csv.OrderItems.Sum(fun i -> i.line_total)
 
 #### 3. Limiters and Paging (`distinct`, `take`, `skip`, `head`)
 ```fsharp
-query {
+fsql {
     for p in csv.Products do
     distinct
     sortByDescending p.Price
@@ -280,18 +286,18 @@ query {
 }
 ```
 
-#### 4. Subqueries and Subselects (`WHERE col IN (SELECT ...)`)
+#### 4. Subqueries and Subselects (`WHERE col IN (SELECT ...)`, `whereExists`, `whereNotExists`)
 You can compose strongly-typed subqueries that translate directly to native SQL subselects (`IN` and `EXISTS`):
 
 ```fsharp
 let discountedOrders =
-    query {
+    fsql {
         for item in csv.OrderItems do
         where (item.discount > 0.0M)
         select item.order_id
     }
 
-query {
+fsql {
     for o in csv.Orders do
     where (discountedOrders.Contains(o.order_id))
     select o
@@ -452,7 +458,7 @@ If a CSV contains product SKUs or ZIP codes with leading zeros (e.g. `001234`):
 Once configured, F# Query Studio generates strongly-typed records matching your overrides in `Connections.csv.<Conn>` and `Connections.excel.<Conn>`:
 
 ```fsharp
-query {
+fsql {
     for order in Connections.excel.FinancialReport.Q4_Revenue do
     // order.Revenue is typed as System.Decimal, order.TaxRate is double
     where (order.Revenue > 1000.0M && order.TaxRate <= 0.20)
@@ -573,7 +579,7 @@ F# Query Studio undergoes rigorous automated performance benchmarking and comple
 ### Execution Benchmarks (CPU, Memory & Latency)
 - **Sub-millisecond Latency**: Warm pooled queries execute in **0.05 ms - 0.20 ms** with 0% CPU consumption and zero Gen 0/1/2 garbage collections.
 - **Streaming Volume Scaling**: Seamlessly queries 100 to 50,000+ rows through `Results.fs` lazy streaming with a flat memory allocation baseline (~1.5 KB per cursor fetch).
-- **LINQ & Dynamic Records**: Strongly-typed F# record mapping (`Connections.query<'T>`) and LINQ expressions (`query { for ... in ... do where ... select ... }`) process 1,000 rows in **~2.0 ms** using compiled constructor reflection caching.
+- **fsql & Dynamic Records**: Strongly-typed F# record mapping (`Connections.query<'T>`) and `fsql` expressions (`fsql { for ... in ... do where ... select ... }`) process 1,000 rows in **~2.0 ms** using compiled constructor reflection caching.
 - **High-Throughput File Queries**: CSV processing reaches **~500,000 records/sec**.
 
 For detailed benchmark methodology, raw metrics, and hardware specifications, consult the **[Execution Benchmark Report](BENCHMARK_REPORT.md)** ([view on GitHub](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/BENCHMARK_REPORT.md)).

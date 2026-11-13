@@ -17,6 +17,8 @@ ship* the project and what exists as a *historical record*.
 | [`../editors/vscode/docs/README_PT.md`](../editors/vscode/docs/README_PT.md) | Referência completa de recursos e API da extensão para o VS Code (Português). |
 | [`TUTORIAL.md`](TUTORIAL.md) | Hands-on walkthrough: first notebook → connection → pushdown query → CSV export (English). |
 | [`TUTORIAL_PT.md`](TUTORIAL_PT.md) | Tutorial prático passo a passo: primeiro notebook → conexões → consultas pushdown → exportação CSV (Português). |
+| [`FSQL_LANGUAGE_SPECIFICATION.md`](FSQL_LANGUAGE_SPECIFICATION.md) | Canonical internal language specification for FSQL across all SQL databases (English). |
+| [`FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md) | Definitive canonical reference guide and rules for AI Agents writing FSQL queries. |
 | [`vscode-extension-release.md`](vscode-extension-release.md) | The manual runbook for packaging and publishing a release. |
 | [`../editors/vscode/scripts/README.md`](../editors/vscode/scripts/README.md) | Reference for the `build` / `package` / `publish` / `doctor` npm scripts. |
 | [`../editors/vscode/docs/CHANGELOG.md`](../editors/vscode/docs/CHANGELOG.md) | Per-version list of user-visible changes. |

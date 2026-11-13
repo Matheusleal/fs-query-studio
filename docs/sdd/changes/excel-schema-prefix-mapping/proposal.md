@@ -14,7 +14,7 @@ Currently, when an Excel (`.xlsx`) connection (e.g., `teste.xlsx` with worksheet
 ```text
 Intent Block:
 Goal:        Ensure Excel (.xlsx) connections act strictly as schema/workbook namespaces in F# and as table prefixes (<conn>_<sheet>) in the SQLite staging engine, with accurate per-worksheet SQL pushdown translation.
-Expectation: Importing `teste.xlsx` with sheets `calendar`, `names`, and `courses` stages only `teste_calendar`, `teste_names`, and `teste_courses` in SQLite (never a duplicate `teste` table), exposes only worksheet members on `Connections.excel.teste`, and translates `query { for x in Connections.excel.teste.calendar do select x }` to `SELECT ... FROM teste_calendar`.
+Expectation: Importing `teste.xlsx` with sheets `calendar`, `names`, and `courses` stages only `teste_calendar`, `teste_names`, and `teste_courses` in SQLite (never a duplicate `teste` table), exposes only worksheet members on `Connections.excel.teste`, and translates `fsql { for x in Connections.excel.teste.calendar do select x }` to `SELECT ... FROM teste_calendar`.
 Action:      Remove root-level `IQueryable`/`Rows` exposure from `ExcelEntityGenerator`, remove duplicate `<conn>` table staging (and clean up stale unprefixed tables) in `Connections.syncDataSourcesAsyncWithProgress`, and fix `ExcelConnection.SheetQueryable` / `SheetPushdownQueryable` and `FileSqliteEngine.IsStagedAndCurrent` to always resolve `<conn>_<sheet>`.
 Result:      100% deterministic worksheet table resolution and zero duplicate root tables for Excel connections.
 ```

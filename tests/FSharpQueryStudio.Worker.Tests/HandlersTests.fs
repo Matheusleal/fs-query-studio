@@ -1496,7 +1496,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(17, codeCells.Length)
+            Assert.Equal(21, codeCells.Length)
 
             for idx, code in List.indexed codeCells do
                 let evalReq = notebookCellRequest $"cell-{idx + 1}" code "sample_demo.fsqnb"
@@ -1511,6 +1511,28 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 )
                 if env.Kind = ResultKind.Table then
                     Assert.NotEmpty(env.Rows)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+            try
+                if Directory.Exists tmp then Directory.Delete(tmp, true)
+            with _ -> ()
+    }
+
+[<Fact>]
+let ``evaluating sample_demo_pt notebook cells succeeds against generated samples`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-eval-pt-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let escapedTmp = tmp.Replace("\\", "\\\\")
+            let req1: WorkerRequestFrame =
+                { Id = "s1-pt"
+                  Method = "workspace/createSampleData"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+            let! res1 = Handlers.dispatch req1
+            Assert.True(res1.Error.IsNone)
 
             let notebookPtPath = Path.Combine(tmp, "sample_demo_pt.fsqnb")
             Assert.True(File.Exists notebookPtPath)
@@ -1521,7 +1543,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(17, codeCellsPt.Length)
+            Assert.Equal(21, codeCellsPt.Length)
 
             for idx, code in List.indexed codeCellsPt do
                 let evalReq = notebookCellRequest $"cell-pt-{idx + 1}" code "sample_demo_pt.fsqnb"
