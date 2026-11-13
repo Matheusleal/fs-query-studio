@@ -54,21 +54,20 @@ Welcome to the central documentation index for **F# Query Studio**. This folder 
 
 ---
 
-## 6. Task Management & SDD Changes
+## 6. Specification & Change Management (SDD)
 
 | Directory / Link | Description |
 |---|---|
-| [`sdd/`](sdd/README.md) | **Spec-Driven Development (SDD)** — Formal Delta Specs, proposals, and task ledgers under `sdd/changes/` governing active and historical change packages. |
-| [`tasks/`](tasks/README.md) | **Engineering Task Notes** — Detailed working notes and checklists for specific post-migration tasks (F7–F9) and UI polish fixes. |
+| [`sdd/`](sdd/README.md) | **Spec-Driven Development (SDD)** — Formal Delta Specs, proposals, and task ledgers under `sdd/changes/` (active sprint changes) and `sdd/archive/` (consolidated changes). |
+| [`DOCUMENTATION_AUDIT_REPORT.md`](DOCUMENTATION_AUDIT_REPORT.md) | **Documentation Audit & Inventory Report** — Comprehensive audit of all tasks, specifications, proposals, and archive files across the codebase. |
 
 ---
 
 ## 7. Historical Records & Architecture Evolution
 
-These documents describe how F# Query Studio evolved from an Avalonia desktop application to a Visual Studio Code extension. They are preserved for context:
+These documents preserve the history and design evolution of F# Query Studio:
 
 | Document / Directory | Description |
 |---|---|
 | [`DEVLOG.md`](DEVLOG.md) | **Append-Only Engineering Devlog** — Dated chronological log of every development step taken since project inception. |
-| [`superpowers/`](superpowers/plans/) | **Superpowers Migration Plans & Specs** — Design documents and plans for phases F1 through F6. |
-| [`archive/`](archive/README.md) | **Desktop Era Archive** — Superseded desktop plans (`fs-studio-plan.md`, `fs-studio-development-plan.md`) and the F6 parity checklist. |
+| [`archive/`](archive/README.md) | **Historical Archive** — Foundational VS Code extension design specifications (`archive/specs/`), desktop architecture plans, and the F6 parity checklist. |

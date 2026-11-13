@@ -54,22 +54,21 @@ Bem-vindo ao índice central de documentação do **F# Query Studio**. Este dire
 
 ---
 
-## 6. Gestão de Tarefas & Mudanças SDD
+## 6. Gestão de Especificações e Mudanças (SDD)
 
 | Diretório / Link | Descrição |
 |---|---|
-| [`sdd/`](sdd/README.md) | **Spec-Driven Development (SDD)** — Delta Specs, propostas e tarefas formais governadas pela metodologia SDD em `sdd/changes/`. |
-| [`tasks/`](tasks/README.md) | **Notas de Execução de Tarefas** — Cadernos de notas e checklists de tarefas técnicas pós-migração (F7 a F9) e correções visuais. |
+| [`sdd/`](sdd/README.md) | **Spec-Driven Development (SDD)** — Delta Specs, propostas e tarefas formais governadas pela metodologia SDD em `sdd/changes/` (mudanças ativas) e `sdd/archive/` (consolidadas). |
+| [`DOCUMENTATION_AUDIT_REPORT.md`](DOCUMENTATION_AUDIT_REPORT.md) | **Relatório de Auditoria e Diagnóstico da Documentação** — Inventário completo e análise profunda de relevância e descarte de documentos do projeto. |
 
 ---
 
 ## 7. Registros Históricos & Arquivo
 
-Estes documentos registram a evolução do projeto desde sua criação original como aplicação desktop em Avalonia UI até a migração definitiva para a extensão do VS Code:
+Estes documentos preservam o histórico e evolução do projeto:
 
 | Documento / Diretório | Descrição |
 |---|---|
 | [`DEVLOG.md`](DEVLOG.md) | **Diário de Desenvolvimento (Devlog)** — Registro cronológico e contínuo de cada tarefa e decisão de engenharia desde o primeiro commit. |
-| [`superpowers/`](superpowers/plans/) | **Planos de Migração Superpowers** — Especificações e planos de implementação das fases F1 a F6. |
-| [`archive/`](archive/README.md) | **Arquivo da Era Desktop** — Planos originais da era desktop (`fs-studio-plan.md`, `fs-studio-development-plan.md`) e checklist de paridade F6. |
+| [`archive/`](archive/README.md) | **Arquivo Histórico** — Especificações fundacionais de design da extensão VS Code (`archive/specs/`), arquitetura da era desktop e checklist de paridade F6. |
 

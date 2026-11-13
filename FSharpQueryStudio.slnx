@@ -13,9 +13,14 @@
     <File Path="docs/vscode-extension-release.md" />
   </Folder>
   <Folder Name="/docs/archive/">
-    <File Path="docs/archive/fs-studio-development-plan.md" />
+    <File Path="docs/archive/README.md" />
     <File Path="docs/archive/fs-studio-plan.md" />
     <File Path="docs/archive/f6-parity-checklist.md" />
+    <File Path="docs/archive/specs/2026-09-03-vscode-extension-migration-design.md" />
+    <File Path="docs/archive/specs/2026-09-06-vscode-extension-f4-cell-intelligence-design.md" />
+    <File Path="docs/archive/specs/2026-09-07-vscode-extension-f5-connections-design.md" />
+    <File Path="docs/archive/specs/2026-09-07-vscode-extension-f6-parity-retire-design.md" />
+    <File Path="docs/archive/specs/2026-09-08-notebook-tail-value-results-design.md" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/FSharpQueryStudio.Connectors.Abstractions/FSharpQueryStudio.Connectors.Abstractions.fsproj" />

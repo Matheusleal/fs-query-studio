@@ -238,7 +238,7 @@ Press **F5** in VS Code to launch an Extension Development Host. Set
 
 Flags and detail: [`editors/vscode/scripts/README.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/editors/vscode/scripts/README.md).
 Full release runbook: [`docs/vscode-extension-release.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/vscode-extension-release.md).
-Design: [`docs/superpowers/specs/2026-09-03-vscode-extension-migration-design.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/superpowers/specs/2026-09-03-vscode-extension-migration-design.md).
+Design: [`docs/archive/specs/2026-09-03-vscode-extension-migration-design.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/archive/specs/2026-09-03-vscode-extension-migration-design.md).
 
 ## License
 
