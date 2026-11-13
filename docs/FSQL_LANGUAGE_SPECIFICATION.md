@@ -1,7 +1,7 @@
 # FSQL Language Specification
 
 > **Document Type**: Internal Technical Language Specification  
-> **Specification Version**: 1.2  
+> **Specification Version**: 1.0  
 > **Status**: Canonical  
 > **Applies to**: F# Query Studio Universal Query Engine  
 > **Target Dialects**: SQL Server (T-SQL), PostgreSQL, SQLite  
