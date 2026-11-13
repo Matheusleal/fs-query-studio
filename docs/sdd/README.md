@@ -20,7 +20,8 @@ Cada pacote de mudança (seja em `changes/` ou `archive/`) é estruturado em tr�
 
 | Mudança | Status | Escopo / Descrição |
 |---|---|---|
-| [`advanced-dql-support-sqlserver-postgres-sqlite`](changes/advanced-dql-support-sqlserver-postgres-sqlite/) | **Em Andamento** | Expansão de suporte a consultas DQL avançadas (CTEs, subqueries, agregações de janela) em SQL Server, PostgreSQL e SQLite. |
+| [`advanced-dql-support-sqlserver-postgres-sqlite`](changes/advanced-dql-support-sqlserver-postgres-sqlite/) | **Concluído (100% Testado)** | Suporte completo a DQL avançado (correlação CROSS APPLY/LATERAL, subqueries escalares, HAVING, agregação por coluna, CE `fsql { ... }` pura, `toRawQuery` formatado) em SQL Server, PostgreSQL e SQLite. |
+| [`fsql-analytics-cte-and-set-operations`](changes/fsql-analytics-cte-and-set-operations/) | **Proposto** | Evolução da especificação FSQL: Window Functions (`OVER`), CTEs recursivos/não-recursivos (`WITH`), operações de conjunto (`UNION`/`EXCEPT`), Full/Right Outer Joins e extração de JSON. |
 
 ---
 
