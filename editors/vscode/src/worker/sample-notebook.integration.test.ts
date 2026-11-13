@@ -101,7 +101,7 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
         const nbContent = fs.readFileSync(data.notebookPath, "utf-8");
         const doc = deserializeFsqnb(nbContent);
         const codeCells = doc.cells.filter((c) => c.kind === "code");
-        expect(codeCells.length).toBe(17);
+        expect(codeCells.length).toBe(21);
 
         const toVscodeUri = (filePath: string) => {
           const normalized = filePath.replace(/\\/g, "/");
@@ -145,7 +145,7 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
         const nbPtContent = fs.readFileSync(data.notebookPtPath!, "utf-8");
         const docPt = deserializeFsqnb(nbPtContent);
         const codeCellsPt = docPt.cells.filter((c) => c.kind === "code");
-        expect(codeCellsPt.length).toBe(17);
+        expect(codeCellsPt.length).toBe(21);
 
         const vscodeUriPt = toVscodeUri(data.notebookPtPath!);
 
