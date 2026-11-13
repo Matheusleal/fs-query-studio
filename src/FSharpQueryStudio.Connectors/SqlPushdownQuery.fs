@@ -867,7 +867,7 @@ module ExpressionPushdownTranslator =
                         | _ -> None
                 else
                     None
-            elif mc.Method.Name = "Any" then
+            elif mc.Method.Name = "Any" || mc.Method.Name = "exists" || mc.Method.Name = "Exists" || mc.Method.Name = "whereExists" then
                 let sourceExpr =
                     if mc.Method.IsStatic && mc.Arguments.Count >= 1 then mc.Arguments.[0]
                     elif not (isNull mc.Object) then mc.Object
@@ -875,7 +875,13 @@ module ExpressionPushdownTranslator =
                 if not (isNull sourceExpr) then
                     match tryExtractQueryableInfo sourceExpr with
                     | Some (subTable, _, subRowType) ->
-                        let subPlan = PushdownQueryPlan.Create(subTable, [], ?baseRowType = subRowType)
+                        let subPlan = PushdownQueryPlan.Create(subTable, [], baseAlias = sprintf "_sub%d" (plan.Joins.Count + 1), ?baseRowType = subRowType, ?dialect = plan.Dialect)
+                        subPlan.OuterAliases.[param.Name] <- plan.BaseAlias
+                        for kv in plan.OuterAliases do
+                            subPlan.OuterAliases.[kv.Key] <- kv.Value
+                        subPlan.OuterAliases.[plan.BaseAlias] <- plan.BaseAlias
+                        if plan.BaseRowType.IsSome then
+                            subPlan.OuterAliases.[plan.BaseRowType.Value.Name] <- plan.BaseAlias
                         let targetExpr =
                             match unwrapQuote sourceExpr with
                             | :? ConstantExpression as ce when not (isNull ce.Value) ->
@@ -889,12 +895,50 @@ module ExpressionPushdownTranslator =
                             match translatePredicate predLambda.Parameters.[0] subPlan dialect predLambda.Body with
                             | Some pSql -> subPlan.WhereClauses.Add(pSql)
                             | None | _ -> ()
+                        subPlan.Projection <- Some "1"
                         let mutable subSql = subPlan.BuildSql(dialect)
                         for (pName, pVal) in subPlan.Parameters do
                             let uniqueName = $"@p{plan.Parameters.Count}"
                             subSql <- subSql.Replace(pName, uniqueName)
                             plan.Parameters.Add(uniqueName, pVal)
                         Some $"EXISTS ({subSql})"
+                    | None | _ -> None
+                else None
+            elif mc.Method.Name = "notExists" || mc.Method.Name = "NotExists" || mc.Method.Name = "whereNotExists" then
+                let sourceExpr =
+                    if mc.Method.IsStatic && mc.Arguments.Count >= 1 then mc.Arguments.[0]
+                    elif not (isNull mc.Object) then mc.Object
+                    else null
+                if not (isNull sourceExpr) then
+                    match tryExtractQueryableInfo sourceExpr with
+                    | Some (subTable, _, subRowType) ->
+                        let subPlan = PushdownQueryPlan.Create(subTable, [], baseAlias = sprintf "_sub%d" (plan.Joins.Count + 1), ?baseRowType = subRowType, ?dialect = plan.Dialect)
+                        subPlan.OuterAliases.[param.Name] <- plan.BaseAlias
+                        for kv in plan.OuterAliases do
+                            subPlan.OuterAliases.[kv.Key] <- kv.Value
+                        subPlan.OuterAliases.[plan.BaseAlias] <- plan.BaseAlias
+                        if plan.BaseRowType.IsSome then
+                            subPlan.OuterAliases.[plan.BaseRowType.Value.Name] <- plan.BaseAlias
+                        let targetExpr =
+                            match unwrapQuote sourceExpr with
+                            | :? ConstantExpression as ce when not (isNull ce.Value) ->
+                                match ce.Value with
+                                | :? IQueryable as iq -> iq.Expression
+                                | _ -> sourceExpr
+                            | other -> other
+                        mergeExpressionIntoPlan targetExpr subPlan dialect
+                        if mc.Arguments.Count >= 2 then
+                            let predLambda = unwrapQuote mc.Arguments.[1] :?> LambdaExpression
+                            match translatePredicate predLambda.Parameters.[0] subPlan dialect predLambda.Body with
+                            | Some pSql -> subPlan.WhereClauses.Add(pSql)
+                            | None | _ -> ()
+                        subPlan.Projection <- Some "1"
+                        let mutable subSql = subPlan.BuildSql(dialect)
+                        for (pName, pVal) in subPlan.Parameters do
+                            let uniqueName = $"@p{plan.Parameters.Count}"
+                            subSql <- subSql.Replace(pName, uniqueName)
+                            plan.Parameters.Add(uniqueName, pVal)
+                        Some $"NOT EXISTS ({subSql})"
                     | None | _ -> None
                 else None
             elif mc.Method.DeclaringType = typeof<string> && mc.Arguments.Count = 1 && dependsOnParameter param mc.Object && not (dependsOnParameter param mc.Arguments.[0]) then
@@ -1721,7 +1765,7 @@ module ExpressionPushdownTranslator =
         | _ -> false
 
     let extractPlanFromExpression (rootExpr: Expression) (baseSql: string) (baseParameters: (string * obj) list) (dialect: SqlDialect) : PushdownQueryPlan =
-        let plan = PushdownQueryPlan.Create(baseSql, baseParameters)
+        let plan = PushdownQueryPlan.Create(baseSql, baseParameters, dialect = dialect)
         mergeExpressionIntoPlan rootExpr plan dialect
         plan
 
@@ -1904,14 +1948,14 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
                     t.GetGenericArguments().[0]
                 else
                     t
-            let plan = PushdownQueryPlan.Create(baseSql, baseParameters)
+            let plan = PushdownQueryPlan.Create(baseSql, baseParameters, dialect = dialect)
             Activator.CreateInstance(
                 typedefof<SqlPushdownQueryable<_>>.MakeGenericType(elemType),
                 this, expression, connector, baseSql, baseParameters, plan
             ) :?> IQueryable
 
         member this.CreateQuery<'TElement>(expression: Expression) : IQueryable<'TElement> =
-            let plan = PushdownQueryPlan.Create(baseSql, baseParameters)
+            let plan = PushdownQueryPlan.Create(baseSql, baseParameters, dialect = dialect)
             SqlPushdownQueryable<'TElement>(this, expression, connector, baseSql, baseParameters, plan) :> IQueryable<'TElement>
 
         member this.Execute(expression: Expression) : obj =
@@ -1949,7 +1993,7 @@ and SqlPushdownQueryable<'T>(
     new(connector: IQueryableConnector, baseSql: string, ?baseParameters: (string * obj) list) =
         let p = defaultArg baseParameters []
         let provider = SqlPushdownQueryProvider(connector, baseSql, p)
-        let plan = PushdownQueryPlan.Create(baseSql, p, baseRowType = typeof<'T>)
+        let plan = PushdownQueryPlan.Create(baseSql, p, baseRowType = typeof<'T>, dialect = provider.Dialect)
         SqlPushdownQueryable<'T>(provider, Expression.Constant(null, typeof<IQueryable<'T>>), connector, baseSql, p, plan)
 
     member _.Plan = plan
@@ -2231,6 +2275,14 @@ and SqlPushdownQueryable<'T>(
         let expr = (this :> IQueryable<'T>).Expression
         p.ToRawSql(expr, plan)
 
+    /// Extracts the formatted, indented raw SQL query generated for this queryable without executing it against the database.
+    member this.ToRawQuery() : string =
+        let p = provider :?> SqlPushdownQueryProvider
+        let expr = (this :> IQueryable<'T>).Expression
+        let sql, allParams = p.ToSqlWithParameters(expr, plan)
+        let formatted = SqlPushdownFormatting.formatSql sql
+        SqlPushdownFormatting.formatSqlAndParameters formatted allParams
+
     /// Extracts the raw SQL query and parameter bindings for this queryable without executing it against the database.
     member this.ToSqlWithParameters() : string * (string * obj) list =
         let p = provider :?> SqlPushdownQueryProvider
@@ -2257,6 +2309,7 @@ and SqlPushdownQueryable<'T>(
 
 module SqlPushdownQuery =
     open SqlPushdownFormatting
+    open System.Reflection
 
     let rec tryFindPushdownSource (expr: Expression) : (IQueryable * PushdownQueryPlan option) option =
         match expr with
@@ -2268,13 +2321,46 @@ module SqlPushdownQuery =
                 let planProp = t.GetProperty("Plan")
                 let plan = if isNull planProp then None else Some (planProp.GetValue(c.Value) :?> PushdownQueryPlan)
                 Some (iq, plan)
+            | other when not (isNull other) ->
+                let fields = other.GetType().GetFields(BindingFlags.Public ||| BindingFlags.NonPublic ||| BindingFlags.Instance)
+                fields
+                |> Seq.tryPick (fun f ->
+                    try
+                        match f.GetValue(other) with
+                        | :? IQueryable as iq when not (isNull iq.Provider) && iq.Provider.GetType() = typeof<SqlPushdownQueryProvider> ->
+                            let planProp = iq.GetType().GetProperty("Plan")
+                            let plan = if isNull planProp then None else Some (planProp.GetValue(iq) :?> PushdownQueryPlan)
+                            Some (iq, plan)
+                        | _ -> None
+                    with _ -> None)
             | _ -> None
         | :? MethodCallExpression as m ->
             m.Arguments
             |> Seq.tryPick tryFindPushdownSource
             |> Option.orElseWith (fun () -> tryFindPushdownSource m.Object)
+        | :? LambdaExpression as l ->
+            tryFindPushdownSource l.Body
+        | :? MemberExpression as m ->
+            tryFindPushdownSource m.Expression
+            |> Option.orElseWith (fun () ->
+                try
+                    if isNull m.Expression && m.Member :? PropertyInfo then
+                        let p = m.Member :?> PropertyInfo
+                        match p.GetValue(null) with
+                        | :? IQueryable as iq when not (isNull iq.Provider) && iq.Provider.GetType() = typeof<SqlPushdownQueryProvider> ->
+                            let planProp = iq.GetType().GetProperty("Plan")
+                            let plan = if isNull planProp then None else Some (planProp.GetValue(iq) :?> PushdownQueryPlan)
+                            Some (iq, plan)
+                        | _ -> None
+                    else None
+                with _ -> None)
+        | :? InvocationExpression as inv ->
+            tryFindPushdownSource inv.Expression
+            |> Option.orElseWith (fun () -> inv.Arguments |> Seq.tryPick tryFindPushdownSource)
         | :? UnaryExpression as u ->
             tryFindPushdownSource u.Operand
+        | :? BinaryExpression as b ->
+            tryFindPushdownSource b.Left |> Option.orElseWith (fun () -> tryFindPushdownSource b.Right)
         | _ -> None
 
     let extractSqlWithParameters (query: obj) : string * (string * obj) list =
@@ -2282,7 +2368,8 @@ module SqlPushdownQuery =
         | null -> ("", [])
         | :? string as s -> (s, [])
         | :? PushdownQueryPlan as plan ->
-            let sql = plan.BuildSql(SqlDialect.Sqlite)
+            let dialect = defaultArg plan.Dialect SqlDialect.Sqlite
+            let sql = plan.BuildSql(dialect)
             let parms = plan.BaseParameters @ (plan.Parameters |> List.ofSeq)
             (sql, parms)
         | :? IQueryable as iq ->
@@ -2305,14 +2392,146 @@ module SqlPushdownQuery =
                 let res = toRawSqlMethod.Invoke(other, [||]) :?> string
                 (res, [])
             else
-                (string other, [])
+                let toRawQueryMethod = t.GetMethod("ToRawQuery", Type.EmptyTypes)
+                if not (isNull toRawQueryMethod) then
+                    let res = toRawQueryMethod.Invoke(other, [||]) :?> string
+                    (res, [])
+                else
+                    (string other, [])
 
     let extractRawSql (query: obj) : string =
         let sql, parms = extractSqlWithParameters query
         formatSqlAndParameters sql parms
 
+    let toRawSql (query: obj) : string =
+        extractRawSql query
+
+    let toRawQuery (query: obj) : string =
+        let sql, parms = extractSqlWithParameters query
+        let formatted = SqlPushdownFormatting.formatSql sql
+        formatSqlAndParameters formatted parms
+
     do
         ResultKind.RegisterRawSqlExtractor(extractRawSql, extractSqlWithParameters)
+
+[<AutoOpen>]
+module SqlComputationExtensions =
+    open System.Reflection
+    open Microsoft.FSharp.Linq
+    open Microsoft.FSharp.Quotations
+    open Microsoft.FSharp.Quotations.Patterns
+    open Microsoft.FSharp.Quotations.DerivedPatterns
+
+    /// Marker function declaring a correlated subquery existence check in F# queries.
+    let exists (subquery: #seq<'T>) : bool = true
+
+    /// Marker function declaring a correlated subquery non-existence check in F# queries.
+    let notExists (subquery: #seq<'T>) : bool = false
+
+    /// Marker function declaring an explicit correlated CROSS APPLY in F# queries.
+    let crossApply (subquery: #seq<'T>) : #seq<'T> = subquery
+
+    /// Marker function declaring an explicit correlated CROSS JOIN LATERAL in F# queries.
+    let lateral (subquery: #seq<'T>) : #seq<'T> = subquery
+
+    /// Strongly-typed F# computation expression builder providing dedicated keywords
+    /// for subqueries, EXISTS, NOT EXISTS, CROSS APPLY / LATERAL, and HAVING.
+    type FSqlQueryBuilder() =
+        inherit QueryBuilder()
+
+        [<CustomOperation("whereExists", MaintainsVariableSpace = true)>]
+        member inline _.WhereExists(source: QuerySource<'T, 'Q>, [<ProjectionParameter>] subquery: 'T -> #seq<'U>) : QuerySource<'T, 'Q> =
+            failwith "whereExists marker"
+
+        [<CustomOperation("whereExists", MaintainsVariableSpace = true)>]
+        member inline _.WhereExistsPred(source: QuerySource<'T, 'Q>, [<ProjectionParameter>] predicate: 'T -> bool) : QuerySource<'T, 'Q> =
+            failwith "whereExists marker"
+
+        [<CustomOperation("whereNotExists", MaintainsVariableSpace = true)>]
+        member inline _.WhereNotExists(source: QuerySource<'T, 'Q>, [<ProjectionParameter>] subquery: 'T -> #seq<'U>) : QuerySource<'T, 'Q> =
+            failwith "whereNotExists marker"
+
+        [<CustomOperation("whereNotExists", MaintainsVariableSpace = true)>]
+        member inline _.WhereNotExistsPred(source: QuerySource<'T, 'Q>, [<ProjectionParameter>] predicate: 'T -> bool) : QuerySource<'T, 'Q> =
+            failwith "whereNotExists marker"
+
+        [<CustomOperation("having", MaintainsVariableSpace = true)>]
+        member inline _.Having(source: QuerySource<'T, 'Q>, [<ProjectionParameter>] predicate: 'T -> bool) : QuerySource<'T, 'Q> =
+            failwith "having marker"
+
+        member this.Run(q: Expr<QuerySource<'T, System.Linq.IQueryable>>) : System.Linq.IQueryable<'T> =
+            let whereMethod = typeof<QueryBuilder>.GetMethod("Where")
+            let countMethod =
+                typeof<System.Linq.Enumerable>.GetMethods()
+                |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)
+
+            let rec rewrite (expr: Expr) : Expr =
+                match expr with
+                | Call(Some instance, mi, [ source; Lambda(var, body) ]) when mi.Name = "WhereExists" ->
+                    let srcType = mi.GetGenericArguments().[0]
+                    let qType = mi.GetGenericArguments().[1]
+                    let genericWhere = whereMethod.MakeGenericMethod(srcType, qType)
+                    let subElemType =
+                        if body.Type.IsGenericType then body.Type.GetGenericArguments().[0]
+                        else typeof<obj>
+                    let genericCount = countMethod.MakeGenericMethod(subElemType)
+                    let countCall = Expr.Call(genericCount, [ rewrite body ])
+                    let gtExpr = <@@ (%%countCall : int) > 0 @@>
+                    let newSource = rewrite source
+                    Expr.Call(instance, genericWhere, [ newSource; Expr.Lambda(var, gtExpr) ])
+                | Call(Some instance, mi, [ source; Lambda(var, body) ]) when mi.Name = "WhereExistsPred" ->
+                    let srcType = mi.GetGenericArguments().[0]
+                    let qType = mi.GetGenericArguments().[1]
+                    let genericWhere = whereMethod.MakeGenericMethod(srcType, qType)
+                    let newSource = rewrite source
+                    let newBody = rewrite body
+                    Expr.Call(instance, genericWhere, [ newSource; Expr.Lambda(var, newBody) ])
+                | Call(Some instance, mi, [ source; Lambda(var, body) ]) when mi.Name = "WhereNotExists" ->
+                    let srcType = mi.GetGenericArguments().[0]
+                    let qType = mi.GetGenericArguments().[1]
+                    let genericWhere = whereMethod.MakeGenericMethod(srcType, qType)
+                    let subElemType =
+                        if body.Type.IsGenericType then body.Type.GetGenericArguments().[0]
+                        else typeof<obj>
+                    let genericCount = countMethod.MakeGenericMethod(subElemType)
+                    let countCall = Expr.Call(genericCount, [ rewrite body ])
+                    let eqExpr = <@@ (%%countCall : int) = 0 @@>
+                    let newSource = rewrite source
+                    Expr.Call(instance, genericWhere, [ newSource; Expr.Lambda(var, eqExpr) ])
+                | Call(Some instance, mi, [ source; Lambda(var, body) ]) when mi.Name = "WhereNotExistsPred" ->
+                    let srcType = mi.GetGenericArguments().[0]
+                    let qType = mi.GetGenericArguments().[1]
+                    let genericWhere = whereMethod.MakeGenericMethod(srcType, qType)
+                    let newSource = rewrite source
+                    let newBody = rewrite body
+                    let notExpr = <@@ not %%(Expr.Cast<bool>(newBody)) @@>
+                    Expr.Call(instance, genericWhere, [ newSource; Expr.Lambda(var, notExpr) ])
+                | Call(Some instance, mi, [ source; Lambda(var, body) ]) when mi.Name = "Having" ->
+                    let srcType = mi.GetGenericArguments().[0]
+                    let qType = mi.GetGenericArguments().[1]
+                    let genericWhere = whereMethod.MakeGenericMethod(srcType, qType)
+                    let newSource = rewrite source
+                    let newBody = rewrite body
+                    Expr.Call(instance, genericWhere, [ newSource; Expr.Lambda(var, newBody) ])
+                | ExprShape.ShapeVar v -> Expr.Var v
+                | ExprShape.ShapeLambda(v, b) -> Expr.Lambda(v, rewrite b)
+                | ExprShape.ShapeCombination(shape, args) -> ExprShape.RebuildShapeCombination(shape, List.map rewrite args)
+
+            let rewritten = rewrite q
+            let typedExpr = Expr.Cast<QuerySource<'T, System.Linq.IQueryable>>(rewritten)
+            base.Run(typedExpr)
+
+    /// Instance of FSqlQueryBuilder providing descriptive DQL computation expressions.
+    let fquery = FSqlQueryBuilder()
+
+    /// Alias for fquery computation expression.
+    let fsql = fquery
+
+    /// Extracts the formatted, indented raw SQL query for any queryable, plan, or expression.
+    let toRawQuery (query: obj) : string = SqlPushdownQuery.toRawQuery query
+
+    /// Extracts the raw SQL query for any queryable, plan, or expression.
+    let toRawSql (query: obj) : string = SqlPushdownQuery.toRawSql query
 
 
 

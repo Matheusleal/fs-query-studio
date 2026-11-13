@@ -21,6 +21,38 @@ type JoinPlan = {
 }
 
 module SqlPushdownFormatting =
+    open System.Text
+    open System.Text.RegularExpressions
+
+    let formatSql (sql: string) : string =
+        if String.IsNullOrWhiteSpace sql then sql
+        else
+            let s = Regex.Replace(sql.Trim(), @"\s+", " ")
+            let re = Regex(@"(?i)\s*\b(SELECT|FROM|CROSS\s+APPLY|OUTER\s+APPLY|CROSS\s+JOIN\s+LATERAL|LEFT\s+JOIN\s+LATERAL|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|CROSS\s+JOIN|WHERE|GROUP\s+BY|HAVING|ORDER\s+BY)\b\s*")
+            let mutable openParens = 0
+            let sb = StringBuilder()
+            let mutable lastIndex = 0
+            let matches = re.Matches(s)
+            for m in matches do
+                if m.Index > lastIndex then
+                    let chunk = s.Substring(lastIndex, m.Index - lastIndex).Trim()
+                    if not (String.IsNullOrEmpty chunk) then
+                        sb.Append(" ").Append(chunk) |> ignore
+                        for c in chunk do
+                            if c = '(' then openParens <- openParens + 1
+                            elif c = ')' then openParens <- max 0 (openParens - 1)
+                let kw = Regex.Replace(m.Value.Trim(), @"\s+", " ").ToUpperInvariant()
+                if sb.Length > 0 then
+                    sb.AppendLine() |> ignore
+                let indent = String(' ', openParens * 4)
+                sb.Append(indent).Append(kw) |> ignore
+                lastIndex <- m.Index + m.Length
+            if lastIndex < s.Length then
+                let rest = s.Substring(lastIndex).Trim()
+                if not (String.IsNullOrEmpty rest) then
+                    sb.Append(" ").Append(rest) |> ignore
+            sb.ToString().Trim()
+
     let formatSqlAndParameters (sql: string) (parameters: (string * obj) list) : string =
         if List.isEmpty parameters then
             sql
@@ -56,10 +88,11 @@ type PushdownQueryPlan = {
     mutable Skip: int option
     mutable Take: int option
     mutable Projection: string option
+    mutable Dialect: SqlDialect option
     FallbackPredicates: ResizeArray<obj -> bool>
     OuterAliases: Dictionary<string, string>
 } with
-    static member Create(baseSql: string, baseParameters: (string * obj) list, ?baseAlias: string, ?baseRowType: Type) =
+    static member Create(baseSql: string, baseParameters: (string * obj) list, ?baseAlias: string, ?baseRowType: Type, ?dialect: SqlDialect) =
         {
             BaseSql = baseSql
             BaseParameters = baseParameters
@@ -75,12 +108,13 @@ type PushdownQueryPlan = {
             Skip = None
             Take = None
             Projection = None
+            Dialect = dialect
             FallbackPredicates = ResizeArray<obj -> bool>()
             OuterAliases = Dictionary<string, string>()
         }
 
     member this.Clone() =
-        let p = PushdownQueryPlan.Create(this.BaseSql, this.BaseParameters, this.BaseAlias, ?baseRowType = this.BaseRowType)
+        let p = PushdownQueryPlan.Create(this.BaseSql, this.BaseParameters, this.BaseAlias, ?baseRowType = this.BaseRowType, ?dialect = this.Dialect)
         p.Joins.AddRange(this.Joins)
         p.WhereClauses.AddRange(this.WhereClauses)
         p.Parameters.AddRange(this.Parameters)
@@ -100,6 +134,16 @@ type PushdownQueryPlan = {
         let sql = this.BuildSql(dialect)
         let allParams = (this.BaseParameters @ (this.Parameters |> List.ofSeq))
         SqlPushdownFormatting.formatSqlAndParameters sql allParams
+
+    member this.BuildRawQuery(dialect: SqlDialect) : string =
+        let sql = this.BuildSql(dialect)
+        let formatted = SqlPushdownFormatting.formatSql sql
+        let allParams = (this.BaseParameters @ (this.Parameters |> List.ofSeq))
+        SqlPushdownFormatting.formatSqlAndParameters formatted allParams
+
+    member this.ToRawQuery(?dialect: SqlDialect) : string =
+        let d = defaultArg dialect (defaultArg this.Dialect SqlDialect.Sqlite)
+        this.BuildRawQuery(d)
 
     member this.BuildSql(dialect: SqlDialect) : string =
         let isTableOnly =
