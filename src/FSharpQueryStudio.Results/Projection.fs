@@ -19,7 +19,7 @@ module Projection =
     let PreviewRowLimit = 500
 
     /// A fully-materialized table the worker retains for Export CSV — see
-    /// docs/superpowers/specs/2026-09-08-notebook-tail-value-results-design.md.
+    /// docs/archive/specs/2026-09-08-notebook-tail-value-results-design.md.
     /// `None` for every non-materialized result (scalars, text, a streamed
     /// scalar `seq`). Shaped to match `ResultRetention.RetainedResult`,
     /// which this file compiles too early to reference directly.

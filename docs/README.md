@@ -1,48 +1,73 @@
-# `docs/`
+# F# Query Studio Documentation (`docs/`)
 
-Everything written about F# Query Studio. Split into what you read to *use or
-ship* the project and what exists as a *historical record*.
+[🇺🇸 English](README.md) | [🇧🇷 Versão em Português](README_PT.md)
 
-## Current — read these
+Welcome to the central documentation index for **F# Query Studio**. This folder is the single canonical source of truth for all documentation, technical specifications, user guides, benchmarks, engineering runbooks, proposals, and task records.
 
-| File | For |
+---
+
+## 1. User Guides & Walkthroughs
+
+| Document | Language | Description |
+|---|---|---|
+| [`USER_GUIDE.md`](USER_GUIDE.md) | 🇺🇸 English | **Comprehensive User Guide** — Complete reference for F# Query Notebooks (`.fsqnb`), all data connectors (Postgres, SQL Server, MySQL, SQLite, CSV, Excel, JSON, REST), LINQ pushdown queries, custom formulas, UI and shortcuts. |
+| [`USER_GUIDE_PT.md`](USER_GUIDE_PT.md) | 🇧🇷 Português | **Guia Completo do Usuário** — Manual detalhado de uso, conexões, consultas LINQ, fórmulas de higienização de colunas e comandos da extensão. |
+| [`TUTORIAL.md`](TUTORIAL.md) | 🇺🇸 English | **Hands-On Tutorial** — Step-by-step walkthrough: first notebook → connection registration → pushdown query → CSV export. |
+| [`TUTORIAL_PT.md`](TUTORIAL_PT.md) | 🇧🇷 Português | **Tutorial Prático Passo a Passo** — Do zero ao primeiro notebook, conexões e exportação. |
+
+---
+
+## 2. Technical & Language Specifications
+
+| Document | Description |
 |---|---|
-| [`../README.md`](../README.md) | Project overview, requirements, install, repo layout (English). Start here. |
-| [`../README_PT.md`](../README_PT.md) | Visão geral do projeto, requisitos, instalação e arquitetura (Português). |
-| [`../editors/vscode/docs/USER_GUIDE.md`](../editors/vscode/docs/USER_GUIDE.md) | Comprehensive User Guide covering LINQ, all connectors, UI and commands (English). |
-| [`../editors/vscode/docs/USER_GUIDE_PT.md`](../editors/vscode/docs/USER_GUIDE_PT.md) | Guia do Usuário Completo em Português cobrindo LINQ, todos os conectores e interface. |
-| [`BENCHMARK_REPORT.md`](BENCHMARK_REPORT.md) | Comprehensive performance benchmarks (CPU, memory, latency) and UI test coverage (English). |
-| [`BENCHMARK_REPORT_PT.md`](BENCHMARK_REPORT_PT.md) | Relatório abrangente de desempenho, consumo de recursos e cobertura de testes (Português). |
-| [`../editors/vscode/docs/README.md`](../editors/vscode/docs/README.md) | Full feature and API reference for the extension (also the Marketplace description). |
-| [`../editors/vscode/docs/README_PT.md`](../editors/vscode/docs/README_PT.md) | Referência completa de recursos e API da extensão para o VS Code (Português). |
-| [`TUTORIAL.md`](TUTORIAL.md) | Hands-on walkthrough: first notebook → connection → pushdown query → CSV export (English). |
-| [`TUTORIAL_PT.md`](TUTORIAL_PT.md) | Tutorial prático passo a passo: primeiro notebook → conexões → consultas pushdown → exportação CSV (Português). |
-| [`FSQL_LANGUAGE_SPECIFICATION.md`](FSQL_LANGUAGE_SPECIFICATION.md) | Canonical internal language specification for FSQL across all SQL databases (English). |
-| [`FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md) | Definitive canonical reference guide and rules for AI Agents writing FSQL queries. |
-| [`vscode-extension-release.md`](vscode-extension-release.md) | The manual runbook for packaging and publishing a release. |
-| [`../editors/vscode/scripts/README.md`](../editors/vscode/scripts/README.md) | Reference for the `build` / `package` / `publish` / `doctor` npm scripts. |
-| [`../editors/vscode/docs/CHANGELOG.md`](../editors/vscode/docs/CHANGELOG.md) | Per-version list of user-visible changes. |
+| [`FSQL_LANGUAGE_SPECIFICATION.md`](FSQL_LANGUAGE_SPECIFICATION.md) | **FSQL Language Specification** — Formal syntax and semantics of the `fsql { ... }` computation expression across relational engines, joins, subqueries, aggregations, window functions, and pushdown rules. |
+| [`FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md) | **FSQL AI Agent Guide** — Strict rules, canonical patterns, syntax guidelines, and anti-patterns for AI Agents generating queries in F# Query Studio. |
 
-## Historical — record, not documentation
+---
 
-These describe how the project got here. They are **not** kept in sync with the
-current code and should not be edited as if they were.
+## 3. Performance Benchmarks
 
-| Path | What it is |
+| Document | Language | Description |
+|---|---|---|
+| [`BENCHMARK_REPORT.md`](BENCHMARK_REPORT.md) | 🇺🇸 English | **Execution & Resource Benchmarks** — Detailed measurements for cold start, warm query execution, high-volume scaling (100 to 100,000+ rows), memory consumption (GC), and UI responsiveness. |
+| [`BENCHMARK_REPORT_PT.md`](BENCHMARK_REPORT_PT.md) | 🇧🇷 Português | **Relatório de Desempenho e Benchmarks** — Métricas completas de tempo de CPU, latência, alocações de memória e cobertura de testes. |
+
+---
+
+## 4. Releases, Changelogs & DevOps Runbooks
+
+| Document | Description |
 |---|---|
-| [`DEVLOG.md`](DEVLOG.md) | Dated, append-only engineering log — one entry per task since the project began. Add to it; do not rewrite it. |
-| `superpowers/specs/` | The design spec produced before each phase (SDD workflow). Frozen once its phase shipped. |
-| `superpowers/plans/` | The implementation plan produced from each spec. Frozen likewise. |
-| `tasks/` | Per-task working notes for individual fixes and features. |
-| [`f6-parity-checklist.md`](f6-parity-checklist.md) | The point-by-point check that the VS Code extension matched the retired desktop app. |
-| [`fs-studio-plan.md`](fs-studio-plan.md), [`fs-studio-development-plan.md`](fs-studio-development-plan.md) | The original architecture and phase plan from the **Avalonia desktop** era. Superseded by the VS Code extension; kept for context. |
+| [`CHANGELOG.md`](CHANGELOG.md) | **Release History (English)** — Chronological release notes and user-visible improvements per version. |
+| [`CHANGELOG_PT.md`](CHANGELOG_PT.md) | **Histórico de Lançamentos (Português)** — Notas de versão em português. |
+| [`vscode-extension-release.md`](vscode-extension-release.md) | **Extension Release Runbook** — Preflight checklist, version tagging, VSIX packaging verification, and Marketplace publishing procedure. |
+| [`../editors/vscode/scripts/README.md`](../editors/vscode/scripts/README.md) | **Packaging Scripts Documentation** — Reference for the npm commands (`doctor`, `build`, `package`, `publish`). |
 
-## How the project is built
+---
 
-F# Query Studio began as an Avalonia desktop application. It was rebuilt as a VS
-Code extension in phases **F1–F9**; the desktop app, its UI projects, and the
-Windows installer were then deleted. The `src/FSharpQueryStudio.*` worker and
-libraries carried straight over — only the front end changed.
+## 5. Technical Proposals & RFCs
 
-The design → plan → implement cycle for each phase is recorded under
-`superpowers/`; the running narrative is in `DEVLOG.md`.
+| Directory / Link | Description |
+|---|---|
+| [`proposals/`](proposals/README.md) | **Architecture Proposals & RFCs** — High-level technical proposals and design improvements for worker resilience, performance, and code cleanup. |
+
+---
+
+## 6. Specification & Change Management (SDD)
+
+| Directory / Link | Description |
+|---|---|
+| [`sdd/`](sdd/README.md) | **Spec-Driven Development (SDD)** — Formal Delta Specs, proposals, and task ledgers under `sdd/changes/` (active sprint changes) and `sdd/archive/` (consolidated changes). |
+| [`DOCUMENTATION_AUDIT_REPORT.md`](DOCUMENTATION_AUDIT_REPORT.md) | **Documentation Audit & Inventory Report** — Comprehensive audit of all tasks, specifications, proposals, and archive files across the codebase. |
+
+---
+
+## 7. Historical Records & Architecture Evolution
+
+These documents preserve the history and design evolution of F# Query Studio:
+
+| Document / Directory | Description |
+|---|---|
+| [`DEVLOG.md`](DEVLOG.md) | **Append-Only Engineering Devlog** — Dated chronological log of every development step taken since project inception. |
+| [`archive/`](archive/README.md) | **Historical Archive** — Foundational VS Code extension design specifications (`archive/specs/`), desktop architecture plans, and the F6 parity checklist. |

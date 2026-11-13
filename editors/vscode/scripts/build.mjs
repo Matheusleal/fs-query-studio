@@ -43,17 +43,21 @@ export function ensureDocsAvailable(extDir, repoRoot) {
     mkdirSync(docsDir, { recursive: true });
   }
 
-  // 1. Sync repository root benchmarks into editors/vscode/docs/
-  const benchmarkSrc = join(repoRoot, "docs", "BENCHMARK_REPORT.md");
-  const benchmarkDest = join(docsDir, "BENCHMARK_REPORT.md");
-  if (existsSync(benchmarkSrc)) {
-    copyFileSync(benchmarkSrc, benchmarkDest);
-  }
-
-  const benchmarkPtSrc = join(repoRoot, "docs", "BENCHMARK_REPORT_PT.md");
-  const benchmarkPtDest = join(docsDir, "BENCHMARK_REPORT_PT.md");
-  if (existsSync(benchmarkPtSrc)) {
-    copyFileSync(benchmarkPtSrc, benchmarkPtDest);
+  // 1. Sync canonical docs from repository root into editors/vscode/docs/
+  const syncFiles = [
+    "BENCHMARK_REPORT.md",
+    "BENCHMARK_REPORT_PT.md",
+    "USER_GUIDE.md",
+    "USER_GUIDE_PT.md",
+    "CHANGELOG.md",
+    "CHANGELOG_PT.md",
+  ];
+  for (const file of syncFiles) {
+    const src = join(repoRoot, "docs", file);
+    const dest = join(docsDir, file);
+    if (existsSync(src)) {
+      copyFileSync(src, dest);
+    }
   }
 
   // 2. Ensure root documentation required by vsce package & marketplace is available in extDir

@@ -122,17 +122,20 @@ let compileVscode () =
     if not (Directory.Exists(vscodeDocsDir)) then
         Directory.CreateDirectory(vscodeDocsDir) |> ignore
 
-    let benchmarkSrc = Path.Combine(rootDir, "docs", "BENCHMARK_REPORT.md")
-    let benchmarkDest = Path.Combine(vscodeDocsDir, "BENCHMARK_REPORT.md")
-    if File.Exists(benchmarkSrc) then
-        File.Copy(benchmarkSrc, benchmarkDest, true)
-        printInfo "Copied docs/BENCHMARK_REPORT.md to editors/vscode/docs/BENCHMARK_REPORT.md"
-
-    let benchmarkPtSrc = Path.Combine(rootDir, "docs", "BENCHMARK_REPORT_PT.md")
-    let benchmarkPtDest = Path.Combine(vscodeDocsDir, "BENCHMARK_REPORT_PT.md")
-    if File.Exists(benchmarkPtSrc) then
-        File.Copy(benchmarkPtSrc, benchmarkPtDest, true)
-        printInfo "Copied docs/BENCHMARK_REPORT_PT.md to editors/vscode/docs/BENCHMARK_REPORT_PT.md"
+    let syncFiles = [
+        "BENCHMARK_REPORT.md"
+        "BENCHMARK_REPORT_PT.md"
+        "USER_GUIDE.md"
+        "USER_GUIDE_PT.md"
+        "CHANGELOG.md"
+        "CHANGELOG_PT.md"
+    ]
+    for file in syncFiles do
+        let src = Path.Combine(rootDir, "docs", file)
+        let dest = Path.Combine(vscodeDocsDir, file)
+        if File.Exists(src) then
+            File.Copy(src, dest, true)
+            printInfo $"Copied docs/{file} to editors/vscode/docs/{file}"
 
     let docsReadme = Path.Combine(vscodeDocsDir, "README.md")
     let rootReadme = Path.Combine(vscodeDir, "README.md")
