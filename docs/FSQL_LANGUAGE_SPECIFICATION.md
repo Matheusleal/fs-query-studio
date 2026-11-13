@@ -1,31 +1,31 @@
-# Especificação da Linguagem FSQL (F# Structured Query Language)
-## Especificação Técnica Interna de Arquitetura e Compilação DQL
+# FSQL (F# Structured Query Language) Specification
+## Internal Technical Specification for Architecture & DQL Compilation
 
-**Versão da Especificação:** 1.0.0  
-**Status:** Canônica / Ativa  
-**Escopo:** Motores Relacionais SQL (SQL Server, PostgreSQL, SQLite, MySQL, MariaDB, Oracle) e Provedores Analíticos em Memória  
-**Data:** Novembro de 2026  
-
----
-
-## 1. Visão Geral e Propósito
-
-### 1.1 Definição
-O **FSQL** (F# Structured Query Language) é uma linguagem de consulta de dados declarativa, fortemente tipada e integrada nativamente ao F# através de *Computation Expressions* e árvores de expressão (*Expression Trees / Quotations*). O FSQL atua como uma especificação abstrata de Data Query Language (DQL), projetada para traduzir consultas de alto nível diretamente em comandos SQL nativos e altamente otimizados (SQL Pushdown), preservando segurança contra injeção de SQL, performance de execução e inferência estática de tipos.
-
-### 1.2 Princípios Fundamentais
-1. **Type Safety & Intellisense**: Toda consulta FSQL é verificada em tempo de compilação contra os metadados do esquema do banco de dados, eliminando erros comuns em tempo de execução como digitação incorreta de colunas ou incompatibilidade de tipos.
-2. **Pushdown Universal**: Toda operação de filtro, junção, projeção, ordenação, agrupamento e paginação é enviada ao motor do banco de dados relacional. Apenas as colunas projetadas e as linhas estritamente solicitadas trafegam pela rede ou são carregadas em memória.
-3. **Imutabilidade e Segurança**: Prevenção estrita e garantida contra SQL Injection através da parametrização obrigatória de todos os literais e variáveis dinâmicas capturadas em escopo.
-4. **Independência de Dialeto (Dialect Agnostic)**: A mesma consulta FSQL expressa na sintaxe canônica executa de forma idêntica sobre **SQL Server**, **PostgreSQL**, **SQLite**, **MySQL** ou arquivos tabulares cacheados, gerando o SQL idiomático correspondente a cada dialeto.
+**Specification Version:** 1.0.0  
+**Status:** Canonical / Active  
+**Scope:** Relational SQL Engines (SQL Server, PostgreSQL, SQLite, MySQL, MariaDB, Oracle) and In-Memory Analytical Providers  
+**Date:** November 2026  
 
 ---
 
-## 2. Gramática Formal e Sintaxe Canônica
+## 1. Overview & Scope
 
-A sintaxe canônica do FSQL é definida através da computation expression `fsql { ... }`.
+### 1.1 Definition
+**FSQL** (F# Structured Query Language) is a declarative, strongly-typed domain-specific language (DSL) embedded natively in F# through *Computation Expressions* and LINQ Expression Trees / Quotations. FSQL provides a unified, dialect-agnostic Data Query Language (DQL) specification designed to compile high-level F# functional queries directly into optimized, native SQL statements (Universal SQL Pushdown), guaranteeing compile-time type safety, automated parameterization, and zero-allocation streaming execution.
 
-### 2.1 EBNF (Extended Backus-Naur Form)
+### 1.2 Core Design Principles
+1. **Compile-Time Type Safety & IntelliSense**: Every FSQL query is checked at compile/typecheck time against database schema metadata, eliminating common runtime errors such as misspelled column names, invalid joins, or type mismatches.
+2. **Universal SQL Pushdown**: All filtering, projection, joining, ordering, grouping, aggregation, and pagination operations are pushed down to the underlying database engine. Only projected columns and matched rows are transmitted across the network or loaded into process memory.
+3. **Strict Parameterization & Immunity to SQL Injection**: Dynamic literals, captured F# variables, and closure values are automatically converted into isolated, typed command parameters (`@p0`, `@p1`), preventing SQL injection by design.
+4. **Dialect Independence**: A single canonical FSQL expression executes identically across **SQL Server**, **PostgreSQL**, **SQLite**, **MySQL**, **MariaDB**, and **Oracle**, emitting idiomatic dialect-specific SQL for each target engine.
+
+---
+
+## 2. Formal Grammar & Syntax Specification
+
+FSQL queries are expressed through the `fsql { ... }` computation expression builder.
+
+### 2.1 Extended Backus-Naur Form (EBNF)
 
 ```ebnf
 FSqlQueryExpression ::=
@@ -92,48 +92,49 @@ TerminalAggregateClause ::=
 
 ---
 
-## 3. Cláusulas e Operações da Linguagem
+## 3. Language Clauses & Semantic Operations
 
-### 3.1 Origem e Iteração (`for ... in ... do`)
-Define a tabela base ou coleção relacional de entrada.
+### 3.1 Source Iteration (`for ... in ... do`)
+Defines the primary data source or relational table:
 ```fsharp
 for c in Connections.sql.SampleStore.Customers do
 ```
-- **Semântica:** Define o alias de tabela `_t0` e a cláusula `FROM [Customers] AS _t0`.
+- **Semantics:** Establishes table alias `_t0` and emits `FROM [Customers] AS _t0`.
 
-### 3.2 Filtro Escalar (`where`)
-Filtra registros na fonte antes de agregações.
+### 3.2 Tuple Filtering (`where`)
+Filters rows at the source prior to grouping and aggregation:
 ```fsharp
 where (c.Country = "Brazil" && c.Age >= 21)
 ```
-- **Semântica:** Traduz para predicados na cláusula `WHERE`. Parâmetros capturados (`"Brazil"`, `21`) são vinculados via parâmetros nomeados (`@p0`, `@p1`). Operadores lógicos `&&` e `||` mapeiam para `AND` e `OR`.
+- **Semantics:** Compiles to predicate conditions inside the `WHERE` clause.
+- **Parameter Extraction:** Captured values (`"Brazil"`, `21`) are lifted into parameterized bindings (`@p0`, `@p1`). Logical `&&` and `||` map to SQL `AND` and `OR`.
 
-### 3.3 Testes de Existência Subquery (`whereExists` e `whereNotExists`)
-Permite testes correlacionados `EXISTS` e `NOT EXISTS` sem interpolação de texto ou manipulação de contagens.
+### 3.3 Correlated Existence Tests (`whereExists` and `whereNotExists`)
+Enables declarative `EXISTS` and `NOT EXISTS` subqueries in pure F# syntax:
 ```fsharp
 whereExists (fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id && o.TotalAmount >= 100.0f) })
 ```
-- **Semântica:** Traduz para `WHERE EXISTS (SELECT 1 FROM Orders _sub1 WHERE (_sub1.CustomerId = _t0.Id AND _sub1.TotalAmount >= @p0))`.
-- **Garantia:** Em `whereExists`, a projeção interna do sub-select é otimizada para `SELECT 1`, evitando a transferência ou leitura de colunas desnecessárias.
+- **Semantics:** Translates to `WHERE EXISTS (SELECT 1 FROM Orders _sub1 WHERE (_sub1.CustomerId = _t0.Id AND _sub1.TotalAmount >= @p0))`.
+- **Optimization Guarantee:** The subquery projection is rewritten to `SELECT 1`, preventing redundant column transmission or memory overhead.
 
-### 3.4 Joins Relacionais (`join` e `leftOuterJoin`)
-#### 3.4.1 INNER JOIN
+### 3.4 Relational Joins (`join` and `leftOuterJoin`)
+#### 3.4.1 Inner Join
 ```fsharp
 join o in Connections.sql.SampleStore.Orders on (c.Id = o.CustomerId)
 ```
-- **Semântica:** Mapeia para `INNER JOIN [Orders] AS _t1 ON (_t0.Id = _t1.CustomerId)`.
-- Suporta chaves compostas via tuplas: `on ((t.StoreId, t.Region) = (tgt.StoreId, tgt.Region))`.
+- **Semantics:** Generates `INNER JOIN [Orders] AS _t1 ON (_t0.Id = _t1.CustomerId)`.
+- Supports composite keys via tuple syntax: `on ((t.StoreId, t.Region) = (tgt.StoreId, tgt.Region))`.
 
-#### 3.4.2 LEFT OUTER JOIN
+#### 3.4.2 Left Outer Join
 ```fsharp
 leftOuterJoin o in Connections.sql.SampleStore.Orders on (c.Id = o.CustomerId) into g
 for o in g.DefaultIfEmpty() do
 ```
-- **Semântica:** Compilado via `GroupJoin` e `SelectMany` para `LEFT OUTER JOIN [Orders] AS _t1 ON (_t0.Id = _t1.CustomerId)`.
-- Os membros de `o` tornam-se nuláveis (`Nullable<'T>` ou verificação com `isNull`).
+- **Semantics:** Lowered via LINQ `GroupJoin` and `DefaultIfEmpty` into `LEFT OUTER JOIN [Orders] AS _t1 ON (_t0.Id = _t1.CustomerId)`.
+- Null checks and fallback expressions compile natively to SQL `COALESCE` or `CASE WHEN ... THEN ... ELSE ... END`.
 
-### 3.5 Junções Correlacionadas (`crossApply` e `lateral`)
-Permite correlacionar cada linha da tabela principal com o resultado de uma subquery parametrizada (ex: obter os $N$ pedidos mais recentes por cliente).
+### 3.5 Correlated Row-Level Joins (`crossApply` and `lateral`)
+Correlates each outer row with a parameterized subquery (e.g., retrieving the top $N$ latest orders per customer):
 ```fsharp
 crossApply (fsql {
     for o in Connections.sql.SampleStore.Orders do
@@ -143,11 +144,11 @@ crossApply (fsql {
     select o
 })
 ```
-- **Semântica SQL Server:** `CROSS APPLY (SELECT TOP (1) ... WHERE _sub1.CustomerId = _t0.Id ORDER BY _sub1.OrderDate DESC) AS _t1`.
-- **Semântica PostgreSQL:** `CROSS JOIN LATERAL (SELECT ... WHERE _sub1.CustomerId = _t0.Id ORDER BY _sub1.OrderDate DESC LIMIT 1) AS _t1`.
-- **Semântica SQLite:** Avaliação por subquery escalar na projeção ou fallback seguro em memória quando `LATERAL` não for suportado pela versão do SQLite.
+- **SQL Server:** `CROSS APPLY (SELECT TOP (1) ... WHERE _sub1.CustomerId = _t0.Id ORDER BY _sub1.OrderDate DESC) AS _t1`.
+- **PostgreSQL / MySQL 8.0+:** `CROSS JOIN LATERAL (SELECT ... WHERE _sub1.CustomerId = _t0.Id ORDER BY _sub1.OrderDate DESC LIMIT 1) AS _t1`.
+- **SQLite:** Evaluated via scalar sub-select in projection or managed fallback where lateral `FROM` expressions are not supported.
 
-### 3.6 Agrupamento e Agregações (`groupBy` e `having`)
+### 3.6 Grouping & Aggregate Filtering (`groupBy` and `having`)
 ```fsharp
 groupBy o.CustomerId into g
 having (fsql { for item in g do count } >= 5)
@@ -157,20 +158,20 @@ select {|
     TotalSpent = g.Sum(fun x -> x.TotalAmount)
 |}
 ```
-- **Semântica:**
-  - `groupBy` produz a cláusula `GROUP BY _t0.CustomerId`.
-  - `having` gera a cláusula estrita `HAVING (COUNT(*) >= @p0)`.
-  - A projeção seleciona a chave (`g.Key`) e as funções agregadas correspondentes (`COUNT(*)`, `SUM(_t0.TotalAmount)`).
+- **Semantics:**
+  - `groupBy` produces the `GROUP BY _t0.CustomerId` clause.
+  - `having` produces the dedicated `HAVING (COUNT(*) >= @p0)` clause without polluting `WHERE`.
+  - Projections capture key values and aggregate calls (`COUNT(*)`, `SUM(_t0.TotalAmount)`).
 
-### 3.7 Projeção Escalar Subquery na Cláusula `select`
-O FSQL permite embutir subqueries correlacionadas escalares diretamente nos campos de registros anônimos (`{| ... |}`):
+### 3.7 Scalar Subqueries in `select` Projections
+FSQL allows embedding correlated scalar subqueries directly within anonymous records:
 ```fsharp
 select {|
     CustomerName = c.FirstName + " " + c.LastName
     OrderCount = fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id); count }
 |}
 ```
-- **Semântica:** Traduz diretamente para um sub-select escalar por linha:
+- **Semantics:** Compiles directly to an inline scalar sub-select:
   ```sql
   SELECT
     (_t0.FirstName || ' ' || _t0.LastName) AS CustomerName,
@@ -180,61 +181,61 @@ select {|
 
 ---
 
-## 4. Matriz de Compilação por Dialeto de Banco de Dados
+## 4. Multi-Dialect Compilation Matrix
 
-O compilador FSQL converte a árvore de expressão intermediária (`SqlPushdownPlan`) no dialeto SQL canônico do banco de dados de destino:
+The FSQL compiler translates the neutral intermediate representation (`SqlPushdownPlan`) into dialect-specific SQL:
 
-| Recurso FSQL | SQL Server (T-SQL) | PostgreSQL | SQLite | MySQL / MariaDB | Oracle |
+| FSQL Feature | SQL Server (T-SQL) | PostgreSQL | SQLite | MySQL / MariaDB | Oracle (12c+) |
 |---|---|---|---|---|---|
-| **Escape de Identificador** | `[Column]` | `"Column"` | `[Column]` ou `"Column"` | `` `Column` `` | `"COLUMN"` |
-| **Parâmetros Vinculados** | `@p0`, `@p1` | `@p0`, `@p1` | `@p0`, `@p1` | `?` ou `@p0` | `:p0`, `:p1` |
-| **Paginação (Take/Skip)** | `OFFSET m ROWS FETCH NEXT n ROWS ONLY` | `LIMIT n OFFSET m` | `LIMIT n OFFSET m` | `LIMIT n OFFSET m` | `OFFSET m ROWS FETCH NEXT n ROWS ONLY` |
-| **Top sem Offset** | `SELECT TOP (n) ...` | `SELECT ... LIMIT n` | `SELECT ... LIMIT n` | `SELECT ... LIMIT n` | `SELECT ... FETCH FIRST n ROWS ONLY` |
-| **Concatenação de Strings** | `+` (ou `CONCAT`) | `||` | `||` | `CONCAT(a, b)` | `||` |
+| **Identifier Quoting** | `[Column]` | `"Column"` | `[Column]` or `"Column"` | `` `Column` `` | `"COLUMN"` |
+| **Bound Parameter Syntax** | `@p0`, `@p1` | `@p0`, `@p1` | `@p0`, `@p1` | `?` or `@p0` | `:p0`, `:p1` |
+| **Pagination (Take/Skip)** | `OFFSET m ROWS FETCH NEXT n ROWS ONLY` | `LIMIT n OFFSET m` | `LIMIT n OFFSET m` | `LIMIT n OFFSET m` | `OFFSET m ROWS FETCH NEXT n ROWS ONLY` |
+| **Top without Offset** | `SELECT TOP (n) ...` | `SELECT ... LIMIT n` | `SELECT ... LIMIT n` | `SELECT ... LIMIT n` | `SELECT ... FETCH FIRST n ROWS ONLY` |
+| **String Concatenation** | `+` (or `CONCAT`) | `||` | `||` | `CONCAT(a, b)` | `||` |
 | **Correlated Apply** | `CROSS APPLY (...)` | `CROSS JOIN LATERAL (...)` | Correlated Scalar Subquery | `LATERAL (...)` | `CROSS APPLY (...)` |
-| **Tratamento Booleano** | `_t0.Active = 1` (`BIT`) | `_t0.active = TRUE` (`BOOLEAN`) | `_t0.Active <> 0` (`INTEGER`) | `_t0.active = 1` (`TINYINT`) | `_t0.ACTIVE = 1` (`NUMBER(1)`) |
-| **Contagem Não-Nula** | `COUNT([col])` | `COUNT("col")` | `COUNT([col])` | ``COUNT(`col`)`` | `COUNT("COL")` |
-| **Contagem Distinta** | `COUNT(DISTINCT [col])` | `COUNT(DISTINCT "col")` | `COUNT(DISTINCT [col])` | ``COUNT(DISTINCT `col`)`` | `COUNT(DISTINCT "COL")` |
+| **Boolean Logic** | `_t0.Active = 1` (`BIT`) | `_t0.active = TRUE` (`BOOLEAN`) | `_t0.Active <> 0` (`INTEGER`) | `_t0.active = 1` (`TINYINT`) | `_t0.ACTIVE = 1` (`NUMBER(1)`) |
+| **Non-Null Column Count** | `COUNT([col])` | `COUNT("col")` | `COUNT([col])` | ``COUNT(`col`)`` | `COUNT("COL")` |
+| **Distinct Column Count** | `COUNT(DISTINCT [col])` | `COUNT(DISTINCT "col")` | `COUNT(DISTINCT [col])` | ``COUNT(DISTINCT `col`)`` | `COUNT(DISTINCT "COL")` |
 
 ---
 
-## 5. Arquitetura do Compilador e Ciclo de Vida da Query
+## 5. Compiler Architecture & Execution Pipeline
 
 ```mermaid
 flowchart TD
-    A["Código F# (fsql CE)"] --> B["FSharpExpr / Expression Tree"]
+    A["F# Source (fsql CE)"] --> B["Expression Tree (IQueryable)"]
     B --> C["SqlPushdownQuery.compile"]
-    C --> D["SqlPushdownPlan (AST Neutra)"]
+    C --> D["SqlPushdownPlan (Neutral AST)"]
     D --> E["Dialect Formatter (SqlServer / Postgres / Sqlite)"]
-    E --> F["SQL Parametrizado + Parameter Map"]
-    F --> G["Execution Engine (AdoHelper / DbCommand)"]
+    E --> F["Parameterized SQL + Parameter Map"]
+    F --> G["Execution Engine (DbCommand & Connection Pool)"]
     G --> H["DataReader Streaming (Results.fs)"]
-    H --> I["F# Record Dynamic Activator (Cache de Reflexão)"]
+    H --> I["Dynamic Record Activator (Precompiled IL Cache)"]
 ```
 
-### 5.1 Fases de Compilação
-1. **Captura da Árvore de Expressão**: A Computation Expression `fsql` produz uma árvore `System.Linq.Expressions.Expression` tipada em `IQueryable<'T>`.
-2. **Extração do Plano Neutro (`SqlPushdownPlan`)**:
-   - Decompõe `MethodCallExpression` encadeadas (`Where`, `Select`, `OrderBy`, `GroupBy`, `Join`, `Take`, `Skip`).
-   - Isola predicados de filtro, campos agrupadores e projeções finais.
-   - Extrai valores literais e referências de variáveis para a tabela de parâmetros `@p0`, `@p1`.
-3. **Resolução de Precedência e Sobrescrita**:
-   - Garante que métodos agregadores terminais (`count`, `sumBy`) retenham a função agregada `COUNT(*)` mesmo após uma projeção `select p.Id`.
-   - Remove automaticamente cláusulas `ORDER BY` incompatíveis em agregações escalares sem `GROUP BY` no SQL Server.
-4. **Formatação de Dialeto**:
-   - Aplica os caracteres de escape específicos do banco (`[ ]`, `" "`, `` ` ``).
-   - Formata a quebra de linha de cláusulas para permitir legibilidade estruturada via `toRawQuery`.
-5. **Execução e Mapeamento com Zero Alocação**:
-   - `DbCommand` é executado com reutilização de conexões via pool ADO.NET.
-   - Leitura sequencial de cursores em streaming iterativo via `Results.fs`.
-   - Instanciação de records F# através de construtores pré-compilados (`DynamicRecordActivator`), eliminando boxing e arrays reflexivos intermediários.
+### 5.1 Compilation Phases
+1. **Expression Tree Capture**: The `fsql` builder captures the expression as a strongly-typed `System.Linq.Expressions.Expression` graph.
+2. **Neutral Plan Lowering (`SqlPushdownPlan`)**:
+   - Decomposes chained `MethodCallExpression` nodes (`Where`, `Select`, `OrderBy`, `GroupBy`, `Join`, `Take`, `Skip`).
+   - Extracts filtering predicates, group keys, and final projection definitions.
+   - Extracts literal values and closure references into a parameterized symbol table (`@p0`, `@p1`).
+3. **Precedence & Collision Resolution**:
+   - Ensures terminal aggregate calls (`count`, `sumBy`) retain aggregate projections (`COUNT(*)`) even when preceded by a `select p.Id` projection.
+   - Automatically elides illegal `ORDER BY` clauses for single-row scalar aggregates without `GROUP BY` in SQL Server.
+4. **Dialect-Specific Emission**:
+   - Emits target delimiter quotes (`[ ]`, `" "`, `` ` ``).
+   - Formats SQL clauses with clean indentation and line breaks for inspection via `toRawQuery`.
+5. **Zero-Allocation Streaming Execution**:
+   - Reuses pooled `DbConnection` instances via ADO.NET pools.
+   - Streams data lazily via cursor enumeration (`Results.fs`).
+   - Instantiates F# records through precompiled constructor delegates (`DynamicRecordActivator`), eliminating reflection overhead and transient object arrays.
 
 ---
 
-## 6. Ferramentas de Inspeção e Diagnóstico
+## 6. Inspection & Diagnostic APIs
 
-### 6.1 `toRawQuery` (Inspeção Formatada e Documentada)
-Para fins de depuração, validação de índices e auditoria de planos de execução de banco de dados, o FSQL expõe a função canônica **`toRawQuery`**:
+### 6.1 `toRawQuery` (Formatted SQL Inspection)
+For debugging, execution plan auditing, and index tuning, FSQL provides the **`toRawQuery`** function:
 ```fsharp
 let q =
     fsql {
@@ -247,7 +248,7 @@ let q =
 printfn "%s" (toRawQuery q)
 ```
 
-**Saída Estruturada com Cabeçalho de Parâmetros:**
+**Structured Output with Parameter Header:**
 ```text
 /*
   Parameters:
@@ -265,17 +266,17 @@ WHERE (_t0.Country = @p0
   ))
 ```
 
-### 6.2 `toRawSql` (Extração em Tupla para Integração)
-Retorna a tupla bruta `string * (string * obj) list`:
+### 6.2 `toRawSql` (Tuple Extraction for Interop)
+Returns the raw tuple `string * (string * obj) list`:
 ```fsharp
 let sql, parameters = toRawSql q
 ```
 
 ---
 
-## 7. Diretrizes de Conformidade e Engenharia
+## 7. Implementation & Conformance Rules
 
-1. **Nunca concatenar strings SQL para filtros dinâmicos**: Todo predicado deve ser expresso dentro do bloco `where`, `having` ou `whereExists`.
-2. **Preservar a imutabilidade do `SqlPushdownPlan`**: Transformações na árvore devem retornar cópias imutáveis do plano de consulta.
-3. **Tratamento de Dialeto para SQLite**: SQLite não implementa nativamente `RIGHT JOIN` ou `FULL OUTER JOIN` e possui limitações para `CROSS JOIN LATERAL`. O compilador FSQL deve emitir erro descritivo ou acionar fallback in-memory seguro caso um recurso inexistente no SQLite seja requisitado.
-4. **Alinhamento com Agentes de IA**: Toda geração autônoma de queries deve seguir o [FSQL AI Agent Guide](FSQL_AI_AGENT_GUIDE.md).
+1. **No String Concatenation for Filters**: All query logic must be expressed through `where`, `having`, `whereExists`, or `crossApply`. Raw string interpolation inside queries is prohibited.
+2. **Immutability of `SqlPushdownPlan`**: Every tree modification must yield an immutable, side-effect-free copy of the plan.
+3. **Dialect Enforcement**: Features unsupported by a database dialect (such as `RIGHT JOIN` or `CROSS JOIN LATERAL` in older SQLite releases) must trigger a clear explanatory error or safe managed fallback.
+4. **AI Agent Compliance**: All autonomous agents generating queries must follow the [FSQL AI Agent Guide](FSQL_AI_AGENT_GUIDE.md).
