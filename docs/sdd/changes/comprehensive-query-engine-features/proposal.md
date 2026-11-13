@@ -13,7 +13,7 @@
 ```text
 Intent Block:
 Goal:        Expand F# Query Studio's SQL pushdown engine and query capabilities to natively support all join types (including leftOuterJoin/GroupJoin), aggregate functions (Count, Sum, Min, Max, Average, GroupBy), result limiters (Distinct, Top, Limit, Skip, First/Head), subselect expressions, and cross-tabulation/pivot queries.
-Expectation: Queries written via F# query { ... } expressions or SQL helper APIs execute natively with pushdown in milliseconds on multi-table datasets (such as 100k+ row datasets) without falling back to slow in-memory evaluation or throwing reflection errors.
+Expectation: Queries written via F# fsql { ... } expressions or SQL helper APIs execute natively with pushdown in milliseconds on multi-table datasets (such as 100k+ row datasets) without falling back to slow in-memory evaluation or throwing reflection errors.
 Action:      Extend SqlPushdownQuery compiler to handle GroupJoin (LEFT JOIN), GroupBy with aggregate projections (COUNT, SUM, AVG, MIN, MAX), DISTINCT, TOP/LIMIT/OFFSET dialect-specific syntax, subquery IN/EXISTS translation, in-memory LINQ fallback overload fix, and provide a high-performance dynamic Pivot generator in Connections.
 Result:      Users can express any analytical, grouping, filtering, subquery, or pivot operation seamlessly in F# notebooks and have it execute in milliseconds across SQLite, PostgreSQL, SQL Server, CSV and Excel.
 ```
@@ -44,7 +44,7 @@ Result:      Users can express any analytical, grouping, filtering, subquery, or
    - `RIGHT JOIN`, `FULL OUTER JOIN`, `CROSS JOIN`.
    - Fix `LinqInMemoryFallback.evaluate` overload matching to ensure fallback never crashes when pushdown is bypassed.
 2. **Aggregates & Grouping**:
-   - `groupBy` clause in `query { ... }` compiling to `GROUP BY` in SQL.
+   - `groupBy` clause in `fsql { ... }` compiling to `GROUP BY` in SQL.
    - Pushdown of `COUNT(*)`, `COUNT(col)`, `SUM(col)`, `MIN(col)`, `MAX(col)`, `AVG(col)`.
    - Support both grouped projections and direct scalar evaluation (`.Count()`, `.Sum()`, etc.).
 3. **Limiters & Modifiers**:
@@ -68,9 +68,9 @@ Result:      Users can express any analytical, grouping, filtering, subquery, or
 ## 4. Success Criteria
 
 1. Notebook `C:\Users\theus\Downloads\fs-qs2\notebook.fsqnb` cell 2 executes with `leftOuterJoin` and renders the interactive data grid in milliseconds.
-2. `query { ... groupBy ... select ... }` translates to `GROUP BY` with aggregate columns in SQL pushdown.
-3. `query { ... distinct ... }` generates `SELECT DISTINCT`.
-4. `query { ... take 10 ... }` and `skip` produce valid dialect-specific SQL.
+2. `fsql { ... groupBy ... select ... }` translates to `GROUP BY` with aggregate columns in SQL pushdown.
+3. `fsql { ... distinct ... }` generates `SELECT DISTINCT`.
+4. `fsql { ... take 10 ... }` and `skip` produce valid dialect-specific SQL.
 5. `Connections.sql.pivot` produces pivot table results from any staged or database table.
 6. 100% of all unit, integration, worker, and Docker Linux tests pass.
 7. Documentation updated in Portuguese and English.

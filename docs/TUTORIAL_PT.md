@@ -200,9 +200,9 @@ A maneira mais prática de registrar fontes de arquivos é utilizar a pasta `dat
 2. Execute o comando **F# Query Studio: Auto-Import Data Sources Directory** na Command Palette.
 3. Os arquivos são detectados, ganham tipos fortemente tipados e são pré-carregados de forma assíncrona em cache persistente SQLite em `.fsqs/cache/engine.db`.
 
-### Consultando Arquivos com LINQ
+### Consultando Arquivos com `fsql`
 ```fsharp
-query {
+fsql {
     for tx in Connections.csv.SalesFeed do
     where (tx.Quantity > 2)
     sortByDescending tx.TotalAmount
@@ -212,7 +212,7 @@ query {
 
 ```fsharp
 // Planilhas Excel expõem cada aba individualmente com tipagem forte
-query {
+fsql {
     for meta in Connections.excel.RegionalTargets.RegionalTargets do
     where (meta.GrowthRate >= 10.0M)
     select meta
@@ -223,7 +223,7 @@ query {
 Como os arquivos são cacheados no SQLite com índices B-tree compostos, você pode cruzar múltiplos arquivos em múltiplas chaves sem risco de congelamento por produto cartesiano em memória:
 
 ```fsharp
-query {
+fsql {
     for s in Connections.csv.SalesFeed do
     join c in Connections.csv.CustomersFeed on (s.Customer = c.CustomerName)
     select {| PedidoId = s.OrderId; Cliente = s.Customer; CategoriaFidelidade = c.LoyaltyTier |}
@@ -268,10 +268,10 @@ As senhas **nunca** são gravadas em texto puro nos arquivos do projeto.
 ## 10. Conexões REST JSON (HTTPS)
 
 Ao adicionar uma conexão `REST JSON`, informe a URL base (por exemplo, `https://api.github.com/orgs/fsprojects/repos`).
-O F# Query Studio mapeia as respostas JSON em records fortemente tipados que você pode consultar com LINQ:
+O F# Query Studio mapeia as respostas JSON em records fortemente tipados que você pode consultar com `fsql`:
 
 ```fsharp
-query {
+fsql {
     for repo in Connections.rest.GitHubFSharp do
     sortByDescending repo.stargazers_count
     select {| Repositorio = repo.full_name; Estrelas = repo.stargazers_count; Url = repo.html_url |}

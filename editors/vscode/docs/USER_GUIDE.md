@@ -222,7 +222,7 @@ F# Query Studio supports the full range of relational analytics compiled directl
 To write left outer joins across multiple tables, use the standard F# `leftOuterJoin ... in ... on ... into g` syntax followed by `for ... in g.DefaultIfEmpty()`:
 
 ```fsharp
-query {
+fsql {
     for order in csv.Orders do
     join orderItem in csv.OrderItems on (order.order_id = orderItem.order_id)
     join customer in csv.Customers on (order.customer_id = customer.customer_id)
@@ -254,7 +254,7 @@ query {
 Groupings compile directly to indexed `GROUP BY` and `HAVING` queries:
 
 ```fsharp
-query {
+fsql {
     for p in csv.Products do
     groupBy p.Category into g
     select {|
@@ -276,7 +276,7 @@ let totalRevenue = csv.OrderItems.Sum(fun i -> i.line_total)
 
 #### 3. Limiters and Paging (`distinct`, `take`, `skip`, `head`)
 ```fsharp
-query {
+fsql {
     for p in csv.Products do
     distinct
     sortByDescending p.Price
@@ -286,18 +286,18 @@ query {
 }
 ```
 
-#### 4. Subqueries and Subselects (`WHERE col IN (SELECT ...)`)
+#### 4. Subqueries and Subselects (`WHERE col IN (SELECT ...)`, `whereExists`, `whereNotExists`)
 You can compose strongly-typed subqueries that translate directly to native SQL subselects (`IN` and `EXISTS`):
 
 ```fsharp
 let discountedOrders =
-    query {
+    fsql {
         for item in csv.OrderItems do
         where (item.discount > 0.0M)
         select item.order_id
     }
 
-query {
+fsql {
     for o in csv.Orders do
     where (discountedOrders.Contains(o.order_id))
     select o
@@ -458,7 +458,7 @@ If a CSV contains product SKUs or ZIP codes with leading zeros (e.g. `001234`):
 Once configured, F# Query Studio generates strongly-typed records matching your overrides in `Connections.csv.<Conn>` and `Connections.excel.<Conn>`:
 
 ```fsharp
-query {
+fsql {
     for order in Connections.excel.FinancialReport.Q4_Revenue do
     // order.Revenue is typed as System.Decimal, order.TaxRate is double
     where (order.Revenue > 1000.0M && order.TaxRate <= 0.20)
@@ -579,7 +579,7 @@ F# Query Studio undergoes rigorous automated performance benchmarking and comple
 ### Execution Benchmarks (CPU, Memory & Latency)
 - **Sub-millisecond Latency**: Warm pooled queries execute in **0.05 ms - 0.20 ms** with 0% CPU consumption and zero Gen 0/1/2 garbage collections.
 - **Streaming Volume Scaling**: Seamlessly queries 100 to 50,000+ rows through `Results.fs` lazy streaming with a flat memory allocation baseline (~1.5 KB per cursor fetch).
-- **LINQ & Dynamic Records**: Strongly-typed F# record mapping (`Connections.query<'T>`) and LINQ expressions (`query { for ... in ... do where ... select ... }`) process 1,000 rows in **~2.0 ms** using compiled constructor reflection caching.
+- **fsql & Dynamic Records**: Strongly-typed F# record mapping (`Connections.query<'T>`) and `fsql` expressions (`fsql { for ... in ... do where ... select ... }`) process 1,000 rows in **~2.0 ms** using compiled constructor reflection caching.
 - **High-Throughput File Queries**: CSV processing reaches **~500,000 records/sec**.
 
 For detailed benchmark methodology, raw metrics, and hardware specifications, consult the **[Execution Benchmark Report](BENCHMARK_REPORT.md)** ([view on GitHub](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/BENCHMARK_REPORT.md)).

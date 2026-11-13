@@ -22,7 +22,7 @@ Result:      Consultas com joins complexos e projeções em qualquer banco de da
 
 2. **Ausência de Pushdown de Junções (`Join`) em Bancos de Dados**:
    - `ExpressionPushdownTranslator.hasJoin` verifica se existe `Join` na expressão. Se existir, o provedor **aborta o pushdown e faz fallback para `LinqInMemoryFallback.evaluate`**!
-   - Ou seja: qualquer `query { for o in Orders join c in Customers ... }` em PostgreSQL, SQL Server ou SQLite baixa as tabelas inteiras para a memória do processo worker e executa um `Enumerable.Join` no heap do .NET.
+   - Ou seja: qualquer `fsql { for o in Orders join c in Customers ... }` em PostgreSQL, SQL Server ou SQLite baixa as tabelas inteiras para a memória do processo worker e executa um `Enumerable.Join` no heap do .NET.
    - Em tabelas ou arquivos com mais de 200.000 linhas, isso causa alto consumo de RAM, pausas de GC e lentidão crítica.
 
 3. **Arquivos CSV e Excel sem Engine Relacional**:

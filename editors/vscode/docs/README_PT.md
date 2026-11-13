@@ -46,16 +46,16 @@ open FSharpQueryStudio.Connectors   // API Connections.*
 | Categoria | Tipos | Uso |
 |---|---|---|
 | `Connections.sql.<Conn>` | SQLite, SQL Server, PostgreSQL, MySQL | Tabelas tipadas (`.Users`) e queries parametrizadas `.rawQuery "..." [ ... ]` |
-| `Connections.csv.<Conn>` | CSV | Linhas tipadas via LINQ `query { for r in Connections.csv.<Conn> do ... }` ou `.Rows` |
+| `Connections.csv.<Conn>` | CSV | Linhas tipadas via `fsql { for r in Connections.csv.<Conn> do ... }` ou `.Rows` |
 | `Connections.excel.<Conn>` | Excel (XLSX) | Planilhas tipadas (`.<NomePlanilha>`) e `.Raw()` |
 | `Connections.rest.<Conn>` | REST JSON | Itens tipados (`.Items`) e `.SendAsync()` |
 
 ### Pushdown Universal de Consultas para SQL (Estilo EF)
 
-O F# Query Studio traduz expressões de consulta LINQ em F# diretamente em SQL nativo otimizado no SQLite, PostgreSQL e SQL Server. Apenas as colunas projetadas e as linhas filtradas trafegam do banco para a memória do cliente:
+O F# Query Studio traduz expressões de consulta `fsql` diretamente em SQL nativo otimizado no SQLite, PostgreSQL e SQL Server. Apenas as colunas projetadas e as linhas filtradas trafegam do banco para a memória do cliente:
 
 ```fsharp
-query {
+fsql {
     for o in Connections.sql.Sales.Orders do
     where (o.TotalAmount >= 100.0f && o.Status = "Completed")
     sortByDescending o.CreatedAt
@@ -73,17 +73,17 @@ ORDER BY _t0.CreatedAt DESC
 LIMIT 10
 ```
 
-### Inspeção de SQL Gerado (`toRawSql`)
+### Inspeção de SQL Gerado (`toRawQuery` / `toRawSql`)
 
 Para inspecionar o SQL e os parâmetros traduzidos antes do envio ao banco de dados:
 
 ```fsharp
-query {
+fsql {
     for o in Connections.sql.Sales.Orders do
     where (o.TotalAmount >= 100.0f)
     select o
 }
-|> Connections.toRawSql
+|> toRawQuery
 ```
 
 ### Engine de Staging de Alta Performance para CSV & Excel (`.fsqs/cache/engine.db`)
@@ -94,7 +94,7 @@ Arquivos CSV e Excel (`.xlsx`) são automaticamente armazenados em cache num ban
 - **Índices Compostos Automáticos e Joins Multi-Propriedades**: Joins entre arquivos diferentes com chaves compostas rodam direto no SQLite em subsegundos (~18 ms para 5.000×40 registros) sem explosões de memória RAM:
 
 ```fsharp
-query {
+fsql {
     for t in Connections.csv.Transactions do
     join tgt in Connections.excel.Targets.Sheet1 on ((t.StoreId, t.Region) = (tgt.StoreId, tgt.Region))
     where (t.Amount > 1000.0M)

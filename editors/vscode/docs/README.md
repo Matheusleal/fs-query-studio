@@ -46,16 +46,16 @@ open FSharpQueryStudio.Connectors   // the Connections.* API
 | Category | Kinds | Usage |
 |---|---|---|
 | `Connections.sql.<Conn>` | SQLite, SQL Server, PostgreSQL, MySQL | Typed tables (`.Users`) and scoped `.rawQuery "..." [ ... ]` |
-| `Connections.csv.<Conn>` | CSV | Typed rows via LINQ `query { for r in Connections.csv.<Conn> do ... }` or `.Rows` |
+| `Connections.csv.<Conn>` | CSV | Typed rows via `fsql { for r in Connections.csv.<Conn> do ... }` or `.Rows` |
 | `Connections.excel.<Conn>` | Excel (XLSX) | Typed sheets (`.<SheetName>`) and `.Raw()` |
 | `Connections.rest.<Conn>` | REST JSON | Typed items (`.Items`) and `.SendAsync()` |
 
 ### Universal SQL Pushdown (EF-Style)
 
-F# Query Studio translates F# LINQ query expressions directly into optimized native SQL queries across SQLite, PostgreSQL, and SQL Server. Only the requested columns and filtered rows are retrieved from the database:
+F# Query Studio translates F# `fsql` query expressions directly into optimized native SQL queries across SQLite, PostgreSQL, and SQL Server. Only the requested columns and filtered rows are retrieved from the database:
 
 ```fsharp
-query {
+fsql {
     for o in Connections.sql.Sales.Orders do
     where (o.TotalAmount >= 100.0f && o.Status = "Completed")
     sortByDescending o.CreatedAt
@@ -73,17 +73,17 @@ ORDER BY _t0.CreatedAt DESC
 LIMIT 10
 ```
 
-### Inspecting Generated SQL (`toRawSql`)
+### Inspecting Generated SQL (`toRawQuery` / `toRawSql`)
 
 To inspect the translated SQL query and parameters before execution:
 
 ```fsharp
-query {
+fsql {
     for o in Connections.sql.Sales.Orders do
     where (o.TotalAmount >= 100.0f)
     select o
 }
-|> Connections.toRawSql
+|> toRawQuery
 ```
 
 ### High-Performance Staging Engine for CSV & Excel (`.fsqs/cache/engine.db`)
@@ -94,7 +94,7 @@ CSV and Excel (`.xlsx`) files are automatically cached into an embedded SQLite s
 - **Automatic Composite Indexes & Multi-Property Joins**: Joins between different files on multiple keys execute natively in SQLite with sub-second performance (~18 ms for 5,000×40 rows) without memory explosions:
 
 ```fsharp
-query {
+fsql {
     for t in Connections.csv.Transactions do
     join tgt in Connections.excel.Targets.Sheet1 on ((t.StoreId, t.Region) = (tgt.StoreId, tgt.Region))
     where (t.Amount > 1000.0M)

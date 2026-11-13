@@ -46,60 +46,45 @@ open FSharpQueryStudio.Connectors   // the Connections.* API
 | Category | Kinds | Usage |
 |---|---|---|
 | `Connections.sql.<Conn>` | SQLite, SQL Server, PostgreSQL, MySQL | Typed tables (`.Users`) and scoped `.rawQuery "..." [ ... ]` |
-| `Connections.csv.<Conn>` | CSV | Typed rows via LINQ `query { for r in Connections.csv.<Conn> do ... }` or `.Rows` |
+| `Connections.csv.<Conn>` | CSV | Typed rows via `fsql { for r in Connections.csv.<Conn> do ... }` or `.Rows` |
 | `Connections.excel.<Conn>` | Excel (XLSX) | Typed sheets (`.<SheetName>`) and `.Raw()` |
 | `Connections.rest.<Conn>` | REST JSON | Typed items (`.Items`) and `.SendAsync()` |
 
-### Universal SQL Pushdown with `fsql` (F# Query Language)
+### Universal SQL Pushdown (EF-Style)
 
-F# Query Studio introduces the **`fsql`** computation expression, translating F# query expressions directly into optimized native SQL queries across SQLite, PostgreSQL, and SQL Server. Only requested columns and filtered rows are retrieved from the database:
+F# Query Studio translates F# `fsql` query expressions directly into optimized native SQL queries across SQLite, PostgreSQL, and SQL Server. Only the requested columns and filtered rows are retrieved from the database:
 
 ```fsharp
 fsql {
     for o in Connections.sql.Sales.Orders do
     where (o.TotalAmount >= 100.0f && o.Status = "Completed")
-    whereExists (fsql { for i in Connections.sql.Sales.OrderItems do where (i.OrderId = o.Id) })
     sortByDescending o.CreatedAt
     take 10
-    select {|
-        OrderId = o.Id
-        Total = o.TotalAmount
-        Date = o.CreatedAt
-        ItemCount = fsql { for i in Connections.sql.Sales.OrderItems do where (i.OrderId = o.Id); count }
-    |}
+    select {| OrderId = o.Id; Total = o.TotalAmount; Date = o.CreatedAt |}
 }
 ```
 
 This translates directly into:
 ```sql
-SELECT
-  _t0.Id AS OrderId,
-  _t0.TotalAmount AS Total,
-  _t0.CreatedAt AS Date,
-  (SELECT COUNT(*) FROM OrderItems _sub1 WHERE (_sub1.OrderId = _t0.Id)) AS ItemCount
+SELECT _t0.Id AS OrderId, _t0.TotalAmount AS Total, _t0.CreatedAt AS Date
 FROM Orders _t0
-WHERE ((_t0.TotalAmount >= 100.0 AND _t0.Status = 'Completed')
-  AND EXISTS (SELECT 1 FROM OrderItems _sub2 WHERE (_sub2.OrderId = _t0.Id)))
+WHERE (_t0.TotalAmount >= 100.0 AND _t0.Status = 'Completed')
 ORDER BY _t0.CreatedAt DESC
 LIMIT 10
 ```
 
-### Inspecting Generated SQL (`toRawQuery` & `toRawSql`)
+### Inspecting Generated SQL (`toRawQuery` / `toRawSql`)
 
-To inspect the formatted and indented SQL query and bound parameters before execution without round-trips:
+To inspect the translated SQL query and parameters before execution:
 
 ```fsharp
-let q =
-    fsql {
-        for o in Connections.sql.Sales.Orders do
-        where (o.TotalAmount >= 100.0f)
-        select o
-    }
-
-printfn "%s" (toRawQuery q)
+fsql {
+    for o in Connections.sql.Sales.Orders do
+    where (o.TotalAmount >= 100.0f)
+    select o
+}
+|> toRawQuery
 ```
-
-For AI Agents, refer to the [FSQL AI Agent Guide](../../docs/FSQL_AI_AGENT_GUIDE.md).
 
 ### High-Performance Staging Engine for CSV & Excel (`.fsqs/cache/engine.db`)
 
@@ -109,7 +94,7 @@ CSV and Excel (`.xlsx`) files are automatically cached into an embedded SQLite s
 - **Automatic Composite Indexes & Multi-Property Joins**: Joins between different files on multiple keys execute natively in SQLite with sub-second performance (~18 ms for 5,000×40 rows) without memory explosions:
 
 ```fsharp
-query {
+fsql {
     for t in Connections.csv.Transactions do
     join tgt in Connections.excel.Targets.Sheet1 on ((t.StoreId, t.Region) = (tgt.StoreId, tgt.Region))
     where (t.Amount > 1000.0M)

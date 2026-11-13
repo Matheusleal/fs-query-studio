@@ -3,8 +3,8 @@
 ## Intent Block
 ```text
 Intent Block:
-Goal:        Eliminar a transferência e materialização desnecessária de grandes volumes de dados em memória nas consultas de banco de dados do F# Query Studio, provendo um mecanismo de SQL Pushdown para expressões LINQ (query { ... }), corrigindo o ciclo de vida e re-enumeração dos DataReaders, e otimizando o mapeamento de entidades F# com compilação de expressões.
-Expectation: O usuário executa consultas com expressões LINQ (query { for o in db.sales.orders do where ... take ... select ... }) ou métodos LINQ sobre conexões de banco de dados reais (PostgreSQL, SQL Server, SQLite), e o F# Query Studio traduz automaticamente filtros, ordenação, limites e agregações em SQL com parâmetros seguros, trazendo do banco apenas as linhas e colunas necessárias, reduzindo o tempo de consulta em até 15-27x e o uso de memória em mais de 90%.
+Goal:        Eliminar a transferência e materialização desnecessária de grandes volumes de dados em memória nas consultas de banco de dados do F# Query Studio, provendo um mecanismo de SQL Pushdown para expressões LINQ (fsql { ... }), corrigindo o ciclo de vida e re-enumeração dos DataReaders, e otimizando o mapeamento de entidades F# com compilação de expressões.
+Expectation: O usuário executa consultas com expressões LINQ (fsql { for o in db.sales.orders do where ... take ... select ... }) ou métodos LINQ sobre conexões de banco de dados reais (PostgreSQL, SQL Server, SQLite), e o F# Query Studio traduz automaticamente filtros, ordenação, limites e agregações em SQL com parâmetros seguros, trazendo do banco apenas as linhas e colunas necessárias, reduzindo o tempo de consulta em até 15-27x e o uso de memória em mais de 90%.
 Action:      Implementar um provedor LINQ nativo com SQL Pushdown (`SqlPushdownQueryable` / `SqlPushdownQueryProvider`); refatorar o ciclo de vida de `ExecuteQuery` nos conectores SQL para suportar re-enumeração e streaming sob demanda; construir um mapeador compilado de alta performance (`Expression<Func<IDataRecord, 'T>>`) que lê tipos primitivos diretamente de `IDataRecord` sem alocar `obj[]` intermediários; atualizar `GenerateEntities` para conectar os novos queryables com suporte a SQL pushdown e helpers de paginação e filtro.
 Result:      Consultas sobre bases de dados com dezenas ou centenas de milhares de linhas executam em milissegundos com baixo consumo de memória, sem risco de OutOfMemory ou travamento do worker.
 ```
@@ -12,7 +12,7 @@ Result:      Consultas sobre bases de dados com dezenas ou centenas de milhares 
 ## Contexto & Motivação
 1. **Problema do Full Table Scan In-Memory**:
    - Atualmente, `DatabaseConnection.Queryable<'T>` executa `SELECT * FROM <table>` no banco de dados e simplesmente empacota o resultado em um `EnumerableQuery<'T>`.
-   - Isso significa que qualquer expressão F# `query { for o in db.sales.orders do where (o.id = 42) select o }` carrega todas as linhas da tabela pela rede para a memória RAM do processo, instancia todas como records F# via reflexão e executa o filtro no cliente via LINQ to Objects.
+   - Isso significa que qualquer expressão F# `fsql { for o in db.sales.orders do where (o.id = 42) select o }` carrega todas as linhas da tabela pela rede para a memória RAM do processo, instancia todas como records F# via reflexão e executa o filtro no cliente via LINQ to Objects.
    - Em testes de integração reais com PostgreSQL e SQL Server em Docker (tabelas de 10k e 15k linhas), a consulta em memória consumiu mais de 7 MB de RAM e 150-170ms, enquanto a execução com SQL WHERE consumiu apenas 390-466 KB de RAM e 9-22ms (ganho de mais de 15x em velocidade e 93.5% de economia de memória; em agregações, 99.98% de economia de memória).
 
 2. **Problema do Ciclo de Vida do DataReader (Re-enumeração Quebrada)**:
@@ -37,7 +37,7 @@ Result:      Consultas sobre bases de dados com dezenas ou centenas de milhares 
   - Implementação de um ORM completo com tracking de estado para escrita/mutação (o F# Query Studio tem foco analítico e de consulta).
 
 ## Success Criteria
-- [ ] Consultas com `query { for o in db.orders do where (...) take (...) select (...) }` executam com Pushdown de `WHERE`, `ORDER BY`, `LIMIT`/`TOP` e parâmetros seguros no banco de dados.
+- [ ] Consultas com `fsql { for o in db.orders do where (...) take (...) select (...) }` executam com Pushdown de `WHERE`, `ORDER BY`, `LIMIT`/`TOP` e parâmetros seguros no banco de dados.
 - [ ] Sequências de consulta SQL podem ser enumeradas mais de uma vez sem disparar `ObjectDisposedException` ou leitor fechado.
 - [ ] O mapeamento de linhas para records F# utiliza delegado compilado via expressões, reduzindo alocações transitórias e tempo de CPU.
 - [ ] Todas as 20+ suítes de testes de integração (incluindo testes com Docker em multi-schema de 10k e 15k linhas) passam com 100% de sucesso.

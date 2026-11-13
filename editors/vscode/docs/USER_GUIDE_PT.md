@@ -222,7 +222,7 @@ O F# Query Studio suporta o conjunto completo de operações analíticas relacio
 Para realizar `LEFT JOIN` com múltiplas tabelas, utilize a sintaxe canônica do F# `leftOuterJoin ... in ... on ... into g` combinado com `for ... in g.DefaultIfEmpty()`:
 
 ```fsharp
-query {
+fsql {
     for order in csv.Orders do
     join orderItem in csv.OrderItems on (order.order_id = orderItem.order_id)
     join customer in csv.Customers on (order.customer_id = customer.customer_id)
@@ -254,7 +254,7 @@ query {
 Agrupamentos compilam diretamente para instruções `GROUP BY` e `HAVING` indexadas no banco:
 
 ```fsharp
-query {
+fsql {
     for p in csv.Products do
     groupBy p.Category into g
     select {|
@@ -276,7 +276,7 @@ let faturamentoTotal = csv.OrderItems.Sum(fun i -> i.line_total)
 
 #### 3. Limitadores e Paginação (`distinct`, `take`, `skip`, `head`)
 ```fsharp
-query {
+fsql {
     for p in csv.Products do
     distinct
     sortByDescending p.Price
@@ -286,18 +286,18 @@ query {
 }
 ```
 
-#### 4. Subqueries e Subselects (`WHERE col IN (SELECT ...)`)
+#### 4. Subqueries e Subselects (`WHERE col IN (SELECT ...)`, `whereExists`, `whereNotExists`)
 Você pode compor subconsultas tipadas que são convertidas diretamente em subselects SQL nativos (`IN` e `EXISTS`):
 
 ```fsharp
 let pedidosComDesconto =
-    query {
+    fsql {
         for item in csv.OrderItems do
         where (item.discount > 0.0M)
         select item.order_id
     }
 
-query {
+fsql {
     for o in csv.Orders do
     where (pedidosComDesconto.Contains(o.order_id))
     select o
@@ -458,7 +458,7 @@ Se um CSV contém códigos de produtos, CPFs ou CEPs com zeros à esquerda (ex: 
 Após configuradas, o F# Query Studio gera tipos fortes e inteligência de código (`autocomplete` e verificação em tempo de compilação) que refletem os tipos sobrescritos em `Connections.csv.<Conn>` e `Connections.excel.<Conn>`:
 
 ```fsharp
-query {
+fsql {
     for pedido in Connections.excel.RelatorioFinanceiro.Receitas_Q4 do
     // pedido.Receita é tipado como System.Decimal, pedido.TaxaCambio como double
     where (pedido.Receita > 1000.0M && pedido.AliquotaImposto <= 0.20)
@@ -579,7 +579,7 @@ O F# Query Studio é submetido a rigorosos benchmarks automatizados de performan
 ### Benchmarks de Execução (CPU, Memória e Latência)
 - **Latência Sub-milissegundo**: Consultas subsequentes com pool reutilizado executam entre **0.05 ms e 0.20 ms** com 0% de uso contínuo de CPU e zero coletas Gen 0/1/2 no Garbage Collector.
 - **Escala Linear com Streaming**: Processa de 100 até 50.000+ linhas via streaming iterativo de cursores (`Results.fs`), com consumo de memória estável (~1.5 KB por aquisição de cursor) sem materialização antecipada no heap.
-- **LINQ e Records F# Dinâmicos**: Mapeamento de records fortemente tipados (`Connections.query<'T>`) e expressões `query { for ... in ... do where ... select ... }` processam 1.000 linhas em **~2.0 ms** utilizando cache de construtores pré-compilados.
+- **fsql e Records F# Dinâmicos**: Mapeamento de records fortemente tipados (`Connections.query<'T>`) e expressões `fsql { for ... in ... do where ... select ... }` processam 1.000 linhas em **~2.0 ms** utilizando cache de construtores pré-compilados.
 - **Processamento de Arquivos CSV**: Taxa de transferência contínua de **~500.000 registros/segundo**.
 
 Para detalhes da metodologia, métricas brutas e especificações de hardware, consulte o **[Relatório Completo de Benchmarks](BENCHMARK_REPORT.md)** ([ver no GitHub](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/BENCHMARK_REPORT.md)).

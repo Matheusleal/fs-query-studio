@@ -2,8 +2,14 @@ import * as vscode from "vscode";
 
 export const QUERY_KEYWORDS = new Set([
   "query",
+  "fsql",
   "select",
   "where",
+  "whereExists",
+  "whereNotExists",
+  "having",
+  "crossApply",
+  "lateral",
   "join",
   "on",
   "equals",

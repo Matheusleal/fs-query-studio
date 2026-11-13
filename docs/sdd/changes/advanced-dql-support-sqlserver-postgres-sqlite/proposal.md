@@ -23,7 +23,7 @@ Result:      Developers can express powerful, expressive, and idiomatic F# funct
 ## 2. Why (Context & Problem Statement)
 
 1. **SQL Server Count Breakdown**:
-   - When a user writes `query { for p in db.Products do select p.Id; count }` or `queryable.Select(fun p -> p.Id).Count()`, the `Select` method call registers a projection (`_t0.Id AS [Id]`) which subsequently overwrote the `plan.Projection` intended by `Count()` (`COUNT(*)` or `COUNT(col)`).
+   - When a user writes `fsql { for p in db.Products do select p.Id; count }` or `queryable.Select(fun p -> p.Id).Count()`, the `Select` method call registers a projection (`_t0.Id AS [Id]`) which subsequently overwrote the `plan.Projection` intended by `Count()` (`COUNT(*)` or `COUNT(col)`).
    - The query compiler generated `SELECT _t0.Id AS [Id] FROM Products _t0`, which failed during scalar conversion (`ExecuteScalar<int>`) with invalid cast or conversion format errors.
    - Furthermore, SQL Server strictly prohibits `ORDER BY` in single-row aggregate queries without `GROUP BY`, causing query failures when sorting was combined with terminal aggregates.
 2. **Missing Column-Specific Count & Aggregation**:

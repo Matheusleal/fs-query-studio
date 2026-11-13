@@ -108,7 +108,7 @@ F# Query Studio is engineered for low latency, deterministic memory consumption,
 
 - **Sub-millisecond queries**: Reused ADO.NET connection pools execute queries in `0.05 ms - 0.20 ms` with negligible CPU impact and zero Gen 1/2 garbage collections.
 - **Streaming Volume Scaling**: Seamlessly queries datasets from 100 to 50,000+ rows with lazy cursor streaming (`Results.fs`), maintaining a flat `1.5 KB` allocation baseline without full in-memory materialization.
-- **Precompiled LINQ & Reflection Cache**: Typed record mapping (`Connections.query<'T>`) and LINQ queries (`query { ... }`) execute 1,000 records in `~2.0 ms` using compiled constructor delegates.
+- **Precompiled LINQ & Reflection Cache**: Typed record mapping (`Connections.query<'T>`) and `fsql` queries (`fsql { ... }`) execute 1,000 records in `~2.0 ms` using compiled constructor delegates.
 - **High-Throughput File Queries**: Ingests and queries CSV feeds at `~500,000 rows/second`.
 - **100% UI Element Verification**: Every UI component (virtualized table grid, sticky headers, cell badging for nulls and numbers, segmented schema tabs, continuation pagination, notification banners, and Connections Explorer tree items) is verified by automated test suites.
 

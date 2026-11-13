@@ -260,11 +260,11 @@ The easiest way to register flat files is to drop them directly into your worksp
 - Run **F# Query Studio: Auto-Import Data Sources Directory** from the Command Palette (or click the button in the Connections sidebar).
 - Files are detected, mapped with typed record schemas, and immediately pre-staged in background into a local SQLite disk cache (`.fsqs/cache/engine.db`).
 
-### Querying Flat Files with LINQ
+### Querying Flat Files with `fsql`
 Query your files directly using typed accessors:
 
 ```fsharp
-query {
+fsql {
     for tx in Connections.csv.SalesFeed do
     where (tx.Quantity > 2)
     sortByDescending tx.TotalAmount
@@ -274,7 +274,7 @@ query {
 
 ```fsharp
 // Excel sheets are exposed individually with sheet-specific records
-query {
+fsql {
     for row in Connections.excel.RegionalTargets.RegionalTargets do
     where (row.GrowthRate >= 10.0M)
     select row
@@ -285,7 +285,7 @@ query {
 Because tabular files are cached in SQLite with composite B-tree indexes, you can join multiple files on multiple properties without Cartesian products:
 
 ```fsharp
-query {
+fsql {
     for s in Connections.csv.SalesFeed do
     join c in Connections.csv.CustomersFeed on (s.Customer = c.CustomerName)
     select {| OrderId = s.OrderId; Customer = s.Customer; Tier = c.LoyaltyTier |}

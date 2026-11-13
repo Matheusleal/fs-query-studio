@@ -47,7 +47,7 @@ Result:      Zero vazamento de tabelas/arquivos entre conexões distintas, códi
 ## Success Criteria
 - [ ] O código gerado em `GeneratedEntities.fs` disponibiliza conexões organizadas por categoria (`Connections.sql.<Conn>`, `Connections.csv.<Conn>`, etc.) sem vazamento entre conexões distintas.
 - [ ] Chamadas a `.asEntities` e `Connections.connect*` são completamente eliminadas do runtime e da documentação/exemplos.
-- [ ] É possível executar `query { for c in Connections.sql.SampleStore.Customers do ... }` e `Connections.sql.SampleStore.rawQuery """SELECT ..."""`.
+- [ ] É possível executar `fsql { for c in Connections.sql.SampleStore.Customers do ... }` e `Connections.sql.SampleStore.rawQuery """SELECT ..."""`.
 - [ ] É possível consultar `Connections.csv.<Conn>` diretamente.
 - [ ] Durante o mapeamento de entidades, a barra inferior do VS Code exibe feedback visual (`$(sync~spin) Mapping entities...`).
 - [ ] Todos os testes locais e no container Linux passam com 100% de sucesso.

@@ -36,9 +36,9 @@ O pipeline de CI também publica o pacote VSIX automaticamente a cada push na br
 1. **Novo notebook** — execute o comando **F# Query Studio: New F# Query Notebook** na Command Palette (`Ctrl+Shift+P`), ou crie qualquer arquivo com extensão `.fsqnb`.
 2. **Execute F#** — digite código F# em uma célula e execute-a. Declarações `let` persistem para as células seguintes (uma sessão FSI por notebook). O comando **F# Query Studio: Restart Notebook Session** reinicializa a sessão quando desejado.
 3. **Adicione ou importe conexões automaticamente** — adicione arquivos `.csv`, `.xlsx` ou `.db` na pasta `data_sources/` do projeto e execute **F# Query Studio: Auto-Import Data Sources Directory**, ou use **Add Connection** no painel da barra lateral. Fontes de arquivos são sincronizadas de forma assíncrona em cache persistente SQLite (`.fsqs/cache/engine.db`) com índices B-tree compostos automáticos.
-4. **Consulte com Pushdown Completo para SQL & LINQ** — consultas F# LINQ são traduzidas diretamente para SQL nativo no banco de dados (`SELECT`, `WHERE`, `JOIN`, `ORDER BY`, `LIMIT`, `SKIP`, `COUNT`, `SUM`), sem puxar tabelas inteiras para a memória RAM:
+4. **Consulte com Pushdown Completo para SQL & fsql** — consultas `fsql` são traduzidas diretamente para SQL nativo no banco de dados (`SELECT`, `WHERE`, `JOIN`, `ORDER BY`, `LIMIT`, `SKIP`, `COUNT`, `SUM`), sem puxar tabelas inteiras para a memória RAM:
    ```fsharp
-   query {
+   fsql {
        for u in Connections.sql.MinhaConexao.Users do
        where (u.IsActive && u.Age >= 21)
        sortBy u.LastName
@@ -77,7 +77,7 @@ O F# Query Studio foi projetado com foco em latência mínima, consumo previsív
 
 - **Consultas Sub-milissegundo**: Conexões reutilizadas via pool ADO.NET executam queries entre `0.05 ms` e `0.20 ms` com uso negligenciável de CPU e zero coletas Gen 1/2 no GC.
 - **Escalabilidade com Streaming**: Processa conjuntos de 100 até 50.000+ linhas via streaming iterativo de cursores (`Results.fs`), mantendo uma linha de base estável de `1.5 KB` sem materializar tabelas gigantescas na memória heap.
-- **LINQ Compilado com Cache de Reflexão**: Mapeamento de records F# (`Connections.query<'T>`) e expressões `query { ... }` processam 1.000 registros tipados em `~2.0 ms` usando delegates construtores pré-compilados.
+- **LINQ Compilado com Cache de Reflexão**: Mapeamento de records F# (`Connections.query<'T>`) e expressões `fsql { ... }` processam 1.000 registros tipados em `~2.0 ms` usando delegates construtores pré-compilados.
 - **Alto Desempenho com Arquivos CSV**: Taxa de transferência contínua de `~500.000 linhas/segundo`.
 - **100% de Verificação de Elementos de UI**: Todos os componentes visuais (grid virtualizado, cabeçalhos fixos, destaque de nulos e numéricos, aba de esquema, paginação progressiva, mensagens de aviso e itens do explorador de conexões) possuem testes automatizados dedicados.
 

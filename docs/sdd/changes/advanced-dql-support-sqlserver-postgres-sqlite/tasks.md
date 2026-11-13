@@ -10,7 +10,7 @@
 ### TASK-DQL-01: Fix Terminal Aggregate Projection Overwrite & SQL Server Aggregates Without GroupBy
 - **Goal**: Ensure terminal aggregate methods (`Count`, `LongCount`, `Sum`, `Min`, `Max`, `Average`) preserve their aggregate projection when preceded by a `Select` call, and omit `ORDER BY` for single-row aggregates in SQL Server.
 - **Related Requirements**: Delta Spec Section 1 & 2
-- **Done When**: Queries like `queryable.Select(fun p -> p.Id).Count()` and `query { for p in q do select p.Id; count }` correctly output `SELECT COUNT(col)` (or `COUNT(*)`) instead of raw column projection, and do not append `ORDER BY` when no `GROUP BY` is present.
+- **Done When**: Queries like `queryable.Select(fun p -> p.Id).Count()` and `fsql { for p in q do select p.Id; count }` correctly output `SELECT COUNT(col)` (or `COUNT(*)`) instead of raw column projection, and do not append `ORDER BY` when no `GROUP BY` is present.
 - **Status**: Completed
 
 ---
@@ -63,8 +63,8 @@
 
 ---
 
-### TASK-DQL-08: Pure F# Computation Expression DSL (`query { ... }`) Pushdown
-- **Goal**: Enable pushdown of pure F# `query { ... }` computation expressions for correlated subqueries, CROSS APPLY (SelectMany), EXISTS/NOT EXISTS (`count > 0` / `count = 0`), scalar subqueries in `select`, `where (query.Contains(col))`, and `groupBy ... into g; where (query { for x in g do count } >= n)` (HAVING) without any raw SQL strings.
+### TASK-DQL-08: Pure F# Computation Expression DSL (`fsql { ... }`) Pushdown
+- **Goal**: Enable pushdown of pure F# `fsql { ... }` computation expressions for correlated subqueries, CROSS APPLY (SelectMany / `crossApply`), EXISTS/NOT EXISTS (`whereExists` / `whereNotExists`), scalar subqueries in `select`, `where (query.Contains(col))`, and `groupBy ... into g; having (fsql { for x in g do count } >= n)` without any raw SQL strings.
 - **Related Requirements**: Delta Spec Section 1 & 2
 - **Done When**: Expressions using pure F# syntax compile to native SQL Server (`CROSS APPLY`), PostgreSQL (`CROSS JOIN LATERAL`), and SQLite (in-memory fallback where lateral FROM is not supported) with 100% test pass. Showcase notebook in `C:\Users\theus\Downloads\fs-qs\dql_advanced_demo.fsqnb` uses 100% pure F# DSL.
 - **Status**: Completed
