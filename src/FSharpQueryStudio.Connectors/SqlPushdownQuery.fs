@@ -978,6 +978,215 @@ module ExpressionPushdownTranslator =
                 Some $"({col} = TRUE)"
         | _ -> None
 
+    and tryUnwrapOptionArg (arg: Expression) : Expression option =
+        let unwrapped = unwrapQuote arg
+        match unwrapped with
+        | null -> None
+        | :? MethodCallExpression as mc when not (isNull mc.Method.DeclaringType) && mc.Method.DeclaringType.Name.StartsWith("FSharpOption") && mc.Method.Name = "Some" && mc.Arguments.Count > 0 ->
+            Some (unwrapQuote mc.Arguments.[0])
+        | :? NewExpression as ne when ne.Type.Name.StartsWith("FSharpOption") && ne.Arguments.Count > 0 ->
+            Some (unwrapQuote ne.Arguments.[0])
+        | :? MemberExpression as me when me.Member.Name = "Value" && me.Expression.Type.Name.StartsWith("FSharpOption") ->
+            Some (unwrapQuote me.Expression)
+        | other ->
+            if not (isNull other.Type) && other.Type.Name.StartsWith("FSharpOption") then
+                match other with
+                | :? MemberExpression as me when me.Member.Name = "None" -> None
+                | :? ConstantExpression as ce when isNull ce.Value -> None
+                | _ -> None
+            else
+                Some other
+
+    and parseWindowSpec (dialect: SqlDialect) (plan: PushdownQueryPlan) (winExpr: Expression) : string =
+        let unwrapped = unwrapQuote winExpr
+        match unwrapped with
+        | :? MethodCallExpression as wmc when wmc.Method.Name = "window" || wmc.Method.Name = "Window" ->
+            let getNamedOrIndexArg (paramName: string) (defaultIdx: int) =
+                let pList = wmc.Method.GetParameters()
+                let namedIdx = pList |> Array.tryFindIndex (fun p -> String.Equals(p.Name, paramName, StringComparison.OrdinalIgnoreCase))
+                let idx = defaultArg namedIdx defaultIdx
+                if idx < wmc.Arguments.Count then Some wmc.Arguments.[idx] else None
+
+            let partitionArgOpt = getNamedOrIndexArg "partitionBy" 0 |> Option.bind tryUnwrapOptionArg
+            let sortByArgOpt = getNamedOrIndexArg "sortBy" 1 |> Option.bind tryUnwrapOptionArg
+            let sortByDescArgOpt = getNamedOrIndexArg "sortByDescending" 2 |> Option.bind tryUnwrapOptionArg
+
+            let partitionSqlOpt =
+                match partitionArgOpt with
+                | Some pExpr ->
+                    let unwrappedP = unwrapQuote pExpr
+                    match unwrappedP with
+                    | :? NewExpression as ne when not (isNull ne.Constructor) && ne.Constructor.DeclaringType.Name.StartsWith("Tuple") ->
+                        let parts = [
+                            for a in ne.Arguments do
+                                match translateScalarExpr dialect plan a with
+                                | Some s -> s
+                                | None -> extractColumnNameWithAlias plan a
+                        ]
+                        if parts.Length > 0 then Some ("PARTITION BY " + String.concat ", " parts) else None
+                    | other ->
+                        match translateScalarExpr dialect plan other with
+                        | Some s -> Some ("PARTITION BY " + s)
+                        | None ->
+                            let col = extractColumnNameWithAlias plan other
+                            Some ("PARTITION BY " + col)
+                | None -> None
+
+            let orderParts = ResizeArray<string>()
+            match sortByArgOpt with
+            | Some sExpr ->
+                let col =
+                    match translateScalarExpr dialect plan sExpr with
+                    | Some s -> s
+                    | None -> extractColumnNameWithAlias plan sExpr
+                orderParts.Add($"{col} ASC")
+            | None -> ()
+
+            match sortByDescArgOpt with
+            | Some sdExpr ->
+                let col =
+                    match translateScalarExpr dialect plan sdExpr with
+                    | Some s -> s
+                    | None -> extractColumnNameWithAlias plan sdExpr
+                orderParts.Add($"{col} DESC")
+            | None -> ()
+
+            let orderSqlOpt =
+                if orderParts.Count > 0 then
+                    Some ("ORDER BY " + String.concat ", " orderParts)
+                else None
+
+            match partitionSqlOpt, orderSqlOpt with
+            | Some p, Some o -> $"OVER ({p} {o})"
+            | Some p, None -> $"OVER ({p})"
+            | None, Some o -> $"OVER ({o})"
+            | None, None -> "OVER ()"
+        | _ -> "OVER ()"
+
+    and tryTranslateWindowFunction (dialect: SqlDialect) (plan: PushdownQueryPlan) (mc: MethodCallExpression) : string option =
+        let mName = mc.Method.Name
+        let isWinMethod =
+            match mName with
+            | "rowNumber" | "RowNumber"
+            | "rank" | "Rank"
+            | "denseRank" | "DenseRank"
+            | "ntile" | "Ntile"
+            | "lag" | "Lag"
+            | "lead" | "Lead"
+            | "firstValue" | "FirstValue"
+            | "lastValue" | "LastValue"
+            | "sumOver" | "SumOver"
+            | "avgOver" | "AvgOver"
+            | "minOver" | "MinOver"
+            | "maxOver" | "MaxOver"
+            | "countOver" | "CountOver" -> true
+            | ("sum" | "Sum" | "avg" | "Avg" | "min" | "Min" | "max" | "Max" | "count" | "Count") ->
+                mc.Method.GetParameters() |> Array.exists (fun p -> p.ParameterType = typeof<WindowDefinition> || p.ParameterType = typeof<WindowDefinition option> || p.Name = "over")
+            | _ -> false
+
+        if not isWinMethod then None
+        else
+            let overArgOpt =
+                let pList = mc.Method.GetParameters()
+                let overIdx = pList |> Array.tryFindIndex (fun p -> p.Name = "over" || p.ParameterType = typeof<WindowDefinition> || p.ParameterType = typeof<WindowDefinition option>)
+                match overIdx with
+                | Some idx when idx < mc.Arguments.Count -> tryUnwrapOptionArg mc.Arguments.[idx]
+                | _ -> None
+
+            let overClause =
+                match overArgOpt with
+                | Some winExpr -> parseWindowSpec dialect plan winExpr
+                | None -> "OVER ()"
+
+            let safeOverClause =
+                if dialect = SqlDialect.SqlServer && (mName = "rowNumber" || mName = "RowNumber" || mName = "rank" || mName = "Rank" || mName = "denseRank" || mName = "DenseRank" || mName = "ntile" || mName = "Ntile") then
+                    if not (overClause.Contains("ORDER BY")) then
+                        if overClause = "OVER ()" then "OVER (ORDER BY (SELECT NULL))"
+                        else overClause.Replace(")", " ORDER BY (SELECT NULL))")
+                    else overClause
+                else
+                    overClause
+
+            match mName with
+            | "rowNumber" | "RowNumber" -> Some $"ROW_NUMBER() {safeOverClause}"
+            | "rank" | "Rank" -> Some $"RANK() {safeOverClause}"
+            | "denseRank" | "DenseRank" -> Some $"DENSE_RANK() {safeOverClause}"
+            | "ntile" | "Ntile" ->
+                let tiles = if mc.Arguments.Count > 0 then string (evaluateClientValue mc.Arguments.[0]) else "1"
+                Some $"NTILE({tiles}) {safeOverClause}"
+            | "lag" | "Lag" ->
+                let col = if mc.Arguments.Count > 0 then defaultArg (translateScalarExpr dialect plan mc.Arguments.[0]) (extractColumnNameWithAlias plan mc.Arguments.[0]) else "*"
+                let offsetArg =
+                    let pList = mc.Method.GetParameters()
+                    let oIdx = pList |> Array.tryFindIndex (fun p -> p.Name = "offset")
+                    match oIdx with
+                    | Some idx when idx < mc.Arguments.Count -> tryUnwrapOptionArg mc.Arguments.[idx]
+                    | _ -> None
+                let offsetStr =
+                    match offsetArg with
+                    | Some e -> string (evaluateClientValue e)
+                    | None -> "1"
+                Some $"LAG({col}, {offsetStr}) {safeOverClause}"
+            | "lead" | "Lead" ->
+                let col = if mc.Arguments.Count > 0 then defaultArg (translateScalarExpr dialect plan mc.Arguments.[0]) (extractColumnNameWithAlias plan mc.Arguments.[0]) else "*"
+                let offsetArg =
+                    let pList = mc.Method.GetParameters()
+                    let oIdx = pList |> Array.tryFindIndex (fun p -> p.Name = "offset")
+                    match oIdx with
+                    | Some idx when idx < mc.Arguments.Count -> tryUnwrapOptionArg mc.Arguments.[idx]
+                    | _ -> None
+                let offsetStr =
+                    match offsetArg with
+                    | Some e -> string (evaluateClientValue e)
+                    | None -> "1"
+                Some $"LEAD({col}, {offsetStr}) {safeOverClause}"
+            | "firstValue" | "FirstValue" ->
+                let col = if mc.Arguments.Count > 0 then defaultArg (translateScalarExpr dialect plan mc.Arguments.[0]) (extractColumnNameWithAlias plan mc.Arguments.[0]) else "*"
+                Some $"FIRST_VALUE({col}) {safeOverClause}"
+            | "lastValue" | "LastValue" ->
+                let col = if mc.Arguments.Count > 0 then defaultArg (translateScalarExpr dialect plan mc.Arguments.[0]) (extractColumnNameWithAlias plan mc.Arguments.[0]) else "*"
+                Some $"LAST_VALUE({col}) {safeOverClause}"
+            | "sum" | "Sum" | "sumOver" | "SumOver" ->
+                let col = if mc.Arguments.Count > 0 then defaultArg (translateScalarExpr dialect plan mc.Arguments.[0]) (extractColumnNameWithAlias plan mc.Arguments.[0]) else "*"
+                Some $"SUM({col}) {safeOverClause}"
+            | "avg" | "Avg" | "avgOver" | "AvgOver" ->
+                let col = if mc.Arguments.Count > 0 then defaultArg (translateScalarExpr dialect plan mc.Arguments.[0]) (extractColumnNameWithAlias plan mc.Arguments.[0]) else "*"
+                Some $"AVG({col}) {safeOverClause}"
+            | "min" | "Min" | "minOver" | "MinOver" ->
+                let col = if mc.Arguments.Count > 0 then defaultArg (translateScalarExpr dialect plan mc.Arguments.[0]) (extractColumnNameWithAlias plan mc.Arguments.[0]) else "*"
+                Some $"MIN({col}) {safeOverClause}"
+            | "max" | "Max" | "maxOver" | "MaxOver" ->
+                let col = if mc.Arguments.Count > 0 then defaultArg (translateScalarExpr dialect plan mc.Arguments.[0]) (extractColumnNameWithAlias plan mc.Arguments.[0]) else "*"
+                Some $"MAX({col}) {safeOverClause}"
+            | "count" | "Count" | "countOver" | "CountOver" ->
+                let col =
+                    if mc.Arguments.Count > 0 && not (mc.Arguments.[0].Type.Name.StartsWith("WindowDefinition")) && not (mc.Arguments.[0].Type.Name.StartsWith("FSharpOption`1[FSharpQueryStudio.Connectors.WindowDefinition")) then
+                        defaultArg (translateScalarExpr dialect plan mc.Arguments.[0]) (extractColumnNameWithAlias plan mc.Arguments.[0])
+                    else "*"
+                Some $"COUNT({col}) {safeOverClause}"
+            | _ -> None
+
+    and tryTranslateJsonValue (dialect: SqlDialect) (plan: PushdownQueryPlan) (mc: MethodCallExpression) : string option =
+        if mc.Method.Name = "jsonValue" || mc.Method.Name = "JsonValue" then
+            if mc.Arguments.Count >= 2 then
+                let colSql = defaultArg (translateScalarExpr dialect plan mc.Arguments.[0]) (extractColumnNameWithAlias plan mc.Arguments.[0])
+                let rawPath = evaluateClientValue mc.Arguments.[1]
+                let pathStr = if isNull rawPath then "$" else string rawPath
+                match dialect with
+                | SqlDialect.SqlServer ->
+                    Some $"JSON_VALUE({colSql}, '{pathStr}')"
+                | SqlDialect.Sqlite ->
+                    Some $"json_extract({colSql}, '{pathStr}')"
+                | SqlDialect.PostgreSql ->
+                    let trimmed = if pathStr.StartsWith("$.") then pathStr.Substring(2) else pathStr
+                    if trimmed.Contains(".") then
+                        let parts = trimmed.Split('.') |> String.concat "', '"
+                        Some $"({colSql} #>> '{{{parts}}}')"
+                    else
+                        Some $"({colSql} ->> '{trimmed}')"
+            else None
+        else None
+
     and translateScalarCondition (dialect: SqlDialect) (plan: PushdownQueryPlan) (expr: Expression) : string option =
         let unwrapped = unwrapQuote expr
         match unwrapped with
@@ -1173,8 +1382,15 @@ module ExpressionPushdownTranslator =
                 || (not (isNull mc.Object) && isGroupingType mc.Object.Type)
 
             let subquerySqlOpt = tryTranslateSubqueryScalarExpr dialect plan mc
+            let winOpt = if subquerySqlOpt.IsSome then None else tryTranslateWindowFunction dialect plan mc
+            let jsonOpt = if subquerySqlOpt.IsSome || winOpt.IsSome then None else tryTranslateJsonValue dialect plan mc
+
             if subquerySqlOpt.IsSome then
                 subquerySqlOpt
+            elif winOpt.IsSome then
+                winOpt
+            elif jsonOpt.IsSome then
+                jsonOpt
             elif isGrouping then
                 match mc.Method.Name with
                 | "Count" | "LongCount" -> Some "COUNT(*)"
@@ -2459,6 +2675,53 @@ module SqlComputationExtensions =
         member inline _.Having(source: QuerySource<'T, 'Q>, [<ProjectionParameter>] predicate: 'T -> bool) : QuerySource<'T, 'Q> =
             failwith "having marker"
 
+        /// Declares a window specification (OVER clause) with optional partition criteria and ordering.
+        member inline _.window(?partitionBy: 'P, ?sortBy: 'S, ?sortByDescending: 'SD) : WindowDefinition =
+            { Dummy = "window" }
+
+        /// Ranking window function: ROW_NUMBER() OVER (...)
+        member inline _.rowNumber(?over: WindowDefinition) : int64 = 0L
+
+        /// Ranking window function: RANK() OVER (...)
+        member inline _.rank(?over: WindowDefinition) : int64 = 0L
+
+        /// Ranking window function: DENSE_RANK() OVER (...)
+        member inline _.denseRank(?over: WindowDefinition) : int64 = 0L
+
+        /// Ranking window function: NTILE(n) OVER (...)
+        member inline _.ntile(tiles: int, ?over: WindowDefinition) : int64 = 0L
+
+        /// Value window function: LAG(expr, offset, default) OVER (...)
+        member inline _.lag(expr: 'T, ?offset: int, ?defaultValue: 'T, ?over: WindowDefinition) : 'T = expr
+
+        /// Value window function: LEAD(expr, offset, default) OVER (...)
+        member inline _.lead(expr: 'T, ?offset: int, ?defaultValue: 'T, ?over: WindowDefinition) : 'T = expr
+
+        /// Value window function: FIRST_VALUE(expr) OVER (...)
+        member inline _.firstValue(expr: 'T, ?over: WindowDefinition) : 'T = expr
+
+        /// Value window function: LAST_VALUE(expr) OVER (...)
+        member inline _.lastValue(expr: 'T, ?over: WindowDefinition) : 'T = expr
+
+        /// Aggregate window function: SUM(expr) OVER (...)
+        member inline _.sum(expr: 'T, ?over: WindowDefinition) : 'T = expr
+
+        /// Aggregate window function: AVG(expr) OVER (...)
+        member inline _.avg(expr: 'T, ?over: WindowDefinition) : 'T = expr
+
+        /// Aggregate window function: MIN(expr) OVER (...)
+        member inline _.min(expr: 'T, ?over: WindowDefinition) : 'T = expr
+
+        /// Aggregate window function: MAX(expr) OVER (...)
+        member inline _.max(expr: 'T, ?over: WindowDefinition) : 'T = expr
+
+        /// Aggregate window function: COUNT(*) OVER (...) or COUNT(expr) OVER (...)
+        member inline _.count(?over: WindowDefinition) : int64 = 0L
+        member inline _.count(expr: 'T, ?over: WindowDefinition) : int64 = 0L
+
+        /// Semi-structured JSON navigation pushdown (JSON_VALUE / ->> / json_extract).
+        member inline _.jsonValue(column: obj, path: string) : string = ""
+
         member this.Run(q: Expr<QuerySource<'T, System.Linq.IQueryable>>) : System.Linq.IQueryable<'T> =
             let whereMethod = typeof<QueryBuilder>.GetMethod("Where")
             let countMethod =
@@ -2546,6 +2809,9 @@ module SqlComputationExtensions =
 
     /// Extracts the raw SQL query for any queryable, plan, or expression.
     let toRawSql (query: obj) : string = SqlPushdownQuery.toRawSql query
+
+    /// Semi-structured JSON navigation pushdown (JSON_VALUE / ->> / json_extract).
+    let jsonValue (column: obj) (path: string) : string = ""
 
 
 

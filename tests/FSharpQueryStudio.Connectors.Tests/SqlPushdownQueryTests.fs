@@ -1369,6 +1369,104 @@ let ``fsql computation expression with IN subquery compiles to WHERE IN subquery
     let sql = toRawSql q
     Assert.Contains("WHERE (Id IN (SELECT CustomerId AS CustomerId FROM Orders WHERE (Amount > @p0)))", sql)
 
+[<Fact>]
+let ``fsql window functions compile to native OVER clause with partition and sort`` () =
+    let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
+    let products = SqlPushdownQueryable<TestProduct>(dummyConn, "Products")
+
+    let q =
+        fsql {
+            for p in products do
+            select {|
+                ProductName = p.Name
+                Category = p.Category
+                RankInCategory = fsql.rowNumber(fsql.window(partitionBy = p.Category, sortByDescending = p.Price))
+                RunningTotal = fsql.sum(p.Price, fsql.window(partitionBy = p.Category, sortBy = p.Id))
+                PrevPrice = fsql.lag(p.Price, offset = 1, over = fsql.window(sortBy = p.Id))
+                NextPrice = fsql.lead(p.Price, offset = 1, over = fsql.window(sortBy = p.Id))
+            |}
+        }
+    let sql = toRawSql q
+    Assert.Contains("ROW_NUMBER() OVER (PARTITION BY Category ORDER BY Price DESC) AS RankInCategory", sql)
+    Assert.Contains("SUM(Price) OVER (PARTITION BY Category ORDER BY Id ASC) AS RunningTotal", sql)
+    Assert.Contains("LAG(Price, 1) OVER (ORDER BY Id ASC) AS PrevPrice", sql)
+    Assert.Contains("LEAD(Price, 1) OVER (ORDER BY Id ASC) AS NextPrice", sql)
+
+[<Fact>]
+let ``fsql window functions on SQL Server inject safe ORDER BY when none provided`` () =
+    let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
+    let products = SqlPushdownQueryable<TestProduct>(dummyConn, "Products")
+
+    let q =
+        fsql {
+            for p in products do
+            select {|
+                ProductName = p.Name
+                RowId = fsql.rowNumber(fsql.window(partitionBy = p.Category))
+            |}
+        }
+    let sql = toRawSql q
+    Assert.Contains("ROW_NUMBER() OVER (PARTITION BY Category ORDER BY (SELECT NULL)) AS RowId", sql)
+
+[<Fact>]
+let ``fsql jsonValue compiles to dialect-specific JSON extraction across SQL Server, Postgres, and SQLite`` () =
+    let sqlServerConn = SqlServerConnector("Server=dummy;Database=dummy;")
+    let pgConn = PostgreSqlConnector("Host=dummy;Database=dummy;")
+    let sqliteConn = SqliteConnector("Data Source=:memory:")
+
+    let qServer =
+        fsql {
+            for p in SqlPushdownQueryable<TestProduct>(sqlServerConn, "Products") do
+            select {| Tag = fsql.jsonValue(p.Name, "$.tag") |}
+        }
+    Assert.Contains("JSON_VALUE(Name, '$.tag') AS Tag", toRawSql qServer)
+
+    let qPg =
+        fsql {
+            for p in SqlPushdownQueryable<TestProduct>(pgConn, "Products") do
+            select {| Tag = fsql.jsonValue(p.Name, "$.tag") |}
+        }
+    Assert.Contains("(Name ->> 'tag') AS Tag", toRawSql qPg)
+
+    let qSqlite =
+        fsql {
+            for p in SqlPushdownQueryable<TestProduct>(sqliteConn, "Products") do
+            select {| Tag = fsql.jsonValue(p.Name, "$.tag") |}
+        }
+    Assert.Contains("json_extract(Name, '$.tag') AS Tag", toRawSql qSqlite)
+
+[<Fact>]
+let ``fsql window functions execute live against SQLite with row_number and running total`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
+
+    let results =
+        fsql {
+            for p in products do
+            sortBy p.Id
+            select {|
+                Id = p.Id
+                Category = p.Category
+                Price = p.Price
+                RowInCat = fsql.rowNumber(fsql.window(partitionBy = p.Category, sortByDescending = p.Price))
+            |}
+        }
+        |> Seq.toList
+
+    Assert.Equal(5, results.Length)
+    let p1 = results |> List.find (fun r -> r.Id = 1)
+    let p2 = results |> List.find (fun r -> r.Id = 2)
+    let p3 = results |> List.find (fun r -> r.Id = 3)
+    let p4 = results |> List.find (fun r -> r.Id = 4)
+    let p5 = results |> List.find (fun r -> r.Id = 5)
+    Assert.Equal(2L, p1.RowInCat) // Electronics Keyboard 45.50
+    Assert.Equal(3L, p2.RowInCat) // Electronics Mouse 25.00
+    Assert.Equal(1L, p3.RowInCat) // Stationery Notebook 5.99
+    Assert.Equal(1L, p4.RowInCat) // Electronics Monitor 299.99
+    Assert.Equal(2L, p5.RowInCat) // Stationery Pen 1.50
+
+
 
 
 

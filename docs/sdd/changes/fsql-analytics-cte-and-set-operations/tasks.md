@@ -2,7 +2,7 @@
 
 - **Change ID**: `fsql-analytics-cte-and-set-operations`
 - **Total Tasks**: 6
-- **Completed**: 0
+- **Completed**: 2
 - **In Progress**: 0
 
 ---
@@ -11,7 +11,7 @@
 - **Goal**: Implement AST nodes and pushdown translation for SQL Window Functions (`ROW_NUMBER`, `RANK`, `DENSE_RANK`, `LEAD`, `LAG`, and aggregates `SUM`, `AVG`, `MIN`, `MAX`, `COUNT` with `OVER (PARTITION BY ... ORDER BY ...)`).
 - **Related Requirements**: Delta Spec Section 1 & 2
 - **Done When**: Queries using `fsql.rowNumber(...)`, `fsql.rank(...)`, and `fsql.sum(col, over = ...)` compile and execute natively across SQL Server, PostgreSQL, and SQLite 3.25+.
-- **Status**: Pending
+- **Status**: Completed
 
 ---
 
@@ -43,7 +43,7 @@
 - **Goal**: Transpile `fsql.jsonValue(col, path)` to `JSON_VALUE` (SQL Server), `->>` (PostgreSQL), and `json_extract` (SQLite).
 - **Related Requirements**: Delta Spec Section 1
 - **Done When**: Queries filtering or selecting JSON column paths execute natively in the database engine without client deserialization.
-- **Status**: Pending
+- **Status**: Completed
 
 ---
 

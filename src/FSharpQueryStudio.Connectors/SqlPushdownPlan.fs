@@ -20,6 +20,15 @@ type JoinPlan = {
     RowType: Type option
 }
 
+/// Represents the window definition for SQL window functions (OVER clause).
+[<NoEquality; NoComparison>]
+type WindowDefinition = {
+    Dummy: string
+} with
+    member this.PartitionBy(_: 'P) : WindowDefinition = this
+    member this.SortBy(_: 'S) : WindowDefinition = this
+    member this.SortByDescending(_: 'SD) : WindowDefinition = this
+
 module SqlPushdownFormatting =
     open System.Text
     open System.Text.RegularExpressions
