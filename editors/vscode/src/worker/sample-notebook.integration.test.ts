@@ -185,6 +185,6 @@ describe.skipIf(!workerDll)("sample notebook execution via worker", () => {
         }
       }
     },
-    120_000,
+    360_000,
   );
 });

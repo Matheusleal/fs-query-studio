@@ -942,10 +942,10 @@ let ``SqlPushdownQueryable functional count, distinct count, and aggregate metho
     Assert.Equal(377.98M, products.Sum<decimal>(fun p -> p.Price))
 
     Assert.Equal(1.50M, products.Min<decimal>("Price"))
-    Assert.Equal(1.50M, products.Min<decimal>(fun p -> p.Price))
+    Assert.Equal(1.50M, products.Min(fun p -> p.Price))
 
     Assert.Equal(299.99M, products.Max<decimal>("Price"))
-    Assert.Equal(299.99M, products.Max<decimal>(fun p -> p.Price))
+    Assert.Equal(299.99M, products.Max(fun p -> p.Price))
 
     Assert.True(products.Average<decimal>("Price") > 50M)
 

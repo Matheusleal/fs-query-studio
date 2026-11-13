@@ -1511,6 +1511,28 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 )
                 if env.Kind = ResultKind.Table then
                     Assert.NotEmpty(env.Rows)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+            try
+                if Directory.Exists tmp then Directory.Delete(tmp, true)
+            with _ -> ()
+    }
+
+[<Fact>]
+let ``evaluating sample_demo_pt notebook cells succeeds against generated samples`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-eval-pt-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let escapedTmp = tmp.Replace("\\", "\\\\")
+            let req1: WorkerRequestFrame =
+                { Id = "s1-pt"
+                  Method = "workspace/createSampleData"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+            let! res1 = Handlers.dispatch req1
+            Assert.True(res1.Error.IsNone)
 
             let notebookPtPath = Path.Combine(tmp, "sample_demo_pt.fsqnb")
             Assert.True(File.Exists notebookPtPath)
