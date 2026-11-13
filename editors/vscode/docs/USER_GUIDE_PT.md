@@ -143,11 +143,11 @@ O F# Query Studio analisa as conexões do seu workspace e **gera automaticamente
 
 Você não precisa configurar Type Providers manuais nem compilar projetos auxiliares: os tipos de entidade estão disponíveis imediatamente sob cada categoria!
 
-### Filtragem Básica e Projeção
+### Filtragem Básica e Projeção com `fsql` (F# Query Language)
 
 ```fsharp
-// 1. Consulta LINQ direta no banco via Connections.sql
-query {
+// 1. Consulta funcional direta no banco via Connections.sql e fsql
+fsql {
     for p in Connections.sql.SampleStore.Products do
     where (p.UnitPrice > 50.0M)
     sortByDescending p.UnitPrice
@@ -160,8 +160,11 @@ query {
 Em vez de executar queries ingênuas com `SELECT *` e filtrar tudo na memória do cliente, o F# Query Studio conta com uma **Engine de Pushdown para SQL nível Entity Framework**:
 - **Projeções Específicas de Colunas**: `select {| Id = o.Id; Total = o.Total |}` gera `SELECT _t0.Id, _t0.Total FROM ...`
 - **Filtros Parametrizados**: `where (o.TotalAmount >= 100.0f)` gera `WHERE (_t0.TotalAmount >= @p0)`
-- **Ordenação e Paginação**: `sortBy`, `sortByDescending`, `take N`, `skip M` geram diretamente `ORDER BY ... LIMIT N OFFSET M`
-- **Agregações no Servidor**: `count` e `sum` traduzem diretamente para `COUNT(*)` e `SUM(...)`
+- **Ordenação e Paginação**: `sortBy`, `sortByDescending`, `take N`, `skip M` geram diretamente `ORDER BY ... LIMIT N OFFSET M` (ou `OFFSET N ROWS FETCH NEXT M ROWS ONLY` no SQL Server)
+- **Agregações no Servidor**: `count` (de tabela ou coluna projetada), `maxBy`, `minBy`, `sumBy`, `averageBy` traduzem diretamente para `COUNT(*)`, `MAX(...)`, `MIN(...)`, `SUM(...)`, `AVG(...)`
+- **Subqueries Correlacionadas**: `whereExists (fsql { ... })` e `whereNotExists (fsql { ... })` geram `WHERE EXISTS (SELECT 1 ...)`
+- **Joins Correlacionados**: `crossApply (fsql { ... })` (SQL Server) e `lateral (fsql { ... })` (PostgreSQL)
+- **Agrupamento e Having**: `groupBy ... into g; having (fsql { for item in g do count } >= n)` gera `GROUP BY ... HAVING (COUNT(*) >= @p0)`
 
 ### Joins Multi-Propriedades sem Explosão de Memória
 
@@ -169,7 +172,7 @@ As expressões de consulta F# suportam junções relacionais compostas usando tu
 
 ```fsharp
 // Join tipado multi-propriedade compilado para SQL sem produtos cartesianos
-query {
+fsql {
     for s in Connections.sql.Transactions.Sales do
     join t in Connections.sql.Transactions.Targets on ((s.StoreId, s.Region) = (t.StoreId, t.Region))
     where (s.TotalAmount >= 250.0M)
@@ -187,26 +190,29 @@ WHERE (_t0.TotalAmount >= @p0)
 
 Índices B-tree compostos automáticos (`ix_tabela_StoreId_Region`) garantem tempos de resposta inferiores a 100ms, mesmo cruzando centenas de milhares de linhas.
 
-### Inspeção do SQL Gerado (`toRawSql`)
+### Inspeção do SQL Gerado (`toRawQuery` e `toRawSql`)
 
-Deseja verificar o SQL parametrizado exato antes ou durante a execução contra a base de dados?
-Use `ResultKind.toRawSql` ou `Connections.toRawSql`:
+Deseja verificar o SQL parametrizado exato com indentação e documentação de parâmetros antes ou durante a execução contra a base de dados?
+Use `toRawQuery`:
 
 ```fsharp
 let minhaQuery =
-    query {
+    fsql {
         for o in Connections.sql.SampleStore.Orders do
         join c in Connections.sql.SampleStore.Customers on (o.CustomerId = c.Id)
         where (o.Status = "Completed")
+        whereExists (fsql { for i in Connections.sql.SampleStore.OrderItems do where (i.OrderId = o.Id) })
         select {| PedidoId = o.Id; Cliente = c.FirstName + " " + c.LastName; Total = o.TotalAmount |}
     }
 
-// Imprime o SQL parametrizado e seus parâmetros no terminal sem acessar o banco!
-printfn "SQL Gerado:\n%s" (Connections.toRawSql minhaQuery)
+// Imprime o SQL formatado e seus parâmetros no terminal sem acessar o banco!
+printfn "SQL Gerado:\n%s" (toRawQuery minhaQuery)
 
 // Executa e exibe o grid de dados interativo
 minhaQuery
 ```
+
+> **Guia para Agentes de IA**: Consulte [`docs/FSQL_AI_AGENT_GUIDE.md`](../../docs/FSQL_AI_AGENT_GUIDE.md) para especificações formais de prompts e geração de queries.
 
 ### Recursos Avançados de Consulta (Joins, Agregações, Subqueries e Pivot)
 

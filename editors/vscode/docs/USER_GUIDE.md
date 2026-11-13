@@ -143,11 +143,11 @@ F# Query Studio automatically inspects registered connections and **generates st
 
 You don't need to configure manual Type Providers, install NuGet packages, or compile helper projects: typed entities are available immediately under each category!
 
-### Basic Filtering & Projection
+### Basic Filtering & Projection with `fsql` (F# Query Language)
 
 ```fsharp
-// 1. Query products with price > $50 sorted by unit price directly via Connections.sql
-query {
+// 1. Query products with price > $50 sorted by unit price directly via Connections.sql and fsql
+fsql {
     for p in Connections.sql.SampleStore.Products do
     where (p.UnitPrice > 50.0M)
     sortByDescending p.UnitPrice
@@ -160,8 +160,11 @@ query {
 Rather than executing naive `SELECT *` queries and filtering records in client memory, F# Query Studio features an **Entity Framework-grade SQL Pushdown Engine**:
 - **Column Projections**: `select {| Id = o.Id; Amount = o.Total |}` translates to `SELECT _t0.Id, _t0.Total FROM ...`
 - **Parameterized Filters**: `where (o.TotalAmount >= 100.0f)` translates to `WHERE (_t0.TotalAmount >= @p0)`
-- **Sorting & Slicing**: `sortBy`, `sortByDescending`, `take N`, `skip M` translate directly to `ORDER BY ... LIMIT N OFFSET M`
-- **Server-Side Aggregations**: `count` and `sum` translate directly to `COUNT(*)` and `SUM(...)`
+- **Sorting & Slicing**: `sortBy`, `sortByDescending`, `take N`, `skip M` translate directly to `ORDER BY ... LIMIT N OFFSET M` (or `OFFSET N ROWS FETCH NEXT M ROWS ONLY` on SQL Server)
+- **Server-Side Aggregations**: `count` (both table-level and column-level), `maxBy`, `minBy`, `sumBy`, `averageBy` translate directly to `COUNT(*)`, `MAX(...)`, `MIN(...)`, `SUM(...)`, `AVG(...)`
+- **Correlated Subqueries**: `whereExists (fsql { ... })` and `whereNotExists (fsql { ... })` translate to `WHERE EXISTS (SELECT 1 ...)`
+- **Correlated Joins**: `crossApply (fsql { ... })` (SQL Server) and `lateral (fsql { ... })` (PostgreSQL)
+- **Grouping & Having**: `groupBy ... into g; having (fsql { for item in g do count } >= n)` translates to `GROUP BY ... HAVING (COUNT(*) >= @p0)`
 
 ### Multi-Property Joins without Memory Explosions
 
@@ -169,7 +172,7 @@ F# query expressions support joins over compound keys using tuples:
 
 ```fsharp
 // Compile-time multi-property join translated to SQL without Cartesian products
-query {
+fsql {
     for s in Connections.sql.Transactions.Sales do
     join t in Connections.sql.Transactions.Targets on ((s.StoreId, s.Region) = (t.StoreId, t.Region))
     where (s.TotalAmount >= 250.0M)
@@ -187,26 +190,29 @@ WHERE (_t0.TotalAmount >= @p0)
 
 Automatic composite B-tree indexes (`ix_table_StoreId_Region`) ensure sub-100ms execution times even when joining hundreds of thousands of rows.
 
-### Inspecting Generated SQL (`toRawSql`)
+### Inspecting Generated SQL (`toRawQuery` & `toRawSql`)
 
-Want to inspect the exact SQL query and bound parameters that will run on your database engine before or alongside execution?
-Use `ResultKind.toRawSql` or `Connections.toRawSql`:
+Want to inspect the formatted SQL query and bound parameters that will run on your database engine before or alongside execution?
+Use `toRawQuery` for indented, beautified multi-dialect SQL with parameter declarations, or `toRawSql`:
 
 ```fsharp
 let myQuery =
-    query {
+    fsql {
         for o in Connections.sql.SampleStore.Orders do
         join c in Connections.sql.SampleStore.Customers on (o.CustomerId = c.Id)
         where (o.Status = "Completed")
+        whereExists (fsql { for i in Connections.sql.SampleStore.OrderItems do where (i.OrderId = o.Id) })
         select {| OrderId = o.Id; Customer = c.FirstName + " " + c.LastName; Total = o.TotalAmount |}
     }
 
-// Prints the exact parameterized SQL to stdout without touching the database!
-printfn "Generated SQL:\n%s" (Connections.toRawSql myQuery)
+// Prints the formatted parameterized SQL to stdout without touching the database!
+printfn "Generated SQL:\n%s" (toRawQuery myQuery)
 
 // Execute and render the interactive table grid
 myQuery
 ```
+
+> **AI Agent Reference**: When building automated agents or prompts, consult the [FSQL AI Agent Guide](../../docs/FSQL_AI_AGENT_GUIDE.md).
 
 ### Advanced Query Engine Features (Joins, Aggregations, Subqueries, and Pivot)
 

@@ -137,12 +137,12 @@ table expands to its columns. Nothing is queried until you expand a node.
 
 ---
 
-## 5. Query the connection with LINQ and Full SQL Pushdown
+## 5. Query the connection with `fsql` and Full SQL Pushdown
 
-Back in the notebook, you can write strongly-typed LINQ queries against your connection. Entities are generated automatically in the background under `Connections.sql.<ConnectionName>`:
+Back in the notebook, you can write strongly-typed queries using **`fsql`** (F# Query Language). Entities are generated automatically in the background under `Connections.sql.<ConnectionName>`:
 
 ```fsharp
-query {
+fsql {
     for t in Connections.sql.Chinook.Track do
     where (t.Milliseconds > 300000)
     sortByDescending t.Milliseconds
@@ -154,20 +154,32 @@ query {
 ### Full SQL Pushdown
 Notice what happened:
 - Only the 3 selected fields (`Name`, `Milliseconds`, `UnitPrice`) are fetched from the database (`SELECT _t0.Name AS Title, ...`).
-- Filtering (`WHERE`), sorting (`ORDER BY`), and limits (`LIMIT 20`) are executed **inside the database engine**, avoiding pulling thousands of rows into memory.
+- Filtering (`WHERE`), sorting (`ORDER BY`), and limits (`LIMIT 20` or `OFFSET / FETCH`) are executed **inside the database engine**, avoiding pulling thousands of rows into memory.
 
-### Inspect the Generated SQL with `toRawSql`
-Curious about what query is being compiled? Preview the exact parameterized SQL at any time:
+### Advanced DQL: Correlated Subqueries & Exists
+`fsql` supports advanced functional operations without raw SQL strings:
+
+```fsharp
+// Correlated EXISTS test
+fsql {
+    for a in Connections.sql.Chinook.Album do
+    whereExists (fsql { for t in Connections.sql.Chinook.Track do where (t.AlbumId = a.AlbumId && t.Milliseconds > 600000) })
+    select {| AlbumId = a.AlbumId; Title = a.Title |}
+}
+```
+
+### Inspect the Generated SQL with `toRawQuery`
+Curious about what query is being compiled? Preview the exact, indented, multi-dialect SQL with bound parameters at any time:
 
 ```fsharp
 let q =
-    query {
+    fsql {
         for t in Connections.sql.Chinook.Track do
         where (t.Milliseconds > 300000)
         select t
     }
 
-printfn "%s" (Connections.toRawSql q)
+printfn "%s" (toRawQuery q)
 ```
 
 ### Traditional Raw Parameterized SQL

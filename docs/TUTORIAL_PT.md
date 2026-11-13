@@ -107,12 +107,12 @@ A conexão aparecerá na árvore. Ao expandi-la, ela carrega tabelas sob demanda
 
 ---
 
-## 5. Consultando com LINQ e Pushdown Completo para SQL
+## 5. Consultando com `fsql` (F# Query Language) e Pushdown Completo para SQL
 
-No notebook, você pode escrever consultas LINQ com segurança de tipo. O backend gera entidades em segundo plano sob `Connections.sql.<NomeDaConexao>`:
+No notebook, você pode escrever consultas puramente funcionais com segurança de tipo usando a computation expression unificada **`fsql`**. O backend gera entidades em segundo plano sob `Connections.sql.<NomeDaConexao>`:
 
 ```fsharp
-query {
+fsql {
     for t in Connections.sql.Chinook.Track do
     where (t.Milliseconds > 300000)
     sortByDescending t.Milliseconds
@@ -124,21 +124,35 @@ query {
 ### Pushdown Total para SQL
 Observe o que acontece em segundo plano:
 - Apenas os campos selecionados (`Name`, `Milliseconds`, `UnitPrice`) são solicitados ao banco (`SELECT _t0.Name AS Titulo, ...`).
-- O filtro (`WHERE`), a ordenação (`ORDER BY`) e o limite (`LIMIT 20`) são executados **diretamente na engine do banco de dados**, evitando puxar milhares de linhas para a memória RAM.
+- O filtro (`WHERE`), a ordenação (`ORDER BY`) e o limite (`LIMIT 20` ou `OFFSET/FETCH`) são executados **diretamente na engine do banco de dados**, evitando puxar milhares de linhas para a memória RAM.
 
-### Inspecionando o SQL Gerado com `toRawSql`
-Quer verificar a query SQL exata que o compilador gerou antes de enviá-la ao banco?
+### Recursos Avançados de DQL: Subqueries Correlacionadas e EXISTS
+Com `fsql`, operações avançadas de SQL são expressas de forma nativa e tipada:
+
+```fsharp
+// Subquery correlacionada EXISTS
+fsql {
+    for a in Connections.sql.Chinook.Album do
+    whereExists (fsql { for t in Connections.sql.Chinook.Track do where (t.AlbumId = a.AlbumId && t.Milliseconds > 600000) })
+    select {| AlbumId = a.AlbumId; Titulo = a.Title |}
+}
+```
+
+### Inspecionando o SQL Formatado com `toRawQuery`
+Quer verificar a query SQL exata que o compilador gerou com identação e documentação de parâmetros antes de enviá-la ao banco?
 
 ```fsharp
 let q =
-    query {
+    fsql {
         for t in Connections.sql.Chinook.Track do
         where (t.Milliseconds > 300000)
         select t
     }
 
-printfn "%s" (Connections.toRawSql q)
+printfn "%s" (toRawQuery q)
 ```
+
+Para agentes de inteligência artificial e assistentes de código, consulte o guia detalhado em [`docs/FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md).
 
 ### Consultas SQL Tradicionais Parametrizadas
 Você também pode executar comandos SQL parametrizados diretamente:

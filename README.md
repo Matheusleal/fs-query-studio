@@ -51,23 +51,30 @@ of building locally.
    later cells (one FSI session per notebook). **F# Query Studio: Restart
    Notebook Session** clears it.
 3. **Add or auto-import connections** — drop `.csv`, `.xlsx`, or `.db` files into the `data_sources/` folder and run **F# Query Studio: Auto-Import Data Sources Directory**, or use **Add Connection** in the Activity Bar sidebar. Tabular files are immediately and asynchronously pre-staged into a persistent SQLite disk cache (`.fsqs/cache/engine.db`) with automatic B-tree indexing.
-4. **Query with Full SQL Pushdown & LINQ** — queries are translated into database-side SQL (`SELECT`, `WHERE`, `JOIN`, `ORDER BY`, `LIMIT`, `SKIP`, `COUNT`, `SUM`) rather than pulling raw tables into memory:
+4. **Query with `fsql` (F# Query Language) & SQL Pushdown** — queries are translated into database-side SQL (`SELECT`, `WHERE`, `JOIN`, `ORDER BY`, `LIMIT`, `SKIP`, `COUNT`, `SUM`, `EXISTS`, `HAVING`, `CROSS APPLY`, `LATERAL`) rather than pulling raw tables into memory:
    ```fsharp
-   query {
+   // Pure functional DQL with fsql
+   fsql {
        for u in Connections.sql.MyConn.Users do
        where (u.IsActive && u.Age >= 21)
+       whereExists (fsql { for o in Connections.sql.MyConn.Orders do where (o.UserId = u.Id) })
        sortBy u.LastName
-       select {| Name = u.FirstName + " " + u.LastName; Email = u.Email |}
+       select {|
+           Name = u.FirstName + " " + u.LastName
+           Email = u.Email
+           TotalOrders = fsql { for o in Connections.sql.MyConn.Orders do where (o.UserId = u.Id); count }
+       |}
    }
    ```
-5. **Inspect Generated SQL** — preview the exact database query and parameters without executing round-trips:
+5. **Inspect Formatted SQL (`toRawQuery`)** — preview the indented SQL query and bound parameters without round-trips:
    ```fsharp
-   printfn "%s" (Connections.toRawSql myQuery)
+   printfn "%s" (toRawQuery myQuery)
    ```
    Or run raw SQL directly: `Connections.sql.MyConn.rawQuery "select * from Orders" []`.
    Results render in a virtualized interactive grid with schema view and **Export CSV**.
 
 Full walkthrough: **[`docs/TUTORIAL.md`](docs/TUTORIAL.md)**.
+Comprehensive AI Agent Guide: **[`docs/FSQL_AI_AGENT_GUIDE.md`](docs/FSQL_AI_AGENT_GUIDE.md)**.
 Comprehensive User Guide: **[`editors/vscode/docs/USER_GUIDE.md`](editors/vscode/docs/USER_GUIDE.md)** (or click `$(book)` in VS Code).
 
 ## What you get
