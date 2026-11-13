@@ -212,7 +212,7 @@ printfn "SQL Gerado:\n%s" (toRawQuery minhaQuery)
 minhaQuery
 ```
 
-> **Guia para Agentes de IA**: Consulte [`docs/FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md) para especificações formais de prompts e geração de queries.
+> **Guia para Agentes de IA**: Consulte [`docs/FSQL_AI_AGENT_GUIDE.md`](../../docs/FSQL_AI_AGENT_GUIDE.md) para especificações formais de prompts e geração de queries.
 
 ### Recursos Avançados de Consulta (Joins, Agregações, Subqueries e Pivot)
 
