@@ -1,7 +1,7 @@
 # FSQL (F# Structured Query Language) Specification
 ## Comprehensive Technical Specification for DQL (Data Query Language) & Multi-Dialect SQL Compilation
 
-**Specification Version:** 1.1.0  
+**Specification Version:** 1.2.0  
 **Status:** Canonical / Active  
 **Scope:** Relational SQL Engines (SQL Server, PostgreSQL, SQLite, MySQL, MariaDB, Oracle) and In-Memory Analytical Providers  
 **Target Standard:** ANSI SQL:2016 / ISO/IEC 9075 DQL Compliant  
@@ -15,7 +15,7 @@
 **FSQL** (F# Structured Query Language) is a declarative, strongly-typed domain-specific language (DSL) embedded natively in F# through *Computation Expressions* (`fsql { ... }`) and LINQ Expression Trees / Quotations. FSQL provides a unified, dialect-agnostic Data Query Language (DQL) specification designed to compile high-level functional queries directly into optimized, native SQL statements (Universal SQL Pushdown), guaranteeing compile-time type safety, automated parameterization, and zero-allocation streaming execution.
 
 ### 1.2 Core Design Principles
-1. **Compile-Time Type Safety & IntelliSense**: Every FSQL query is checked at compile/typecheck time against database schema metadata, eliminating common runtime errors such as misspelled column names, invalid joins, or type mismatches.
+1. **Compile-Time Type Safety & IntelliSense**: Every FSQL query is validated at compile/typecheck time against database schema metadata, eliminating common runtime errors such as misspelled column names, invalid joins, or type mismatches.
 2. **Universal SQL Pushdown**: All filtering, projection, joining, ordering, grouping, aggregation, windowing, and pagination operations are pushed down to the underlying database engine. Only projected columns and matched rows are transmitted across the network or loaded into process memory.
 3. **Strict Parameterization & Immunity to SQL Injection**: Dynamic literals, captured F# variables, and closure values are automatically converted into isolated, typed command parameters (`@p0`, `@p1`), preventing SQL injection by design.
 4. **Dialect Independence**: A single canonical FSQL expression executes identically across **SQL Server**, **PostgreSQL**, **SQLite**, **MySQL**, **MariaDB**, and **Oracle**, emitting idiomatic dialect-specific SQL for each target engine.
@@ -68,19 +68,23 @@ ExistsClause ::=
 InClause ::=
     ( "whereIn" | "whereNotIn" ) "(" ColumnExpression "," ( NestedFSqlExpression | LiteralSequence ) ")" ;
 
+JoinKind ::=
+    "join" | "leftOuterJoin" | "rightOuterJoin" | "fullOuterJoin" ;
+
 JoinClause ::=
     "join" Identifier "in" QuerySource "on" "(" KeyExpression "=" KeyExpression ")"
-    | "leftOuterJoin" Identifier "in" QuerySource "on" "(" KeyExpression "=" KeyExpression ")" "into" Identifier
-      "for" Identifier "in" Identifier ".DefaultIfEmpty()" "do"
-    | "rightOuterJoin" Identifier "in" QuerySource "on" "(" KeyExpression "=" KeyExpression ")" "into" Identifier
-      "for" Identifier "in" Identifier ".DefaultIfEmpty()" "do"
-    | "fullOuterJoin" Identifier "in" QuerySource "on" "(" KeyExpression "=" KeyExpression ")" "into" Identifier
+    | OuterJoinKind Identifier "in" QuerySource "on" "(" KeyExpression "=" KeyExpression ")" "into" Identifier
       "for" Identifier "in" Identifier ".DefaultIfEmpty()" "do"
     | "crossJoin" Identifier "in" QuerySource "do" ;
 
+OuterJoinKind ::=
+    "leftOuterJoin" | "rightOuterJoin" | "fullOuterJoin" ;
+
+ApplyKind ::=
+    "crossApply" | "outerApply" | "lateral" | "leftLateral" ;
+
 ApplyClause ::=
-    ( "crossApply" | "lateral" ) "(" NestedFSqlExpression ")"
-    | ( "outerApply" | "leftLateral" ) "(" NestedFSqlExpression [ "," "onClause" "=" Expression ] ")" ;
+    ApplyKind "(" NestedFSqlExpression [ "," "onClause" "=" Expression ] ")" ;
 
 GroupByClause ::=
     "groupBy" GroupKeyExpression "into" Identifier
@@ -120,8 +124,6 @@ LockHintClause ::=
 
 TerminalAggregateClause ::=
     "count"
-    | "countCol" Identifier
-    | "countDistinct" Identifier
     | "sumBy" NumericExpression
     | "minBy" ComparableExpression
     | "maxBy" ComparableExpression
@@ -130,45 +132,50 @@ TerminalAggregateClause ::=
 
 ---
 
-## 3. Language Clauses & Semantic Operations
+## 3. Query Sources & Data Binding
 
-### 3.1 Source Iteration (`for ... in ... do`)
-Defines the primary data source or relational table:
+### 3.1 Primary Source Iteration (`for ... in ... do`)
+Every FSQL expression initiates by iterating over an `IQueryable<'T>` relational source exposed under typed connection accessors:
 ```fsharp
 for c in Connections.sql.SampleStore.Customers do
 ```
-- **Semantics:** Establishes table alias `_t0` and emits `FROM [Customers] AS _t0`.
+- **Semantics:** Binds `c` to the primary table alias `_t0` and emits `FROM Customers AS _t0`.
+- **Nested Query Sources:** `QuerySource` can be another nested `fsql` expression, producing derived subqueries (`FROM (SELECT ...) AS _sub0`).
 
-### 3.2 Tuple Filtering (`where`)
-Filters rows at the source prior to grouping and aggregation:
+---
+
+## 4. Selection & Predicates (`where`, `whereExists`, `whereIn`)
+
+### 4.1 Tuple Filtering (`where`)
+Filters rows at the storage engine prior to grouping and aggregation:
 ```fsharp
 where (c.Country = "Brazil" && c.Age >= 21)
 ```
 - **Semantics:** Compiles to predicate conditions inside the `WHERE` clause.
-- **Parameter Extraction:** Captured values (`"Brazil"`, `21`) are lifted into parameterized bindings (`@p0`, `@p1`). Logical `&&` and `||` map to SQL `AND` and `OR`.
+- **Parameter Extraction:** Captured values (`"Brazil"`, `21`) are lifted into isolated parameterized bindings (`@p0`, `@p1`). Logical `&&` and `||` map to SQL `AND` and `OR`.
 
-### 3.3 Range & Pattern Matching Predicates
+### 4.2 Range & Pattern Matching Predicates
 - **Range (`between` / `>= && <=`):**
   ```fsharp
   where (c.Age >= 18 && c.Age <= 65)
-  // or fluent: c.Age.Between(18, 65)
+  // or fluent extension: c.Age.Between(18, 65)
   ```
   Translates to `WHERE (_t0.Age BETWEEN @p0 AND @p1)`.
 - **Pattern Matching (`LIKE` / `ILIKE`):**
   ```fsharp
   where (c.Email.EndsWith("@acme.org") || c.FirstName.StartsWith("Al"))
   ```
-  Translates to `WHERE (_t0.Email LIKE @p0 OR _t0.FirstName LIKE @p1)`. In PostgreSQL, case-insensitive variants compile to `ILIKE`.
+  Translates to `WHERE (_t0.Email LIKE @p0 OR _t0.FirstName LIKE @p1)`. Case-insensitive patterns compile to `ILIKE` on supported engines.
 
-### 3.4 Correlated Existence Tests (`whereExists` and `whereNotExists`)
-Enables declarative `EXISTS` and `NOT EXISTS` subqueries in pure F# syntax:
+### 4.3 Correlated Existence Tests (`whereExists` and `whereNotExists`)
+Enables declarative `EXISTS` and `NOT EXISTS` subqueries in pure F# syntax without string concatenation:
 ```fsharp
 whereExists (fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id && o.TotalAmount >= 100.0f) })
 ```
 - **Semantics:** Translates to `WHERE EXISTS (SELECT 1 FROM Orders _sub1 WHERE (_sub1.CustomerId = _t0.Id AND _sub1.TotalAmount >= @p0))`.
 - **Optimization Guarantee:** The subquery projection is rewritten to `SELECT 1`, preventing redundant column transmission or memory overhead.
 
-### 3.5 Set Membership Tests (`whereIn` and `whereNotIn`)
+### 4.4 Set Membership Tests (`whereIn` and `whereNotIn`)
 Filters rows based on membership in a subquery or literal array:
 ```fsharp
 where (discountedOrders.Contains(o.Id))
@@ -177,48 +184,37 @@ where (discountedOrders.Contains(o.Id))
 ```
 - **Subquery Semantics:** `WHERE _t0.CustomerId IN (SELECT _sub1.Id FROM ...)`
 - **Literal Sequence Semantics:** `WHERE _t0.Status IN (@p0, @p1)`
-- **Negative Semantics:** `NOT IN` automatically protects against NULL expansion traps.
+- **Negative Semantics:** `whereNotIn` automatically protects against NULL expansion traps.
 
 ---
 
-## 4. Relational Joins & Cartesian Operations
+## 5. Relational & Correlated Joins
 
-### 4.1 Inner Join (`join ... on ...`)
+### 5.1 Relational Joins (`join`, `leftOuterJoin`, `rightOuterJoin`, `fullOuterJoin`)
+#### 5.1.1 Inner Join
 ```fsharp
 join o in Connections.sql.SampleStore.Orders on (c.Id = o.CustomerId)
 ```
-- **Semantics:** Emits `INNER JOIN [Orders] AS _t1 ON (_t0.Id = _t1.CustomerId)`.
+- **Semantics:** Emits `INNER JOIN Orders AS _t1 ON (_t0.Id = _t1.CustomerId)`.
 - **Composite Keys:** Supported via tuple equality: `on ((t.StoreId, t.Region) = (tgt.StoreId, tgt.Region))`.
 
-### 4.2 Left Outer Join (`leftOuterJoin`)
+#### 5.1.2 Outer Joins
 ```fsharp
 leftOuterJoin o in Connections.sql.SampleStore.Orders on (c.Id = o.CustomerId) into g
 for o in g.DefaultIfEmpty() do
 ```
-- **Semantics:** Lowered via LINQ `GroupJoin` and `DefaultIfEmpty` into `LEFT OUTER JOIN [Orders] AS _t1 ON (_t0.Id = _t1.CustomerId)`.
+- **Semantics:** Lowered via LINQ `GroupJoin` and `DefaultIfEmpty` into `LEFT OUTER JOIN Orders AS _t1 ON (_t0.Id = _t1.CustomerId)`.
 - **Null Safety:** Field accesses on `o` are guarded via `isNull` or coalesce expressions, mapping to SQL `COALESCE` or `CASE WHEN`.
+- `rightOuterJoin` and `fullOuterJoin` follow the identical syntax, emitting `RIGHT OUTER JOIN` and `FULL OUTER JOIN` respectively.
 
-### 4.3 Right Outer Join & Full Outer Join
-```fsharp
-rightOuterJoin o in Connections.sql.SampleStore.Orders on (c.Id = o.CustomerId) into g
-for o in g.DefaultIfEmpty() do
-```
-- **Right Outer Join:** `RIGHT OUTER JOIN [Orders] AS _t1 ON (_t0.Id = _t1.CustomerId)`
-- **Full Outer Join:** `FULL OUTER JOIN [Orders] AS _t1 ON (_t0.Id = _t1.CustomerId)`
-- *Note:* SQLite does not support `RIGHT JOIN` or `FULL OUTER JOIN` natively prior to 3.39+. The compiler routes queries on SQLite to managed emulation or reports an informative dialect capability error.
-
-### 4.4 Cross Join (Cartesian Product)
+#### 5.1.3 Cross Join (Cartesian Product)
 ```fsharp
 crossJoin p in Connections.sql.SampleStore.Products do
 ```
-- **Semantics:** Emits `CROSS JOIN [Products] AS _t1`.
+- **Semantics:** Emits `CROSS JOIN Products AS _t1`.
 
----
-
-## 5. Correlated Row-Level Joins (`crossApply` and `outerApply`)
-
-### 5.1 `crossApply` / `lateral`
-Correlates each outer row with a parameterized subquery:
+### 5.2 Correlated Row-Level Joins (`crossApply` and `outerApply`)
+Correlates each outer row with a parameterized subquery (e.g., retrieving the top $N$ latest orders per customer):
 ```fsharp
 crossApply (fsql {
     for o in Connections.sql.SampleStore.Orders do
@@ -228,30 +224,56 @@ crossApply (fsql {
     select o
 })
 ```
-- **SQL Server:** `CROSS APPLY (SELECT TOP (1) ... WHERE _sub1.CustomerId = _t0.Id ORDER BY _sub1.OrderDate DESC) AS _t1`.
-- **PostgreSQL / MySQL 8.0+ / Oracle 12c+:** `CROSS JOIN LATERAL (SELECT ... WHERE _sub1.CustomerId = _t0.Id ORDER BY _sub1.OrderDate DESC LIMIT 1) AS _t1`.
-- **SQLite:** Evaluated via scalar subquery in projection or managed fallback where lateral `FROM` expressions are unsupported.
-
-### 5.2 `outerApply` / `leftLateral`
-Preserves outer rows even when the correlated subquery returns zero rows:
-```fsharp
-outerApply (fsql {
-    for o in Connections.sql.SampleStore.Orders do
-    where (o.CustomerId = c.Id)
-    sortByDescending o.OrderDate
-    take 1
-    select o
-})
-```
-- **SQL Server:** `OUTER APPLY (SELECT TOP (1) ... ) AS _t1`
-- **PostgreSQL:** `LEFT JOIN LATERAL (SELECT ... ) AS _t1 ON true`
-- **SQLite:** `LEFT JOIN (...) AS _t1 ON 1=1`
+- **`crossApply` / `lateral`:** Emits `CROSS APPLY` (SQL Server, Oracle) or `CROSS JOIN LATERAL` (PostgreSQL, MySQL 8.0+).
+- **`outerApply` / `leftLateral`:** Preserves outer rows even when the subquery yields zero rows, emitting `OUTER APPLY` or `LEFT JOIN LATERAL ... ON true`.
 
 ---
 
-## 6. Grouping, Having & Multidimensional Aggregation
+## 6. Projections & Result Shaping (`select`)
 
-### 6.1 Standard `groupBy` and `having`
+The `select` clause defines the columns and shape of the data returned by the query:
+
+### 6.1 Record and Tuple Projections
+```fsharp
+select {|
+    Id = c.Id
+    FullName = c.FirstName + " " + c.LastName
+    Location = c.City + ", " + c.Country
+|}
+```
+- **Semantics:** Compiles to explicit column projections with column aliasing (`SELECT _t0.Id AS Id, (_t0.FirstName || ' ' || _t0.LastName) AS FullName, ...`).
+
+### 6.2 Correlated Scalar Subqueries in Projections
+FSQL permits embedding correlated scalar subqueries directly within projection properties:
+```fsharp
+select {|
+    CustomerName = c.FirstName + " " + c.LastName
+    TotalOrders = fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id); count }
+|}
+```
+- **Semantics:** Compiles directly to an inline scalar sub-select:
+  ```sql
+  SELECT
+    (_t0.FirstName || ' ' || _t0.LastName) AS CustomerName,
+    (SELECT COUNT(*) FROM Orders _sub1 WHERE (_sub1.CustomerId = _t0.Id)) AS TotalOrders
+  FROM Customers _t0
+  ```
+
+### 6.3 Conditional Expressions (`CASE WHEN` & `COALESCE`)
+F# conditional expressions inside projections are translated to SQL control expressions:
+```fsharp
+select {|
+    Status = if c.IsActive then "Active" else "Inactive"
+    Carrier = (if isNull (box s) then "N/A" else s.Carrier)
+|}
+```
+- **Semantics:** Compiles to `CASE WHEN _t0.IsActive = 1 THEN 'Active' ELSE 'Inactive' END` and `COALESCE(_t1.Carrier, 'N/A')`.
+
+---
+
+## 7. Aggregations, Grouping & Multidimensional Subtotals
+
+### 7.1 Standard `groupBy` and `having`
 ```fsharp
 groupBy o.CustomerId into g
 having (fsql { for item in g do count } >= 5)
@@ -265,22 +287,20 @@ select {|
   - `groupBy` produces the `GROUP BY _t0.CustomerId` clause.
   - `having` produces the dedicated `HAVING (COUNT(*) >= @p0)` clause without polluting `WHERE`.
 
-### 6.2 Distinct & Column-Specific Aggregates
+### 7.2 Column-Specific & Distinct Aggregates
 - **`COUNT(*)`:** `count` -> `COUNT(*)`
-- **`COUNT(col)`:** `query.Count("Email")` -> `COUNT(_t0.Email)` (counts non-null entries only)
+- **`COUNT(col)`:** `query.Count("Email")` -> `COUNT(_t0.Email)` (counts non-null values only)
 - **`COUNT(DISTINCT col)`:** `query.CountDistinct("Country")` -> `COUNT(DISTINCT _t0.Country)`
 - **`SUM(DISTINCT col)`:** `query.SumDistinct("Amount")` -> `SUM(DISTINCT _t0.Amount)`
 
-### 6.3 Multidimensional Rollup, Cube & Grouping Sets
-For business intelligence and subtotal calculation:
+### 7.3 Multidimensional Rollup, Cube & Grouping Sets
+For business intelligence and subtotal calculations across dimensions:
 ```fsharp
 groupByRollup [ "Region"; "Department" ] into g
 ```
-- **SQL Server / PostgreSQL / Oracle:** `GROUP BY ROLLUP (_t0.Region, _t0.Department)`
-- **MySQL:** `GROUP BY _t0.Region, _t0.Department WITH ROLLUP`
-- **SQLite:** Emulated via concatenated `UNION ALL` grouping blocks.
+- **Semantics:** Translates to `GROUP BY ROLLUP (_t0.Region, _t0.Department)`. `groupByCube` and `groupByGroupingSets` follow the same model.
 
-### 6.4 String Aggregation (`stringAgg` / `groupConcat`)
+### 7.4 String Aggregation (`stringAgg` / `groupConcat`)
 Concatenates grouped string columns:
 ```fsharp
 select {|
@@ -288,47 +308,45 @@ select {|
     ProductList = g.StringAgg((fun x -> x.ProductName), ", ")
 |}
 ```
-- **SQL Server / PostgreSQL:** `STRING_AGG(_t0.ProductName, ', ')`
-- **SQLite / MySQL:** `GROUP_CONCAT(_t0.ProductName, ', ')`
-- **Oracle:** `LISTAGG(_t0.ProductName, ', ') WITHIN GROUP (ORDER BY _t0.ProductName)`
+- **Semantics:** Compiles to engine-specific string aggregation functions (`STRING_AGG`, `GROUP_CONCAT`, `LISTAGG`).
 
 ---
 
-## 7. Window & Analytical Functions (OLAP DQL)
+## 8. Window & Analytical Functions (OLAP DQL)
 
-Window functions perform calculations across a set of table rows that are related to the current row without collapsing them into a single summary row:
+Window functions compute values across sets of rows related to the current row without collapsing result rows:
 
-### 7.1 Syntax & Partitioning
+### 8.1 Syntax & Partitioning
 ```fsharp
 select {|
     OrderId = o.Id
     CustomerId = o.CustomerId
     Amount = o.TotalAmount
-    // ROW_NUMBER() OVER (PARTITION BY o.CustomerId ORDER BY o.OrderDate DESC)
+    // Ranking
     OrderSeq = Window.rowNumber (Window.partitionBy o.CustomerId |> Window.orderByDescending o.OrderDate)
-    // Running total: SUM(o.TotalAmount) OVER (PARTITION BY o.CustomerId ORDER BY o.OrderDate)
+    // Running total
     RunningTotal = Window.sum o.TotalAmount (Window.partitionBy o.CustomerId |> Window.orderBy o.OrderDate)
-    // Lead/Lag: Previous order amount
+    // Relative row navigation
     PrevAmount = Window.lag o.TotalAmount 1 (Window.partitionBy o.CustomerId |> Window.orderBy o.OrderDate)
 |}
 ```
 
-### 7.2 Analytical Function Catalog
+### 8.2 Analytical Function Catalog
 | FSQL Function | ANSI SQL Equivalent | Target Engines |
 |---|---|---|
-| `Window.rowNumber` | `ROW_NUMBER() OVER (...)` | All |
-| `Window.rank` | `RANK() OVER (...)` | All |
-| `Window.denseRank` | `DENSE_RANK() OVER (...)` | All |
-| `Window.ntile k` | `NTILE(k) OVER (...)` | All |
-| `Window.lag col n [default]` | `LAG(col, n, def) OVER (...)` | All |
-| `Window.lead col n [default]` | `LEAD(col, n, def) OVER (...)` | All |
-| `Window.firstValue col` | `FIRST_VALUE(col) OVER (...)` | All |
-| `Window.lastValue col` | `LAST_VALUE(col) OVER (...)` | All |
-| `Window.sum / avg / min / max` | `SUM(col) OVER (...)` | All |
+| `Window.rowNumber` | `ROW_NUMBER() OVER (...)` | All Engines |
+| `Window.rank` | `RANK() OVER (...)` | All Engines |
+| `Window.denseRank` | `DENSE_RANK() OVER (...)` | All Engines |
+| `Window.ntile k` | `NTILE(k) OVER (...)` | All Engines |
+| `Window.lag col n [default]` | `LAG(col, n, def) OVER (...)` | All Engines |
+| `Window.lead col n [default]` | `LEAD(col, n, def) OVER (...)` | All Engines |
+| `Window.firstValue col` | `FIRST_VALUE(col) OVER (...)` | All Engines |
+| `Window.lastValue col` | `LAST_VALUE(col) OVER (...)` | All Engines |
+| `Window.sum / avg / min / max` | `SUM(col) OVER (...)` | All Engines |
 
 ---
 
-## 8. Compound Set Operations (`UNION`, `INTERSECT`, `EXCEPT`)
+## 9. Compound Set Operations (`UNION`, `INTERSECT`, `EXCEPT`)
 
 FSQL supports declarative set operations combining the results of two or more queries:
 
@@ -336,31 +354,19 @@ FSQL supports declarative set operations combining the results of two or more qu
 let customersInUS = fsql { for c in db.Customers do where (c.Country = "USA"); select c.Email }
 let customersInEU = fsql { for c in db.Customers do where (c.Country = "Germany"); select c.Email }
 
-// Combine without duplicates
-let allEmails = customersInUS.Union(customersInEU)
-
-// Combine preserving duplicates
-let allAuditEmails = customersInUS.UnionAll(customersInEU)
-
-// Intersection
-let sharedEmails = customersInUS.Intersect(customersInEU)
-
-// Difference
-let exclusiveUSEmails = customersInUS.Except(customersInEU)
+let allEmails = customersInUS.Union(customersInEU)         // UNION (deduplicated)
+let allAuditEmails = customersInUS.UnionAll(customersInEU) // UNION ALL (duplicates preserved)
+let sharedEmails = customersInUS.Intersect(customersInEU)  // INTERSECT
+let exclusiveUSEmails = customersInUS.Except(customersInEU)// EXCEPT / MINUS
 ```
-- **Semantics:**
-  - `Union` -> `SELECT ... UNION SELECT ...`
-  - `UnionAll` -> `SELECT ... UNION ALL SELECT ...`
-  - `Intersect` -> `SELECT ... INTERSECT SELECT ...`
-  - `Except` -> `SELECT ... EXCEPT SELECT ...` (In Oracle: `MINUS`).
 
 ---
 
-## 9. Common Table Expressions (CTEs)
+## 10. Common Table Expressions (CTEs)
 
-CTEs provide modular, readable query decomposition and recursive hierarchy traversal:
+CTEs provide modular query decomposition and recursive hierarchy traversal:
 
-### 9.1 Non-Recursive CTE
+### 10.1 Non-Recursive CTE
 ```fsharp
 withCte "HighValueOrders" (fsql {
     for o in db.Orders do
@@ -374,59 +380,31 @@ withCte "HighValueOrders" (fsql {
     }
 )
 ```
-- **Semantics:**
-  ```sql
-  WITH HighValueOrders AS (
-    SELECT _t0.Id, _t0.CustomerId, _t0.TotalAmount FROM Orders _t0 WHERE (_t0.TotalAmount >= 1000.0)
-  )
-  SELECT _t1.Name, _t2.TotalAmount
-  FROM Customers _t1
-  INNER JOIN HighValueOrders _t2 ON (_t1.Id = _t2.CustomerId)
-  ```
+- **Semantics:** Translates to `WITH HighValueOrders AS (SELECT ...) SELECT ...`.
 
-### 9.2 Recursive CTE
-Used for organizational hierarchies, bill-of-materials, and graph pathfinding:
-```sql
-WITH RECURSIVE Subordinates AS (
-  SELECT Id, ManagerId, Name, 1 AS Level FROM Employees WHERE ManagerId IS NULL
-  UNION ALL
-  SELECT e.Id, e.ManagerId, e.Name, s.Level + 1 FROM Employees e JOIN Subordinates s ON e.ManagerId = s.Id
-)
-SELECT * FROM Subordinates;
-```
+### 10.2 Recursive CTE
+Used for organizational hierarchies, bill-of-materials, and graph pathfinding, compiling to `WITH RECURSIVE ...`.
 
 ---
 
-## 10. Sorting, Null Ordering & Slicing
+## 11. Sorting, Slicing & Concurrency Hints
 
-### 10.1 Multi-Column Sorting
+### 11.1 Multi-Column Sorting & Null Ordering
 ```fsharp
 sortBy c.Country
 thenByDescending c.City
-```
-- **Semantics:** `ORDER BY _t0.Country ASC, _t0.City DESC`
-
-### 10.2 Null Ordering (`nullsFirst` and `nullsLast`)
-```fsharp
-sortBy c.ExpirationDate
 nullsLast
 ```
-- **PostgreSQL / Oracle / SQLite 3.30+:** `ORDER BY _t0.ExpirationDate ASC NULLS LAST`
-- **SQL Server / MySQL:** Lowered via conditional CASE expression:
-  `ORDER BY CASE WHEN _t0.ExpirationDate IS NULL THEN 1 ELSE 0 END, _t0.ExpirationDate ASC`
+- **Semantics:** `ORDER BY _t0.Country ASC, _t0.City DESC NULLS LAST`.
 
-### 10.3 Pagination & Slicing (`take`, `skip`, `distinct`)
-- **`take n`**: Restricts result set to at most $n$ rows.
-- **`skip m`**: Bypasses the first $m$ rows.
+### 11.2 Pagination & Set Modifiers (`take`, `skip`, `distinct`, `withTies`)
+- **`take n`**: Limits results to at most $n$ rows (`TOP (n)`, `LIMIT n`, `FETCH FIRST n ROWS ONLY`).
+- **`skip m`**: Bypasses the first $m$ rows (`OFFSET m`).
 - **`distinct`**: Emits `SELECT DISTINCT`.
-- **`withTies`**: In SQL Server (`TOP (n) WITH TIES`) or Postgres/Oracle (`FETCH NEXT n ROWS WITH TIES`), includes all additional rows tying for the last position in `ORDER BY`.
+- **`withTies`**: Preserves tying rows for the final position (`TOP (n) WITH TIES` / `FETCH NEXT n ROWS WITH TIES`).
 
----
-
-## 11. Concurrency, Locking & Hints
-
-Enterprise DQL requires transaction-level read locks and query hints:
-
+### 11.3 Concurrency & Row Locking Hints
+Transaction-level read locks and query hints:
 ```fsharp
 fsql {
     for o in db.Orders do
@@ -435,17 +413,11 @@ fsql {
     select o
 }
 ```
-| FSQL Modifier | SQL Server | PostgreSQL / MySQL / Oracle |
-|---|---|---|
-| `forUpdate` | `FROM Orders _t0 WITH (UPDLOCK, ROWLOCK)` | `FOR UPDATE` |
-| `forShare` | `FROM Orders _t0 WITH (HOLDLOCK, ROWLOCK)` | `FOR SHARE` |
-| `noWait` | `WITH (NOWAIT)` | `NOWAIT` |
-| `skipLocked` | `WITH (READPAST)` | `SKIP LOCKED` |
-| `withNoLock` | `WITH (NOLOCK)` | Ignored (Read Committed) |
+Supports `forUpdate`, `forShare`, `noWait`, `skipLocked`, and `withNoLock`.
 
 ---
 
-## 12. Multi-Dialect Compilation Matrix
+## 12. Comprehensive Multi-Dialect Compilation Matrix
 
 The FSQL compiler translates the neutral intermediate representation (`SqlPushdownPlan`) into dialect-specific SQL:
 
@@ -459,12 +431,12 @@ The FSQL compiler translates the neutral intermediate representation (`SqlPushdo
 | **Correlated Apply** | `CROSS APPLY (...)` | `CROSS JOIN LATERAL (...)` | Correlated Scalar Subquery | `LATERAL (...)` | `CROSS APPLY (...)` |
 | **Outer Apply** | `OUTER APPLY (...)` | `LEFT JOIN LATERAL (...) ON true` | `LEFT JOIN (...) ON 1=1` | `LEFT JOIN LATERAL (...) ON true` | `OUTER APPLY (...)` |
 | **Boolean Logic** | `_t0.Active = 1` (`BIT`) | `_t0.active = TRUE` (`BOOLEAN`) | `_t0.Active <> 0` (`INTEGER`) | `_t0.active = 1` (`TINYINT`) | `_t0.ACTIVE = 1` (`NUMBER(1)`) |
-| **Null Ordering** | `CASE WHEN col IS NULL THEN 1 ELSE 0 END` | `NULLS FIRST` / `NULLS LAST` | `NULLS FIRST` / `NULLS LAST` | `CASE WHEN col IS NULL ...` | `NULLS FIRST` / `NULLS LAST` |
+| **Null Ordering** | `ORDER BY CASE WHEN col IS NULL THEN 1 ELSE 0 END` | `NULLS FIRST` / `NULLS LAST` | `NULLS FIRST` / `NULLS LAST` | `ORDER BY CASE WHEN col IS NULL THEN 1 ELSE 0 END` | `NULLS FIRST` / `NULLS LAST` |
 | **Non-Null Column Count** | `COUNT([col])` | `COUNT("col")` | `COUNT([col])` | ``COUNT(`col`)`` | `COUNT("COL")` |
 | **Distinct Column Count** | `COUNT(DISTINCT [col])` | `COUNT(DISTINCT "col")` | `COUNT(DISTINCT [col])` | ``COUNT(DISTINCT `col`)`` | `COUNT(DISTINCT "COL")` |
 | **String Aggregation** | `STRING_AGG(col, delimiter)` | `STRING_AGG(col, delimiter)` | `GROUP_CONCAT(col, delimiter)` | `GROUP_CONCAT(col SEPARATOR d)` | `LISTAGG(col, d) WITHIN GROUP(...)` |
 | **Set Difference** | `EXCEPT` | `EXCEPT` | `EXCEPT` | `EXCEPT` (8.0+) | `MINUS` |
-| **Row Locking** | `WITH (UPDLOCK)` | `FOR UPDATE` | *N/A (Database-level lock)* | `FOR UPDATE` | `FOR UPDATE` |
+| **Row Locking** | `WITH (UPDLOCK, ROWLOCK)` | `FOR UPDATE` | *N/A (File-level lock)* | `FOR UPDATE` | `FOR UPDATE` |
 
 ---
 
