@@ -772,13 +772,13 @@ fsql {
 """
 
                 mkMarkdown """
-## 22. 🧩 Set Operations & Live Execution Plan Diagnostics (`explainQuery`)
+## 22. 🧩 Common Table Expressions (CTEs) & Set Operations (`union`, `unionAll`, `intersect`, `except`)
 
-Combine queries using `.Union(...)` and retrieve the live engine query plan report directly.
+Combine multiple query projections using SQL pushdown set operations and CTEs directly inside the **`fsql { ... }`** computation expression.
 """
 
                 mkCode """
-// 22. Set Operations (Union) & Engine Execution Plan Diagnostics directly inside fsql CE
+// 22.1 CTE combined with union directly inside fsql CE
 let unionCatalog =
     fsql {
         for p in Connections.sql.SampleStore.Products do
@@ -792,10 +792,78 @@ let unionCatalog =
         })
     }
 
-let planReport = fsql.explain unionCatalog
-printfn "Engine Execution Plan Report:\n%s" planReport.PlanText
-printfn "Formatted SQL:\n%s" (toRawQuery unionCatalog)
+printfn "Formatted SQL (UNION):\n%s" (toRawQuery unionCatalog)
 unionCatalog
+"""
+
+                mkCode """
+// 22.2 Set Operations: intersect and except directly inside fsql CE
+let stockExcept =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity >= 100)
+        select p
+        except (fsql {
+            for p2 in Connections.sql.SampleStore.Products do
+            where (p2.Price > 300.0f)
+            select p2
+        })
+    }
+
+printfn "Formatted SQL (EXCEPT):\n%s" (toRawQuery stockExcept)
+stockExcept
+"""
+
+                mkMarkdown """
+## 23. 🔗 Relational Outer Joins & Conditional CASE WHEN Expressions
+
+Query tables with `leftOuterJoin ... into ... for ... in ... .DefaultIfEmpty()` and format columns with inline `if ... then ... else` branching compiled to native SQL `CASE WHEN`.
+"""
+
+                mkCode """
+// 23. Left outer join with conditional classification (CASE WHEN)
+fsql {
+    for c in Connections.sql.SampleStore.Customers do
+    where (c.Country = "Brazil" || c.Country = "USA")
+    leftOuterJoin o in Connections.sql.SampleStore.Orders on (c.Id = o.CustomerId) into orders
+    for o in orders.DefaultIfEmpty() do
+    take 15
+    select {|
+        Cliente = c.FirstName + " " + c.LastName
+        Pais = c.Country
+        PedidoId = (if isNull (box o) then 0 else o.Id)
+        Valor = (if isNull (box o) then 0.0f else o.TotalAmount)
+        Status = (if isNull (box o) then "Sem Pedidos" else o.Status)
+        CategoriaCliente = (if c.LoyaltyPoints >= 1000 then "VIP" else "Regular")
+    |}
+}
+"""
+
+                mkMarkdown """
+## 24. 🔍 Correlated Non-Existence (`whereNotExists`) & Engine Execution Plan (`fsql.explain`)
+
+Find entities without related records using `whereNotExists` and inspect the database execution plan directly.
+"""
+
+                mkCode """
+// 24. Customers with no pending orders and live execution plan report
+let pendingAudit =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        where (c.Country = "Brazil")
+        whereNotExists (fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") })
+        take 10
+        select {|
+            Cliente = c.FirstName + " " + c.LastName
+            Cidade = c.City
+            Email = c.Email
+        |}
+    }
+
+let planReport = fsql.explain pendingAudit
+printfn "Engine Execution Plan Report:\n%s" planReport.PlanText
+printfn "Formatted SQL:\n%s" (toRawQuery pendingAudit)
+pendingAudit
 """
 
                 mkMarkdown """
@@ -1406,13 +1474,13 @@ fsql {
 """
 
                 mkMarkdown """
-## 22. 🧩 Operações de Conjunto & Diagnóstico de Plano ao Vivo (`explainQuery`)
+## 22. 🧩 Expressões de Tabela Comuns (CTEs) & Operações de Conjunto (`union`, `unionAll`, `intersect`, `except`)
 
-Combine consultas usando `.Union(...)` e inspecione o relatório do plano de execução do banco de dados em tempo real.
+Combine múltiplas projeções de consulta usando operações de conjunto e CTEs diretamente dentro da computation expression **`fsql { ... }`**.
 """
 
                 mkCode """
-// 22. Operações de Conjunto (Union) e Diagnóstico diretamente dentro da CE fsql
+// 22.1 CTE combinada com union diretamente dentro da CE fsql
 let catalogoCombinado =
     fsql {
         for p in Connections.sql.SampleStore.Products do
@@ -1426,10 +1494,78 @@ let catalogoCombinado =
         })
     }
 
-let relatorioPlano = fsql.explain catalogoCombinado
-printfn "Relatório do Plano de Execução:\n%s" relatorioPlano.PlanText
-printfn "SQL Formatado:\n%s" (toRawQuery catalogoCombinado)
+printfn "SQL Formatado (UNION):\n%s" (toRawQuery catalogoCombinado)
 catalogoCombinado
+"""
+
+                mkCode """
+// 22.2 Operações de Conjunto: intersect e except diretamente dentro da CE fsql
+let estoqueExcept =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity >= 100)
+        select p
+        except (fsql {
+            for p2 in Connections.sql.SampleStore.Products do
+            where (p2.Price > 300.0f)
+            select p2
+        })
+    }
+
+printfn "SQL Formatado (EXCEPT):\n%s" (toRawQuery estoqueExcept)
+estoqueExcept
+"""
+
+                mkMarkdown """
+## 23. 🔗 Outer Joins Relacionais & Expressões Condicionais (CASE WHEN)
+
+Consulte tabelas com `leftOuterJoin ... into ... for ... in ... .DefaultIfEmpty()` e formate colunas com ramificações `if ... then ... else` compiladas para `CASE WHEN` nativo em SQL.
+"""
+
+                mkCode """
+// 23. Left outer join com classificação condicional inline (CASE WHEN)
+fsql {
+    for c in Connections.sql.SampleStore.Customers do
+    where (c.Country = "Brazil" || c.Country = "USA")
+    leftOuterJoin o in Connections.sql.SampleStore.Orders on (c.Id = o.CustomerId) into orders
+    for o in orders.DefaultIfEmpty() do
+    take 15
+    select {|
+        Cliente = c.FirstName + " " + c.LastName
+        Pais = c.Country
+        PedidoId = (if isNull (box o) then 0 else o.Id)
+        Valor = (if isNull (box o) then 0.0f else o.TotalAmount)
+        Status = (if isNull (box o) then "Sem Pedidos" else o.Status)
+        CategoriaCliente = (if c.LoyaltyPoints >= 1000 then "VIP" else "Regular")
+    |}
+}
+"""
+
+                mkMarkdown """
+## 24. 🔍 Não-Existência Correlacionada (`whereNotExists`) & Diagnóstico do Plano de Execução (`fsql.explain`)
+
+Encontre entidades sem registros relacionados usando `whereNotExists` e inspecione o relatório do plano de execução do banco de dados em tempo real.
+"""
+
+                mkCode """
+// 24. Clientes sem pedidos pendentes e diagnóstico do plano de execução ao vivo
+let auditoriaPendentes =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        where (c.Country = "Brazil")
+        whereNotExists (fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") })
+        take 10
+        select {|
+            Cliente = c.FirstName + " " + c.LastName
+            Cidade = c.City
+            Email = c.Email
+        |}
+    }
+
+let relatorioPlano = fsql.explain auditoriaPendentes
+printfn "Relatório do Plano de Execução:\n%s" relatorioPlano.PlanText
+printfn "SQL Formatado:\n%s" (toRawQuery auditoriaPendentes)
+auditoriaPendentes
 """
 
                 mkMarkdown """
@@ -2380,8 +2516,8 @@ catalogoCombinado
         if not (isFileValid excel2Path 100000L) then createSampleCommerceExcelWorkbook excel2Path
         if not (isFileValid jsonPath 1000000L) then createSampleJsonFile jsonPath
         if not (isFileValid xmlPath 1000000L) then createSampleXmlFile xmlPath
-        if not (File.Exists notebookPath) then createSampleDemoNotebook notebookPath
-        if not (File.Exists notebookPtPath) then createSampleDemoNotebookPt notebookPtPath
+        createSampleDemoNotebook notebookPath
+        createSampleDemoNotebookPt notebookPtPath
 
         { SqlitePath = dbPath
           Sqlite2Path = db2Path
