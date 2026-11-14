@@ -191,6 +191,54 @@ let highVolumeProducts =
     }
 ```
 
+### 3.7 Window Functions & Analytics (`fsql.window`, `rowNumber`, `rank`, `lag`, `lead`)
+Analytics and ranking functions map directly to SQL standard `OVER (PARTITION BY ... ORDER BY ...)`:
+
+```fsharp
+let rankedProducts =
+    fsql {
+        for p in mssqlProducts do
+        select {|
+            Category = p.Category
+            Name = p.Name
+            Price = p.Price
+            RowInCat = fsql.rowNumber(fsql.window(partitionBy = p.Category, sortByDescending = p.Price))
+            RankInCat = fsql.rank(fsql.window(partitionBy = p.Category, sortByDescending = p.Price))
+            RunningTotal = fsql.sum(p.Price, over = fsql.window(partitionBy = p.Category, sortBy = p.Id))
+        |}
+    }
+```
+
+### 3.8 Semi-Structured JSON Navigation (`fsql.jsonValue`)
+Pushes scalar extraction directly to database engines (`JSON_VALUE` on SQL Server, `->>` on Postgres, `json_extract` on SQLite):
+
+```fsharp
+let errors =
+    fsql {
+        for log in mssqlLogs do
+        where (fsql.jsonValue(log.Payload, "status") = "ERROR")
+        select {|
+            Id = log.Id
+            UserId = fsql.jsonValue(log.Payload, "user.id")
+            Code = fsql.jsonValue(log.Payload, "error.code")
+        |}
+    }
+```
+
+### 3.9 Common Table Expressions (CTEs) & Set Operations
+```fsharp
+// Common Table Expression (CTE)
+let topSales =
+    mssqlCustomers
+        .WithCte("HighValueCust", "SELECT CustomerId, SUM(TotalAmount) AS Total FROM Orders GROUP BY CustomerId HAVING SUM(TotalAmount) > 500")
+        .Where("_t0.Id IN (SELECT CustomerId FROM HighValueCust)")
+
+// Set Operations
+let allCustomers = activeCustomers.Union(archivedCustomers)
+let commonCustomers = retailCustomers.Intersect(wholesaleCustomers)
+let exclusiveCustomers = retailCustomers.Except(wholesaleCustomers)
+```
+
 ---
 
 ## 4. Query Inspection & Diagnostic Tools
@@ -229,6 +277,20 @@ let (sql, parameters) = toRawSqlWithParameters highVolumeProducts
 // parameters: [("@p0", box 2)]
 ```
 
+### 4.4 `explainQuery` & `.Explain()` (Live Execution Plan Diagnostics)
+Retrieves the execution plan generated directly by the underlying database engine:
+- SQLite: `EXPLAIN QUERY PLAN`
+- PostgreSQL: `EXPLAIN`
+- SQL Server: `SET SHOWPLAN_TEXT ON ... OFF`
+
+```fsharp
+let diag = explainQuery highVolumeProducts
+// Or:
+let diag = highVolumeProducts.Explain()
+
+printfn "Plan text:\n%s" diag.PlanText
+```
+
 ---
 
 ## 5. Dialect Pushdown Rules for AI Agents
@@ -239,6 +301,11 @@ let (sql, parameters) = toRawSqlWithParameters highVolumeProducts
 | **Cross Apply** | Native `CROSS APPLY (...)` | Emitted as `CROSS JOIN LATERAL` | Transparent memory fallback |
 | **Lateral Join** | Emitted as `CROSS APPLY` | Native `CROSS JOIN LATERAL (...)` | Transparent memory fallback |
 | **Scalar Count without GroupBy** | Omit `ORDER BY` (prevents T-SQL 412 error) | Native pushdown | Native pushdown |
+| **Window Functions OVER** | Native (Auto `ORDER BY (SELECT NULL)` for ranking) | Native `OVER (...)` | Native `OVER (...)` (SQLite 3.25+) |
+| **JSON Extraction** | `JSON_VALUE(col, '$.path')` | `col ->> 'path'` / `col #>> '{path}'` | `json_extract(col, '$.path')` |
+| **Common Table Expressions** | `WITH [name] AS (...)` | `WITH [RECURSIVE] "name" AS (...)` | `WITH [RECURSIVE] [name] AS (...)` |
+| **Set Operations** | `UNION [ALL]`, `INTERSECT`, `EXCEPT` | `UNION [ALL]`, `INTERSECT`, `EXCEPT` | `UNION [ALL]`, `INTERSECT`, `EXCEPT` |
+| **Outer Joins** | `FULL OUTER JOIN`, `RIGHT OUTER JOIN` | `FULL OUTER JOIN`, `RIGHT OUTER JOIN` | `FULL OUTER JOIN`, `RIGHT OUTER JOIN` |
 | **String Parameters** | `N'value'` / `@pN` | `'value'` / `@pN` | `'value'` / `@pN` |
 | **Boolean Types** | Transpiled to `1 / 0` (bit) | Native `true / false` | `1 / 0` |
 

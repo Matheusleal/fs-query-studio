@@ -55,16 +55,25 @@
 10. [Fluent Pushdown API (`SqlPushdownQueryable<'T>`)](#10-fluent-pushdown-api-sqlpushdownqueryablet)
    - 10.1 [Filter & Pagination Extensions](#101-filter--pagination-extensions)
    - 10.2 [Grouping & Having Extensions](#102-grouping--having-extensions)
-   - 10.3 [Apply & Join Extensions](#103-apply--join-extensions)
-   - 10.4 [Direct Aggregate Execution](#104-direct-aggregate-execution)
-11. [Hybrid Execution & In-Memory Fallback (`LinqInMemoryFallback`)](#11-hybrid-execution--in-memory-fallback-linqinmemoryfallback)
-12. [Comprehensive Multi-Dialect Pushdown Matrix](#12-comprehensive-multi-dialect-pushdown-matrix)
-13. [Diagnostic & Tooling APIs](#13-diagnostic--tooling-apis)
-   - 13.1 [`toRawQuery` (Formatted SQL Inspection)](#131-torawquery-formatted-sql-inspection)
-   - 13.2 [`toRawSql` (Unformatted Raw SQL)](#132-torawsql-unformatted-raw-sql)
-   - 13.3 [`toRawSqlWithParameters` (Tuple Extraction)](#133-torawsqlwithparameters-tuple-extraction)
-   - 13.4 [Plan-Level Diagnostic APIs](#134-plan-level-diagnostic-apis)
-14. [Conformance Rules for Developers and AI Agents](#14-conformance-rules-for-developers-and-ai-agents)
+   - 10.3 [Apply & Join Extensions (Outer Joins)](#103-apply--join-extensions-outer-joins)
+   - 10.4 [Common Table Expressions (`WithCte`)](#104-common-table-expressions-withcte)
+   - 10.5 [Set Operations (`Union`, `UnionAll`, `Intersect`, `Except`)](#105-set-operations-union-unionall-intersect-except)
+   - 10.6 [Direct Aggregate Execution](#106-direct-aggregate-execution)
+11. [Window Functions & Analytical Operations](#11-window-functions--analytical-operations)
+   - 11.1 [OVER Clause Specification (`fsql.window`)](#111-over-clause-specification-fsqlwindow)
+   - 11.2 [Ranking Functions (`rowNumber`, `rank`, `denseRank`, `ntile`)](#112-ranking-functions-rownumber-rank-denserank-ntile)
+   - 11.3 [Positional & Value Navigation (`lead`, `lag`, `firstValue`, `lastValue`)](#113-positional--value-navigation-lead-lag-firstvalue-lastvalue)
+   - 11.4 [Windowed Aggregates (`sum`, `avg`, `min`, `max`, `count`)](#114-windowed-aggregates-sum-avg-min-max-count)
+12. [Semi-Structured Data Navigation (`jsonValue`)](#12-semi-structured-data-navigation-jsonvalue)
+13. [Hybrid Execution & In-Memory Fallback (`LinqInMemoryFallback`)](#13-hybrid-execution--in-memory-fallback-linqinmemoryfallback)
+14. [Comprehensive Multi-Dialect Pushdown Matrix](#14-comprehensive-multi-dialect-pushdown-matrix)
+15. [Diagnostic & Tooling APIs](#15-diagnostic--tooling-apis)
+   - 15.1 [`toRawQuery` (Formatted SQL Inspection)](#151-torawquery-formatted-sql-inspection)
+   - 15.2 [`toRawSql` (Unformatted Raw SQL)](#152-torawsql-unformatted-raw-sql)
+   - 15.3 [`toRawSqlWithParameters` (Tuple Extraction)](#153-torawsqlwithparameters-tuple-extraction)
+   - 15.4 [Execution Plan Diagnostics (`explainQuery` & `.Explain()`)](#154-execution-plan-diagnostics-explainquery--explain)
+   - 15.5 [Plan-Level Diagnostic APIs](#155-plan-level-diagnostic-apis)
+16. [Conformance Rules for Developers and AI Agents](#16-conformance-rules-for-developers-and-ai-agents)
 
 ---
 
@@ -617,16 +626,44 @@ let highVolume =
         .Having("COUNT(*) >= @threshold", [ "@threshold", box 5 ])
 ```
 
-### 10.3 Apply & Join Extensions
+### 10.3 Apply & Join Extensions (Outer Joins)
 ```fsharp
 let withDetails =
     queryable
+        .FullOuterJoin("Orders", "_o", "_t0.CustomerId = _o.CustomerId")
+        .RightOuterJoin("Customers", "_c", "_t0.CustomerId = _c.Id")
         .CrossApply("SELECT TOP (1) * FROM Orders o WHERE o.ProductId = _t0.Id", "_o")
         .OuterApply("SELECT COUNT(*) AS Cnt FROM Reviews r WHERE r.ProductId = _t0.Id", "_r")
         .CrossJoin("Categories", "_c")
 ```
 
-### 10.4 Direct Aggregate Execution
+### 10.4 Common Table Expressions (`WithCte`)
+CTEs define reusable named subqueries executed before the main query:
+```fsharp
+let highValue =
+    queryable
+        .WithCte("HighValueCust", "SELECT CustomerId, SUM(TotalAmount) AS Total FROM Orders GROUP BY CustomerId HAVING SUM(TotalAmount) > 1000")
+        .Where("_t0.CustomerId IN (SELECT CustomerId FROM HighValueCust)")
+
+// Recursive CTEs (generating WITH RECURSIVE on PostgreSQL and SQLite, WITH on SQL Server)
+let orgHierarchy =
+    queryable
+        .WithCte(
+            name = "Hierarchy",
+            subquerySql = "SELECT EmpId, MgrId FROM Employees WHERE MgrId IS NULL UNION ALL SELECT e.EmpId, e.MgrId FROM Employees e INNER JOIN Hierarchy h ON e.MgrId = h.EmpId",
+            isRecursive = true)
+```
+
+### 10.5 Set Operations (`Union`, `UnionAll`, `Intersect`, `Except`)
+Chains multiple `SqlPushdownQueryable` queries combining their results at the database level:
+```fsharp
+let combined = activeCustomers.Union(archivedCustomers)
+let allOrders = retailOrders.UnionAll(wholesaleOrders)
+let common = branchAProducts.Intersect(branchBProducts)
+let missing = targetInventory.Except(actualInventory)
+```
+
+### 10.6 Direct Aggregate Execution
 ```fsharp
 let total = queryable.Count()
 let uniqueCats = queryable.CountDistinct("Category")
@@ -636,7 +673,95 @@ let avgPrice = queryable.Average<decimal>("Price")
 
 ---
 
-## 11. Hybrid Execution & In-Memory Fallback (`LinqInMemoryFallback`)
+## 11. Window Functions & Analytical Operations
+
+FSQL provides native pushdown for SQL window functions, compiling typed F# expressions into native `OVER (PARTITION BY ... ORDER BY ...)` clauses across all supported database engines.
+
+### 11.1 OVER Clause Specification (`fsql.window`)
+Window definitions are constructed with `fsql.window`:
+```fsharp
+// Window partitioned by Category and sorted by Price descending
+fsql.window(partitionBy = p.Category, sortByDescending = p.Price)
+
+// Window ordered by Date
+fsql.window(sortBy = o.OrderDate)
+```
+
+### 11.2 Ranking Functions (`rowNumber`, `rank`, `denseRank`, `ntile`)
+Ranking functions map to SQL standard analytical functions. On SQL Server, if no order clause is provided, `ORDER BY (SELECT NULL)` is automatically generated to satisfy T-SQL parser requirements:
+```fsharp
+fsql {
+    for p in db.Products do
+    select {|
+        Category = p.Category
+        Name = p.Name
+        Price = p.Price
+        RowInCat = fsql.rowNumber(fsql.window(partitionBy = p.Category, sortByDescending = p.Price))
+        RankInCat = fsql.rank(fsql.window(partitionBy = p.Category, sortByDescending = p.Price))
+        DenseRankInCat = fsql.denseRank(fsql.window(partitionBy = p.Category, sortByDescending = p.Price))
+        Quartile = fsql.ntile(4, fsql.window(sortBy = p.Price))
+    |}
+}
+```
+
+### 11.3 Positional & Value Navigation (`lead`, `lag`, `firstValue`, `lastValue`)
+Retrieve values from preceding, subsequent, or boundary rows within the partition without self-joins:
+```fsharp
+fsql {
+    for o in db.Orders do
+    select {|
+        OrderId = o.Id
+        CustomerId = o.CustomerId
+        CurrentAmount = o.TotalAmount
+        PreviousAmount = fsql.lag(o.TotalAmount, over = fsql.window(partitionBy = o.CustomerId, sortBy = o.OrderDate))
+        NextAmount = fsql.lead(o.TotalAmount, over = fsql.window(partitionBy = o.CustomerId, sortBy = o.OrderDate))
+        FirstOrderAmount = fsql.firstValue(o.TotalAmount, over = fsql.window(partitionBy = o.CustomerId, sortBy = o.OrderDate))
+    |}
+}
+```
+
+### 11.4 Windowed Aggregates (`sum`, `avg`, `min`, `max`, `count`)
+Compute running totals and partition metrics alongside granular record rows:
+```fsharp
+fsql {
+    for o in db.Orders do
+    select {|
+        OrderId = o.Id
+        CustomerId = o.CustomerId
+        Total = o.TotalAmount
+        RunningTotal = fsql.sum(o.TotalAmount, over = fsql.window(partitionBy = o.CustomerId, sortBy = o.OrderDate))
+        CustomerAvg = fsql.avg(o.TotalAmount, over = fsql.window(partitionBy = o.CustomerId))
+        CustomerOrderCount = fsql.count(over = fsql.window(partitionBy = o.CustomerId))
+    |}
+}
+```
+
+---
+
+## 12. Semi-Structured Data Navigation (`jsonValue`)
+
+FSQL provides direct extraction of scalar values from JSON columns without in-memory deserialization:
+
+```fsharp
+fsql {
+    for l in db.AuditLogs do
+    where (fsql.jsonValue(l.Payload, "status") = "FAILED")
+    select {|
+        LogId = l.Id
+        User = fsql.jsonValue(l.Payload, "user.email")
+        ErrorCode = fsql.jsonValue(l.Payload, "error.code")
+    |}
+}
+```
+
+### Dialect JSON Compilation
+- **SQL Server**: `JSON_VALUE(Payload, '$.status')` / `JSON_VALUE(Payload, '$.user.email')`
+- **PostgreSQL**: `Payload #>> '{user,email}'` / `Payload ->> 'status'`
+- **SQLite**: `json_extract(Payload, '$.status')` / `json_extract(Payload, '$.user.email')`
+
+---
+
+## 13. Hybrid Execution & In-Memory Fallback (`LinqInMemoryFallback`)
 
 When an FSQL query contains arbitrary F# functions or unmapped operations that cannot be translated into SQL, FSQL does not abort or fail:
 1. **Pushdown Partitioning**: All compatible predicates (`WHERE`), joins, groupings, and orderings are pushed down and executed natively by the database engine.
@@ -645,7 +770,7 @@ When an FSQL query contains arbitrary F# functions or unmapped operations that c
 
 ---
 
-## 12. Comprehensive Multi-Dialect Pushdown Matrix
+## 14. Comprehensive Multi-Dialect Pushdown Matrix
 
 The FSQL compiler translates the neutral `PushdownQueryPlan` into engine-specific SQL:
 
@@ -671,12 +796,17 @@ The FSQL compiler translates the neutral `PushdownQueryPlan` into engine-specifi
 | **Column-Specific Count** | `COUNT([col])` | `COUNT("col")` | `COUNT([col])` |
 | **Distinct Count** | `COUNT(DISTINCT [col])` | `COUNT(DISTINCT "col")` | `COUNT(DISTINCT [col])` |
 | **Aggregate ORDER BY Rule** | Elided when no `GROUP BY` is present | Elided when no `GROUP BY` is present | Elided when no `GROUP BY` is present |
+| **Window Functions OVER** | `FUNC() OVER (PARTITION BY ... ORDER BY ...)` (Auto `ORDER BY (SELECT NULL)` for rank) | `FUNC() OVER (PARTITION BY ... ORDER BY ...)` | `FUNC() OVER (PARTITION BY ... ORDER BY ...)` (SQLite 3.25+) |
+| **Common Table Expressions** | `WITH [name] AS (...)` | `WITH [RECURSIVE] "name" AS (...)` | `WITH [RECURSIVE] [name] AS (...)` |
+| **Set Operations** | `UNION [ALL]`, `INTERSECT`, `EXCEPT` | `UNION [ALL]`, `INTERSECT`, `EXCEPT` | `UNION [ALL]`, `INTERSECT`, `EXCEPT` |
+| **Outer Joins** | `FULL OUTER JOIN`, `RIGHT OUTER JOIN` | `FULL OUTER JOIN`, `RIGHT OUTER JOIN` | `FULL OUTER JOIN`, `RIGHT OUTER JOIN` |
+| **JSON Extraction** | `JSON_VALUE(col, '$.path')` | `col ->> 'path'` / `col #>> '{path}'` | `json_extract(col, '$.path')` |
 
 ---
 
-## 13. Diagnostic & Tooling APIs
+## 15. Diagnostic & Tooling APIs
 
-### 13.1 `toRawQuery` (Formatted SQL Inspection)
+### 15.1 `toRawQuery` (Formatted SQL Inspection)
 Inspects the compiled SQL with formatted indentation, clause line breaks, and documented bound parameters in a header comment:
 ```fsharp
 let query =
@@ -707,14 +837,14 @@ WHERE (_t0.Country = @p0
   ))
 ```
 
-### 13.2 `toRawSql` (Unformatted Raw SQL)
+### 15.2 `toRawSql` (Unformatted Raw SQL)
 Extracts the raw SQL string with bound parameters header:
 ```fsharp
 let rawSql = toRawSql query
 // Returns: "-- Parameters:\n--   @p0 = 'USA'...\nSELECT ..."
 ```
 
-### 13.3 `toRawSqlWithParameters` (Tuple Extraction)
+### 15.3 `toRawSqlWithParameters` (Tuple Extraction)
 Extracts the unformatted SQL string and list of parameter key-value tuples for automated assertions and low-level interop:
 ```fsharp
 let sql, parameters = toRawSqlWithParameters query
@@ -722,7 +852,22 @@ let sql, parameters = toRawSqlWithParameters query
 // parameters: (string * obj) list
 ```
 
-### 13.4 Plan-Level Diagnostic APIs
+### 15.4 Execution Plan Diagnostics (`explainQuery` & `.Explain()`)
+Returns a structured diagnostic report containing the target dialect, beautified SQL, parameters, and the live database query plan:
+- **SQLite**: `EXPLAIN QUERY PLAN <sql>`
+- **PostgreSQL**: `EXPLAIN <sql>`
+- **SQL Server**: `SET SHOWPLAN_TEXT ON; <sql>; SET SHOWPLAN_TEXT OFF;`
+
+```fsharp
+let report = explainQuery myQuery
+// Or directly on a queryable:
+let report = myQuery.Explain()
+
+printfn "Engine: %A" report.Dialect
+printfn "%s" report.PlanText
+```
+
+### 15.5 Plan-Level Diagnostic APIs
 On `PushdownQueryPlan`:
 - `plan.ToRawQuery(?dialect: SqlDialect) : string`
 - `plan.BuildRawSql(dialect: SqlDialect) : string`
@@ -731,7 +876,7 @@ On `PushdownQueryPlan`:
 
 ---
 
-## 14. Conformance Rules for Developers and AI Agents
+## 16. Conformance Rules for Developers and AI Agents
 
 1. **Exclusivity of `fsql`**: Always use `fsql { ... }`. Never use standard LINQ `query { ... }` or legacy `fquery`.
 2. **Zero Raw SQL String Concatenation**: Write 100% pure F# DSL. Do not interpolate SQL strings (`$"SELECT ..."`).

@@ -304,7 +304,54 @@ fsql {
 }
 ```
 
-#### 5. Cross-tabulation and Pivot (Dynamic & In-Memory)
+#### 5. Analytical Window Functions (`OVER`, `rowNumber`, `rank`, `lag`, `lead`)
+Evaluate running metrics, partitions, and rankings compiled directly to native SQL window clauses:
+
+```fsharp
+fsql {
+    for p in Connections.sql.SampleStore.Products do
+    select {|
+        Category = p.Category
+        Name = p.Name
+        Price = p.Price
+        RowInCat = fsql.rowNumber(fsql.window(partitionBy = p.Category, sortByDescending = p.Price))
+        RankInCat = fsql.rank(fsql.window(partitionBy = p.Category, sortByDescending = p.Price))
+        RunningSum = fsql.sum(p.Price, over = fsql.window(partitionBy = p.Category, sortBy = p.Id))
+    |}
+}
+```
+
+#### 6. Semi-Structured JSON Navigation (`fsql.jsonValue`)
+Pushes scalar extraction directly to database engines (`JSON_VALUE` on SQL Server, `->>` / `#>>` on Postgres, `json_extract` on SQLite):
+
+```fsharp
+fsql {
+    for l in Connections.sql.SampleStore.AuditLogs do
+    where (fsql.jsonValue(l.Payload, "status") = "FAILED")
+    select {|
+        LogId = l.Id
+        User = fsql.jsonValue(l.Payload, "user.email")
+    |}
+}
+```
+
+#### 7. Common Table Expressions (CTEs), Set Operations & Diagnostics
+```fsharp
+// CTE pushdown
+let vipCustomers =
+    Connections.sql.SampleStore.Customers
+        .WithCte("HighSpenders", "SELECT CustomerId, SUM(TotalAmount) AS Total FROM Orders GROUP BY CustomerId HAVING SUM(TotalAmount) > 1000")
+        .Where("_t0.Id IN (SELECT CustomerId FROM HighSpenders)")
+
+// Set Operations: Union, Intersect, Except
+let combined = activeCustomers.Union(archivedCustomers)
+
+// Live Query Plan Diagnostics
+let planReport = explainQuery combined
+printfn "Plan:\n%s" planReport.PlanText
+```
+
+#### 8. Cross-tabulation and Pivot (Dynamic & In-Memory)
 - **Dynamic SQL Pivot (`Connections.sql.pivot`)**: Runs conditional aggregation with `CASE WHEN` directly in the database engine:
   ```fsharp
   Connections.sql.pivot "Sales" ["Year"] "Product" "Amount" ~aggFunc:"SUM"
