@@ -225,18 +225,60 @@ let errors =
     }
 ```
 
-### 3.9 Common Table Expressions (CTEs) & Set Operations
-```fsharp
-// Common Table Expression (CTE)
-let topSales =
-    mssqlCustomers
-        .WithCte("HighValueCust", "SELECT CustomerId, SUM(TotalAmount) AS Total FROM Orders GROUP BY CustomerId HAVING SUM(TotalAmount) > 500")
-        .Where("_t0.Id IN (SELECT CustomerId FROM HighValueCust)")
+### 3.9 Common Table Expressions (CTEs) & Set Operations inside `fsql` CE
+FSQL supports declaring CTEs and performing set operations directly within the `fsql { ... }` computation expression:
 
-// Set Operations
-let allCustomers = activeCustomers.Union(archivedCustomers)
-let commonCustomers = retailCustomers.Intersect(wholesaleCustomers)
-let exclusiveCustomers = retailCustomers.Except(wholesaleCustomers)
+```fsharp
+// Common Table Expression (CTE) combined with Set Operations directly inside fsql CE
+let topCatalog =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        withCte "HighValue" (fsql {
+            for p2 in Connections.sql.SampleStore.Products do
+            where (p2.Price >= 200.0f)
+            select p2
+        })
+        where (p.Price >= 200.0f)
+        select p
+        union (fsql {
+            for p3 in Connections.sql.SampleStore.Products do
+            where (p3.Price < 50.0f)
+            select p3
+        })
+    }
+
+// In-CE Set Operations: union, unionAll, intersect, except
+let allItems =
+    fsql {
+        for a in activeItems do
+        select a
+        unionAll archivedItems
+    }
+
+let commonItems =
+    fsql {
+        for r in retailItems do
+        select r
+        intersect wholesaleItems
+    }
+
+let exclusiveItems =
+    fsql {
+        for r in retailItems do
+        select r
+        except wholesaleItems
+    }
+```
+
+### 3.10 Outer Joins inside `fsql` CE
+```fsharp
+// Full Outer Join directly within fsql
+let suppliersProducts =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        fullOuterJoin "Suppliers" "s" "p.SupplierId = s.Id"
+        select p
+    }
 ```
 
 ---

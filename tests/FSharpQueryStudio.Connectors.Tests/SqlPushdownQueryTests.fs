@@ -1567,6 +1567,121 @@ let ``SqlPushdownQueryable Explain executes live against SQLite and returns diag
     Assert.Contains("SQLite EXPLAIN QUERY PLAN", report.PlanText)
     Assert.False(String.IsNullOrWhiteSpace(report.PlanText))
 
+[<Fact>]
+let ``fsql CE supports withCte and union directly inside query expression`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
+
+    let combined =
+        fsql {
+            for p in products do
+            withCte "HighEnd" (fsql { for p2 in products do where (p2.Price >= 100.0M); select p2 })
+            where (p.Price >= 100.0M)
+            select p
+            union (fsql {
+                for p3 in products do
+                where (p3.Price < 10.0M)
+                select p3
+            })
+        }
+
+    let raw = toRawQuery combined
+    Assert.Contains("WITH HighEnd AS", raw)
+    Assert.Contains("UNION", raw)
+    let list = combined |> Seq.toList
+    // HighEnd >= 100: Monitor(299.99) -> 1
+    // Low < 10: Notebook(5.99), Pen(1.50) -> 2
+    // Total = 3
+    Assert.Equal(3, list.Length)
+
+[<Fact>]
+let ``fsql CE supports unionAll intersect except directly inside query expression`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
+
+    let uAll =
+        fsql {
+            for p in products do
+            where (p.Price >= 200.0M)
+            select p
+            unionAll (fsql {
+                for p2 in products do
+                where (p2.Price < 10.0M)
+                select p2
+            })
+        }
+    let uAllList = uAll |> Seq.toList
+    Assert.Equal(3, uAllList.Length)
+
+    let inter =
+        fsql {
+            for p in products do
+            where (p.Price >= 40.0M)
+            select p
+            intersect (fsql {
+                for p2 in products do
+                where (p2.Price <= 50.0M)
+                select p2
+            })
+        }
+    let interList = inter |> Seq.toList
+    // Keyboard is 45.50
+    Assert.Single(interList) |> ignore
+
+    let exc =
+        fsql {
+            for p in products do
+            where (p.Price >= 40.0M)
+            select p
+            except (fsql {
+                for p2 in products do
+                where (p2.Price > 100.0M)
+                select p2
+            })
+        }
+    let excList = exc |> Seq.toList
+    // Keyboard(45.50) is kept, Monitor(299.99) is excluded
+    Assert.Single(excList) |> ignore
+
+[<Fact>]
+let ``fsql explain and explainQuery report execution plan for fsql queries`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
+
+    let q =
+        fsql {
+            for p in products do
+            where (p.Price > 20.0M)
+            select p
+        }
+
+    let rep1 = explainQuery q
+    Assert.Contains("Products", rep1.FormattedSql)
+    Assert.Contains("SQLite EXPLAIN QUERY PLAN", rep1.PlanText)
+
+    let rep2 = fsql.explain q
+    Assert.Contains("Products", rep2.FormattedSql)
+    Assert.Contains("SQLite EXPLAIN QUERY PLAN", rep2.PlanText)
+
+[<Fact>]
+let ``fsql CE supports fullOuterJoin directly inside query expression`` () =
+    let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
+    let products = SqlPushdownQueryable<TestProduct>(dummyConn, "Products")
+
+    let q =
+        fsql {
+            for p in products do
+            fullOuterJoin "Suppliers" "s" "p.SupplierId = s.Id"
+            select p
+        }
+
+    let raw = toRawQuery q
+    Assert.Contains("FULL OUTER JOIN Suppliers s ON p.SupplierId = s.Id", raw)
+
+
 
 
 

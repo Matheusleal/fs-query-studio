@@ -778,14 +778,23 @@ Combine queries using `.Union(...)` and retrieve the live engine query plan repo
 """
 
                 mkCode """
-// 22. Set Operations (Union) & Engine Execution Plan Diagnostics
-let expensiveProducts = Connections.sql.SampleStore.Products.Where("_t0.Price >= 200")
-let entryProducts = Connections.sql.SampleStore.Products.Where("_t0.Price < 50")
+// 22. Set Operations (Union) & Engine Execution Plan Diagnostics directly inside fsql CE
+let unionCatalog =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        withCte "HighValue" (fsql { for p2 in Connections.sql.SampleStore.Products do where (p2.Price >= 200.0f); select p2 })
+        where (p.Price >= 200.0f)
+        select p
+        union (fsql {
+            for p3 in Connections.sql.SampleStore.Products do
+            where (p3.Price < 50.0f)
+            select p3
+        })
+    }
 
-let unionCatalog = expensiveProducts.Union(entryProducts)
-let planReport = explainQuery unionCatalog
-
+let planReport = fsql.explain unionCatalog
 printfn "Engine Execution Plan Report:\n%s" planReport.PlanText
+printfn "Formatted SQL:\n%s" (toRawQuery unionCatalog)
 unionCatalog
 """
 
@@ -1403,14 +1412,23 @@ Combine consultas usando `.Union(...)` e inspecione o relatório do plano de exe
 """
 
                 mkCode """
-// 22. Operações de Conjunto (Union) e Diagnóstico com explainQuery
-let produtosCaros = Connections.sql.SampleStore.Products.Where("_t0.Price >= 200")
-let produtosEntrada = Connections.sql.SampleStore.Products.Where("_t0.Price < 50")
+// 22. Operações de Conjunto (Union) e Diagnóstico diretamente dentro da CE fsql
+let catalogoCombinado =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        withCte "ProdutosCaros" (fsql { for p2 in Connections.sql.SampleStore.Products do where (p2.Price >= 200.0f); select p2 })
+        where (p.Price >= 200.0f)
+        select p
+        union (fsql {
+            for p3 in Connections.sql.SampleStore.Products do
+            where (p3.Price < 50.0f)
+            select p3
+        })
+    }
 
-let catalogoCombinado = produtosCaros.Union(produtosEntrada)
-let relatorioPlano = explainQuery catalogoCombinado
-
+let relatorioPlano = fsql.explain catalogoCombinado
 printfn "Relatório do Plano de Execução:\n%s" relatorioPlano.PlanText
+printfn "SQL Formatado:\n%s" (toRawQuery catalogoCombinado)
 catalogoCombinado
 """
 

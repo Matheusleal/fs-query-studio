@@ -2093,6 +2093,12 @@ module LinqInMemoryFallback =
             let fn = lambda.Compile()
             fn.DynamicInvoke()
 
+/// Marker interface allowing non-generic access to pushdown query metadata and plan diagnostics.
+type ISqlPushdownQueryable =
+    abstract member Plan: PushdownQueryPlan
+    abstract member Connector: IQueryableConnector
+    abstract member Explain: unit -> ExecutionPlanReport
+
 /// LINQ Query Provider that inspects expression trees and executes parameterized SQL pushdown queries.
 type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, baseParameters: (string * obj) list) =
     let dialect = SqlDialect.fromConnectorKind (connector :> IConnector).Kind
@@ -2581,10 +2587,13 @@ and SqlPushdownQueryable<'T>(
 
     /// Combines this query with another query using SQL UNION (distinct results).
     member this.Union(other: SqlPushdownQueryable<'T>) : SqlPushdownQueryable<'T> =
-        let newPlan = plan.Clone()
-        let spqPlan = other.Plan.Clone()
-        let mutable subSql = spqPlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
-        for (pName, pVal) in spqPlan.Parameters do
+        let p = (this :> IQueryable).Provider :?> SqlPushdownQueryProvider
+        let fullThisPlan = p.ExtractPlan((this :> IQueryable<'T>).Expression, seedPlan = plan)
+        let op = (other :> IQueryable).Provider :?> SqlPushdownQueryProvider
+        let fullOtherPlan = op.ExtractPlan((other :> IQueryable<'T>).Expression, seedPlan = other.Plan)
+        let newPlan = fullThisPlan.Clone()
+        let mutable subSql = fullOtherPlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
+        for (pName, pVal) in fullOtherPlan.Parameters do
             let uniqueName = $"@p{newPlan.Parameters.Count}"
             subSql <- subSql.Replace(pName, uniqueName)
             newPlan.Parameters.Add(uniqueName, pVal)
@@ -2593,10 +2602,13 @@ and SqlPushdownQueryable<'T>(
 
     /// Combines this query with another query using SQL UNION ALL (all rows preserved).
     member this.UnionAll(other: SqlPushdownQueryable<'T>) : SqlPushdownQueryable<'T> =
-        let newPlan = plan.Clone()
-        let spqPlan = other.Plan.Clone()
-        let mutable subSql = spqPlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
-        for (pName, pVal) in spqPlan.Parameters do
+        let p = (this :> IQueryable).Provider :?> SqlPushdownQueryProvider
+        let fullThisPlan = p.ExtractPlan((this :> IQueryable<'T>).Expression, seedPlan = plan)
+        let op = (other :> IQueryable).Provider :?> SqlPushdownQueryProvider
+        let fullOtherPlan = op.ExtractPlan((other :> IQueryable<'T>).Expression, seedPlan = other.Plan)
+        let newPlan = fullThisPlan.Clone()
+        let mutable subSql = fullOtherPlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
+        for (pName, pVal) in fullOtherPlan.Parameters do
             let uniqueName = $"@p{newPlan.Parameters.Count}"
             subSql <- subSql.Replace(pName, uniqueName)
             newPlan.Parameters.Add(uniqueName, pVal)
@@ -2605,10 +2617,13 @@ and SqlPushdownQueryable<'T>(
 
     /// Combines this query with another query using SQL INTERSECT.
     member this.Intersect(other: SqlPushdownQueryable<'T>) : SqlPushdownQueryable<'T> =
-        let newPlan = plan.Clone()
-        let spqPlan = other.Plan.Clone()
-        let mutable subSql = spqPlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
-        for (pName, pVal) in spqPlan.Parameters do
+        let p = (this :> IQueryable).Provider :?> SqlPushdownQueryProvider
+        let fullThisPlan = p.ExtractPlan((this :> IQueryable<'T>).Expression, seedPlan = plan)
+        let op = (other :> IQueryable).Provider :?> SqlPushdownQueryProvider
+        let fullOtherPlan = op.ExtractPlan((other :> IQueryable<'T>).Expression, seedPlan = other.Plan)
+        let newPlan = fullThisPlan.Clone()
+        let mutable subSql = fullOtherPlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
+        for (pName, pVal) in fullOtherPlan.Parameters do
             let uniqueName = $"@p{newPlan.Parameters.Count}"
             subSql <- subSql.Replace(pName, uniqueName)
             newPlan.Parameters.Add(uniqueName, pVal)
@@ -2617,10 +2632,13 @@ and SqlPushdownQueryable<'T>(
 
     /// Combines this query with another query using SQL EXCEPT.
     member this.Except(other: SqlPushdownQueryable<'T>) : SqlPushdownQueryable<'T> =
-        let newPlan = plan.Clone()
-        let spqPlan = other.Plan.Clone()
-        let mutable subSql = spqPlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
-        for (pName, pVal) in spqPlan.Parameters do
+        let p = (this :> IQueryable).Provider :?> SqlPushdownQueryProvider
+        let fullThisPlan = p.ExtractPlan((this :> IQueryable<'T>).Expression, seedPlan = plan)
+        let op = (other :> IQueryable).Provider :?> SqlPushdownQueryProvider
+        let fullOtherPlan = op.ExtractPlan((other :> IQueryable<'T>).Expression, seedPlan = other.Plan)
+        let newPlan = fullThisPlan.Clone()
+        let mutable subSql = fullOtherPlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
+        for (pName, pVal) in fullOtherPlan.Parameters do
             let uniqueName = $"@p{newPlan.Parameters.Count}"
             subSql <- subSql.Replace(pName, uniqueName)
             newPlan.Parameters.Add(uniqueName, pVal)
@@ -2629,10 +2647,13 @@ and SqlPushdownQueryable<'T>(
 
     /// Prepends a Common Table Expression (WITH cte AS (...)) to this query.
     member this.WithCte(name: string, cteQuery: SqlPushdownQueryable<'U>, ?isRecursive: bool) : SqlPushdownQueryable<'T> =
-        let newPlan = plan.Clone()
-        let ctePlan = cteQuery.Plan.Clone()
-        let mutable subSql = ctePlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
-        for (pName, pVal) in ctePlan.Parameters do
+        let p = (this :> IQueryable).Provider :?> SqlPushdownQueryProvider
+        let fullThisPlan = p.ExtractPlan((this :> IQueryable<'T>).Expression, seedPlan = plan)
+        let cp = (cteQuery :> IQueryable).Provider :?> SqlPushdownQueryProvider
+        let fullCtePlan = cp.ExtractPlan((cteQuery :> IQueryable<'U>).Expression, seedPlan = cteQuery.Plan)
+        let newPlan = fullThisPlan.Clone()
+        let mutable subSql = fullCtePlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
+        for (pName, pVal) in fullCtePlan.Parameters do
             let uniqueName = $"@p{newPlan.Parameters.Count}"
             subSql <- subSql.Replace(pName, uniqueName)
             newPlan.Parameters.Add(uniqueName, pVal)
@@ -2691,6 +2712,11 @@ and SqlPushdownQueryable<'T>(
             FormattedSql = formatted
             Parameters = parms
         }
+
+    interface ISqlPushdownQueryable with
+        member _.Plan = plan
+        member _.Connector = connector
+        member this.Explain() = this.Explain()
 
     interface IQueryable<'T> with
         member _.Provider = provider
@@ -2895,6 +2921,7 @@ module SqlPushdownQuery =
 module SqlComputationExtensions =
     open System.Reflection
     open Microsoft.FSharp.Linq
+    open Microsoft.FSharp.Linq.RuntimeHelpers
     open Microsoft.FSharp.Quotations
     open Microsoft.FSharp.Quotations.Patterns
     open Microsoft.FSharp.Quotations.DerivedPatterns
@@ -2912,7 +2939,7 @@ module SqlComputationExtensions =
     let lateral (subquery: #seq<'T>) : #seq<'T> = subquery
 
     /// Strongly-typed F# computation expression builder providing dedicated keywords
-    /// for subqueries, EXISTS, NOT EXISTS, CROSS APPLY / LATERAL, and HAVING.
+    /// for subqueries, EXISTS, NOT EXISTS, CROSS APPLY / LATERAL, HAVING, CTEs, and Set Operations.
     type FSqlQueryBuilder() =
         inherit QueryBuilder()
 
@@ -2935,6 +2962,50 @@ module SqlComputationExtensions =
         [<CustomOperation("having", MaintainsVariableSpace = true)>]
         member inline _.Having(source: QuerySource<'T, 'Q>, [<ProjectionParameter>] predicate: 'T -> bool) : QuerySource<'T, 'Q> =
             failwith "having marker"
+
+        [<CustomOperation("union")>]
+        member inline _.Union(source: QuerySource<'T, 'Q>, other: System.Collections.Generic.IEnumerable<'T>) : QuerySource<'T, 'Q> =
+            failwith "union marker"
+
+        [<CustomOperation("unionAll")>]
+        member inline _.UnionAll(source: QuerySource<'T, 'Q>, other: System.Collections.Generic.IEnumerable<'T>) : QuerySource<'T, 'Q> =
+            failwith "unionAll marker"
+
+        [<CustomOperation("intersect")>]
+        member inline _.Intersect(source: QuerySource<'T, 'Q>, other: System.Collections.Generic.IEnumerable<'T>) : QuerySource<'T, 'Q> =
+            failwith "intersect marker"
+
+        [<CustomOperation("except")>]
+        member inline _.Except(source: QuerySource<'T, 'Q>, other: System.Collections.Generic.IEnumerable<'T>) : QuerySource<'T, 'Q> =
+            failwith "except marker"
+
+        [<CustomOperation("withCte", MaintainsVariableSpace = true)>]
+        member inline _.WithCte(source: QuerySource<'T, 'Q>, name: string, cteQuery: System.Collections.Generic.IEnumerable<'U>) : QuerySource<'T, 'Q> =
+            failwith "withCte marker"
+
+        [<CustomOperation("withCte", MaintainsVariableSpace = true)>]
+        member inline _.WithCteSql(source: QuerySource<'T, 'Q>, name: string, subquerySql: string) : QuerySource<'T, 'Q> =
+            failwith "withCte marker"
+
+        [<CustomOperation("withRecursiveCte", MaintainsVariableSpace = true)>]
+        member inline _.WithRecursiveCte(source: QuerySource<'T, 'Q>, name: string, cteQuery: System.Collections.Generic.IEnumerable<'U>) : QuerySource<'T, 'Q> =
+            failwith "withRecursiveCte marker"
+
+        [<CustomOperation("withRecursiveCte", MaintainsVariableSpace = true)>]
+        member inline _.WithRecursiveCteSql(source: QuerySource<'T, 'Q>, name: string, subquerySql: string) : QuerySource<'T, 'Q> =
+            failwith "withRecursiveCte marker"
+
+        [<CustomOperation("fullOuterJoin", MaintainsVariableSpace = true)>]
+        member inline _.FullOuterJoin(source: QuerySource<'T, 'Q>, tableOrQuery: string, alias: string, onClause: string) : QuerySource<'T, 'Q> =
+            failwith "fullOuterJoin marker"
+
+        [<CustomOperation("rightOuterJoin", MaintainsVariableSpace = true)>]
+        member inline _.RightOuterJoin(source: QuerySource<'T, 'Q>, tableOrQuery: string, alias: string, onClause: string) : QuerySource<'T, 'Q> =
+            failwith "rightOuterJoin marker"
+
+        [<CustomOperation("crossJoin", MaintainsVariableSpace = true)>]
+        member inline _.CrossJoin(source: QuerySource<'T, 'Q>, tableOrQuery: string, alias: string) : QuerySource<'T, 'Q> =
+            failwith "crossJoin marker"
 
         /// Declares a window specification (OVER clause) with optional partition criteria and ordering.
         member inline _.window(?partitionBy: 'P, ?sortBy: 'S, ?sortByDescending: 'SD) : WindowDefinition =
@@ -2989,6 +3060,11 @@ module SqlComputationExtensions =
         /// Creates a recursive Common Table Expression with an anchor and recursive query.
         member inline _.recursive(name: string, anchor: #seq<'T>, recursive: #seq<'T> -> #seq<'T>) : #seq<'T> = anchor
 
+        /// Returns a structured query execution plan report for diagnostics.
+        member inline _.explain(query: obj) : ExecutionPlanReport = SqlPushdownQuery.explainQuery query
+
+        member private this.BaseRun(typed) = base.Run(typed)
+
         member this.Run(q: Expr<QuerySource<'T, System.Linq.IQueryable>>) : System.Linq.IQueryable<'T> =
             let whereMethod = typeof<QueryBuilder>.GetMethod("Where")
             let countMethod =
@@ -3000,6 +3076,36 @@ module SqlComputationExtensions =
                     m.Name = "Run"
                     && m.IsGenericMethod
                     && m.GetParameters().Length = 1)
+
+            let ctes = ResizeArray<string * obj * bool>()
+            let explicitJoins = ResizeArray<string * string * string * string>()
+
+            let rec peelCustomOps (expr: Expr) : Expr =
+                match expr with
+                | Call(instanceOpt, mi, [ innerSource; nameArg; cteArg ]) when mi.Name = "WithCte" || mi.Name = "WithCteSql" || mi.Name = "WithRecursiveCte" || mi.Name = "WithRecursiveCteSql" ->
+                    let name = LeafExpressionConverter.EvaluateQuotation(nameArg) :?> string
+                    let cteVal =
+                        match cteArg with
+                        | Lambda(_, body) -> LeafExpressionConverter.EvaluateQuotation(body)
+                        | _ -> LeafExpressionConverter.EvaluateQuotation(cteArg)
+                    let isRec = mi.Name.StartsWith("WithRecursive")
+                    ctes.Add((name, cteVal, isRec))
+                    peelCustomOps innerSource
+                | Call(instanceOpt, mi, [ innerSource; tableArg; aliasArg; onArg ]) when mi.Name = "FullOuterJoin" || mi.Name = "RightOuterJoin" ->
+                    let tbl = LeafExpressionConverter.EvaluateQuotation(tableArg) :?> string
+                    let alias = LeafExpressionConverter.EvaluateQuotation(aliasArg) :?> string
+                    let onCl = LeafExpressionConverter.EvaluateQuotation(onArg) :?> string
+                    let jt = if mi.Name = "FullOuterJoin" then "FULL OUTER JOIN" else "RIGHT OUTER JOIN"
+                    explicitJoins.Add((jt, tbl, alias, onCl))
+                    peelCustomOps innerSource
+                | Call(instanceOpt, mi, [ innerSource; tableArg; aliasArg ]) when mi.Name = "CrossJoin" ->
+                    let tbl = LeafExpressionConverter.EvaluateQuotation(tableArg) :?> string
+                    let alias = LeafExpressionConverter.EvaluateQuotation(aliasArg) :?> string
+                    explicitJoins.Add(("CROSS JOIN", tbl, alias, ""))
+                    peelCustomOps innerSource
+                | ExprShape.ShapeVar v -> Expr.Var v
+                | ExprShape.ShapeLambda(v, b) -> Expr.Lambda(v, peelCustomOps b)
+                | ExprShape.ShapeCombination(shape, args) -> ExprShape.RebuildShapeCombination(shape, List.map peelCustomOps args)
 
             let rec rewrite (expr: Expr) : Expr =
                 match expr with
@@ -3060,9 +3166,112 @@ module SqlComputationExtensions =
                 | ExprShape.ShapeLambda(v, b) -> Expr.Lambda(v, rewrite b)
                 | ExprShape.ShapeCombination(shape, args) -> ExprShape.RebuildShapeCombination(shape, List.map rewrite args)
 
-            let rewritten = rewrite q
-            let typedExpr = Expr.Cast<QuerySource<'T, System.Linq.IQueryable>>(rewritten)
-            base.Run(typedExpr)
+            let attachToPlan (plan: PushdownQueryPlan) =
+                for (name, cteVal, isRec) in ctes do
+                    match cteVal with
+                    | :? string as rawSql ->
+                        plan.Ctes.Add({ Name = name; SubquerySql = rawSql; IsRecursive = isRec })
+                    | _ ->
+                        let (subSql, subParams) = SqlPushdownQuery.extractSqlWithParameters cteVal
+                        let mutable remappedSql = subSql
+                        for (pName, pVal) in subParams do
+                            let uniqueName = $"@p{plan.Parameters.Count}"
+                            remappedSql <- remappedSql.Replace(pName, uniqueName)
+                            plan.Parameters.Add(uniqueName, pVal)
+                        plan.Ctes.Add({ Name = name; SubquerySql = remappedSql; IsRecursive = isRec })
+                for (jt, tbl, alias, onCl) in explicitJoins do
+                    plan.Joins.Add({ JoinType = jt; SourceTable = tbl; Alias = alias; OnClause = onCl; RowType = None })
+
+            let attachToQueryable (queryable: System.Linq.IQueryable<'T>) : System.Linq.IQueryable<'T> =
+                match box queryable with
+                | :? SqlPushdownQueryable<'T> as spq ->
+                    attachToPlan spq.Plan
+                    queryable
+                | _ ->
+                    match SqlPushdownQuery.tryFindPushdownSource queryable.Expression with
+                    | Some (_, Some plan) ->
+                        attachToPlan plan
+                        queryable
+                    | _ -> queryable
+
+            let doUnion (lhs: System.Linq.IQueryable<'T>) (rhs: obj) : System.Linq.IQueryable<'T> =
+                match box lhs, rhs with
+                | (:? SqlPushdownQueryable<'T> as spq), (:? SqlPushdownQueryable<'T> as rspq) ->
+                    spq.Union(rspq) :> System.Linq.IQueryable<'T>
+                | _ ->
+                    match rhs with
+                    | :? System.Linq.IQueryable<'T> as rhsIq -> System.Linq.Queryable.Union(lhs, rhsIq)
+                    | :? System.Collections.Generic.IEnumerable<'T> as rhsSeq -> System.Linq.Queryable.Union(lhs, rhsSeq.AsQueryable())
+                    | _ -> lhs
+
+            let doUnionAll (lhs: System.Linq.IQueryable<'T>) (rhs: obj) : System.Linq.IQueryable<'T> =
+                match box lhs, rhs with
+                | (:? SqlPushdownQueryable<'T> as spq), (:? SqlPushdownQueryable<'T> as rspq) ->
+                    spq.UnionAll(rspq) :> System.Linq.IQueryable<'T>
+                | _ ->
+                    match rhs with
+                    | :? System.Linq.IQueryable<'T> as rhsIq -> System.Linq.Queryable.Concat(lhs, rhsIq)
+                    | :? System.Collections.Generic.IEnumerable<'T> as rhsSeq -> System.Linq.Queryable.Concat(lhs, rhsSeq.AsQueryable())
+                    | _ -> lhs
+
+            let doIntersect (lhs: System.Linq.IQueryable<'T>) (rhs: obj) : System.Linq.IQueryable<'T> =
+                match box lhs, rhs with
+                | (:? SqlPushdownQueryable<'T> as spq), (:? SqlPushdownQueryable<'T> as rspq) ->
+                    spq.Intersect(rspq) :> System.Linq.IQueryable<'T>
+                | _ ->
+                    match rhs with
+                    | :? System.Linq.IQueryable<'T> as rhsIq -> System.Linq.Queryable.Intersect(lhs, rhsIq)
+                    | :? System.Collections.Generic.IEnumerable<'T> as rhsSeq -> System.Linq.Queryable.Intersect(lhs, rhsSeq.AsQueryable())
+                    | _ -> lhs
+
+            let doExcept (lhs: System.Linq.IQueryable<'T>) (rhs: obj) : System.Linq.IQueryable<'T> =
+                match box lhs, rhs with
+                | (:? SqlPushdownQueryable<'T> as spq), (:? SqlPushdownQueryable<'T> as rspq) ->
+                    spq.Except(rspq) :> System.Linq.IQueryable<'T>
+                | _ ->
+                    match rhs with
+                    | :? System.Linq.IQueryable<'T> as rhsIq -> System.Linq.Queryable.Except(lhs, rhsIq)
+                    | :? System.Collections.Generic.IEnumerable<'T> as rhsSeq -> System.Linq.Queryable.Except(lhs, rhsSeq.AsQueryable())
+                    | _ -> lhs
+
+            let rec handleSetOps (expr: Expr) : System.Linq.IQueryable<'T> =
+                match expr with
+                | Call(inst, mi, [ lhsSource; rhsArg ]) when mi.Name = "Union" ->
+                    let lhsQ = handleSetOps lhsSource
+                    let rhsVal =
+                        match rhsArg with
+                        | Lambda(_, body) -> LeafExpressionConverter.EvaluateQuotation(body)
+                        | _ -> LeafExpressionConverter.EvaluateQuotation(rhsArg)
+                    doUnion lhsQ rhsVal
+                | Call(inst, mi, [ lhsSource; rhsArg ]) when mi.Name = "UnionAll" ->
+                    let lhsQ = handleSetOps lhsSource
+                    let rhsVal =
+                        match rhsArg with
+                        | Lambda(_, body) -> LeafExpressionConverter.EvaluateQuotation(body)
+                        | _ -> LeafExpressionConverter.EvaluateQuotation(rhsArg)
+                    doUnionAll lhsQ rhsVal
+                | Call(inst, mi, [ lhsSource; rhsArg ]) when mi.Name = "Intersect" ->
+                    let lhsQ = handleSetOps lhsSource
+                    let rhsVal =
+                        match rhsArg with
+                        | Lambda(_, body) -> LeafExpressionConverter.EvaluateQuotation(body)
+                        | _ -> LeafExpressionConverter.EvaluateQuotation(rhsArg)
+                    doIntersect lhsQ rhsVal
+                | Call(inst, mi, [ lhsSource; rhsArg ]) when mi.Name = "Except" ->
+                    let lhsQ = handleSetOps lhsSource
+                    let rhsVal =
+                        match rhsArg with
+                        | Lambda(_, body) -> LeafExpressionConverter.EvaluateQuotation(body)
+                        | _ -> LeafExpressionConverter.EvaluateQuotation(rhsArg)
+                    doExcept lhsQ rhsVal
+                | other ->
+                    let cleaned = peelCustomOps other
+                    let rewritten = rewrite cleaned
+                    let typedExpr = Expr.Cast<QuerySource<'T, System.Linq.IQueryable>>(rewritten)
+                    let baseRes = this.BaseRun(typedExpr)
+                    attachToQueryable baseRes
+
+            handleSetOps q
 
     /// Primary computation expression for F# Query Language (fsql) providing
     /// descriptive DQL operations (whereExists, whereNotExists, having, crossApply, lateral, etc.).

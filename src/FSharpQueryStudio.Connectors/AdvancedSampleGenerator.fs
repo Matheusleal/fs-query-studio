@@ -395,26 +395,30 @@ fsql {
 """
                 mkMarkdown "## 6. 🧩 Common Table Expressions (CTEs) & Set Operations"
                 mkCode """
-// 6. Common Table Expression (CTE) combined with Set Operations
-let vipOrders =
-    Connections.sql.PostgreSQL_Advanced.orders
-        .WithCte("HighValueOrders", "SELECT id, customer_id, total_amount FROM orders WHERE total_amount >= 300.00")
-        .Where("_t0.id IN (SELECT id FROM HighValueOrders)")
-
-let cheapOrders =
+// 6. Common Table Expression (CTE) combined with Set Operations directly inside fsql CE
+let combinedOrders =
     fsql {
         for o in Connections.sql.PostgreSQL_Advanced.orders do
-        where (o.total_amount < 150.0M)
+        withCte "HighValueOrders" (fsql {
+            for o2 in Connections.sql.PostgreSQL_Advanced.orders do
+            where (o2.total_amount >= 300.0M)
+            select o2
+        })
+        where (o.total_amount >= 300.0M)
         select o
+        union (fsql {
+            for o3 in Connections.sql.PostgreSQL_Advanced.orders do
+            where (o3.total_amount < 150.0M)
+            select o3
+        })
     }
 
-let combinedOrders = vipOrders.Union(cheapOrders)
 printfn "Formatted SQL:\n%s" (toRawQuery combinedOrders)
 combinedOrders
 """
                 mkMarkdown "## 7. 🔍 Live PostgreSQL Query Plan Diagnostics (`explainQuery`)"
                 mkCode """
-// 7. Execute live EXPLAIN directly against the PostgreSQL container
+// 7. Execute live EXPLAIN directly against the PostgreSQL container using fsql
 let complexQuery =
     fsql {
         for o in Connections.sql.PostgreSQL_Advanced.orders do
@@ -427,7 +431,7 @@ let complexQuery =
         |}
     }
 
-let report = explainQuery complexQuery
+let report = fsql.explain complexQuery
 printfn "Engine: %A" report.Dialect
 printfn "%s" report.PlanText
 """
@@ -531,26 +535,30 @@ fsql {
 """
                 mkMarkdown "## 6. 🧩 Common Table Expressions & Set Operations"
                 mkCode """
-// 6. Common Table Expression (CTE) combined with Set Operations
-let highVolumeProducts =
-    Connections.sql.SqlServer_Advanced.Products
-        .WithCte("HighStock", "SELECT Id, Name, Price, StockQuantity FROM Products WHERE StockQuantity >= 100")
-        .Where("_t0.Id IN (SELECT Id FROM HighStock)")
-
-let lowStockProducts =
+// 6. Common Table Expression (CTE) combined with Set Operations directly inside fsql CE
+let combinedCatalog =
     fsql {
         for p in Connections.sql.SqlServer_Advanced.Products do
-        where (p.StockQuantity < 50)
+        withCte "HighStock" (fsql {
+            for p2 in Connections.sql.SqlServer_Advanced.Products do
+            where (p2.StockQuantity >= 100)
+            select p2
+        })
+        where (p.StockQuantity >= 100)
         select p
+        union (fsql {
+            for p3 in Connections.sql.SqlServer_Advanced.Products do
+            where (p3.StockQuantity < 50)
+            select p3
+        })
     }
 
-let combinedCatalog = highVolumeProducts.Union(lowStockProducts)
 printfn "Formatted SQL:\n%s" (toRawQuery combinedCatalog)
 combinedCatalog
 """
                 mkMarkdown "## 7. 🔍 Live SQL Server Execution Plan (`SHOWPLAN_TEXT` Diagnostics)"
                 mkCode """
-// 7. Inspect the execution plan returned directly by SQL Server engine
+// 7. Inspect the execution plan returned directly by SQL Server engine using fsql
 let complexQuery =
     fsql {
         for o in Connections.sql.SqlServer_Advanced.Orders do
@@ -563,7 +571,7 @@ let complexQuery =
         |}
     }
 
-let diag = explainQuery complexQuery
+let diag = fsql.explain complexQuery
 printfn "Engine: %A" diag.Dialect
 printfn "%s" diag.PlanText
 """
@@ -660,26 +668,30 @@ fsql {
 """
                 mkMarkdown "## 6. 🧩 Common Table Expressions (CTEs) & Set Operations"
                 mkCode """
-// 6. Common Table Expression (CTE) combined with Set Operations
-let vipProducts =
-    Connections.sql.SQLite_Advanced.Products
-        .WithCte("HighEnd", "SELECT Id, Name, Price FROM Products WHERE Price >= 200")
-        .Where("_t0.Id IN (SELECT Id FROM HighEnd)")
-
-let entryProducts =
+// 6. Common Table Expression (CTE) combined with Set Operations directly inside fsql CE
+let combinedCatalog =
     fsql {
         for p in Connections.sql.SQLite_Advanced.Products do
-        where (p.Price < 100.0f)
+        withCte "HighEnd" (fsql {
+            for p2 in Connections.sql.SQLite_Advanced.Products do
+            where (p2.Price >= 200.0f)
+            select p2
+        })
+        where (p.Price >= 200.0f)
         select p
+        union (fsql {
+            for p3 in Connections.sql.SQLite_Advanced.Products do
+            where (p3.Price < 100.0f)
+            select p3
+        })
     }
 
-let combinedCatalog = vipProducts.Union(entryProducts)
 printfn "Formatted SQL:\n%s" (toRawQuery combinedCatalog)
 combinedCatalog
 """
                 mkMarkdown "## 7. 🔍 Live SQLite EXPLAIN QUERY PLAN"
                 mkCode """
-// 7. Live SQLite execution plan analysis
+// 7. Live SQLite execution plan analysis using fsql
 let complexQuery =
     fsql {
         for o in Connections.sql.SQLite_Advanced.Orders do
@@ -692,7 +704,7 @@ let complexQuery =
         |}
     }
 
-let report = explainQuery complexQuery
+let report = fsql.explain complexQuery
 printfn "Engine: %A" report.Dialect
 printfn "%s" report.PlanText
 """
