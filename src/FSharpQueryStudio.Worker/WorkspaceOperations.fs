@@ -329,7 +329,15 @@ module WorkspaceOperations =
         let result = AdvancedSampleGenerator.generateAdvancedSamples dir engines
         let currentConns = Workspace.readConnections dir
 
-        let mutable newConns = currentConns
+        let mutable newConns =
+            currentConns
+            |> List.filter (fun c ->
+                if String.Equals(c.Name, "SqliteAdvanced", StringComparison.OrdinalIgnoreCase) then
+                    try
+                        let p = c.Configuration.GetProperty("filePath").GetString()
+                        not (p.EndsWith("sqlite_advanced.db", StringComparison.OrdinalIgnoreCase))
+                    with _ -> true
+                else true)
         for connName in result.RegisteredConnections do
             let alreadyExists = newConns |> List.exists (fun c -> String.Equals(c.Name, connName, StringComparison.OrdinalIgnoreCase))
             if not alreadyExists then
@@ -375,8 +383,15 @@ module WorkspaceOperations =
                     newConns <- newConns @ [ sqliteDef ]
                 | _ -> ()
 
-        if newConns.Length <> currentConns.Length then
+        if newConns <> currentConns then
             Workspace.writeConnections dir newConns
+
+        Connections.configure (WorkspaceConnectionResolver(newConns, secretStore, dir))
+        try
+            (EntityBackgroundGenerator.generateForConnectionsAsync dir newConns secretStore).GetAwaiter().GetResult() |> ignore
+        with ex ->
+            Log.Warning("FS Query Studio: Entity generation after advanced samples creation failed: {Error}", ex.Message)
+        Connections.triggerBackgroundSync dir newConns secretStore
 
         if engines |> List.exists (fun e -> String.Equals(e, "sqlite", StringComparison.OrdinalIgnoreCase)) then
             let _ = autoImportDataSources dir secretStore

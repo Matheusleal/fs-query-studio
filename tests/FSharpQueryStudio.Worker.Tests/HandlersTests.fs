@@ -1697,12 +1697,36 @@ let ``workspace/createAdvancedSamples generates docker-compose, init scripts, da
             let conns = Workspace.readConnections tmp
             Assert.Contains(conns, fun c -> c.Name = "PostgreSQL_Advanced")
             Assert.Contains(conns, fun c -> c.Name = "SqlServer_Advanced")
+            Assert.Contains(conns, fun c -> c.Name = "SQLite_Advanced")
         finally
             Handlers.setWorkspaceDirForTests None
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
             try
                 if Directory.Exists tmp then Directory.Delete(tmp, true)
             with _ -> ()
+    }
+
+[<Fact>]
+let ``workspace/createAdvancedSamples updates user download demo workspace if present`` () =
+    task {
+        let downloadPath = @"C:\Users\theus\Downloads\fs-qs"
+        if Directory.Exists downloadPath then
+            Handlers.setWorkspaceDirForTests (Some downloadPath)
+            let escaped = downloadPath.Replace("\\", "\\\\")
+            let req: WorkerRequestFrame =
+                { Id = "adv-user-test"
+                  Method = "workspace/createAdvancedSamples"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escaped}", "engines": ["sqlite", "postgresql", "sqlserver"]}}""").RootElement }
+            let! res = Handlers.dispatch req
+            Assert.True(res.Error.IsNone)
+            EntityBackgroundGenerator.waitForPendingGeneration()
+            let conns = Workspace.readConnections downloadPath
+            Assert.Contains(conns, fun c -> c.Name = "SQLite_Advanced")
+            Assert.DoesNotContain(conns, fun c -> c.Name = "SqliteAdvanced")
+            let genPath = EntityBackgroundGenerator.generatedFilePath downloadPath
+            if File.Exists genPath then
+                let genCode = File.ReadAllText genPath
+                Assert.Contains("SQLite_Advanced", genCode)
     }
 
 [<Fact>]
