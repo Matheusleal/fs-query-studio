@@ -224,6 +224,7 @@ describe("F5 activation wiring", () => {
       "fs-query-studio.connections.remove",
       "fs-query-studio.connections.refresh",
       "fs-query-studio.createSampleData",
+      "fs-query-studio.createAdvancedSamples",
       "fs-query-studio.autoImportFolder",
       "fs-query-studio.syncDataSources",
       "fs-query-studio.pauseWatchersAndWorkers",

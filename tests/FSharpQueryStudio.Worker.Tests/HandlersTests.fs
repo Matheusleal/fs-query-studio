@@ -1496,7 +1496,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(21, codeCells.Length)
+            Assert.Equal(23, codeCells.Length)
 
             for idx, code in List.indexed codeCells do
                 let evalReq = notebookCellRequest $"cell-{idx + 1}" code "sample_demo.fsqnb"
@@ -1543,7 +1543,7 @@ let ``evaluating sample_demo_pt notebook cells succeeds against generated sample
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(21, codeCellsPt.Length)
+            Assert.Equal(23, codeCellsPt.Length)
 
             for idx, code in List.indexed codeCellsPt do
                 let evalReq = notebookCellRequest $"cell-pt-{idx + 1}" code "sample_demo_pt.fsqnb"
@@ -1648,6 +1648,55 @@ query {
             let env = JsonSerializer.Deserialize<ResultEnvelope>(evalRes.Result.Value.GetRawText(), Serialization.options)
             Assert.Equal(ResultKind.Table, env.Kind)
             Assert.Equal(2, env.Rows.Length)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+            try
+                if Directory.Exists tmp then Directory.Delete(tmp, true)
+            with _ -> ()
+    }
+
+[<Fact>]
+let ``workspace/createAdvancedSamples generates docker-compose, init scripts, database and notebooks`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-adv-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let escapedTmp = tmp.Replace("\\", "\\\\")
+            let req: WorkerRequestFrame =
+                { Id = "adv-1"
+                  Method = "workspace/createAdvancedSamples"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}", "engines": ["sqlite", "postgresql", "sqlserver"]}}""").RootElement }
+            let! res = Handlers.dispatch req
+            Assert.True(res.Error.IsNone, (match res.Error with Some e -> e.Message | None -> ""))
+            Assert.True(res.Result.IsSome)
+
+            let r = res.Result.Value
+            let composePath = Path.Combine(tmp, "docker-compose.fsqs.yml")
+            let pgScript = Path.Combine(tmp, "init-scripts", "init_postgres.sql")
+            let sqlServerScript = Path.Combine(tmp, "init-scripts", "init_sqlserver.sql")
+            let sqliteDb = Path.Combine(tmp, "data_sources", "sqlite_advanced.db")
+            let sqliteNb = Path.Combine(tmp, "sample_sqlite.fsqnb")
+            let pgNb = Path.Combine(tmp, "sample_postgresql.fsqnb")
+            let sqlServerNb = Path.Combine(tmp, "sample_sqlserver.fsqnb")
+
+            Assert.True(File.Exists composePath, $"docker-compose should exist: {composePath}")
+            Assert.True(File.Exists pgScript, $"Postgres init script should exist: {pgScript}")
+            Assert.True(File.Exists sqlServerScript, $"SQL Server init script should exist: {sqlServerScript}")
+            Assert.True(File.Exists sqliteDb, $"SQLite advanced DB should exist: {sqliteDb}")
+            Assert.True(File.Exists sqliteNb, $"SQLite notebook should exist: {sqliteNb}")
+            Assert.True(File.Exists pgNb, $"PostgreSQL notebook should exist: {pgNb}")
+            Assert.True(File.Exists sqlServerNb, $"SQL Server notebook should exist: {sqlServerNb}")
+
+            let composeContent = File.ReadAllText composePath
+            Assert.Contains("fsqs-postgres", composeContent)
+            Assert.Contains("fsqs-sqlserver", composeContent)
+
+            // Verify connections written to workspace
+            let conns = Workspace.readConnections tmp
+            Assert.Contains(conns, fun c -> c.Name = "PostgreSQL_Advanced")
+            Assert.Contains(conns, fun c -> c.Name = "SqlServer_Advanced")
         finally
             Handlers.setWorkspaceDirForTests None
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()

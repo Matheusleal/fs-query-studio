@@ -794,6 +794,153 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     },
   );
 
+  const createAdvancedSamplesCommand = vscode.commands.registerCommand(
+    "fs-query-studio.createAdvancedSamples",
+    async () => {
+      let targetDir: string | undefined;
+      const wsFolders = vscode.workspace.workspaceFolders;
+      if (wsFolders && wsFolders.length === 1) {
+        targetDir = wsFolders[0].uri.fsPath;
+      } else if (wsFolders && wsFolders.length > 1) {
+        const pick = await vscode.window.showQuickPick(
+          wsFolders.map((f) => ({ label: f.name, description: f.uri.fsPath, uri: f.uri })),
+          { placeHolder: "Select a workspace folder for advanced database samples" },
+        );
+        if (!pick) return;
+        targetDir = pick.uri.fsPath;
+      } else {
+        const picked = await vscode.window.showOpenDialog({
+          canSelectFiles: false,
+          canSelectFolders: true,
+          canSelectMany: false,
+          openLabel: "Select Folder for Advanced Samples",
+        });
+        if (!picked || picked.length === 0) return;
+        targetDir = picked[0].fsPath;
+      }
+
+      const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
+      const dbOptions = [
+        {
+          label: "$(server) SQLite",
+          description: isPt
+            ? "Banco local em arquivo (zero Docker, SQLite 3.25+ com Window Functions, CTEs, JSON)"
+            : "Local disk database (zero Docker, SQLite 3.25+ with Window Functions, CTEs, JSON)",
+          engine: "sqlite",
+          picked: true,
+        },
+        {
+          label: "$(database) PostgreSQL",
+          description: isPt
+            ? "Container Docker postgres:16-alpine (JSONB, CTEs recursivas, LATERAL e Window Functions)"
+            : "Docker container postgres:16-alpine (JSONB, recursive CTEs, LATERAL and Window Functions)",
+          engine: "postgresql",
+          picked: true,
+        },
+        {
+          label: "$(server-process) SQL Server",
+          description: isPt
+            ? "Container Docker MSSQL 2022 (T-SQL, SHOWPLAN, JSON_VALUE e Window Functions analíticas)"
+            : "Docker container MSSQL 2022 (T-SQL, SHOWPLAN, JSON_VALUE and analytical Window Functions)",
+          engine: "sqlserver",
+          picked: true,
+        },
+      ];
+
+      const selected = await vscode.window.showQuickPick(dbOptions, {
+        canPickMany: true,
+        title: isPt
+          ? "Selecione os Bancos de Dados para os Exemplos Avançados"
+          : "Select Database Engines for Advanced FSQL Samples",
+        placeHolder: isPt
+          ? "Escolha um ou mais bancos de dados suportados para gerar containers e notebooks"
+          : "Choose one or more supported databases to generate containers and notebooks",
+      });
+
+      if (!selected || selected.length === 0) {
+        return;
+      }
+
+      const engines = selected.map((s) => s.engine);
+      log(`[Workspace] Creating advanced samples for engines [${engines.join(", ")}] in directory: ${targetDir}`);
+
+      try {
+        const worker = await getWorker();
+        const res = await worker.send({
+          id: randomUUID(),
+          method: "workspace/createAdvancedSamples",
+          params: { targetDir, targetDirectory: targetDir, engines, selectedEngines: engines },
+        });
+
+        if (res.error) {
+          log(`[Workspace] Failed to create advanced database samples: ${res.error.message}`);
+          outputChannel?.show(true);
+          const choice = await vscode.window.showErrorMessage(
+            `Failed to create advanced database samples: ${res.error.message}`,
+            "Show Logs",
+          );
+          if (choice === "Show Logs") {
+            outputChannel?.show(true);
+          }
+          return;
+        }
+
+        const data = res.result as {
+          targetDir: string;
+          selectedEngines: string[];
+          dockerComposePath?: string;
+          initScripts: string[];
+          notebooksGenerated: string[];
+          registeredConnections: string[];
+        };
+
+        log(
+          `[Workspace] Advanced database samples generated: Compose=${data.dockerComposePath}, Notebooks=${data.notebooksGenerated.join(", ")}, Connections=${data.registeredConnections.join(", ")}`,
+        );
+
+        if (engines.includes("sqlite")) {
+          startDataSourcesWatcher();
+        }
+        await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
+
+        // Open the first generated notebook
+        if (data.notebooksGenerated && data.notebooksGenerated.length > 0) {
+          const firstNb = data.notebooksGenerated[0];
+          try {
+            const doc = await vscode.workspace.openNotebookDocument(vscode.Uri.file(firstNb));
+            await vscode.window.showNotebookDocument(doc);
+          } catch {
+            // ignore error opening notebook
+          }
+        }
+
+        let successMsg = isPt
+          ? `Exemplos avançados criados com sucesso! Notebooks: ${data.notebooksGenerated.map((p) => p.split(/[\\/]/).pop()).join(", ")}.`
+          : `Advanced database samples created successfully! Notebooks: ${data.notebooksGenerated.map((p) => p.split(/[\\/]/).pop()).join(", ")}.`;
+
+        if (data.dockerComposePath) {
+          const composeName = data.dockerComposePath.split(/[\\/]/).pop();
+          successMsg += isPt
+            ? ` Para iniciar os bancos no Docker: 'docker compose -f ${composeName} up -d'.`
+            : ` To start containers with Docker: 'docker compose -f ${composeName} up -d'.`;
+        }
+
+        void vscode.window.showInformationMessage(successMsg);
+      } catch (err) {
+        const msg = (err as Error).message;
+        log(`[Workspace] Error creating advanced samples: ${msg}`);
+        outputChannel?.show(true);
+        const choice = await vscode.window.showErrorMessage(
+          `Error creating advanced database samples: ${msg}`,
+          "Show Logs",
+        );
+        if (choice === "Show Logs") {
+          outputChannel?.show(true);
+        }
+      }
+    },
+  );
+
   const openDocsCommand = vscode.commands.registerCommand(
     "fs-query-studio.openDocs",
     async () => {
@@ -1154,6 +1301,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     newNotebookHereCommand,
     restartCommand,
     createSampleDataCommand,
+    createAdvancedSamplesCommand,
     autoImportFolderCommand,
     syncDataSourcesCommand,
     initEmptyProjectCommand,

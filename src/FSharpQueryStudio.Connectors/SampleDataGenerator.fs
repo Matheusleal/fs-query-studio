@@ -750,6 +750,46 @@ inspectedQuery
 """
 
                 mkMarkdown """
+## 21. ⚡ Analytical Window Functions (`fsql.window`, `rowNumber`, `rank`, `runningTotal`)
+
+Execute analytical window pushdown natively in SQLite 3.25+ using `fsql.window`.
+Here we rank products in their category by price and calculate running revenue totals.
+"""
+
+                mkCode """
+// 21. Window Functions: rowNumber, rank and running sum over category partition
+fsql {
+    for p in Connections.sql.SampleStore.Products do
+    select {|
+        Category = p.CategoryId
+        Product = p.Name
+        Price = p.Price
+        RowInCat = fsql.rowNumber(fsql.window(partitionBy = p.CategoryId, sortByDescending = p.Price))
+        RankInCat = fsql.rank(fsql.window(partitionBy = p.CategoryId, sortByDescending = p.Price))
+        RunningSum = fsql.sum(p.Price, over = fsql.window(partitionBy = p.CategoryId, sortBy = p.Id))
+    |}
+}
+"""
+
+                mkMarkdown """
+## 22. 🧩 Set Operations & Live Execution Plan Diagnostics (`explainQuery`)
+
+Combine queries using `.Union(...)` and retrieve the live engine query plan report directly.
+"""
+
+                mkCode """
+// 22. Set Operations (Union) & Engine Execution Plan Diagnostics
+let expensiveProducts = Connections.sql.SampleStore.Products.Where("_t0.Price >= 200")
+let entryProducts = Connections.sql.SampleStore.Products.Where("_t0.Price < 50")
+
+let unionCatalog = expensiveProducts.Union(entryProducts)
+let planReport = explainQuery unionCatalog
+
+printfn "Engine Execution Plan Report:\n%s" planReport.PlanText
+unionCatalog
+"""
+
+                mkMarkdown """
 ---
 
 ### 📚 Official Documentation & References
@@ -1332,6 +1372,46 @@ let queryInspecionada =
 
 printfn "SQL Pushdown via toRawQuery:\n%s" (toRawQuery queryInspecionada)
 queryInspecionada
+"""
+
+                mkMarkdown """
+## 21. ⚡ Funções de Janela Analíticas (`fsql.window`, `rowNumber`, `rank`, `runningTotal`)
+
+Execute funções de janela analíticas nativas no SQLite 3.25+ usando `fsql.window`.
+Aqui ranqueamos os produtos por preço em cada categoria e calculamos a soma acumulada de valores.
+"""
+
+                mkCode """
+// 21. Funções de Janela: rowNumber, rank e soma acumulada particionada por categoria
+fsql {
+    for p in Connections.sql.SampleStore.Products do
+    select {|
+        Categoria = p.CategoryId
+        Produto = p.Name
+        Preco = p.Price
+        LinhaNaCategoria = fsql.rowNumber(fsql.window(partitionBy = p.CategoryId, sortByDescending = p.Price))
+        RankNaCategoria = fsql.rank(fsql.window(partitionBy = p.CategoryId, sortByDescending = p.Price))
+        SomaAcumulada = fsql.sum(p.Price, over = fsql.window(partitionBy = p.CategoryId, sortBy = p.Id))
+    |}
+}
+"""
+
+                mkMarkdown """
+## 22. 🧩 Operações de Conjunto & Diagnóstico de Plano ao Vivo (`explainQuery`)
+
+Combine consultas usando `.Union(...)` e inspecione o relatório do plano de execução do banco de dados em tempo real.
+"""
+
+                mkCode """
+// 22. Operações de Conjunto (Union) e Diagnóstico com explainQuery
+let produtosCaros = Connections.sql.SampleStore.Products.Where("_t0.Price >= 200")
+let produtosEntrada = Connections.sql.SampleStore.Products.Where("_t0.Price < 50")
+
+let catalogoCombinado = produtosCaros.Union(produtosEntrada)
+let relatorioPlano = explainQuery catalogoCombinado
+
+printfn "Relatório do Plano de Execução:\n%s" relatorioPlano.PlanText
+catalogoCombinado
 """
 
                 mkMarkdown """

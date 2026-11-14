@@ -324,3 +324,52 @@ module WorkspaceOperations =
           NotebookPtPath = files.NotebookPtPath
           RegisteredConnections = [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "ProductCatalog"; "LogisticsHub"; "GitHubFSharp" ] }
 
+    /// Generates containerized and dialect-specific advanced database sample environments, Docker Compose configs, and notebooks.
+    let createAdvancedSamples (dir: string) (engines: string list) (secretStore: ISecretStore) : AdvancedSampleGenerator.AdvancedSampleResult =
+        let result = AdvancedSampleGenerator.generateAdvancedSamples dir engines
+        let currentConns = Workspace.readConnections dir
+
+        let mutable newConns = currentConns
+        for connName in result.RegisteredConnections do
+            let alreadyExists = newConns |> List.exists (fun c -> String.Equals(c.Name, connName, StringComparison.OrdinalIgnoreCase))
+            if not alreadyExists then
+                match connName with
+                | "PostgreSQL_Advanced" ->
+                    let pgDef: ConnectionDefinition =
+                        { Id = Guid.NewGuid()
+                          Name = "PostgreSQL_Advanced"
+                          Kind = ConnectorKind.PostgreSql
+                          Configuration =
+                              JsonSerializer.SerializeToElement(
+                                  {| connectionString = "Host=localhost;Port=5432;Database=fsqs_demo;Username=postgres;Password=Password123!" |},
+                                  Serialization.options
+                              )
+                          SecretReference = None
+                          IsTrusted = true }
+                    newConns <- newConns @ [ pgDef ]
+                | "SqlServer_Advanced" ->
+                    let sqlDef: ConnectionDefinition =
+                        { Id = Guid.NewGuid()
+                          Name = "SqlServer_Advanced"
+                          Kind = ConnectorKind.SqlServer
+                          Configuration =
+                              JsonSerializer.SerializeToElement(
+                                  {| connectionString = "Server=localhost,1433;Database=master;User Id=sa;Password=Password123!;TrustServerCertificate=True;" |},
+                                  Serialization.options
+                              )
+                          SecretReference = None
+                          IsTrusted = true }
+                    newConns <- newConns @ [ sqlDef ]
+                | _ -> ()
+
+        if newConns.Length <> currentConns.Length then
+            Workspace.writeConnections dir newConns
+
+        if engines |> List.exists (fun e -> String.Equals(e, "sqlite", StringComparison.OrdinalIgnoreCase)) then
+            let _ = autoImportDataSources dir secretStore
+            ()
+
+        SessionStore.resetAll ()
+        result
+
+
