@@ -1466,6 +1466,109 @@ let ``fsql window functions execute live against SQLite with row_number and runn
     Assert.Equal(1L, p4.RowInCat) // Electronics Monitor 299.99
     Assert.Equal(2L, p5.RowInCat) // Stationery Pen 1.50
 
+[<Fact>]
+let ``SqlPushdownQueryable FullOuterJoin and RightOuterJoin generate compliant SQL across dialects`` () =
+    let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
+    let customers = SqlPushdownQueryable<TestCustomer>(dummyConn, "Customers")
+
+    let fullJoinQ = customers.FullOuterJoin("Orders", "_o", "_t0.CustomerId = _o.CustomerId")
+    let sqlServerFull = fullJoinQ.Plan.BuildSql(SqlDialect.SqlServer)
+    let pgFull = fullJoinQ.Plan.BuildSql(SqlDialect.PostgreSql)
+    let sqliteFull = fullJoinQ.Plan.BuildSql(SqlDialect.Sqlite)
+
+    Assert.Contains("FULL OUTER JOIN Orders _o ON _t0.CustomerId = _o.CustomerId", sqlServerFull)
+    Assert.Contains("FULL OUTER JOIN Orders _o ON _t0.CustomerId = _o.CustomerId", pgFull)
+    Assert.Contains("FULL OUTER JOIN Orders _o ON _t0.CustomerId = _o.CustomerId", sqliteFull)
+
+    let rightJoinQ = customers.RightOuterJoin("Orders", "_o", "_t0.CustomerId = _o.CustomerId")
+    let sqlServerRight = rightJoinQ.Plan.BuildSql(SqlDialect.SqlServer)
+    let pgRight = rightJoinQ.Plan.BuildSql(SqlDialect.PostgreSql)
+    let sqliteRight = rightJoinQ.Plan.BuildSql(SqlDialect.Sqlite)
+
+    Assert.Contains("RIGHT OUTER JOIN Orders _o ON _t0.CustomerId = _o.CustomerId", sqlServerRight)
+    Assert.Contains("RIGHT OUTER JOIN Orders _o ON _t0.CustomerId = _o.CustomerId", pgRight)
+    Assert.Contains("RIGHT OUTER JOIN Orders _o ON _t0.CustomerId = _o.CustomerId", sqliteRight)
+
+[<Fact>]
+let ``SqlPushdownQueryable Set operations Union Intersect and Except generate valid SQL across dialects`` () =
+    let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
+    let activeCust = SqlPushdownQueryable<TestCustomer>(dummyConn, "ActiveCustomers")
+    let archivedCust = SqlPushdownQueryable<TestCustomer>(dummyConn, "ArchivedCustomers")
+
+    let unionQ = activeCust.Union(archivedCust)
+    let unionSql = unionQ.Plan.BuildSql(SqlDialect.SqlServer)
+    let pgUnionSql = unionQ.Plan.BuildSql(SqlDialect.PostgreSql)
+    let sqliteUnionSql = unionQ.Plan.BuildSql(SqlDialect.Sqlite)
+
+    Assert.Contains("UNION", unionSql)
+    Assert.Contains("UNION", pgUnionSql)
+    Assert.Contains("UNION", sqliteUnionSql)
+
+    let unionAllQ = activeCust.UnionAll(archivedCust)
+    Assert.Contains("UNION ALL", unionAllQ.Plan.BuildSql(SqlDialect.SqlServer))
+
+    let intersectQ = activeCust.Intersect(archivedCust)
+    Assert.Contains("INTERSECT", intersectQ.Plan.BuildSql(SqlDialect.SqlServer))
+
+    let exceptQ = activeCust.Except(archivedCust)
+    Assert.Contains("EXCEPT", exceptQ.Plan.BuildSql(SqlDialect.SqlServer))
+    Assert.Contains("EXCEPT", exceptQ.Plan.BuildSql(SqlDialect.PostgreSql))
+    Assert.Contains("EXCEPT", exceptQ.Plan.BuildSql(SqlDialect.Sqlite))
+
+[<Fact>]
+let ``SqlPushdownQueryable Set operations execute live against SQLite`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let pHigh = SqlPushdownQueryable<TestProduct>(conn, "Products").Where("_t0.Price > 40")
+    let pLow = SqlPushdownQueryable<TestProduct>(conn, "Products").Where("_t0.Price < 10")
+
+    let unionList = pHigh.Union(pLow) |> Seq.toList
+    // High > 40: Keyboard(45.50), Monitor(299.99) -> 2
+    // Low < 10: Notebook(5.99), Pen(1.50) -> 2
+    // Total Union = 4
+    Assert.Equal(4, unionList.Length)
+
+    let intersectList = pHigh.Intersect(pLow) |> Seq.toList
+    Assert.Empty(intersectList)
+
+[<Fact>]
+let ``SqlPushdownQueryable CTE and recursive CTE generate compliant WITH syntax`` () =
+    let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
+    let baseQ = SqlPushdownQueryable<TestCustomer>(dummyConn, "HighValueCust")
+
+    let cteQ = baseQ.WithCte("HighValueCust", "SELECT CustomerId, Name FROM Customers WHERE TotalSpent > 1000")
+    let cteSql = cteQ.Plan.BuildSql(SqlDialect.SqlServer)
+    let ctePgSql = cteQ.Plan.BuildSql(SqlDialect.PostgreSql)
+    let cteSqliteSql = cteQ.Plan.BuildSql(SqlDialect.Sqlite)
+
+    Assert.StartsWith("WITH HighValueCust AS (SELECT CustomerId, Name FROM Customers WHERE TotalSpent > 1000)", cteSql)
+    Assert.StartsWith("WITH HighValueCust AS (SELECT CustomerId, Name FROM Customers WHERE TotalSpent > 1000)", ctePgSql)
+    Assert.StartsWith("WITH HighValueCust AS (SELECT CustomerId, Name FROM Customers WHERE TotalSpent > 1000)", cteSqliteSql)
+
+    let recQ = baseQ.WithCte("Hierarchy", "SELECT EmpId, MgrId FROM Employees WHERE MgrId IS NULL UNION ALL SELECT e.EmpId, e.MgrId FROM Employees e INNER JOIN Hierarchy h ON e.MgrId = h.EmpId", isRecursive = true)
+    let recSql = recQ.Plan.BuildSql(SqlDialect.SqlServer)
+    let recPgSql = recQ.Plan.BuildSql(SqlDialect.PostgreSql)
+    let recSqliteSql = recQ.Plan.BuildSql(SqlDialect.Sqlite)
+
+    // SQL Server uses 'WITH Hierarchy', Postgres and SQLite use 'WITH RECURSIVE Hierarchy'
+    Assert.StartsWith("WITH Hierarchy AS (", recSql)
+    Assert.StartsWith("WITH RECURSIVE Hierarchy AS (", recPgSql)
+    Assert.StartsWith("WITH RECURSIVE Hierarchy AS (", recSqliteSql)
+
+[<Fact>]
+let ``SqlPushdownQueryable Explain executes live against SQLite and returns diagnostics report`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let q = SqlPushdownQueryable<TestProduct>(conn, "Products").Where("_t0.Price > 20")
+
+    let report = q.Explain()
+    Assert.Equal(SqlDialect.Sqlite, report.Dialect)
+    Assert.Contains("Products", report.FormattedSql)
+    Assert.Contains("SQLite EXPLAIN QUERY PLAN", report.PlanText)
+    Assert.False(String.IsNullOrWhiteSpace(report.PlanText))
+
+
+
 
 
 

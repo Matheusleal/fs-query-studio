@@ -1645,7 +1645,7 @@ module ExpressionPushdownTranslator =
 
         for mc in reversed do
             match mc.Method.Name with
-            | ("Join" | "GroupJoin") as mName when mc.Arguments.Count >= 5 ->
+            | ("Join" | "GroupJoin" | "FullOuterJoin" | "RightOuterJoin") as mName when mc.Arguments.Count >= 5 ->
                 if plan.Joins.Count = 0 && plan.BaseRowType.IsNone then
                     match tryExtractQueryableInfo mc.Arguments.[0] with
                     | Some (_, _, outerRowType) -> plan.BaseRowType <- outerRowType
@@ -1673,7 +1673,12 @@ module ExpressionPushdownTranslator =
                             let innerColRef = if innerCol.Contains(".") then innerCol else $"{innerAlias}.{innerCol}"
                             $"{outerColRef} = {innerColRef}"
 
-                    let joinType = if mName = "GroupJoin" then "LEFT JOIN" else "INNER JOIN"
+                    let joinType =
+                        match mName with
+                        | "FullOuterJoin" -> "FULL OUTER JOIN"
+                        | "RightOuterJoin" -> "RIGHT OUTER JOIN"
+                        | "GroupJoin" -> "LEFT JOIN"
+                        | _ -> "INNER JOIN"
                     plan.Joins.Add({
                         JoinType = joinType
                         SourceTable = innerTable
@@ -1778,6 +1783,51 @@ module ExpressionPushdownTranslator =
             | "Skip" when mc.Arguments.Count >= 2 ->
                 let count = evaluateClientValue mc.Arguments.[1] :?> int
                 plan.Skip <- Some count
+            | ("Concat" | "Union" | "Intersect" | "Except") as opName when mc.Arguments.Count >= 2 ->
+                let otherArg = mc.Arguments.[1]
+                let targetSqlOpt =
+                    match tryFindPushdownSource otherArg with
+                    | Some (sourceIq, seedPlan) ->
+                        let t = sourceIq.Provider.GetType()
+                        let m = t.GetMethod("ToSqlWithParameters", [| typeof<Expression>; typeof<PushdownQueryPlan option> |])
+                        if not (isNull m) then
+                            let res = m.Invoke(sourceIq.Provider, [| box otherArg; box seedPlan |]) :?> (string * (string * obj) list)
+                            let subSql, subParams = res
+                            let mutable remappedSql = subSql
+                            for (pName, pVal) in subParams do
+                                let uniqueName = $"@p{plan.Parameters.Count}"
+                                remappedSql <- remappedSql.Replace(pName, uniqueName)
+                                plan.Parameters.Add(uniqueName, pVal)
+                            Some remappedSql
+                        else None
+                    | None -> None
+
+                let targetSql =
+                    match targetSqlOpt with
+                    | Some s -> s
+                    | None ->
+                        let v = try evaluateClientValue otherArg with _ -> box otherArg
+                        match v with
+                        | :? PushdownQueryPlan as targetPlan ->
+                            let s = targetPlan.BuildSql(defaultArg plan.Dialect SqlDialect.Sqlite)
+                            let pList = targetPlan.BaseParameters @ (targetPlan.Parameters |> List.ofSeq)
+                            let mutable remappedSql = s
+                            for (pName: string, pVal: obj) in pList do
+                                let uniqueName = $"@p{plan.Parameters.Count}"
+                                remappedSql <- remappedSql.Replace(pName, uniqueName)
+                                plan.Parameters.Add(uniqueName, pVal)
+                            remappedSql
+                        | other ->
+                            string other
+
+                let op =
+                    match opName with
+                    | "Concat" -> SetOperation.UnionAll
+                    | "Union" -> SetOperation.Union
+                    | "Intersect" -> SetOperation.Intersect
+                    | _ -> SetOperation.Except
+
+                plan.SetOperations.Add({ Operation = op; TargetSql = targetSql })
             | ("First" | "FirstOrDefault" | "Head" | "HeadOrDefault") ->
                 plan.Take <- Some 1
             | ("Single" | "SingleOrDefault") ->
@@ -2290,6 +2340,30 @@ and SqlPushdownQueryable<'T>(
         })
         SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
 
+    /// Appends a FULL OUTER JOIN clause with an ON predicate.
+    member this.FullOuterJoin(tableOrSubquery: string, alias: string, onClause: string) : SqlPushdownQueryable<'T> =
+        let newPlan = plan.Clone()
+        newPlan.Joins.Add({
+            JoinType = "FULL OUTER JOIN"
+            SourceTable = tableOrSubquery
+            Alias = alias
+            OnClause = onClause
+            RowType = None
+        })
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Appends a RIGHT OUTER JOIN clause with an ON predicate.
+    member this.RightOuterJoin(tableOrSubquery: string, alias: string, onClause: string) : SqlPushdownQueryable<'T> =
+        let newPlan = plan.Clone()
+        newPlan.Joins.Add({
+            JoinType = "RIGHT OUTER JOIN"
+            SourceTable = tableOrSubquery
+            Alias = alias
+            OnClause = onClause
+            RowType = None
+        })
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
     /// Overrides the SELECT projection columns directly (e.g. "Id, Name, COUNT(*) OVER() AS Total").
     member this.SelectProjection(columnsSql: string) : SqlPushdownQueryable<'T> =
         let newPlan = plan.Clone()
@@ -2505,6 +2579,119 @@ and SqlPushdownQueryable<'T>(
         let expr = (this :> IQueryable<'T>).Expression
         p.ToSqlWithParameters(expr, plan)
 
+    /// Combines this query with another query using SQL UNION (distinct results).
+    member this.Union(other: SqlPushdownQueryable<'T>) : SqlPushdownQueryable<'T> =
+        let newPlan = plan.Clone()
+        let spqPlan = other.Plan.Clone()
+        let mutable subSql = spqPlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
+        for (pName, pVal) in spqPlan.Parameters do
+            let uniqueName = $"@p{newPlan.Parameters.Count}"
+            subSql <- subSql.Replace(pName, uniqueName)
+            newPlan.Parameters.Add(uniqueName, pVal)
+        newPlan.SetOperations.Add({ Operation = SetOperation.Union; TargetSql = subSql })
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Combines this query with another query using SQL UNION ALL (all rows preserved).
+    member this.UnionAll(other: SqlPushdownQueryable<'T>) : SqlPushdownQueryable<'T> =
+        let newPlan = plan.Clone()
+        let spqPlan = other.Plan.Clone()
+        let mutable subSql = spqPlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
+        for (pName, pVal) in spqPlan.Parameters do
+            let uniqueName = $"@p{newPlan.Parameters.Count}"
+            subSql <- subSql.Replace(pName, uniqueName)
+            newPlan.Parameters.Add(uniqueName, pVal)
+        newPlan.SetOperations.Add({ Operation = SetOperation.UnionAll; TargetSql = subSql })
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Combines this query with another query using SQL INTERSECT.
+    member this.Intersect(other: SqlPushdownQueryable<'T>) : SqlPushdownQueryable<'T> =
+        let newPlan = plan.Clone()
+        let spqPlan = other.Plan.Clone()
+        let mutable subSql = spqPlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
+        for (pName, pVal) in spqPlan.Parameters do
+            let uniqueName = $"@p{newPlan.Parameters.Count}"
+            subSql <- subSql.Replace(pName, uniqueName)
+            newPlan.Parameters.Add(uniqueName, pVal)
+        newPlan.SetOperations.Add({ Operation = SetOperation.Intersect; TargetSql = subSql })
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Combines this query with another query using SQL EXCEPT.
+    member this.Except(other: SqlPushdownQueryable<'T>) : SqlPushdownQueryable<'T> =
+        let newPlan = plan.Clone()
+        let spqPlan = other.Plan.Clone()
+        let mutable subSql = spqPlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
+        for (pName, pVal) in spqPlan.Parameters do
+            let uniqueName = $"@p{newPlan.Parameters.Count}"
+            subSql <- subSql.Replace(pName, uniqueName)
+            newPlan.Parameters.Add(uniqueName, pVal)
+        newPlan.SetOperations.Add({ Operation = SetOperation.Except; TargetSql = subSql })
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Prepends a Common Table Expression (WITH cte AS (...)) to this query.
+    member this.WithCte(name: string, cteQuery: SqlPushdownQueryable<'U>, ?isRecursive: bool) : SqlPushdownQueryable<'T> =
+        let newPlan = plan.Clone()
+        let ctePlan = cteQuery.Plan.Clone()
+        let mutable subSql = ctePlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
+        for (pName, pVal) in ctePlan.Parameters do
+            let uniqueName = $"@p{newPlan.Parameters.Count}"
+            subSql <- subSql.Replace(pName, uniqueName)
+            newPlan.Parameters.Add(uniqueName, pVal)
+        newPlan.Ctes.Add({ Name = name; SubquerySql = subSql; IsRecursive = defaultArg isRecursive false })
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Prepends a Common Table Expression (WITH cte AS (...)) with raw SQL.
+    member this.WithCte(name: string, subquerySql: string, ?parameters: (string * obj) list, ?isRecursive: bool) : SqlPushdownQueryable<'T> =
+        let newPlan = plan.Clone()
+        let p = defaultArg parameters []
+        let mutable remappedSql = subquerySql
+        for (k, v) in p do
+            let uniqueName = $"@p{newPlan.Parameters.Count}"
+            remappedSql <- remappedSql.Replace(k, uniqueName)
+            newPlan.Parameters.Add(uniqueName, v)
+        newPlan.Ctes.Add({ Name = name; SubquerySql = remappedSql; IsRecursive = defaultArg isRecursive false })
+        SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Returns a structured query execution plan report for diagnostics.
+    member this.Explain() : ExecutionPlanReport =
+        let dialect = defaultArg plan.Dialect SqlDialect.Sqlite
+        let formatted = plan.BuildSql(dialect)
+        let parms = plan.BaseParameters @ (plan.Parameters |> List.ofSeq)
+        let planText =
+            try
+                match dialect with
+                | SqlDialect.Sqlite ->
+                    let (res: ConnectorQueryResult) = connector.ExecuteQuery $"EXPLAIN QUERY PLAN {formatted}" parms
+                    let lines =
+                        res.Rows
+                        |> Seq.map (fun row ->
+                            if row.Length >= 4 then $"detail: {row.[3]}"
+                            elif row.Length > 0 then string row.[0]
+                            else "")
+                        |> String.concat "\n"
+                    $"-- SQLite EXPLAIN QUERY PLAN:\n{lines}"
+                | SqlDialect.PostgreSql ->
+                    let (res: ConnectorQueryResult) = connector.ExecuteQuery $"EXPLAIN {formatted}" parms
+                    let lines =
+                        res.Rows
+                        |> Seq.map (fun row -> if row.Length > 0 then string row.[0] else "")
+                        |> String.concat "\n"
+                    $"-- PostgreSQL EXPLAIN:\n{lines}"
+                | SqlDialect.SqlServer ->
+                    let (res: ConnectorQueryResult) = connector.ExecuteQuery $"SET SHOWPLAN_TEXT ON; {formatted}; SET SHOWPLAN_TEXT OFF;" parms
+                    let lines =
+                        res.Rows
+                        |> Seq.map (fun row -> if row.Length > 0 then string row.[0] else "")
+                        |> String.concat "\n"
+                    $"-- SQL Server SHOWPLAN:\n{lines}"
+            with ex ->
+                $"-- EXPLAIN diagnostic report:\n--   Engine: {dialect}\n--   Status: {ex.Message}"
+        {
+            Dialect = dialect
+            PlanText = planText
+            FormattedSql = formatted
+            Parameters = parms
+        }
+
     interface IQueryable<'T> with
         member _.Provider = provider
         member this.Expression = if isNull expression || (match expression with :? ConstantExpression as c -> isNull c.Value | _ -> false) then Expression.Constant(this, typeof<IQueryable<'T>>) :> Expression else expression
@@ -2627,6 +2814,80 @@ module SqlPushdownQuery =
         let formatted = SqlPushdownFormatting.formatSql sql
         formatSqlAndParameters formatted parms
 
+    let explainQuery (query: obj) : ExecutionPlanReport =
+        let sql, parms = extractSqlWithParameters query
+        let formatted = SqlPushdownFormatting.formatSql sql
+        let dialectOpt =
+            match query with
+            | :? IQueryable as iq ->
+                match tryFindPushdownSource iq.Expression with
+                | Some (_, Some p) -> p.Dialect
+                | _ -> None
+            | _ -> None
+
+        let connectorOpt =
+            match query with
+            | :? IQueryable as iq ->
+                let t = iq.GetType()
+                let p = t.GetProperty("Connector")
+                if not (isNull p) then
+                    try Some (p.GetValue(iq) :?> IQueryableConnector) with _ -> None
+                else None
+            | _ -> None
+
+        let dialect =
+            match dialectOpt with
+            | Some d -> d
+            | None ->
+                match connectorOpt with
+                | Some c -> SqlDialect.fromConnectorKind (c :> IConnector).Kind
+                | None -> SqlDialect.Sqlite
+
+        let planText =
+            match connectorOpt with
+            | Some conn ->
+                try
+                    match dialect with
+                    | SqlDialect.Sqlite ->
+                        let explainSql = $"EXPLAIN QUERY PLAN {sql}"
+                        let res = conn.ExecuteQuery explainSql parms
+                        let lines =
+                            res.Rows
+                            |> Seq.map (fun row ->
+                                if row.Length >= 4 && not (isNull row.[3]) then string row.[3]
+                                elif row.Length > 0 then String.concat " | " (row |> Seq.map string)
+                                else "")
+                            |> Seq.filter (not << String.IsNullOrWhiteSpace)
+                            |> String.concat "\n"
+                        if String.IsNullOrWhiteSpace lines then "-- SQLite EXPLAIN: Plan generated successfully."
+                        else $"-- SQLite EXPLAIN QUERY PLAN:\n{lines}"
+                    | SqlDialect.PostgreSql ->
+                        let explainSql = $"EXPLAIN (ANALYZE false, FORMAT TEXT) {sql}"
+                        let res = conn.ExecuteQuery explainSql parms
+                        let lines =
+                            res.Rows
+                            |> Seq.map (fun row -> if row.Length > 0 then string row.[0] else "")
+                            |> String.concat "\n"
+                        $"-- PostgreSQL EXPLAIN:\n{lines}"
+                    | SqlDialect.SqlServer ->
+                        let res = conn.ExecuteQuery $"SET SHOWPLAN_TEXT ON; {sql}; SET SHOWPLAN_TEXT OFF;" parms
+                        let lines =
+                            res.Rows
+                            |> Seq.map (fun row -> if row.Length > 0 then string row.[0] else "")
+                            |> String.concat "\n"
+                        $"-- SQL Server SHOWPLAN:\n{lines}"
+                with ex ->
+                    $"-- EXPLAIN diagnostic report:\n--   Engine: {dialect}\n--   Status: {ex.Message}"
+            | None ->
+                $"-- Diagnostic execution plan estimate:\n--   Engine: {dialect}\n--   Target SQL:\n{formatted}"
+
+        {
+            Dialect = dialect
+            PlanText = planText
+            FormattedSql = formatted
+            Parameters = parms
+        }
+
     do
         ResultKind.RegisterRawSqlExtractor(extractRawSql, extractSqlWithParameters)
 
@@ -2722,6 +2983,12 @@ module SqlComputationExtensions =
         /// Semi-structured JSON navigation pushdown (JSON_VALUE / ->> / json_extract).
         member inline _.jsonValue(column: obj, path: string) : string = ""
 
+        /// Declares a Common Table Expression (CTE) in the current query.
+        member inline _.withCte(name: string, cteQuery: #seq<'U>) : unit = ()
+
+        /// Creates a recursive Common Table Expression with an anchor and recursive query.
+        member inline _.recursive(name: string, anchor: #seq<'T>, recursive: #seq<'T> -> #seq<'T>) : #seq<'T> = anchor
+
         member this.Run(q: Expr<QuerySource<'T, System.Linq.IQueryable>>) : System.Linq.IQueryable<'T> =
             let whereMethod = typeof<QueryBuilder>.GetMethod("Where")
             let countMethod =
@@ -2809,6 +3076,12 @@ module SqlComputationExtensions =
 
     /// Extracts the raw SQL query for any queryable, plan, or expression.
     let toRawSql (query: obj) : string = SqlPushdownQuery.toRawSql query
+
+    /// Returns a structured query execution plan report for diagnostics.
+    let explainQuery (query: obj) : ExecutionPlanReport = SqlPushdownQuery.explainQuery query
+
+    /// Creates a recursive Common Table Expression with an anchor and recursive query.
+    let recursive (name: string) (anchor: #seq<'T>) (recursiveFunc: #seq<'T> -> #seq<'T>) : #seq<'T> = anchor
 
     /// Semi-structured JSON navigation pushdown (JSON_VALUE / ->> / json_extract).
     let jsonValue (column: obj) (path: string) : string = ""

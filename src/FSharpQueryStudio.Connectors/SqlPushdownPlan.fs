@@ -29,6 +29,30 @@ type WindowDefinition = {
     member this.SortBy(_: 'S) : WindowDefinition = this
     member this.SortByDescending(_: 'SD) : WindowDefinition = this
 
+type SetOperation =
+    | Union
+    | UnionAll
+    | Intersect
+    | Except
+
+type SetOperationPlan = {
+    Operation: SetOperation
+    TargetSql: string
+}
+
+type CtePlan = {
+    Name: string
+    SubquerySql: string
+    IsRecursive: bool
+}
+
+type ExecutionPlanReport = {
+    Dialect: SqlDialect
+    PlanText: string
+    FormattedSql: string
+    Parameters: (string * obj) list
+}
+
 module SqlPushdownFormatting =
     open System.Text
     open System.Text.RegularExpressions
@@ -92,6 +116,8 @@ type PushdownQueryPlan = {
     OrderBy: ResizeArray<OrderClause>
     GroupBy: ResizeArray<string>
     Having: ResizeArray<string>
+    Ctes: ResizeArray<CtePlan>
+    SetOperations: ResizeArray<SetOperationPlan>
     mutable IsDistinct: bool
     mutable BaseRowType: Type option
     mutable Skip: int option
@@ -112,6 +138,8 @@ type PushdownQueryPlan = {
             OrderBy = ResizeArray<OrderClause>()
             GroupBy = ResizeArray<string>()
             Having = ResizeArray<string>()
+            Ctes = ResizeArray<CtePlan>()
+            SetOperations = ResizeArray<SetOperationPlan>()
             IsDistinct = false
             BaseRowType = baseRowType
             Skip = None
@@ -130,6 +158,8 @@ type PushdownQueryPlan = {
         p.OrderBy.AddRange(this.OrderBy)
         p.GroupBy.AddRange(this.GroupBy)
         p.Having.AddRange(this.Having)
+        p.Ctes.AddRange(this.Ctes)
+        p.SetOperations.AddRange(this.SetOperations)
         p.IsDistinct <- this.IsDistinct
         p.Skip <- this.Skip
         p.Take <- this.Take
@@ -185,6 +215,12 @@ type PushdownQueryPlan = {
                         $"LEFT JOIN {tbl} ON {onPart}"
                 | "CROSS JOIN" ->
                     $"CROSS JOIN {tbl}"
+                | "FULL OUTER JOIN" | "FULL JOIN" ->
+                    let onPart = if String.IsNullOrWhiteSpace j.OnClause then "1=1" else j.OnClause
+                    $"FULL OUTER JOIN {tbl} ON {onPart}"
+                | "RIGHT OUTER JOIN" | "RIGHT JOIN" ->
+                    let onPart = if String.IsNullOrWhiteSpace j.OnClause then "1=1" else j.OnClause
+                    $"RIGHT OUTER JOIN {tbl} ON {onPart}"
                 | _ ->
                     let onPart = if String.IsNullOrWhiteSpace j.OnClause then "1=1" else j.OnClause
                     $"{j.JoinType} {tbl} ON {onPart}"
@@ -265,29 +301,53 @@ type PushdownQueryPlan = {
 
         let distinctKeyword = if this.IsDistinct then "DISTINCT " else ""
 
-        match dialect with
-        | SqlDialect.SqlServer ->
-            match this.Skip, this.Take with
-            | Some skip, Some take ->
-                let ord = if orderSql = "" then " ORDER BY (SELECT NULL)" else orderSql
-                $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{ord} OFFSET {skip} ROWS FETCH NEXT {take} ROWS ONLY"
-            | Some skip, None ->
-                let ord = if orderSql = "" then " ORDER BY (SELECT NULL)" else orderSql
-                $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{ord} OFFSET {skip} ROWS"
-            | None, Some take ->
-                if orderSql <> "" then
-                    $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{orderSql} OFFSET 0 ROWS FETCH NEXT {take} ROWS ONLY"
-                else
-                    $"SELECT {distinctKeyword}TOP ({take}) {selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}"
-            | None, None ->
-                $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{orderSql}"
-        | _ ->
-            let limitSql =
-                match this.Take, this.Skip with
-                | Some take, Some skip -> $" LIMIT {take} OFFSET {skip}"
-                | Some take, None -> $" LIMIT {take}"
-                | None, Some skip -> $" OFFSET {skip}"
-                | None, None -> ""
+        let rawSelect =
+            match dialect with
+            | SqlDialect.SqlServer ->
+                match this.Skip, this.Take with
+                | Some skip, Some take ->
+                    let ord = if orderSql = "" then " ORDER BY (SELECT NULL)" else orderSql
+                    $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{ord} OFFSET {skip} ROWS FETCH NEXT {take} ROWS ONLY"
+                | Some skip, None ->
+                    let ord = if orderSql = "" then " ORDER BY (SELECT NULL)" else orderSql
+                    $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{ord} OFFSET {skip} ROWS"
+                | None, Some take ->
+                    if orderSql <> "" then
+                        $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{orderSql} OFFSET 0 ROWS FETCH NEXT {take} ROWS ONLY"
+                    else
+                        $"SELECT {distinctKeyword}TOP ({take}) {selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}"
+                | None, None ->
+                    $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{orderSql}"
+            | _ ->
+                let limitSql =
+                    match this.Take, this.Skip with
+                    | Some take, Some skip -> $" LIMIT {take} OFFSET {skip}"
+                    | Some take, None -> $" LIMIT {take}"
+                    | None, Some skip -> $" OFFSET {skip}"
+                    | None, None -> ""
 
-            $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{orderSql}{limitSql}"
+                $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{orderSql}{limitSql}"
+
+        let withSetOps =
+            if this.SetOperations.Count > 0 then
+                let sb = System.Text.StringBuilder(rawSelect)
+                for setOp in this.SetOperations do
+                    let opStr =
+                        match setOp.Operation with
+                        | Union -> "UNION"
+                        | UnionAll -> "UNION ALL"
+                        | Intersect -> "INTERSECT"
+                        | Except -> "EXCEPT"
+                    sb.Append($" {opStr} {setOp.TargetSql}") |> ignore
+                sb.ToString()
+            else
+                rawSelect
+
+        if this.Ctes.Count > 0 then
+            let cteParts = this.Ctes |> Seq.map (fun c -> $"{c.Name} AS ({c.SubquerySql})") |> String.concat ", "
+            let hasRecursive = this.Ctes |> Seq.exists (fun c -> c.IsRecursive)
+            let withKw = if hasRecursive && dialect <> SqlDialect.SqlServer then "WITH RECURSIVE " else "WITH "
+            $"{withKw}{cteParts} {withSetOps}"
+        else
+            withSetOps
 
