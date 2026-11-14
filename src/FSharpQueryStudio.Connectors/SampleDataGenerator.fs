@@ -221,7 +221,7 @@ Access strongly-typed entities directly using `Connections.sql.SampleStore.Custo
 
                 mkCode """
 // 1. Query SQLite (SampleStore) customers from Brazil directly via Connections.sql
-query {
+fsql {
     for c in Connections.sql.SampleStore.Customers do
     where (c.Country = "Brazil")
     sortBy c.FirstName
@@ -243,7 +243,7 @@ Join tables cleanly and naturally using standard F# LINQ `join ... on (...)` syn
 
                 mkCode """
 // 2. Join Orders and Customers within SampleStore to view transaction details with customer info
-query {
+fsql {
     for o in Connections.sql.SampleStore.Orders do
     join c in Connections.sql.SampleStore.Customers on (o.CustomerId = c.Id)
     sortByDescending o.TotalAmount
@@ -267,7 +267,7 @@ Here we query the second database directly via `Connections.sql.InventoryStore`.
 
                 mkCode """
 // 3. Query the second SQLite database (InventoryStore) directly via Connections.sql
-query {
+fsql {
     for w in Connections.sql.InventoryStore.Warehouses do
     join s in Connections.sql.InventoryStore.StockLevels on (w.Id = s.WarehouseId)
     sortByDescending s.QuantityOnHand
@@ -311,7 +311,7 @@ Access the feed directly via `Connections.csv.SalesFeed`.
 
                 mkCode """
 // 5. Query the first CSV feed (SalesFeed) directly and filter electronics purchases
-query {
+fsql {
     for row in Connections.csv.SalesFeed do
     where (row.Category = "Electronics")
     sortByDescending row.TotalAmount
@@ -335,7 +335,7 @@ A second CSV source is registered alongside `SalesFeed`. Both CSV sources genera
 
                 mkCode """
 // 6. Query the second CSV feed (CustomersFeed) directly
-query {
+fsql {
     for row in Connections.csv.CustomersFeed do
     where (row.TotalSpent >= 300.0M)
     sortByDescending row.Score
@@ -361,7 +361,7 @@ Seamlessly join and correlate data from both CSV files (`SalesFeed` + `Customers
 let salesRows = Connections.csv.SalesFeed |> Seq.toList
 let loyaltyRows = Connections.csv.CustomersFeed |> Seq.toList
 
-query {
+fsql {
     for s in salesRows do
     join l in loyaltyRows on (s.Customer = l.CustomerName)
     where (s.TotalAmount >= 100.0M)
@@ -387,7 +387,7 @@ Use `ResultKind.toRawSql` to preview the pushdown SQL before or alongside execut
                 mkCode """
 // 7.1 Preview generated pushdown SQL for relational joins before execution
 let complexJoinQuery =
-    query {
+    fsql {
         for o in Connections.sql.SampleStore.Orders do
         join i in Connections.sql.SampleStore.OrderItems on (o.Id = i.OrderId)
         where (o.TotalAmount >= 100.0f)
@@ -429,7 +429,7 @@ Excel workbooks (`.xlsx`) are inspected per worksheet and exposed with strongly-
 
                 mkCode """
 // 9. Query the RegionalTargets worksheet from the Excel (.xlsx) workbook
-query {
+fsql {
     for row in Connections.excel.RegionalTargets.RegionalTargets do
     where (row.GrowthRate >= 10.0M)
     sortByDescending row.AchievedRevenue
@@ -452,7 +452,7 @@ Each Excel connection acts as a schema container (`Connections.excel.CommerceOps
 
                 mkCode """
 // 10. Join all 4 sheets (Sales, Customers, ProductsStock, DeliveryLogs) in CommerceOps (.xlsx)
-query {
+fsql {
     for s in Connections.excel.CommerceOps.Sales do
     join c in Connections.excel.CommerceOps.Customers on (s.CustomerId = c.CustomerId)
     join p in Connections.excel.CommerceOps.ProductsStock on (s.ProductId = p.ProductId)
@@ -481,7 +481,7 @@ Local JSON files (`.json`) work just like Excel workbooks: each discovered array
 
                 mkCode """
 // 11. Join Products and Reviews inside the local JSON file (ProductCatalog.json) via Connections.json
-query {
+fsql {
     for p in Connections.json.ProductCatalog.Products do
     join r in Connections.json.ProductCatalog.Reviews on (p.ProductId = r.ProductId)
     where (r.Stars >= 4)
@@ -506,7 +506,7 @@ Local XML files (`.xml`) automatically extract both XML attributes (`@CarrierId`
 
                 mkCode """
 // 12. Join Shipments and Carriers inside the local XML file (logistics_hub.xml) via Connections.xml
-query {
+fsql {
     for s in Connections.xml.LogisticsHub.Shipments do
     join c in Connections.xml.LogisticsHub.Carriers on (s.CarrierId = c.CarrierId)
     sortByDescending s.ShippingCost
@@ -531,7 +531,7 @@ REST/JSON endpoints over HTTPS are automatically sampled and mapped into strongl
 
                 mkCode """
 // 13. Query public F# repositories from GitHub HTTPS REST API via Connections.rest
-query {
+fsql {
     for repo in Connections.rest.GitHubFSharp do
     sortByDescending repo.stargazers_count
     select {|
@@ -846,7 +846,7 @@ Ao usar `Connections.sql.SampleStore.Customers`, o **F# Query Studio** fornece s
 
                 mkCode """
 // 1. Conecta e consulta clientes do Brasil diretamente via Connections.sql
-query {
+fsql {
     for c in Connections.sql.SampleStore.Customers do
     where (c.Country = "Brazil")
     sortBy c.FirstName
@@ -868,7 +868,7 @@ Combine tabelas relacionais de forma natural utilizando a sintaxe `join ... on (
 
                 mkCode """
 // 2. Junção relacional entre Pedidos (Orders) e Clientes (Customers) dentro de SampleStore
-query {
+fsql {
     for o in Connections.sql.SampleStore.Orders do
     join c in Connections.sql.SampleStore.Customers on (o.CustomerId = c.Id)
     sortByDescending o.TotalAmount
@@ -892,7 +892,7 @@ Aqui consultamos a segunda base SQLite diretamente via `Connections.sql.Inventor
 
                 mkCode """
 // 3. Consulta a segunda base SQLite (InventoryStore) diretamente via Connections.sql
-query {
+fsql {
     for w in Connections.sql.InventoryStore.Warehouses do
     join s in Connections.sql.InventoryStore.StockLevels on (w.Id = s.WarehouseId)
     sortByDescending s.QuantityOnHand
@@ -936,7 +936,7 @@ Acesse o feed diretamente via `Connections.csv.SalesFeed`.
 
                 mkCode """
 // 5. Consulta o primeiro arquivo CSV (SalesFeed) diretamente
-query {
+fsql {
     for row in Connections.csv.SalesFeed do
     where (row.Category = "Electronics")
     sortByDescending row.TotalAmount
@@ -960,7 +960,7 @@ Uma segunda fonte CSV registrada ao lado de `SalesFeed`. Ambas possuem inferênc
 
                 mkCode """
 // 6. Consulta o segundo arquivo CSV (CustomersFeed) diretamente
-query {
+fsql {
     for row in Connections.csv.CustomersFeed do
     where (row.TotalSpent >= 300.0M)
     sortByDescending row.Score
@@ -986,7 +986,7 @@ Cruze dados de múltiplos arquivos CSV distintos (`SalesFeed` + `CustomersFeed`)
 let salesRows = Connections.csv.SalesFeed |> Seq.toList
 let loyaltyRows = Connections.csv.CustomersFeed |> Seq.toList
 
-query {
+fsql {
     for s in salesRows do
     join l in loyaltyRows on (s.Customer = l.CustomerName)
     where (s.TotalAmount >= 100.0M)
@@ -1012,7 +1012,7 @@ Use `ResultKind.toRawSql` para visualizar a query SQL gerada antes de enviá-la 
                 mkCode """
 // 7.1 Inspeciona o SQL gerado com pushdown para joins antes da execução
 let consultaComplexa =
-    query {
+    fsql {
         for o in Connections.sql.SampleStore.Orders do
         join i in Connections.sql.SampleStore.OrderItems on (o.Id = i.OrderId)
         where (o.TotalAmount >= 100.0f)
@@ -1054,7 +1054,7 @@ Arquivos Excel (`.xlsx`) têm suas abas (worksheets) inspecionadas e tipadas aut
 
                 mkCode """
 // 9. Consulta a aba RegionalTargets da planilha Excel (.xlsx) diretamente via Connections.excel
-query {
+fsql {
     for row in Connections.excel.RegionalTargets.RegionalTargets do
     where (row.GrowthRate >= 10.0M)
     sortByDescending row.AchievedRevenue
@@ -1077,7 +1077,7 @@ Cada conexão Excel funciona como um schema/container (`Connections.excel.Commer
 
                 mkCode """
 // 10. Join entre as 4 abas da planilha em inglês CommerceOps (Sales, Customers, ProductsStock, DeliveryLogs)
-query {
+fsql {
     for s in Connections.excel.CommerceOps.Sales do
     join c in Connections.excel.CommerceOps.Customers on (s.CustomerId = c.CustomerId)
     join p in Connections.excel.CommerceOps.ProductsStock on (s.ProductId = p.ProductId)
@@ -1106,7 +1106,7 @@ Arquivos JSON locais (`.json`) funcionam exatamente como planilhas Excel: cada a
 
                 mkCode """
 // 11. Join entre Products e Reviews dentro do arquivo JSON local (product_catalog.json) via Connections.json
-query {
+fsql {
     for p in Connections.json.ProductCatalog.Products do
     join r in Connections.json.ProductCatalog.Reviews on (p.ProductId = r.ProductId)
     where (r.Stars >= 4)
@@ -1131,7 +1131,7 @@ Arquivos XML locais (`.xml`) extraem automaticamente tanto atributos XML (`@Carr
 
                 mkCode """
 // 12. Join entre Shipments e Carriers dentro do arquivo XML local (logistics_hub.xml) via Connections.xml
-query {
+fsql {
     for s in Connections.xml.LogisticsHub.Shipments do
     join c in Connections.xml.LogisticsHub.Carriers on (s.CarrierId = c.CarrierId)
     sortByDescending s.ShippingCost
@@ -1156,7 +1156,7 @@ Endpoints REST/JSON em páginas seguras (`https://`) são inspecionados e mapead
 
                 mkCode """
 // 13. Consulta repositórios públicos da comunidade F# via API HTTPS do GitHub em Connections.rest
-query {
+fsql {
     for repo in Connections.rest.GitHubFSharp do
     sortByDescending repo.stargazers_count
     select {|
@@ -2376,4 +2376,5 @@ catalogoCombinado
           RestUrl = DefaultGitHubRestUrl
           NotebookPath = notebookPath
           NotebookPtPath = notebookPtPath }
+
 

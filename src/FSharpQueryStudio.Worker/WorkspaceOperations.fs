@@ -360,6 +360,19 @@ module WorkspaceOperations =
                           SecretReference = None
                           IsTrusted = true }
                     newConns <- newConns @ [ sqlDef ]
+                | "SQLite_Advanced" ->
+                    let sqliteDef: ConnectionDefinition =
+                        { Id = Guid.NewGuid()
+                          Name = "SQLite_Advanced"
+                          Kind = ConnectorKind.Sqlite
+                          Configuration =
+                              JsonSerializer.SerializeToElement(
+                                  {| filePath = "data_sources/sqlite_advanced.db" |},
+                                  Serialization.options
+                              )
+                          SecretReference = None
+                          IsTrusted = true }
+                    newConns <- newConns @ [ sqliteDef ]
                 | _ -> ()
 
         if newConns.Length <> currentConns.Length then
