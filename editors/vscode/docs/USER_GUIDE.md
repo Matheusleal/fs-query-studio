@@ -212,7 +212,7 @@ printfn "Generated SQL:\n%s" (toRawQuery myQuery)
 myQuery
 ```
 
-> **AI Agent Reference**: When building automated agents or prompts, consult the [FSQL AI Agent Guide](../../docs/FSQL_AI_AGENT_GUIDE.md).
+> **AI Agent Reference**: When building automated agents or prompts, consult the [FSQL AI Agent Guide](FSQL_AI_AGENT_GUIDE.md).
 
 ### Advanced Query Engine Features (Joins, Aggregations, Subqueries, and Pivot)
 
