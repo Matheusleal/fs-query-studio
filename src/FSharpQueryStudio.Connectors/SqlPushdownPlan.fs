@@ -117,7 +117,7 @@ module SqlPushdownFormatting =
 type PushdownQueryPlan = {
     mutable BaseSql: string
     BaseParameters: (string * obj) list
-    BaseAlias: string
+    mutable BaseAlias: string
     Joins: ResizeArray<JoinPlan>
     WhereClauses: ResizeArray<string>
     Parameters: ResizeArray<string * obj>

@@ -225,68 +225,82 @@ let errors =
     }
 ```
 
-### 3.9 Common Table Expressions (CTEs) & Set Operations inside `fsql` CE
-FSQL supports declaring CTEs (with or without an explicit name) and performing set operations directly within the `fsql { ... }` computation expression:
+### 3.9 Common Table Expressions (CTEs) & Set Operations (Composição Transparente em Partes)
+FSQL supports declaring CTEs and set operations in parts as separate variables, and combining them seamlessly with **zero dummy tables** or manual registration:
 
 ```fsharp
-// 1. Common Table Expression (CTE) declarada em variável e consumida diretamente no JOIN (sem dummy tables!)
+// 1. Definição em partes de queries independentes com CTEs e filtros:
 let highPriceProducts =
     fsql {
         for p in Connections.sql.SampleStore.Products do
+        withCte "HighEnd" (fsql { for p2 in Connections.sql.SampleStore.Products do where (p2.Price >= 500.0f); select p2 })
         where (p.Price >= 200.0f)
         select p
     }
 
-// A CTE é injetada de forma transparente e consumida com tipagem completa:
-let ordersWithHighPrice =
+let budgetProducts =
     fsql {
-        for o in Connections.sql.SampleStore.Orders do
-        withCte "HighPriceProducts" highPriceProducts
-        join h in highPriceProducts on (o.ProductId = h.Id)
-        select (o.OrderId, o.Quantity, h.Name, h.Price)
+        for p in Connections.sql.SampleStore.Products do
+        withCte "Budget" (fsql { for p2 in Connections.sql.SampleStore.Products do where (p2.Price <= 30.0f); select p2 })
+        where (p.Price < 15.0f)
+        select p
     }
 
-// 2. Auto-CTE: ao juntar uma subquery fsql, ela é promovida a CTE automaticamente mesmo sem withCte:
-let autoCteJoin =
-    fsql {
-        for o in Connections.sql.SampleStore.Orders do
-        join h in highPriceProducts on (o.ProductId = h.Id)
-        select (o.OrderId, o.Quantity, h.Name, h.Price)
-    }
+// 2. Composição em 4 formas equivalentes (as CTEs de ambos os lados sobem automaticamente para o WITH principal sem duplicações e sem WITH interno inválido):
 
-// 3. Composição de CTE com Set Operations (UNION, UNION ALL, INTERSECT, EXCEPT)
-let topAndCheapCatalog =
+// Forma A: Dentro da Computation Expression (fsql)
+let combinedA =
     fsql {
         for p in highPriceProducts do
-        withCte highPriceProducts
-        select p
-        union (fsql {
-            for p3 in Connections.sql.SampleStore.Products do
-            where (p3.Price < 50.0f)
-            select p3
-        })
+        union budgetProducts
     }
+
+// Forma B: Builder fsql currificado
+let combinedB = fsql.union highPriceProducts budgetProducts
+
+// Forma C: Função de módulo currificada
+let combinedC = union highPriceProducts budgetProducts
+
+// Forma D: Método de extensão IQueryable
+let combinedD = highPriceProducts.Union(budgetProducts)
+
+// Todas as 4 formas produzem o mesmo SQL limpo:
+// WITH HighEnd AS (...), Budget AS (...)
+// SELECT * FROM HighEnd WHERE ... UNION SELECT * FROM Budget WHERE ...
 
 // In-CE Set Operations: union, unionAll, intersect, except
 let allItems =
     fsql {
         for a in activeItems do
-        select a
         unionAll archivedItems
     }
 
 let commonItems =
     fsql {
         for r in retailItems do
-        select r
         intersect wholesaleItems
     }
 
 let exclusiveItems =
     fsql {
         for r in retailItems do
-        select r
         except wholesaleItems
+    }
+
+// 3. Composição de Subqueries em whereExists e crossApply:
+// Variáveis pré-definidas com filtros e ordenações são injetadas transparentemente
+let completedOrders =
+    fsql {
+        for o in Connections.sql.SampleStore.Orders do
+        where (o.Status = "Completed")
+        select o
+    }
+
+let customersWithOrders =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        whereExists (fsql { for o in completedOrders do where (o.CustomerId = c.Id) })
+        select c
     }
 ```
 

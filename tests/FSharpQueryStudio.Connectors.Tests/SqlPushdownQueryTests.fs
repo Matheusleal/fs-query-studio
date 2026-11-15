@@ -1839,6 +1839,184 @@ let ``fsql CE supports fullOuterJoin directly inside query expression`` () =
     let raw = toRawQuery q
     Assert.Contains("FULL OUTER JOIN Suppliers s ON p.SupplierId = s.Id", raw)
 
+[<Fact>]
+let ``fsql combines separate query variables with CTEs in union without duplication or lost CTEs`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
+
+    let q1 =
+        fsql {
+            for p in products do
+            withCte "HighEnd" (fsql { for p2 in products do where (p2.Price >= 50.0M); select p2 })
+            where (p.Price >= 40.0M)
+            select p
+        }
+
+    let q2 =
+        fsql {
+            for p in products do
+            withCte "Budget" (fsql { for p2 in products do where (p2.Price <= 20.0M); select p2 })
+            where (p.Price < 10.0M)
+            select p
+        }
+
+    // 1. CE union
+    let q3 =
+        fsql {
+            for p in q1 do
+            union q2
+        }
+    let sql3 = toRawQuery q3
+    Assert.Contains("WITH HighEnd AS", sql3)
+    Assert.Contains("Budget AS", sql3)
+    Assert.Contains("UNION", sql3)
+    Assert.DoesNotContain("UNION\nWITH", sql3)
+    Assert.DoesNotContain("UNION SELECT\nWITH", sql3)
+    let rows3 = q3 |> Seq.toList
+    Assert.Equal(3, rows3.Length)
+
+    // 2. Extension .Union(q2)
+    let q4 = q1.Union(q2)
+    let sql4 = toRawQuery q4
+    Assert.Contains("WITH HighEnd AS", sql4)
+    Assert.Contains("Budget AS", sql4)
+    Assert.Contains("UNION", sql4)
+    let rows4 = q4 |> Seq.toList
+    Assert.Equal(3, rows4.Length)
+
+    // 3. fsql.union q1 q2
+    let q5 = fsql.union q1 q2
+    let sql5 = toRawQuery q5
+    Assert.Contains("WITH HighEnd AS", sql5)
+    Assert.Contains("Budget AS", sql5)
+    Assert.Contains("UNION", sql5)
+    let rows5 = q5 |> Seq.toList
+    Assert.Equal(3, rows5.Length)
+
+    // 4. Module level union q1 q2
+    let q6 = union q1 q2
+    let sql6 = toRawQuery q6
+    Assert.Contains("WITH HighEnd AS", sql6)
+    Assert.Contains("Budget AS", sql6)
+    Assert.Contains("UNION", sql6)
+    let rows6 = q6 |> Seq.toList
+    Assert.Equal(3, rows6.Length)
+
+[<Fact>]
+let ``fsql combines separate query variables using unionAll, intersect, and except`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
+
+    let q1 =
+        fsql {
+            for p in products do
+            where (p.Price >= 25.0M)
+            select p
+        }
+
+    let q2 =
+        fsql {
+            for p in products do
+            where (p.Price <= 50.0M)
+            select p
+        }
+
+    let qUAll =
+        fsql {
+            for p in q1 do
+            unionAll q2
+        }
+    let sqlUAll = toRawQuery qUAll
+    Assert.Contains("UNION ALL", sqlUAll)
+    let rowsUAll = qUAll |> Seq.toList
+    Assert.Equal(3 + 4, rowsUAll.Length) // 3 in q1, 4 in q2
+
+    let qInter =
+        fsql {
+            for p in q1 do
+            intersect q2
+        }
+    let sqlInter = toRawQuery qInter
+    Assert.Contains("INTERSECT", sqlInter)
+    let rowsInter = qInter |> Seq.toList
+    Assert.Equal(2, rowsInter.Length) // Mouse(25.00) & Keyboard(45.50)
+
+    let qExc =
+        fsql {
+            for p in q1 do
+            except q2
+        }
+    let sqlExc = toRawQuery qExc
+    Assert.Contains("EXCEPT", sqlExc)
+    let rowsExc = qExc |> Seq.toList
+    Assert.Single(rowsExc) |> ignore // Monitor(299.99)
+
+[<Fact>]
+let ``fsql whereExists preserves filters on pre-defined subquery variables and binds aliases properly`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let customers = SqlPushdownQueryable<TestCustomer>(conn, "Customers")
+    let orders = SqlPushdownQueryable<TestOrder>(conn, "Orders")
+
+    let bigOrders =
+        fsql {
+            for o in orders do
+            where (o.Amount >= 150.0M)
+            select o
+        }
+
+    let q =
+        fsql {
+            for c in customers do
+            whereExists (fsql { for o in bigOrders do where (o.CustomerId = c.CustomerId) })
+            select c
+        }
+
+    let raw = toRawQuery q
+    Assert.Contains("EXISTS (", raw)
+    Assert.Contains("Amount >= @p0", raw)
+    Assert.Contains("CustomerId = _t0.CustomerId", raw)
+    let rows = q |> Seq.toList
+    Assert.Single(rows) |> ignore
+    Assert.Equal("Alice", rows.[0].CustomerName)
+
+[<Fact>]
+let ``fsql crossApply preserves filters on pre-defined subquery variables`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let customers = SqlPushdownQueryable<TestCustomer>(conn, "Customers")
+    let orders = SqlPushdownQueryable<TestOrder>(conn, "Orders")
+
+    let bigOrders =
+        fsql {
+            for o in orders do
+            where (o.Amount >= 150.0M)
+            select o
+        }
+
+    let q =
+        fsql {
+            for c in customers do
+            for topOrder in (crossApply (fsql {
+                for o in bigOrders do
+                where (o.CustomerId = c.CustomerId)
+                take 1
+                select o
+            })) do
+            select (c.CustomerName, topOrder.Amount)
+        }
+
+    let raw = toRawQuery q
+    Assert.Contains("CROSS JOIN (", raw)
+    Assert.Contains("Amount >= @p0", raw)
+    Assert.Contains("LIMIT 1", raw)
+    let rows = q |> Seq.toList
+    Assert.Single(rows) |> ignore
+    Assert.Equal("Alice", fst rows.[0])
+    Assert.Equal(150.0M, snd rows.[0])
+
 
 
 
