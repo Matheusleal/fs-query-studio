@@ -5,6 +5,7 @@
 > **Status**: Canonical  
 > **Applies to**: F# Query Studio Universal Query Engine  
 > **Target Dialects**: SQL Server (T-SQL), PostgreSQL, SQLite  
+> **Language Guides**: [English Guide](FSQL_AI_AGENT_GUIDE.md) | [Guia em Português](FSQL_AI_AGENT_GUIDE_PT.md)  
 
 ---
 
@@ -993,4 +994,4 @@ On `PushdownQueryPlan`:
 2. **Zero Raw SQL String Concatenation**: Write 100% pure F# DSL. Do not interpolate SQL strings (`$"SELECT ..."`).
 3. **Immutability of Plans**: Transforming a `PushdownQueryPlan` must always yield a new independent instance via `.Clone()`.
 4. **Anonymous Records for Projections**: Projections with multiple fields should use anonymous records `{| Field = value |}` for strong typing and zero boilerplate.
-5. **Reference Guide**: AI coding agents generating queries must consult [`docs/FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md) for full usage instructions and guardrails.
+5. **Reference Guide**: AI coding agents generating queries must consult [`docs/FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md) ([Português](FSQL_AI_AGENT_GUIDE_PT.md)) for full usage instructions and guardrails.

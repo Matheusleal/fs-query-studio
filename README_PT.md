@@ -29,7 +29,7 @@ npm run package          # gera editors/vscode/fs-query-studio.vsix
 code --install-extension fs-query-studio.vsix --force
 ```
 
-O pipeline de CI também publica o pacote VSIX automaticamente a cada push na branch principal.
+O pipeline de CI também publica o pacote VSIX automaticamente (`fs-query-studio-vsix`) a cada push nas branches `main` e `main-vscode` que alteram a extensão ou o worker — você pode baixá-lo em vez de compilar localmente.
 
 ## Início Rápido
 
@@ -60,7 +60,7 @@ O pipeline de CI também publica o pacote VSIX automaticamente a cada push na br
 
 Guia prático passo a passo: **[`docs/TUTORIAL_PT.md`](docs/TUTORIAL_PT.md)** (English: [`docs/TUTORIAL.md`](docs/TUTORIAL.md)).  
 Guia Completo do Usuário: **[`docs/USER_GUIDE_PT.md`](docs/USER_GUIDE_PT.md)** (ou clique no ícone `$(book)` no VS Code).  
-Guia para Agentes de IA: **[`docs/FSQL_AI_AGENT_GUIDE.md`](docs/FSQL_AI_AGENT_GUIDE.md)**.  
+Guia para Agentes de IA: **[`docs/FSQL_AI_AGENT_GUIDE_PT.md`](docs/FSQL_AI_AGENT_GUIDE_PT.md)** (English: [`docs/FSQL_AI_AGENT_GUIDE.md`](docs/FSQL_AI_AGENT_GUIDE.md)).  
 Especificação Formal da Linguagem: **[`docs/FSQL_LANGUAGE_SPECIFICATION.md`](docs/FSQL_LANGUAGE_SPECIFICATION.md)**.
 
 ## O que a Extensão Oferece
@@ -81,6 +81,8 @@ Especificação Formal da Linguagem: **[`docs/FSQL_LANGUAGE_SPECIFICATION.md`](d
 - **Explorador de Conexões** — visualização em árvore na Activity Bar organizada por conexões → schemas → tabelas/views → colunas, com carregamento sob demanda e wizards de criação/edição.
 - **Documentação Embutida** — clique no ícone de livro `$(book)` na barra de conexões ou no título do editor para acessar o Guia do Usuário traduzido sem sair do editor.
 
+Detalhes e limitações: **[`editors/vscode/docs/README_PT.md`](editors/vscode/docs/README_PT.md)** (English: [`editors/vscode/README.md`](editors/vscode/README.md)).
+
 ## Benchmarks de Execução e Confiabilidade
 
 O F# Query Studio foi projetado com foco em latência mínima, consumo previsível de memória e ausência de travamentos de interface:
@@ -91,7 +93,7 @@ O F# Query Studio foi projetado com foco em latência mínima, consumo previsív
 - **Alto Desempenho com Arquivos CSV**: Taxa de transferência contínua de `~500.000 linhas/segundo`.
 - **100% de Verificação de Elementos de UI**: Todos os componentes visuais (grid virtualizado, cabeçalhos fixos, destaque de nulos e numéricos, aba de esquema, paginação progressiva, mensagens de aviso e itens do explorador de conexões) possuem testes automatizados dedicados.
 
-Relatório detalhado com tabelas completas: **[`docs/BENCHMARK_REPORT.md`](docs/BENCHMARK_REPORT.md)**.
+Relatório detalhado com tabelas completas: **[`docs/BENCHMARK_REPORT_PT.md`](docs/BENCHMARK_REPORT_PT.md)** (English: [`docs/BENCHMARK_REPORT.md`](docs/BENCHMARK_REPORT.md)).
 
 ## Estrutura do Repositório
 
@@ -101,7 +103,9 @@ Relatório detalhado com tabelas completas: **[`docs/BENCHMARK_REPORT.md`](docs/
 | `editors/vscode/` | A extensão do VS Code (TypeScript) — controlador de notebooks, renderer do grid de resultados, painel de conexões e cliente do worker. |
 | `tests/` | Projetos de testes em .NET e benchmarks de performance. |
 | `editors/vscode/test/` | Testes unitários (vitest) e testes no host do VS Code (`@vscode/test-electron`). |
-| `docs/` | Documentação do projeto — veja [`docs/README.md`](docs/README.md) para o índice. |
+| `docs/` | Documentação do projeto — veja [`docs/README_PT.md`](docs/README_PT.md) para o índice. |
+
+A extensão empacota o worker (`dist/worker/**`) no momento do empacotamento; em tempo de execução o usuário ainda precisa do `dotnet` no `PATH`. Ainda não há uma versão autossuficiente (self-contained).
 
 ## Desenvolvimento Local
 
@@ -113,7 +117,7 @@ npm test               # executa todos os testes unitários (vitest)
 npm run test:vscode    # executa testes de integração dentro do VS Code
 ```
 
-Pressione **F5** no VS Code para abrir o Extension Development Host.
+Pressione **F5** no VS Code para abrir o Extension Development Host. Defina `FSQS_WORKER_DLL` para apontar para um worker compilado em outro local em vez de `dist/worker`.
 
 Para compilar e testar os projetos .NET:
 
@@ -121,6 +125,8 @@ Para compilar e testar os projetos .NET:
 dotnet build FSharpQueryStudio.slnx
 dotnet test  FSharpQueryStudio.slnx
 ```
+
+A mecânica de compilação, empacotamento e publicação está documentada em [`editors/vscode/scripts/README.md`](editors/vscode/scripts/README.md); o processo de release está em [`docs/vscode-extension-release.md`](docs/vscode-extension-release.md).
 
 ## Licença
 

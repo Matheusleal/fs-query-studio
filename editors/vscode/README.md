@@ -25,7 +25,7 @@ sortable grid with a schema tab and CSV export.
 2. Type F# into a code cell and run it. `let` bindings persist to later cells in
    the same notebook — it is one FSI session per notebook file. **F# Query
    Studio: Restart Notebook Session** clears it.
-3. Open the **F# Query Studio** view in the Activity Bar and **Add Connection** (or drop files into `data_sources/` and run **Auto-Import Data Sources Directory**). Credentials are stored in the OS keychain via VS Code `SecretStorage` — never written to `workspace.json` or the notebook.
+3. **Generate Demo Notebooks or Add Connections** — click the **Create Sample Data & Demo Notebooks** button (`$(database)`) on the connections panel toolbar to generate ready-to-run multi-engine sample databases (SQLite, PostgreSQL, SQL Server) with language choice (**English**, **Português**, or **Both**). Or use **Add Connection** (or drop files into `data_sources/` and run **Auto-Import Data Sources Directory**). Credentials are stored in the OS keychain via VS Code `SecretStorage` — never written to `workspace.json` or the notebook.
 4. Reference a connection from a cell and run it; a tabular result renders as a
    grid with a schema tab and **Export CSV**.
 
@@ -248,7 +248,7 @@ RPC to the worker, and never lands in the workspace file or the notebook.
 | **F# Query Studio: New F# Query Notebook Here** | Explorer folder context menu — writes and opens a `.fsqnb` in that folder. |
 | **F# Query Studio: Auto-Import Data Sources Directory** | Auto-detects and adds compatible files from `data_sources/` as connections. |
 | **F# Query Studio: Sync Data Sources Cache** | Triggers asynchronous background caching of CSV and Excel data sources into `.fsqs/cache/engine.db`. |
-| **F# Query Studio: Create Sample Data (SQLite, CSV & XLSX)** | Generates multi-source sample files in `data_sources/` and demo notebooks (`sample_demo.fsqnb` and `sample_demo_pt.fsqnb`). |
+| **F# Query Studio: Create Sample Demo & Data Sources** | Generates multi-source sample files in `data_sources/` and multi-engine demo notebooks (`sample_demo.fsqnb`, `sample_demo_pt.fsqnb`, PostgreSQL, and SQL Server). |
 | **F# Query Studio: Restart Notebook Session** | Discards the active notebook's FSI session. |
 | **F# Query Studio: Check Worker** | Reports worker health and protocol version; explains what to fix if `dotnet` is missing. |
 | **F# Query Studio: Connections: Add / Edit / Remove / Refresh** | Manage the connections tree. |

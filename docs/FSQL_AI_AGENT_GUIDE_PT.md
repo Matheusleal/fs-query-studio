@@ -1,5 +1,7 @@
 # FSQL (F# Query Language) e Extensões — Guia para Agentes de IA
 
+[🇺🇸 English](FSQL_AI_AGENT_GUIDE.md) | [🇧🇷 Versão em Português](FSQL_AI_AGENT_GUIDE_PT.md)
+
 > **Público-Alvo**: Assistentes de Código com IA, LLMs e Agentes Autônomos desenvolvendo consultas para o **F# Query Studio**.  
 > **Regra**: Ao gerar código F# que interage com bancos de dados ou fontes de dados no F# Query Studio, agentes **DEVEM** seguir rigorosamente esta especificação.
 
@@ -209,7 +211,23 @@ let produtosRanqueados =
     }
 ```
 
-### 3.9 Common Table Expressions (CTEs) e Operações de Conjunto (Composição Transparente)
+### 3.9 Navegação em Dados Semi-Estruturados JSON (`fsql.jsonValue`)
+Empurra a extração de escalares diretamente para o motor do banco de dados (`JSON_VALUE` no SQL Server, `->>` no Postgres, `json_extract` no SQLite):
+
+```fsharp
+let erros =
+    fsql {
+        for log in mssqlLogs do
+        where (fsql.jsonValue(log.Payload, "status") = "ERROR")
+        select {|
+            Id = log.Id
+            UserId = fsql.jsonValue(log.Payload, "user.id")
+            Code = fsql.jsonValue(log.Payload, "error.code")
+        |}
+    }
+```
+
+### 3.10 Common Table Expressions (CTEs) e Operações de Conjunto (Composição Transparente)
 O FSQL suporta declarar CTEs e operações de conjunto em partes como variáveis separadas, combinando-as de forma transparente com **zero tabelas fictícias**:
 
 ```fsharp
@@ -314,7 +332,7 @@ let clientesComPedidos =
     }
 ```
 
-### 3.10 Joins Externos Idiomáticos na CE `fsql`
+### 3.11 Joins Externos Idiomáticos na CE `fsql`
 Agentes de IA devem sempre gerar a sintaxe LINQ `GroupJoin` 100% idiomática com `into <grupo>` e `for <var> in <grupo>.DefaultIfEmpty() do`:
 
 ```fsharp
@@ -340,7 +358,7 @@ let rightJoined =
     }
 ```
 
-### 3.11 Inspeção de Plano de Execução (`explain` & `fsql.explain`)
+### 3.12 Inspeção de Plano de Execução (`explain` & `fsql.explain`)
 Agentes de IA podem inspecionar o plano de execução diretamente na CE:
 
 ```fsharp
@@ -367,6 +385,19 @@ let sqlText = toRawQuery produtosComMuitosPedidos
 printfn "%s" sqlText
 ```
 
+*Exemplo de Saída:*
+```sql
+-- Parameters:
+--   @p0 = 2
+
+SELECT
+  _t0.ProductId AS ProductId,
+  COUNT(*) AS TotalOrders
+FROM Orders _t0
+GROUP BY _t0.ProductId
+HAVING (COUNT(*) >= @p0)
+```
+
 ### 4.2 `toRawSql` (String em linha única)
 ```fsharp
 let raw = toRawSql produtosComMuitosPedidos
@@ -375,6 +406,7 @@ let raw = toRawSql produtosComMuitosPedidos
 ### 4.3 `toRawSqlWithParameters` (Tupla para asserções em testes)
 ```fsharp
 let (sql, parameters) = toRawSqlWithParameters produtosComMuitosPedidos
+// parameters: [("@p0", box 2)]
 ```
 
 ### 4.4 `explainQuery` e `.Explain()` (Diagnóstico de Plano no Motor)
@@ -382,6 +414,14 @@ Obtém o plano de execução real gerado pelo motor do banco:
 - SQLite: `EXPLAIN QUERY PLAN`
 - PostgreSQL: `EXPLAIN`
 - SQL Server: `SET SHOWPLAN_TEXT ON ... OFF`
+
+```fsharp
+let diag = explainQuery produtosComMuitosPedidos
+// Ou:
+let diag = produtosComMuitosPedidos.Explain()
+
+printfn "Texto do plano:\n%s" diag.PlanText
+```
 
 ---
 

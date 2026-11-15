@@ -22,23 +22,25 @@ Write type-safe, expressive queries with compile-time verification using **F# Qu
 
 1. [Requirements & Installation](#1-requirements--installation)
 2. [User Interface & Quick Access](#2-user-interface--quick-access)
-3. [Quick Start: Generating Sample Data (SQLite & CSV)](#3-quick-start-generating-sample-data-sqlite--csv)
+3. [Quick Start: Generating Sample Data & Demo Notebooks](#3-quick-start-generating-sample-data--demo-notebooks)
 4. [Managing Connections (Sidebar Explorer)](#4-managing-connections-sidebar-explorer)
-5. [Smart Connection Autocomplete](#5-smart-connection-autocomplete)
+5. [Smart Connection Autocomplete & Type Badges](#5-smart-connection-autocomplete--type-badges)
 6. [LINQ Queries & Background Entity Provider](#6-linq-queries--background-entity-provider)
-   - [Basic Filtering & Projection](#basic-filtering--projection)
+   - [Basic Filtering & Projection with `fsql`](#basic-filtering--projection-with-fsql-f-query-language)
    - [Full SQL Pushdown Translation](#full-sql-pushdown-translation)
    - [Multi-Property Joins without Memory Explosions](#multi-property-joins-without-memory-explosions)
-   - [Inspecting Generated SQL (toRawSql)](#inspecting-generated-sql-torawsql)
-   - [Aggregations & Grouping](#aggregations--grouping)
+   - [Inspecting Generated SQL (`toRawQuery` & `toRawSql`)](#inspecting-generated-sql-torawquery--torawsql)
+   - [Advanced Query Engine Features (Joins, CTEs, Window & Set Ops)](#advanced-query-engine-features-joins-aggregations-subqueries-and-pivot)
    - [Persistent SQLite Disk Cache for CSV & Excel](#persistent-sqlite-disk-cache-for-csv--excel)
-   - [Automatic Discovery via data_sources Directory](#automatic-discovery-via-data_sources-directory)
+   - [Automatic Discovery & Real-Time Watching via `data_sources` Directory](#automatic-discovery--real-time-watching-via-data_sources-directory)
+   - [Custom Column Types & Formula Transformations (Excel & CSV)](#custom-column-types--formula-transformations-excel--csv)
 7. [Traditional Parameterized SQL (Raw SQL)](#7-traditional-parameterized-sql-raw-sql)
-8. [Interactive Results Grid](#8-interactive-results-grid)
-9. [Language Features & Go to Definition (F12)](#9-language-features--go-to-definition-f12)
-10. [Notebook Lifecycle & FSI Session Management](#10-notebook-lifecycle--fsi-session-management)
-11. [Troubleshooting & Diagnostics](#11-troubleshooting--diagnostics)
-12. [Performance Benchmarks & UI Reliability](#12-performance-benchmarks--ui-reliability)
+8. [Connections Module API Reference](#8-connections-module-api-reference)
+9. [Interactive Results Grid](#9-interactive-results-grid)
+10. [Language Features, Syntax Highlighting & Go to Definition (F12)](#10-language-features-syntax-highlighting--go-to-definition-f12)
+11. [Notebook Lifecycle & FSI Session Management](#11-notebook-lifecycle--fsi-session-management)
+12. [Troubleshooting & Diagnostics](#12-troubleshooting--diagnostics)
+13. [Performance Benchmarks & UI Element Reliability](#13-performance-benchmarks--ui-element-reliability)
 
 ---
 
@@ -85,8 +87,8 @@ Click the **`Create Sample Data & Demo Notebooks`** button (`$(database)`) on th
 ### Multi-Engine & Multi-Language Generation:
 1. **Engine Selection QuickPick**:
    - **`Original (All data sources: SQLite, CSV, Excel, REST)`**: Complete multi-source demo with 5 tables in `sample_store.db`, CSV sales feed (`sales_feed.csv`), Excel workbook (`inventory_report.xlsx`), JSON rates (`market_rates.json`), XML tree (`company_hierarchy.xml`), and REST endpoint.
-   - **`PostgreSQL`**: Connects to your PostgreSQL instance (or preconfigured Docker container) and creates `sample_postgresql.fsqnb` with 13 advanced relational and analytic queries.
-   - **`SQL Server`**: Connects to your SQL Server instance (or preconfigured Docker container) and creates `sample_sqlserver.fsqnb` with 13 enterprise T-SQL queries (including `CROSS APPLY`, window functions, and recursive CTEs).
+   - **`PostgreSQL`**: Connects to your PostgreSQL instance (or preconfigured Docker container) and creates `sample_postgresql.fsqnb` (or `sample_postgresql_pt.fsqnb`) with 13 advanced relational and analytic queries.
+   - **`SQL Server`**: Connects to your SQL Server instance (or preconfigured Docker container) and creates `sample_sqlserver.fsqnb` (or `sample_sqlserver_pt.fsqnb`) with 13 enterprise T-SQL queries (including `CROSS APPLY`, window functions, and recursive CTEs).
 2. **Language Selection QuickPick (Optional)**:
    - **`English`**: Generates English notebooks (`sample_demo.fsqnb`, `sample_postgresql.fsqnb`, `sample_sqlserver.fsqnb`).
    - **`Português (Brasil)`**: Generates Portuguese notebooks (`sample_demo_pt.fsqnb`, `sample_postgresql_pt.fsqnb`, `sample_sqlserver_pt.fsqnb`).
@@ -112,6 +114,7 @@ Click the **`Create Sample Data & Demo Notebooks`** button (`$(database)`) on th
 | **CSV** | Delimited text files (comma, semicolon, tab) | File path: `sales_feed.csv` |
 | **Excel (XLSX)** | Excel workbooks with multiple sheets | File path: `finances.xlsx` |
 | **JSON** | Local JSON files (objects or array of objects) | File path: `catalog.json` |
+| **XML** | Local XML document hierarchy (nodes, elements, attributes) | File path: `company_hierarchy.xml` |
 | **REST API** | HTTP/HTTPS endpoints returning JSON | Base URL: `https://api.github.com` |
 
 ### Security & Password Protection
@@ -611,6 +614,8 @@ The `Connections` module provides the core programmatic interface inside your no
 | `Connections.sql.<Conn>` | `DatabaseConnection` | Accesses relational database tables and scoped `.rawQuery "..." [ ... ]`. |
 | `Connections.csv.<Conn>` | `CsvConnector.Data` | Accesses strongly-typed CSV rows (implements `IQueryable<'Row>`) and `.Raw()`. |
 | `Connections.excel.<Conn>` | `ExcelConnector.Data` | Accesses strongly-typed Excel sheets (implements `IQueryable<'Row>`), pushdown `SheetQueryable`, and `.Raw()`. |
+| `Connections.json.<Conn>` | `JsonConnector.Data` | Accesses structured JSON data, typed properties, and `.Root`. |
+| `Connections.xml.<Conn>` | `XmlConnector.Data` | Accesses hierarchical XML data, typed nodes, and `.Root`. |
 | `Connections.rest.<Conn>` | `RestConnector.Data` | Accesses strongly-typed REST items and `.SendAsync()`. |
 | `Connections.getConnectionString` | `string -> string` | Returns the resolved connection string with stored credentials injected. |
 
@@ -622,6 +627,9 @@ The `Connections` module provides the core programmatic interface inside your no
 | `Connections.queryExcel<'T>` | `string -> int option -> 'T seq` | Streams Excel rows mapped to strongly-typed records `'T seq`. |
 | `Connections.queryExcelSheet<'T>` | `string -> string option -> int option -> 'T seq` | Streams rows from a specific Excel sheet mapped to records `'T seq`. |
 | `Connections.queryJson<'T>` | `string -> 'T seq` | Deserializes JSON arrays or objects into strongly-typed records `'T seq`. |
+| `Connections.queryJsonFile<'T>` | `string -> 'T seq` | Streams records directly from a local JSON file path. |
+| `Connections.queryXml<'T>` | `string -> 'T seq` | Deserializes XML elements into strongly-typed records `'T seq`. |
+| `Connections.queryXmlTable<'T>` | `string -> string -> 'T seq` | Streams XML records from a specific repeated element name. |
 
 ### Database Connection Properties & Methods
 - **`db.rawQuery(sqlText, [params])`**: Executes parameterized SQL strictly scoped to this connection and returns a `ConnectorQueryResult` for the visual grid.

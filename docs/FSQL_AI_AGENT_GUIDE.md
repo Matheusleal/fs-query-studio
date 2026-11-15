@@ -1,5 +1,7 @@
 # FSQL (F# Query Language) & Extensions — AI Agent Guide
 
+[🇺🇸 English](FSQL_AI_AGENT_GUIDE.md) | [🇧🇷 Versão em Português](FSQL_AI_AGENT_GUIDE_PT.md)
+
 > **Target Audience**: AI Coding Assistants, LLMs, and Automated Agents developing queries for **F# Query Studio**.  
 > **Rule**: When generating F# code that interacts with databases or data sources in F# Query Studio, agents **MUST** follow this specification.
 
@@ -191,7 +193,7 @@ let highVolumeProducts =
     }
 ```
 
-### 3.7 Window Functions & Analytics (`fsql.window`, `rowNumber`, `rank`, `lag`, `lead`)
+### 3.8 Window Functions & Analytics (`fsql.window`, `rowNumber`, `rank`, `lag`, `lead`)
 Analytics and ranking functions map directly to SQL standard `OVER (PARTITION BY ... ORDER BY ...)`:
 
 ```fsharp
@@ -209,7 +211,7 @@ let rankedProducts =
     }
 ```
 
-### 3.8 Semi-Structured JSON Navigation (`fsql.jsonValue`)
+### 3.9 Semi-Structured JSON Navigation (`fsql.jsonValue`)
 Pushes scalar extraction directly to database engines (`JSON_VALUE` on SQL Server, `->>` on Postgres, `json_extract` on SQLite):
 
 ```fsharp
@@ -225,7 +227,7 @@ let errors =
     }
 ```
 
-### 3.9 Common Table Expressions (CTEs) & Set Operations (Transparent Composition)
+### 3.10 Common Table Expressions (CTEs) & Set Operations (Transparent Composition)
 FSQL supports declaring CTEs and set operations in parts as separate variables, and combining them seamlessly with **zero dummy tables** or manual registration:
 
 ```fsharp
@@ -330,7 +332,7 @@ let customersWithOrders =
     }
 ```
 
-### 3.10 Idiomatic Outer Joins inside `fsql` CE
+### 3.11 Idiomatic Outer Joins inside `fsql` CE
 AI agents must generate 100% idiomatic LINQ `GroupJoin` syntax using `into <group>` and `for <var> in <group>.DefaultIfEmpty() do`:
 
 ```fsharp
@@ -356,7 +358,7 @@ let rightJoined =
     }
 ```
 
-### 3.11 Execution Plan Inspection (`explain` & `fsql.explain`)
+### 3.12 Execution Plan Inspection (`explain` & `fsql.explain`)
 AI agents can request execution plans directly inside the CE:
 
 ```fsharp

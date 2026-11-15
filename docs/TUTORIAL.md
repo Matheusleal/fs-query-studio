@@ -35,7 +35,7 @@ VSIX once:
 cd editors/vscode
 npm install
 npm run package
-code --install-extension fs-query-studio.vsix
+code --install-extension fs-query-studio.vsix --force
 ```
 
 Reload VS Code when it prompts.
@@ -119,21 +119,21 @@ output). The grid is the default; FSI's own `val it = …` echo is tucked into t
 
 ## 4. Register a SQLite connection
 
-You need a SQLite database file to point at. Use any `.sqlite` / `.db` file you
-already have, or download a sample — the classic **Chinook** SQLite database is
-a good one. Note its **absolute path**.
+You have two easy ways to set up a database:
 
-Now open the **F# Query Studio** view: click its icon in the Activity Bar (the
-left-hand strip). The view shows *"No connections registered yet."*
+### Option A: 1-Click Demo Generator (Fastest)
+Click the **Create Sample Data & Demo Notebooks** button (`$(database)`) on the Connections view toolbar (or run it from the Command Palette). Select your engine (e.g. `Original`) and preferred language (`English` or `Português`). It generates `sample_store.db`, CSVs, Excel sheets, and ready-to-run demo notebooks with all connections pre-registered!
 
-Click **Add Connection** (the `+` in the view's title bar). Answer the prompts:
+### Option B: Register an Existing SQLite Database
+You can also point at any `.sqlite` / `.db` file you already have — the classic **Chinook** SQLite database is a great choice. Note its **absolute path**.
+
+Now open the **F# Query Studio** view: click its icon in the Activity Bar (the left-hand strip). Click **Add Connection** (the `+` in the view's title bar). Answer the prompts:
 
 1. **Kind** — choose `Sqlite`.
 2. **Connection name** — `chinook` (this is the name you use from cells).
 3. **Absolute file path** — the full path to your `.db` file.
 
-The connection appears in the tree. Expand it: it lazily loads tables, and each
-table expands to its columns. Nothing is queried until you expand a node.
+The connection appears in the tree. Expand it: it lazily loads tables, and each table expands to its columns. Nothing is queried until you expand a node.
 
 ---
 
@@ -230,6 +230,8 @@ fsql {
 }
 ```
 
+For AI coding assistants and formal rules, consult the **[FSQL AI Agent Guide](FSQL_AI_AGENT_GUIDE.md)**.
+
 ### Traditional Raw Parameterized SQL
 You can also run traditional parameterized SQL directly when needed:
 
@@ -246,7 +248,7 @@ Connections.sql.Chinook.rawQuery
 Run a cell whose **last expression** is a connector query:
 
 ```fsharp
-Connections.sql "chinook" "select * from Track limit 200" []
+Connections.sql.Chinook.rawQuery "select * from Track limit 200" []
 ```
 
 The grid has an **Export CSV** button. A connector-query tail value is fully
@@ -386,9 +388,21 @@ Connections.sql "Sales" "select top 100 * from Orders" []
 
 ## 10. A REST JSON connection
 
-Add a connection of kind `REST JSON`; the prompt asks for a **base URL**.
-`Connections.rest` returns a `System.Text.Json.JsonElement` from a
-`Task`, so a cell awaits it:
+Add a connection of kind `REST JSON`; the prompt asks for a **base URL** (e.g. `https://api.github.com`).
+
+### Strongly-Typed Querying with `fsql`
+F# Query Studio automatically generates typed records under `Connections.rest.<Conn>`:
+
+```fsharp
+fsql {
+    for repo in Connections.rest.GitHubFSharp do
+    sortByDescending repo.stargazers_count
+    select {| Repository = repo.full_name; Stars = repo.stargazers_count; Url = repo.html_url |}
+}
+```
+
+### Low-Level Custom HTTP Requests
+For customized REST requests requiring authentication tokens, custom headers, or specific query parameters, `Connections.rest` returns a `System.Text.Json.JsonElement` from an asynchronous `Task`:
 
 ```fsharp
 open System.Threading
@@ -396,26 +410,12 @@ open System.Threading
 let payload =
     Connections.rest
         "my-api"
-        (RestRequestOptions.Get "https://api.example.com/v1/orders")
+        { RestRequestOptions.Get "https://api.example.com/v1/orders" with
+            QueryParams = [ "status", "open" ]
+            Headers = [ "Accept", "application/json" ] }
         CancellationToken.None
     |> fun t -> t.Result
 
-payload
-```
-
-`RestRequestOptions.Get` builds a plain GET; the record also has `Method`,
-`Headers`, `QueryParams`, and `Body` fields if you need to set them:
-
-```fsharp
-{ RestRequestOptions.Get "https://api.example.com/v1/orders" with
-    QueryParams = [ "status", "open" ]
-    Headers = [ "Accept", "application/json" ] }
-```
-
-To get a grid out of JSON, project it into records yourself and make that list
-the cell's last expression:
-
-```fsharp
 [ for el in payload.EnumerateArray() ->
     {| id = el.GetProperty("id").GetInt32()
        total = el.GetProperty("total").GetDecimal() |} ]
@@ -427,15 +427,13 @@ the cell's last expression:
 
 As you type in a cell you get:
 
-- **completion** — members, values in scope, and your connection names inside
-  `Connections.*` string literals,
+- **completion** — members, values in scope, and your connection names inside `Connections.*` string literals,
 - **hover** — types and doc comments,
 - **signature help** — parameter hints while typing a call,
-- **diagnostics** — red squiggles for errors, per cell.
+- **diagnostics** — red squiggles for errors, per cell,
+- **Go to Definition (`F12`)** — jump straight to definitions across cells, connections, and generated entity records.
 
-That is the whole list. There is no find-all-references, no formatting, no code
-actions, no rename across cells. This intelligence is provided directly by the extension's
-built-in language service worker.
+This intelligence is provided directly by the extension's built-in language service worker.
 
 ---
 
@@ -446,6 +444,7 @@ built-in language service worker.
 | Cells do nothing / "worker" errors | **F# Query Studio: Check Worker**. Usually `dotnet` 10 is missing from `PATH`; install it and restart VS Code. |
 | "The worker exited before responding" | The FSI session crashed and was lost. It restarts on your next run; re-run the cells you need. |
 | `Connections has not been configured` | You referenced a connection name that is not registered, or the workspace has no `workspace.json` yet — add the connection in the sidebar. |
+| CSV / Excel file changes not reflecting | Run **F# Query Studio: Sync Data Sources Cache** from the Command Palette to re-stage files into the SQLite disk cache. |
 | **Export CSV** reports nothing to export | The cell's last expression didn't produce a materialized grid — it was a scalar, plain text, or a streamed scalar sequence. Make the last line a connector query or a computed sequence of records / tuples / maps. |
 | A redefinition or new `open` "does not take" | **Restart Notebook Session** — FSI keeps the earlier definition for the session's lifetime. |
 | A cell seems stuck | Only one evaluation runs at a time across the whole window. Stop the running cell (the ▪ button) or wait for it. |
@@ -456,6 +455,7 @@ built-in language service worker.
 ## Where to go next
 
 - [`../README.md`](../README.md) — project overview and repo layout.
-- [`../editors/vscode/README.md`](../editors/vscode/README.md) — the full
-  feature and API reference.
+- [`USER_GUIDE.md`](USER_GUIDE.md) — comprehensive user guide and connector reference.
+- [`BENCHMARK_REPORT.md`](BENCHMARK_REPORT.md) — execution performance, latency, and resource benchmarks.
+- [`../editors/vscode/README.md`](../editors/vscode/README.md) — the full feature and API reference.
 - [`README.md`](README.md) — index of everything under `docs/`.

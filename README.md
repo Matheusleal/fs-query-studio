@@ -36,7 +36,7 @@ No Marketplace listing yet. Build the VSIX and install it:
 cd editors/vscode
 npm install
 npm run package          # produces editors/vscode/fs-query-studio.vsix
-code --install-extension fs-query-studio.vsix
+code --install-extension fs-query-studio.vsix --force
 ```
 
 CI also uploads a `fs-query-studio-vsix` artifact on every push to `main` /
@@ -82,17 +82,16 @@ Comprehensive User Guide: **[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md)** (or cli
 - **Common Table Expressions (CTEs) & Set Operations** — Declare CTEs seamlessly using unnamed `withCte subquery` (no dummy tables required) or named `withCte "Name" subquery`, plus `withRecursiveCteSql` for recursive queries. Compose queries and set operations (`union`, `unionAll`, `intersect`, `except`) across separate variables with automatic CTE bubbling into the main query plan.
 - **Unified Multi-Engine Demo Generator** — Single one-click entry point in the status bar and command palette. Generates complete sample workspaces for SQLite/CSV/Excel/REST, PostgreSQL, or SQL Server with language selection (**English**, **Português**, or **Both**) and up to 27 fully-working query demo sections.
 - **Asynchronous SQLite Disk Cache & Fast File Joins** — Flat files (CSV and Excel `.xlsx`) are pre-staged in the background into a persistent on-disk SQLite database (`.fsqs/cache/engine.db`). Staging validates file modification times (`mtime`) and byte sizes to skip re-importing unchanged files. Automatic composite B-tree indexes prevent Cartesian products and high RAM consumption when joining large files (200,000+ rows).
-- **Accurate Tabular Type Inference & Formulas** — Excel and CSV schemas detect genuine column types (ints, decimals, dates, bools) in both tree view and entities. Configure custom column type overrides (`columnTypes`) and formula replacements (`columnTransforms`, e.g. `replace('.', '').replace(',', '.')` or `trim`) while preserving high-precision decimals.
+- **Accurate Tabular Type Inference & Formulas** — Excel and CSV schemas detect genuine column types (ints, decimals, dates, bools) in both tree view and entities. Configure custom column type overrides (`columnTypes`) and formula replacements (`columnTransforms`, e.g. `replace('.', '').replace(',', '.')` or `trim`) while preserving high-precision decimals. Detailed instructions and real-world examples: [Custom Column Types & Formulas](docs/USER_GUIDE.md#custom-column-types--formula-transformations-excel--csv).
 - **Execution Plan Diagnostics & SQL Preview (`explain` / `toRawQuery`)** — inspect the raw parameterized SQL query or execution plan at any time using `toRawQuery`, `toRawSql`, or the in-CE `explain` custom operation.
 - **Automatic Folder Discovery (`data_sources/`)** — drop `.csv`, `.xlsx`, `.json`, `.xml`, `.db`, or `.sqlite` files into your workspace's `data_sources/` folder and click **Auto-Import Data Sources** to detect, configure, and generate types automatically.
-- **Strongly-typed LINQ queries** — automatic background entity generation for databases (PostgreSQL, SQL Server, MySQL, SQLite) and flat files (CSV, Excel multi-sheet, JSON, XML).
 - **Visual Sync Status** — animated status bar feedback (`$(sync~spin) Syncing data sources...` ➔ `$(database) Data sources ready`) indicates background caching progress and readiness in real time.
+- **Strongly-typed LINQ queries** — automatic background entity generation for databases (PostgreSQL, SQL Server, MySQL, SQLite) and flat files (CSV, Excel multi-sheet, JSON, XML).
+- **Unified `Connections` API** — `Connections.sql` / `csv` / `excel` / `json` / `xml` / `rest` access data connections directly with background-generated types and connection-scoped `rawQuery` execution. The value of the last expression renders automatically — collections produce the grid, connectors include **Export CSV**, and scalar values display as formatted text.
 - **Results grid** — virtualized table, schema view, CSV export, paged loading for large results.
 - **In-cell F# intelligence** — completion, hover, signature help, diagnostics, semantic tokens syntax highlighting, and **Go to Definition (`F12`)** across cells and generated entity types.
-- **Connection management** — an Activity Bar tree of connections → schemas → tables →
-  columns, lazily loaded; add / edit / remove via guided pickers.
-- **Built-in Documentation** — click the `$(book)` icon in the Connections view toolbar
-  or the Notebook editor title bar to open the User Guide directly in VS Code.
+- **Connection management** — an Activity Bar tree of connections → schemas → tables → columns, lazily loaded; add / edit / remove via guided pickers.
+- **Built-in Documentation** — click the `$(book)` icon in the Connections view toolbar or the Notebook editor title bar to open the User Guide directly in VS Code.
 
 Detail and limits: **[`editors/vscode/README.md`](editors/vscode/README.md)**.
 

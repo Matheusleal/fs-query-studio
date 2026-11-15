@@ -22,23 +22,25 @@ Escreva consultas com segurança de tipos em tempo de compilação, alta express
 
 1. [Requisitos e Instalação](#1-requisitos-e-instalação)
 2. [Interface e Acesso Rápido](#2-interface-e-acesso-rápido)
-3. [Início Rápido: Criando Dados de Exemplo (SQLite e CSV)](#3-início-rápido-criando-dados-de-exemplo-sqlite-e-csv)
+3. [Início Rápido: Gerador de Demonstrações Multi-Engine e Multi-Idioma](#3-início-rápido-gerador-de-demonstrações-multi-engine-e-multi-idioma)
 4. [Gerenciamento de Conexões (Sidebar Explorer)](#4-gerenciamento-de-conexões-sidebar-explorer)
-5. [Auto-complete Inteligente de Conexões](#5-auto-complete-inteligente-de-conexões)
+5. [Auto-complete Inteligente de Conexões e Badges de Tipo](#5-auto-complete-inteligente-de-conexões-e-badges-de-tipo)
 6. [Consultas LINQ e Type Provider em Background](#6-consultas-linq-e-type-provider-em-background)
-   - [Filtragem Básica e Projeção](#filtragem-básica-e-projeção)
+   - [Filtragem Básica e Projeção com `fsql`](#filtragem-básica-e-projeção-com-fsql-f-query-language)
    - [Pushdown Completo de Consultas para SQL](#pushdown-completo-de-consultas-para-sql)
    - [Joins Multi-Propriedades sem Explosão de Memória](#joins-multi-propriedades-sem-explosão-de-memória)
-   - [Inspeção do SQL Gerado (toRawSql)](#inspeção-do-sql-gerado-torawsql)
-   - [Agrupamentos e Agregações](#agrupamentos-e-agregações)
+   - [Inspeção do SQL Gerado (`toRawQuery` & `toRawSql`)](#inspeção-do-sql-gerado-torawquery--torawsql)
+   - [Recursos Avançados da Engine (Joins, CTEs, Window & Set Ops)](#recursos-avançados-da-engine-joins-agregações-subqueries-e-pivot)
    - [Cache Persistente em Disco SQLite para CSV e Excel](#cache-persistente-em-disco-sqlite-para-csv-e-excel)
-   - [Descoberta Automática via Pasta data_sources](#descoberta-automática-via-pasta-data_sources)
+   - [Descoberta Automática e Monitoramento em Tempo Real via Pasta `data_sources`](#descoberta-automática-e-monitoramento-em-tempo-real-via-pasta-data_sources)
+   - [Tipos de Coluna Personalizados & Fórmulas (Excel e CSV)](#tipos-de-coluna-personalizados--transformações-com-fórmulas-excel--csv)
 7. [Consultas SQL Tradicionais Parametrizadas (Raw SQL)](#7-consultas-sql-tradicionais-parametrizadas-raw-sql)
-8. [Grid Interativo de Resultados](#8-grid-interativo-de-resultados)
-9. [Recursos de Linguagem e Go to Definition (F12)](#9-recursos-de-linguagem-e-go-to-definition-f12)
-10. [Ciclo de Vida do Notebook e Sessão FSI](#10-ciclo-de-vida-do-notebook-e-sessão-fsi)
-11. [Diagnóstico e Solução de Problemas](#11-diagnóstico-e-solução-de-problemas)
-12. [Benchmarks de Performance e Confiabilidade de UI](#12-benchmarks-de-performance-e-confiabilidade-de-ui)
+8. [Referência da API do Módulo Connections](#8-referência-da-api-do-módulo-connections)
+9. [Grid Interativo de Resultados](#9-grid-interativo-de-resultados)
+10. [Recursos de Linguagem, Syntax Highlighting & Go to Definition (F12)](#10-recursos-de-linguagem-syntax-highlighting--go-to-definition-f12)
+11. [Ciclo de Vida do Notebook e Sessão FSI](#11-ciclo-de-vida-do-notebook-e-sessão-fsi)
+12. [Diagnóstico e Solução de Problemas](#12-diagnóstico-e-solução-de-problemas)
+13. [Benchmarks de Performance e Confiabilidade de Elementos de UI](#13-benchmarks-de-performance-e-confiabilidade-de-elementos-de-ui)
 
 ---
 
@@ -92,10 +94,10 @@ Clique no botão **`Create Sample Data & Demo Notebooks`** (`$(database)`) no ca
    - **`Português (Brasil)`**: Gera exclusivamente os notebooks em português (`sample_demo_pt.fsqnb`, `sample_postgresql_pt.fsqnb`, `sample_sqlserver_pt.fsqnb`).
    - **`Both / Ambos`**: Gera ambos os idiomas lado a lado.
 3. **O Que É Criado Automaticamente**:
-   - Bancos relacionais populados com tabelas e relacionamentos íntegros.
+   - Tabelas de bancos relacionais (`Categories`, `Products`, `Customers`, `Orders`, `OrderItems`).
    - Arquivos planos em cache no SQLite persistente (`.fsqs/cache/engine.db`).
    - Notebooks de até 27 seções cobrindo desde projeções básicas até CTEs anônimas, joins externos e diagnósticos.
-   - Conexões registradas e tipos de entidade tipados prontos para uso em células de código!
+   - Todas as conexões são registradas automaticamente em `.fsqs/workspace.json` e os tipos de entidade tipados ficam prontos para uso em células de código!
 
 ---
 
@@ -112,6 +114,7 @@ Clique no botão **`Create Sample Data & Demo Notebooks`** (`$(database)`) no ca
 | **CSV** | Arquivos delimitados (vírgula, ponto-e-vírgula, tabulação) | Caminho: `sales_feed.csv` |
 | **Excel (XLSX)** | Planilhas Excel com múltiplas abas | Caminho: `financas.xlsx` |
 | **JSON** | Arquivos JSON locais (objeto ou lista de objetos) | Caminho: `catalogo.json` |
+| **XML** | Hierarquia de documentos XML locais (nós, elementos, atributos) | Caminho: `company_hierarchy.xml` |
 | **REST API** | Endpoints HTTP/HTTPS retornando JSON | URL base: `https://api.github.com` |
 
 ### Segurança e Armazenamento Seguro de Credenciais
@@ -196,7 +199,7 @@ WHERE (_t0.TotalAmount >= @p0)
 ### Inspeção do SQL Gerado (`toRawQuery` e `toRawSql`)
 
 Deseja verificar o SQL parametrizado exato com indentação e documentação de parâmetros antes ou durante a execução contra a base de dados?
-Use `toRawQuery`:
+Use `toRawQuery` para SQL multi-dialeto indentado e formatado com declaração de parâmetros, ou `toRawSql`:
 
 ```fsharp
 let minhaQuery =
@@ -215,7 +218,7 @@ printfn "SQL Gerado:\n%s" (toRawQuery minhaQuery)
 minhaQuery
 ```
 
-> **Guia para Agentes de IA**: Consulte [`docs/FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md) para especificações formais de prompts e geração de queries.
+> **Guia para Agentes de IA**: Consulte [`docs/FSQL_AI_AGENT_GUIDE_PT.md`](FSQL_AI_AGENT_GUIDE_PT.md) para especificações formais de prompts e geração de queries (English: [`FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md)).
 
 ### Recursos Avançados de Consulta (Joins, Agregações, Subqueries e Pivot)
 
@@ -567,7 +570,7 @@ Após configuradas, o F# Query Studio gera tipos fortes e inteligência de códi
 ```fsharp
 fsql {
     for pedido in Connections.excel.RelatorioFinanceiro.Receitas_Q4 do
-    // pedido.Receita é tipado como System.Decimal, pedido.TaxaCambio como double
+    // pedido.Receita é tipado como System.Decimal, pedido.AliquotaImposto como double
     where (pedido.Receita > 1000.0M && pedido.AliquotaImposto <= 0.20)
     sortByDescending pedido.Receita
     select {| Conta = pedido.CodigoConta; Receita = pedido.Receita; ReceitaLiquida = pedido.Receita * (1.0M - decimal pedido.AliquotaImposto) |}
@@ -611,6 +614,8 @@ O módulo `Connections` fornece a interface programática principal dentro dos s
 | `Connections.sql.<Conn>` | `DatabaseConnection` | Acesso às tabelas relacionais e execução isolada de `.rawQuery "..." [ ... ]`. |
 | `Connections.csv.<Conn>` | `CsvConnector.Data` | Acesso às linhas fortemente tipadas do CSV (implementa `IQueryable<'Row>`) e `.Raw()`. |
 | `Connections.excel.<Conn>` | `ExcelConnector.Data` | Acesso às abas fortemente tipadas do Excel (implementa `IQueryable<'Row>`), pushdown `SheetQueryable` e `.Raw()`. |
+| `Connections.json.<Conn>` | `JsonConnector.Data` | Acesso estruturado a nós JSON, propriedades tipadas e `.Root`. |
+| `Connections.xml.<Conn>` | `XmlConnector.Data` | Acesso hierárquico a elementos XML, nós tipados e `.Root`. |
 | `Connections.rest.<Conn>` | `RestConnector.Data` | Acesso aos itens tipados da REST API e `.SendAsync()`. |
 | `Connections.getConnectionString` | `string -> string` | Retorna a connection string resolvida com as credenciais seguras injetadas. |
 
@@ -622,6 +627,9 @@ O módulo `Connections` fornece a interface programática principal dentro dos s
 | `Connections.queryExcel<'T>` | `string -> int option -> 'T seq` | Mapeia linhas do Excel diretamente para registros `'T seq`. |
 | `Connections.queryExcelSheet<'T>` | `string -> string option -> int option -> 'T seq` | Lê uma aba específica do Excel para registros `'T seq`. |
 | `Connections.queryJson<'T>` | `string -> 'T seq` | Desserializa listas ou objetos JSON em registros fortemente tipados `'T seq`. |
+| `Connections.queryJsonFile<'T>` | `string -> 'T seq` | Lê registros diretamente de um arquivo JSON local. |
+| `Connections.queryXml<'T>` | `string -> 'T seq` | Desserializa elementos XML em registros fortemente tipados `'T seq`. |
+| `Connections.queryXmlTable<'T>` | `string -> string -> 'T seq` | Lê registros XML a partir de um nome de elemento repetido. |
 
 ### Métodos e Propriedades de DatabaseConnection
 - **`db.rawQuery(sqlText, [params])`**: Executa SQL parametrizado estritamente isolado nesta conexão e retorna `ConnectorQueryResult` para o grid visual.
@@ -689,7 +697,7 @@ O F# Query Studio é submetido a rigorosos benchmarks automatizados de performan
 - **fsql e Records F# Dinâmicos**: Mapeamento de records fortemente tipados (`Connections.query<'T>`) e expressões `fsql { for ... in ... do where ... select ... }` processam 1.000 linhas em **~2.0 ms** utilizando cache de construtores pré-compilados.
 - **Processamento de Arquivos CSV**: Taxa de transferência contínua de **~500.000 registros/segundo**.
 
-Para detalhes da metodologia, métricas brutas e especificações de hardware, consulte o **[Relatório Completo de Benchmarks](BENCHMARK_REPORT.md)** ([ver no GitHub](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/BENCHMARK_REPORT.md)).
+Para detalhes da metodologia, métricas brutas e especificações de hardware, consulte o **[Relatório Completo de Benchmarks](BENCHMARK_REPORT_PT.md)** (English: [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md)).
 
 ### Suíte de Confiabilidade de Elementos de UI
 A interface visual da extensão é coberta por testes automatizados de componentes:

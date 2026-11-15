@@ -22,12 +22,12 @@ grade ordenável e filtrável com aba de esquema e exportação para CSV.
 1. Execute **F# Query Studio: New F# Query Notebook** na Command Palette (também em
    *File > New File…*, e no menu de contexto do Explorer como **New F# Query Notebook Here**).
    Ou simplesmente crie e abra qualquer arquivo com extensão `.fsqnb`.
-2. Digite código F# em uma célula e execute-a. As variáveis e funções definidas com `let` persistem
+2. **Execute F#** — digite código F# em uma célula e execute-a. As variáveis e funções definidas com `let` persistem
    para células subsequentes no mesmo notebook — é uma sessão FSI por arquivo.
    O comando **F# Query Studio: Restart Notebook Session** reinicia a sessão.
-3. Abra a visão **F# Query Studio** na Activity Bar e clique em **Add Connection** (ou adicione arquivos na pasta `data_sources/` e execute **Auto-Import Data Sources Directory**).
+3. **Gerador de Demonstrações ou Adição de Conexões** — clique no botão **Create Sample Data & Demo Notebooks** (`$(database)`) na barra de ferramentas de conexões para gerar automaticamente demonstrações multi-engine (SQLite, PostgreSQL, SQL Server) com suporte a múltiplos idiomas (**English**, **Português** ou **Both / Ambos**), ou use **Add Connection** (ou adicione arquivos na pasta `data_sources/` e execute **Auto-Import Data Sources Directory**).
    Credenciais são armazenadas no chaveiro seguro do sistema operacional via `SecretStorage` do VS Code — nunca gravadas no `workspace.json` ou no notebook.
-4. Referencie uma conexão em uma célula e execute; o resultado tabular é renderizado como
+4. **Consulte e visualize** — referencie uma conexão em uma célula e execute; o resultado tabular é renderizado como
    uma grade interativa com aba de tipos/esquema e botão **Export CSV**.
 
 Um tutorial prático completo está disponível em
@@ -104,7 +104,7 @@ let catalogoUnificado =
     }
 ```
 
-### Joins 100% Idiomáticos: Inner, Left Outer, Right Outer e Full Outer Join
+### Joins 100% Idiomáticos: Inner, Outer, Full Outer, Cross Apply & Lateral
 
 Todos os tipos de joins relacionais possuem suporte completo:
 
@@ -236,7 +236,7 @@ As informações públicas são gravadas em `workspace.json`. Quando uma senha �
 | **F# Query Studio: New F# Query Notebook Here** | Menu de contexto de pastas no Explorer — cria um `.fsqnb` na pasta selecionada. |
 | **F# Query Studio: Auto-Import Data Sources Directory** | Detecta e adiciona automaticamente arquivos compatíveis da pasta `data_sources/`. |
 | **F# Query Studio: Sync Data Sources Cache** | Dispara a sincronização e cache assíncrono em disco (`.fsqs/cache/engine.db`) para arquivos CSV e Excel. |
-| **F# Query Studio: Create Sample Data (SQLite, CSV & XLSX)** | Gera arquivos de dados de exemplo em `data_sources/` e os notebooks de demonstração (`sample_demo.fsqnb` e `sample_demo_pt.fsqnb`). |
+| **F# Query Studio: Create Sample Demo & Data Sources** | Gera arquivos de dados de exemplo em `data_sources/` e os notebooks de demonstração multi-engine com suporte a múltiplos idiomas (`sample_demo.fsqnb`, `sample_demo_pt.fsqnb`, PostgreSQL e SQL Server). |
 | **F# Query Studio: Restart Notebook Session** | Reinicia a sessão FSI do notebook atual, limpando o estado em memória. |
 | **F# Query Studio: Check Worker** | Diagnostica a integridade do processo worker F# e a compatibilidade do ambiente .NET. |
 | **F# Query Studio: Connections: Add / Edit / Remove / Refresh** | Gerencia as conexões de dados cadastradas na árvore. |
@@ -245,3 +245,37 @@ As informações públicas são gravadas em `workspace.json`. Quando uma senha �
 | **F# Query Studio: Show Output Logs** | Abre o canal de saída do VS Code exibindo os logs detalhados do worker. |
 
 Para tutoriais passo a passo e exemplos de consultas, consulte o [`USER_GUIDE_PT.md`](USER_GUIDE_PT.md) ([English User Guide](USER_GUIDE.md)).
+
+## Limitações
+
+- Apenas uma avaliação é executada por vez entre todos os notebooks `.fsqnb` abertos na mesma janela.
+- Requer `dotnet` no `PATH`; ainda não há uma versão autossuficiente (self-contained).
+
+## Contribuindo / desenvolvimento local
+
+```bash
+cd editors/vscode
+npm install
+npm run build         # publica o worker F# em .NET + type-check + bundle com esbuild
+npm test              # testes unitários (vitest)
+npm run test:vscode   # testes no host da extensão em um VS Code baixado
+```
+
+Pressione **F5** no VS Code para abrir o Extension Development Host. Defina `FSQS_WORKER_DLL` para apontar para um worker compilado em outro local em vez de `dist/worker`.
+
+### Compilação e empacotamento
+
+| Comando | Finalidade |
+|---|---|
+| `npm run build` | Compilação executável completa: publica o worker F#, valida tipos TypeScript e empacota. |
+| `npm run package` | Compila e gera o arquivo `fs-query-studio.vsix` com as mesmas validações de integridade do CI. |
+| `npm run doctor` | Verificação prévia somente-leitura para release (toolchain, ID da extensão, ícone do Marketplace, `VSCE_PAT`). |
+| `npm run publish` | Pré-checagem → empacotamento → `vsce publish`. Requer `VSCE_PAT`. |
+
+Mecânica detalhada e flags: [`editors/vscode/scripts/README.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/editors/vscode/scripts/README.md).  
+Runbook completo de release: [`docs/vscode-extension-release.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/vscode-extension-release.md).  
+Especificação de design: [`docs/archive/specs/2026-09-03-vscode-extension-migration-design.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/archive/specs/2026-09-03-vscode-extension-migration-design.md).
+
+## Licença
+
+[MIT](LICENSE) © 2026 Matheus Leal.
