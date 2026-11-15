@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 export const QUERY_KEYWORDS = new Set([
   "query",
   "fsql",
+  "fquery",
   "select",
   "where",
   "whereExists",
@@ -36,6 +37,18 @@ export const QUERY_KEYWORDS = new Set([
   "skip",
   "skipWhile",
   "find",
+  "withCte",
+  "withCteSql",
+  "withRecursiveCte",
+  "withRecursiveCteSql",
+  "union",
+  "unionAll",
+  "intersect",
+  "except",
+  "fullOuterJoin",
+  "rightOuterJoin",
+  "crossJoin",
+  "partitionBy",
 ]);
 
 export const querySemanticTokensLegend = new vscode.SemanticTokensLegend(
