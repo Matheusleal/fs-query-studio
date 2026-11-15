@@ -226,14 +226,14 @@ let errors =
 ```
 
 ### 3.9 Common Table Expressions (CTEs) & Set Operations inside `fsql` CE
-FSQL supports declaring CTEs and performing set operations directly within the `fsql { ... }` computation expression:
+FSQL supports declaring CTEs (with or without an explicit name) and performing set operations directly within the `fsql { ... }` computation expression:
 
 ```fsharp
-// Common Table Expression (CTE) combined with Set Operations directly inside fsql CE
+// Common Table Expression (CTE without explicit name) combined with Set Operations directly inside fsql CE
 let topCatalog =
     fsql {
         for p in Connections.sql.SampleStore.Products do
-        withCte "HighValue" (fsql {
+        withCte (fsql {
             for p2 in Connections.sql.SampleStore.Products do
             where (p2.Price >= 200.0f)
             select p2

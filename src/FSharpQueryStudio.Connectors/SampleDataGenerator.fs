@@ -782,7 +782,7 @@ Combine multiple query projections using SQL pushdown set operations and CTEs di
 let unionCatalog =
     fsql {
         for p in Connections.sql.SampleStore.Products do
-        withCte "HighValue" (fsql { for p2 in Connections.sql.SampleStore.Products do where (p2.Price >= 200.0f); select p2 })
+        withCte (fsql { for p2 in Connections.sql.SampleStore.Products do where (p2.Price >= 200.0f); select p2 })
         where (p.Price >= 200.0f)
         select p
         union (fsql {
@@ -1484,7 +1484,7 @@ Combine múltiplas projeções de consulta usando operações de conjunto e CTEs
 let catalogoCombinado =
     fsql {
         for p in Connections.sql.SampleStore.Products do
-        withCte "ProdutosCaros" (fsql { for p2 in Connections.sql.SampleStore.Products do where (p2.Price >= 200.0f); select p2 })
+        withCte (fsql { for p2 in Connections.sql.SampleStore.Products do where (p2.Price >= 200.0f); select p2 })
         where (p.Price >= 200.0f)
         select p
         union (fsql {

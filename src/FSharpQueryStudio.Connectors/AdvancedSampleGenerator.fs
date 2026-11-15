@@ -414,7 +414,7 @@ fsql {
 let combinedOrders =
     fsql {
         for o in Connections.sql.PostgreSQL_Advanced.orders do
-        withCte "HighValueOrders" (fsql {
+        withCte (fsql {
             for o2 in Connections.sql.PostgreSQL_Advanced.orders do
             where (o2.total_amount >= 300.0M)
             select o2
@@ -635,7 +635,7 @@ fsql {
 let combinedCatalog =
     fsql {
         for p in Connections.sql.SqlServer_Advanced.Products do
-        withCte "HighStock" (fsql {
+        withCte (fsql {
             for p2 in Connections.sql.SqlServer_Advanced.Products do
             where (p2.StockQuantity >= 100)
             select p2
@@ -847,7 +847,7 @@ fsql {
 let combinedCatalog =
     fsql {
         for p in Connections.sql.SQLite_Advanced.Products do
-        withCte "HighEnd" (fsql {
+        withCte (fsql {
             for p2 in Connections.sql.SQLite_Advanced.Products do
             where (p2.Price >= 200.0f)
             select p2

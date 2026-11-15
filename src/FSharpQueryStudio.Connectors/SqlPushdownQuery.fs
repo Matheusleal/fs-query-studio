@@ -2646,19 +2646,59 @@ and SqlPushdownQueryable<'T>(
         SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
 
     /// Prepends a Common Table Expression (WITH cte AS (...)) to this query.
-    member this.WithCte(name: string, cteQuery: SqlPushdownQueryable<'U>, ?isRecursive: bool) : SqlPushdownQueryable<'T> =
+    member this.WithCte(name: string, cteQuery: System.Linq.IQueryable<'U>, ?isRecursive: bool) : SqlPushdownQueryable<'T> =
         let p = (this :> IQueryable).Provider :?> SqlPushdownQueryProvider
         let fullThisPlan = p.ExtractPlan((this :> IQueryable<'T>).Expression, seedPlan = plan)
-        let cp = (cteQuery :> IQueryable).Provider :?> SqlPushdownQueryProvider
-        let fullCtePlan = cp.ExtractPlan((cteQuery :> IQueryable<'U>).Expression, seedPlan = cteQuery.Plan)
         let newPlan = fullThisPlan.Clone()
-        let mutable subSql = fullCtePlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
-        for (pName, pVal) in fullCtePlan.Parameters do
-            let uniqueName = $"@p{newPlan.Parameters.Count}"
-            subSql <- subSql.Replace(pName, uniqueName)
-            newPlan.Parameters.Add(uniqueName, pVal)
-        newPlan.Ctes.Add({ Name = name; SubquerySql = subSql; IsRecursive = defaultArg isRecursive false })
+        match (cteQuery :> IQueryable).Provider with
+        | :? SqlPushdownQueryProvider as cp ->
+            let seedPlan =
+                match box cteQuery with
+                | :? ISqlPushdownQueryable as spq -> spq.Plan
+                | _ -> PushdownQueryPlan.Create("", [])
+            let fullCtePlan = cp.ExtractPlan(cteQuery.Expression, seedPlan = seedPlan)
+            let mutable subSql = fullCtePlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
+            for (pName, pVal) in fullCtePlan.Parameters do
+                let uniqueName = $"@p{newPlan.Parameters.Count}"
+                subSql <- subSql.Replace(pName, uniqueName)
+                newPlan.Parameters.Add(uniqueName, pVal)
+            newPlan.Ctes.Add({ Name = name; SubquerySql = subSql; IsRecursive = defaultArg isRecursive false })
+        | _ -> ()
         SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
+
+    /// Prepends a Common Table Expression (WITH cte AS (...)) to this query with an auto-generated name.
+    member this.WithCte(cteQuery: System.Linq.IQueryable<'U>, ?isRecursive: bool) : SqlPushdownQueryable<'T> =
+        let autoName = $"cte_{plan.Ctes.Count + 1}"
+        this.WithCte(autoName, cteQuery, ?isRecursive = isRecursive)
+
+    /// Prepends a Common Table Expression (WITH cte AS (...)) to this query.
+    member this.WithCte(name: string, cteQuery: SqlPushdownQueryable<'U>, ?isRecursive: bool) : SqlPushdownQueryable<'T> =
+        this.WithCte(name, (cteQuery :> System.Linq.IQueryable<'U>), ?isRecursive = isRecursive)
+
+    /// Prepends a Common Table Expression (WITH cte AS (...)) to this query with an auto-generated name.
+    member this.WithCte(cteQuery: SqlPushdownQueryable<'U>, ?isRecursive: bool) : SqlPushdownQueryable<'T> =
+        this.WithCte((cteQuery :> System.Linq.IQueryable<'U>), ?isRecursive = isRecursive)
+
+    /// Prepends a Recursive Common Table Expression (WITH RECURSIVE cte AS (...)) to this query.
+    member this.WithRecursiveCte(name: string, cteQuery: System.Linq.IQueryable<'U>) : SqlPushdownQueryable<'T> =
+        this.WithCte(name, cteQuery, isRecursive = true)
+
+    /// Prepends a Recursive Common Table Expression (WITH RECURSIVE cte AS (...)) to this query with an auto-generated name.
+    member this.WithRecursiveCte(cteQuery: System.Linq.IQueryable<'U>) : SqlPushdownQueryable<'T> =
+        this.WithCte(cteQuery, isRecursive = true)
+
+    /// Prepends a Recursive Common Table Expression (WITH RECURSIVE cte AS (...)) to this query.
+    member this.WithRecursiveCte(name: string, cteQuery: SqlPushdownQueryable<'U>) : SqlPushdownQueryable<'T> =
+        this.WithCte(name, (cteQuery :> System.Linq.IQueryable<'U>), isRecursive = true)
+
+    /// Prepends a Recursive Common Table Expression (WITH RECURSIVE cte AS (...)) to this query with an auto-generated name.
+    member this.WithRecursiveCte(cteQuery: SqlPushdownQueryable<'U>) : SqlPushdownQueryable<'T> =
+        this.WithCte((cteQuery :> System.Linq.IQueryable<'U>), isRecursive = true)
+
+    /// Prepends a Common Table Expression (WITH cte AS (...)) with raw SQL and an auto-generated name.
+    member this.WithCte(subquerySql: string, ?parameters: (string * obj) list, ?isRecursive: bool) : SqlPushdownQueryable<'T> =
+        let autoName = $"cte_{plan.Ctes.Count + 1}"
+        this.WithCte(autoName, subquerySql, ?parameters = parameters, ?isRecursive = isRecursive)
 
     /// Prepends a Common Table Expression (WITH cte AS (...)) with raw SQL.
     member this.WithCte(name: string, subquerySql: string, ?parameters: (string * obj) list, ?isRecursive: bool) : SqlPushdownQueryable<'T> =
@@ -2984,7 +3024,15 @@ module SqlComputationExtensions =
             failwith "withCte marker"
 
         [<CustomOperation("withCte", MaintainsVariableSpace = true)>]
+        member inline _.WithCte(source: QuerySource<'T, 'Q>, cteQuery: System.Collections.Generic.IEnumerable<'U>) : QuerySource<'T, 'Q> =
+            failwith "withCte marker"
+
+        [<CustomOperation("withCte", MaintainsVariableSpace = true)>]
         member inline _.WithCteSql(source: QuerySource<'T, 'Q>, name: string, subquerySql: string) : QuerySource<'T, 'Q> =
+            failwith "withCte marker"
+
+        [<CustomOperation("withCte", MaintainsVariableSpace = true)>]
+        member inline _.WithCteSql(source: QuerySource<'T, 'Q>, subquerySql: string) : QuerySource<'T, 'Q> =
             failwith "withCte marker"
 
         [<CustomOperation("withRecursiveCte", MaintainsVariableSpace = true)>]
@@ -2992,7 +3040,15 @@ module SqlComputationExtensions =
             failwith "withRecursiveCte marker"
 
         [<CustomOperation("withRecursiveCte", MaintainsVariableSpace = true)>]
+        member inline _.WithRecursiveCte(source: QuerySource<'T, 'Q>, cteQuery: System.Collections.Generic.IEnumerable<'U>) : QuerySource<'T, 'Q> =
+            failwith "withRecursiveCte marker"
+
+        [<CustomOperation("withRecursiveCte", MaintainsVariableSpace = true)>]
         member inline _.WithRecursiveCteSql(source: QuerySource<'T, 'Q>, name: string, subquerySql: string) : QuerySource<'T, 'Q> =
+            failwith "withRecursiveCte marker"
+
+        [<CustomOperation("withRecursiveCte", MaintainsVariableSpace = true)>]
+        member inline _.WithRecursiveCteSql(source: QuerySource<'T, 'Q>, subquerySql: string) : QuerySource<'T, 'Q> =
             failwith "withRecursiveCte marker"
 
         [<CustomOperation("fullOuterJoin", MaintainsVariableSpace = true)>]
@@ -3056,6 +3112,15 @@ module SqlComputationExtensions =
 
         /// Declares a Common Table Expression (CTE) in the current query.
         member inline _.withCte(name: string, cteQuery: #seq<'U>) : unit = ()
+        member inline _.withCte(cteQuery: #seq<'U>) : unit = ()
+        member inline _.withCte(subquerySql: string) : unit = ()
+        member inline _.withCteSql(name: string, subquerySql: string) : unit = ()
+        member inline _.withCteSql(subquerySql: string) : unit = ()
+        member inline _.withRecursiveCte(name: string, cteQuery: #seq<'U>) : unit = ()
+        member inline _.withRecursiveCte(cteQuery: #seq<'U>) : unit = ()
+        member inline _.withRecursiveCte(subquerySql: string) : unit = ()
+        member inline _.withRecursiveCteSql(name: string, subquerySql: string) : unit = ()
+        member inline _.withRecursiveCteSql(subquerySql: string) : unit = ()
 
         /// Creates a recursive Common Table Expression with an anchor and recursive query.
         member inline _.recursive(name: string, anchor: #seq<'T>, recursive: #seq<'T> -> #seq<'T>) : #seq<'T> = anchor
@@ -3090,6 +3155,15 @@ module SqlComputationExtensions =
                         | _ -> LeafExpressionConverter.EvaluateQuotation(cteArg)
                     let isRec = mi.Name.StartsWith("WithRecursive")
                     ctes.Add((name, cteVal, isRec))
+                    peelCustomOps innerSource
+                | Call(instanceOpt, mi, [ innerSource; cteArg ]) when mi.Name = "WithCte" || mi.Name = "WithCteSql" || mi.Name = "WithRecursiveCte" || mi.Name = "WithRecursiveCteSql" ->
+                    let autoName = $"cte_{ctes.Count + 1}"
+                    let cteVal =
+                        match cteArg with
+                        | Lambda(_, body) -> LeafExpressionConverter.EvaluateQuotation(body)
+                        | _ -> LeafExpressionConverter.EvaluateQuotation(cteArg)
+                    let isRec = mi.Name.StartsWith("WithRecursive")
+                    ctes.Add((autoName, cteVal, isRec))
                     peelCustomOps innerSource
                 | Call(instanceOpt, mi, [ innerSource; tableArg; aliasArg; onArg ]) when mi.Name = "FullOuterJoin" || mi.Name = "RightOuterJoin" ->
                     let tbl = LeafExpressionConverter.EvaluateQuotation(tableArg) :?> string

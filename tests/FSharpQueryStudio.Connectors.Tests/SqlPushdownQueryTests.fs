@@ -1596,6 +1596,37 @@ let ``fsql CE supports withCte and union directly inside query expression`` () =
     Assert.Equal(3, list.Length)
 
 [<Fact>]
+let ``fsql CE supports withCte without name directly inside query expression`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
+
+    let combined =
+        fsql {
+            for p in products do
+            withCte (fsql { for p2 in products do where (p2.Price >= 100.0M); select p2 })
+            where (p.Price >= 100.0M)
+            select p
+            union (fsql {
+                for p3 in products do
+                where (p3.Price < 10.0M)
+                select p3
+            })
+        }
+
+    let raw = toRawQuery combined
+    Assert.Contains("WITH cte_1 AS", raw)
+    Assert.Contains("UNION", raw)
+    let list = combined |> Seq.toList
+    Assert.Equal(3, list.Length)
+
+    // Also test fluent API without name
+    let sub = fsql { for p in products do where (p.Price >= 200.0M); select p }
+    let fluentCte = products.WithCte(sub)
+    let fluentRaw = toRawQuery fluentCte
+    Assert.Contains("WITH cte_1 AS", fluentRaw)
+
+[<Fact>]
 let ``fsql CE supports unionAll intersect except directly inside query expression`` () =
     use db = new TempSqliteDb()
     let conn = SqliteConnector(db.Path)
