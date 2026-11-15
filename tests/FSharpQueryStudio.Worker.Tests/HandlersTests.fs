@@ -1667,7 +1667,7 @@ let ``workspace/createAdvancedSamples generates docker-compose, init scripts, da
             let req: WorkerRequestFrame =
                 { Id = "adv-1"
                   Method = "workspace/createAdvancedSamples"
-                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}", "engines": ["sqlite", "postgresql", "sqlserver"]}}""").RootElement }
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}", "engines": ["postgresql", "sqlserver"]}}""").RootElement }
             let! res = Handlers.dispatch req
             Assert.True(res.Error.IsNone, (match res.Error with Some e -> e.Message | None -> ""))
             Assert.True(res.Result.IsSome)
@@ -1676,16 +1676,12 @@ let ``workspace/createAdvancedSamples generates docker-compose, init scripts, da
             let composePath = Path.Combine(tmp, "docker-compose.fsqs.yml")
             let pgScript = Path.Combine(tmp, "init-scripts", "init_postgres.sql")
             let sqlServerScript = Path.Combine(tmp, "init-scripts", "init_sqlserver.sql")
-            let sqliteDb = Path.Combine(tmp, "data_sources", "sqlite_advanced.db")
-            let sqliteNb = Path.Combine(tmp, "sample_sqlite.fsqnb")
             let pgNb = Path.Combine(tmp, "sample_postgresql.fsqnb")
             let sqlServerNb = Path.Combine(tmp, "sample_sqlserver.fsqnb")
 
             Assert.True(File.Exists composePath, $"docker-compose should exist: {composePath}")
             Assert.True(File.Exists pgScript, $"Postgres init script should exist: {pgScript}")
             Assert.True(File.Exists sqlServerScript, $"SQL Server init script should exist: {sqlServerScript}")
-            Assert.True(File.Exists sqliteDb, $"SQLite advanced DB should exist: {sqliteDb}")
-            Assert.True(File.Exists sqliteNb, $"SQLite notebook should exist: {sqliteNb}")
             Assert.True(File.Exists pgNb, $"PostgreSQL notebook should exist: {pgNb}")
             Assert.True(File.Exists sqlServerNb, $"SQL Server notebook should exist: {sqlServerNb}")
 
@@ -1697,7 +1693,6 @@ let ``workspace/createAdvancedSamples generates docker-compose, init scripts, da
             let conns = Workspace.readConnections tmp
             Assert.Contains(conns, fun c -> c.Name = "PostgreSQL_Advanced")
             Assert.Contains(conns, fun c -> c.Name = "SqlServer_Advanced")
-            Assert.Contains(conns, fun c -> c.Name = "SQLite_Advanced")
         finally
             Handlers.setWorkspaceDirForTests None
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
@@ -1716,17 +1711,17 @@ let ``workspace/createAdvancedSamples updates user download demo workspace if pr
             let req: WorkerRequestFrame =
                 { Id = "adv-user-test"
                   Method = "workspace/createAdvancedSamples"
-                  Params = JsonDocument.Parse($"""{{"targetDir": "{escaped}", "engines": ["sqlite", "postgresql", "sqlserver"]}}""").RootElement }
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escaped}", "engines": ["postgresql", "sqlserver"]}}""").RootElement }
             let! res = Handlers.dispatch req
             Assert.True(res.Error.IsNone)
             EntityBackgroundGenerator.waitForPendingGeneration()
             let conns = Workspace.readConnections downloadPath
-            Assert.Contains(conns, fun c -> c.Name = "SQLite_Advanced")
-            Assert.DoesNotContain(conns, fun c -> c.Name = "SqliteAdvanced")
+            Assert.Contains(conns, fun c -> c.Name = "PostgreSQL_Advanced")
+            Assert.Contains(conns, fun c -> c.Name = "SqlServer_Advanced")
             let genPath = EntityBackgroundGenerator.generatedFilePath downloadPath
             if File.Exists genPath then
                 let genCode = File.ReadAllText genPath
-                Assert.Contains("SQLite_Advanced", genCode)
+                Assert.Contains("PostgreSQL_Advanced", genCode)
     }
 
 [<Fact>]

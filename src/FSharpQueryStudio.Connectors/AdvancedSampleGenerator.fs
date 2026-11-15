@@ -305,16 +305,18 @@ END
 # 🐘 PostgreSQL Advanced FSQL Showcase & Diagnostics
 
 This notebook demonstrates the full power of **FSQL** pushed down to **PostgreSQL**:
-- **Analytical Window Functions** (`OVER (PARTITION BY ... ORDER BY ...)`, `rowNumber`, `rank`, `denseRank`, running totals)
-- **Positional Window Navigation** (`lag`, `lead`)
+- **Analytical Window Functions** (`OVER (PARTITION BY ... ORDER BY ...)`, `rowNumber`, `rank`, `denseRank`, running aggregates)
+- **Positional & Value Window Functions** (`lag`, `lead`, `firstValue`, `lastValue`, running `avg`, `max`)
 - **Semi-Structured JSON Navigation** (`fsql.jsonValue` -> `specs ->> 'brand'`)
 - **Correlated Subqueries** (`whereExists`, `whereNotExists`, scalar subqueries in projection)
 - **Group Aggregations with Filter** (`groupBy` + `having`)
-- **Common Table Expressions** (`withCte` / `WITH`)
+- **Common Table Expressions** (Multi-variable composition, unnamed `withCte`, recursive `withRecursiveCte`)
 - **Set Operations** (`union`, `unionAll`, `intersect`, `except`)
-- **Relational Outer Joins** (`leftOuterJoin`)
+- **Relational Joins & Outer Joins** (`join`, `leftOuterJoin`, `fullOuterJoin`)
 - **Correlated LATERAL Apply** (`lateral (fsql { ... })`)
+- **Subqueries with IN** (`.Contains(...)`)
 - **Conditional Expressions** (`if ... then ... else ...` -> `CASE WHEN`)
+- **Query Inspection & Parameter Diagnostics** (`toRawQuery`, `toRawSqlWithParameters`)
 - **Live Query Plan Diagnostics** (`fsql.explain`)
 
 ---
@@ -338,12 +340,13 @@ fsql {
         DenseRankInCat = fsql.denseRank(fsql.window(partitionBy = p.category_id, sortByDescending = p.price))
         PriceQuartile = fsql.ntile(4, fsql.window(sortByDescending = p.price))
         RunningSum = fsql.sum(p.price, over = fsql.window(partitionBy = p.category_id, sortBy = p.id))
+        RunningAvg = fsql.avg(p.price, over = fsql.window(partitionBy = p.category_id, sortBy = p.id))
     |}
 }
 """
-                mkMarkdown "## 2. 🧭 Positional Window Navigation (`lag` & `lead`)"
+                mkMarkdown "## 2. 🧭 Positional & Value Window Functions (`lag`, `lead`, `firstValue`, `lastValue`)"
                 mkCode """
-// 2. Comparing order values with previous and subsequent orders using lag and lead
+// 2.1 Comparing order values with previous and subsequent orders using lag and lead
 fsql {
     for o in Connections.sql.PostgreSQL_Advanced.orders do
     select {|
@@ -352,6 +355,20 @@ fsql {
         Amount = o.total_amount
         PreviousAmount = fsql.lag(o.total_amount, over = fsql.window(partitionBy = o.customer_id, sortBy = o.order_date))
         NextAmount = fsql.lead(o.total_amount, over = fsql.window(partitionBy = o.customer_id, sortBy = o.order_date))
+    |}
+}
+"""
+                mkCode """
+// 2.2 First and last values within each category window
+fsql {
+    for p in Connections.sql.PostgreSQL_Advanced.products do
+    select {|
+        Category = p.category_id
+        Product = p.name
+        Price = p.price
+        CheapestInCat = fsql.firstValue(p.price, over = fsql.window(partitionBy = p.category_id, sortBy = p.price))
+        MostExpensiveInCat = fsql.lastValue(p.price, over = fsql.window(partitionBy = p.category_id, sortBy = p.price))
+        CatMaxPrice = fsql.max(p.price, over = fsql.window(partitionBy = p.category_id))
     |}
 }
 """
@@ -369,7 +386,7 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 4. 🎯 Correlated Subqueries (`whereExists`, `whereNotExists` & Scalar Count)"
+                mkMarkdown "## 4. 🎯 Correlated Subqueries (`whereExists`, `whereNotExists` & Scalar Projection)"
                 mkCode """
 // 4.1 Customers who placed completed orders, projecting correlated order count
 fsql {
@@ -408,9 +425,35 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 6. 🧩 Common Table Expressions (CTEs) & Set Operations (`union`, `intersect`, `except`)"
+                mkMarkdown "## 6. 🧩 Common Table Expressions (CTEs) & Transparent Multi-Query Composition"
                 mkCode """
-// 6.1 CTE (Common Table Expression) consumida diretamente via JOIN
+// 6.1 Multi-variable CTE composition in parts (transparent CTE bubble-up, zero dummy tables)
+let premiumProducts =
+    fsql {
+        for p in Connections.sql.PostgreSQL_Advanced.products do
+        where (p.price >= 300.0M)
+        select p
+    }
+
+let budgetProducts =
+    fsql {
+        for p in Connections.sql.PostgreSQL_Advanced.products do
+        where (p.price <= 50.0M)
+        select p
+    }
+
+// Combining two independent query variables using unionAll inside fsql
+let allSpecialTiers =
+    fsql {
+        for p in premiumProducts do
+        unionAll budgetProducts
+    }
+
+printfn "Formatted SQL (Multi-part CTE Union):\n%s" (toRawQuery allSpecialTiers)
+allSpecialTiers
+"""
+                mkCode """
+// 6.2 Transparent CTE with direct JOIN (without manual table registration)
 let highValueOrders =
     fsql {
         for o in Connections.sql.PostgreSQL_Advanced.orders do
@@ -421,7 +464,7 @@ let highValueOrders =
 let ordersWithCustomer =
     fsql {
         for c in Connections.sql.PostgreSQL_Advanced.customers do
-        withCte "HighValueOrders" highValueOrders
+        withCte highValueOrders
         join o in highValueOrders on (c.id = o.customer_id)
         select (c.first_name + " " + c.last_name, o.id, o.total_amount)
     }
@@ -430,8 +473,8 @@ printfn "Formatted SQL (CTE + JOIN):\n%s" (toRawQuery ordersWithCustomer)
 ordersWithCustomer
 """
                 mkCode """
-// 6.2 Set Operations: intersect and except directly inside fsql CE
-let filteredProducts =
+// 6.3 Set Operations: intersect and except directly inside fsql CE
+let midTierProducts =
     fsql {
         for p in Connections.sql.PostgreSQL_Advanced.products do
         where (p.price >= 50.0M)
@@ -443,12 +486,25 @@ let filteredProducts =
         })
     }
 
-printfn "Formatted SQL (EXCEPT):\n%s" (toRawQuery filteredProducts)
-filteredProducts
+printfn "Formatted SQL (EXCEPT):\n%s" (toRawQuery midTierProducts)
+midTierProducts
 """
-                mkMarkdown "## 7. 🔗 Relational Outer Joins (`leftOuterJoin`)"
                 mkCode """
-// 7. Left outer join of all customers and their orders (including customers without orders)
+// 6.4 Recursive CTE query (hierarchical / sequence generation)
+let sequenceCte =
+    fsql {
+        for p in Connections.sql.PostgreSQL_Advanced.products do
+        withRecursiveCteSql "NumSeries" "SELECT 1 AS n UNION ALL SELECT n + 1 FROM NumSeries WHERE n < 5"
+        take 5
+        select p
+    }
+
+printfn "Formatted SQL (Recursive CTE):\n%s" (toRawQuery sequenceCte)
+sequenceCte
+"""
+                mkMarkdown "## 7. 🔗 Relational Joins & Outer Joins (`leftOuterJoin`, `fullOuterJoin`)"
+                mkCode """
+// 7.1 Left outer join of all customers and their orders (including customers without orders)
 fsql {
     for c in Connections.sql.PostgreSQL_Advanced.customers do
     leftOuterJoin o in Connections.sql.PostgreSQL_Advanced.orders on (c.id = o.customer_id) into orders
@@ -462,7 +518,19 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 8. ⚡ Correlated LATERAL Apply"
+                mkCode """
+// 7.2 Full outer join directly inside fsql CE
+let catalogWithAllCategories =
+    fsql {
+        for p in Connections.sql.PostgreSQL_Advanced.products do
+        fullOuterJoin "categories" "c" "p.category_id = c.id"
+        select p
+    }
+
+printfn "Formatted SQL (FULL OUTER JOIN):\n%s" (toRawQuery catalogWithAllCategories)
+catalogWithAllCategories
+"""
+                mkMarkdown "## 8. ⚡ Correlated LATERAL Apply (`lateral (fsql { ... })`)"
                 mkCode """
 // 8. Correlated LATERAL join: Top order per customer
 fsql {
@@ -481,9 +549,41 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 9. 🔀 Conditional Expressions (CASE WHEN) & String Functions"
+                mkMarkdown "## 9. 📥 Subqueries with `IN` (`.Contains(...)`)"
                 mkCode """
-// 9. Inline conditional classification (CASE WHEN) and string transformations
+// 9. Products ordered in quantities of 3 or more using nested subquery IN
+fsql {
+    for p in Connections.sql.PostgreSQL_Advanced.products do
+    where ((fsql { for oi in Connections.sql.PostgreSQL_Advanced.order_items do where (oi.quantity >= 3); select oi.product_id }).Contains(p.id))
+    select {|
+        Id = p.id
+        Product = p.name
+        Price = p.price
+        Stock = p.stock_quantity
+    |}
+}
+"""
+                mkMarkdown "## 10. 🌐 Multi-Table Relational Projection"
+                mkCode """
+// 10. Joining 4 relational tables (orders, customers, order_items, products)
+fsql {
+    for o in Connections.sql.PostgreSQL_Advanced.orders do
+    join c in Connections.sql.PostgreSQL_Advanced.customers on (o.customer_id = c.id)
+    join oi in Connections.sql.PostgreSQL_Advanced.order_items on (o.id = oi.order_id)
+    join p in Connections.sql.PostgreSQL_Advanced.products on (oi.product_id = p.id)
+    where (o.status = "Completed")
+    select {|
+        OrderId = o.id
+        Customer = c.first_name + " " + c.last_name
+        Product = p.name
+        Quantity = oi.quantity
+        LineTotal = oi.line_total
+    |}
+}
+"""
+                mkMarkdown "## 11. 🔀 Conditional Expressions (CASE WHEN) & String Functions"
+                mkCode """
+// 11. Inline conditional classification (CASE WHEN) and string transformations
 fsql {
     for p in Connections.sql.PostgreSQL_Advanced.products do
     select {|
@@ -494,9 +594,28 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 10. 🔍 Live PostgreSQL Query Plan Diagnostics (`fsql.explain`)"
+                mkMarkdown "## 12. 🔎 Query Inspection & Diagnostics (`toRawQuery` & `toRawSqlWithParameters`)"
                 mkCode """
-// 10. Execute live EXPLAIN directly against the PostgreSQL container using fsql
+// 12. Extract formatted SQL with parameter header for inspection and logging
+let parameterizedQuery =
+    fsql {
+        for p in Connections.sql.PostgreSQL_Advanced.products do
+        where (p.price >= 150.0M && p.stock_quantity > 10)
+        sortByDescending p.price
+        take 5
+        select p
+    }
+
+let formattedSql = toRawQuery parameterizedQuery
+printfn "Formatted SQL with bound parameters:\n%s" formattedSql
+
+let (rawSql, paramsList) = toRawSqlWithParameters parameterizedQuery
+printfn "Raw SQL string: %s" rawSql
+printfn "Bound Parameters: %A" paramsList
+"""
+                mkMarkdown "## 13. 🔍 Live PostgreSQL Query Plan Diagnostics (`fsql.explain`)"
+                mkCode """
+// 13. Execute live EXPLAIN directly against the PostgreSQL container using fsql
 let complexQuery =
     fsql {
         for o in Connections.sql.PostgreSQL_Advanced.orders do
@@ -523,17 +642,19 @@ printfn "%s" report.PlanText
 # 🛡️ SQL Server (T-SQL) Advanced FSQL Showcase & Diagnostics
 
 This notebook demonstrates the full power of **FSQL** pushed down to **SQL Server 2022**:
-- **Analytical Window Functions** (`ROW_NUMBER`, `RANK`, `DENSE_RANK`, `LEAD`, `LAG`, running aggregates)
+- **Analytical Window Functions** (`ROW_NUMBER`, `RANK`, `DENSE_RANK`, running aggregates)
 - **T-SQL 412 Mitigation** (Safe auto-injected `ORDER BY (SELECT NULL)`)
-- **Positional Window Navigation** (`lag`, `lead`)
+- **Positional & Value Window Functions** (`lag`, `lead`, `firstValue`, `lastValue`, running `avg`, `max`)
 - **Semi-Structured JSON Navigation** (`fsql.jsonValue` -> `JSON_VALUE`)
 - **Correlated Subqueries** (`whereExists`, `whereNotExists`, scalar subqueries in projection)
 - **Group Aggregations with Filter** (`groupBy` + `having`)
-- **Common Table Expressions** (`withCte` / `WITH`)
+- **Common Table Expressions** (Multi-variable composition, unnamed `withCte`, recursive `withRecursiveCte`)
 - **Set Operations** (`union`, `unionAll`, `intersect`, `except`)
-- **Relational Outer Joins** (`leftOuterJoin`)
+- **Relational Joins & Outer Joins** (`join`, `leftOuterJoin`, `fullOuterJoin`)
 - **Correlated CROSS APPLY** (`crossApply (fsql { ... })`)
+- **Subqueries with IN** (`.Contains(...)`)
 - **Conditional Expressions** (`if ... then ... else ...` -> `CASE WHEN`)
+- **Query Inspection & Parameter Diagnostics** (`toRawQuery`, `toRawSqlWithParameters`)
 - **Live Query Plan Diagnostics** (`SET SHOWPLAN_TEXT ON ... OFF` via `fsql.explain`)
 
 ---
@@ -557,12 +678,13 @@ fsql {
         DenseRankInCat = fsql.denseRank(fsql.window(partitionBy = p.CategoryId, sortByDescending = p.Price))
         PriceQuartile = fsql.ntile(4, fsql.window(sortByDescending = p.Price))
         RunningSum = fsql.sum(p.Price, over = fsql.window(partitionBy = p.CategoryId, sortBy = p.Id))
+        RunningAvg = fsql.avg(p.Price, over = fsql.window(partitionBy = p.CategoryId, sortBy = p.Id))
     |}
 }
 """
-                mkMarkdown "## 2. 🧭 Positional Window Navigation (`lag` & `lead`)"
+                mkMarkdown "## 2. 🧭 Positional & Value Window Functions (`lag`, `lead`, `firstValue`, `lastValue`)"
                 mkCode """
-// 2. Comparing order amounts with previous and next transactions
+// 2.1 Comparing order amounts with previous and next transactions
 fsql {
     for o in Connections.sql.SqlServer_Advanced.Orders do
     select {|
@@ -571,6 +693,20 @@ fsql {
         Amount = o.TotalAmount
         PreviousAmount = fsql.lag(o.TotalAmount, over = fsql.window(partitionBy = o.CustomerId, sortBy = o.OrderDate))
         NextAmount = fsql.lead(o.TotalAmount, over = fsql.window(partitionBy = o.CustomerId, sortBy = o.OrderDate))
+    |}
+}
+"""
+                mkCode """
+// 2.2 First and last values within each category window
+fsql {
+    for p in Connections.sql.SqlServer_Advanced.Products do
+    select {|
+        CategoryId = p.CategoryId
+        Product = p.Name
+        Price = p.Price
+        CheapestInCat = fsql.firstValue(p.Price, over = fsql.window(partitionBy = p.CategoryId, sortBy = p.Price))
+        MostExpensiveInCat = fsql.lastValue(p.Price, over = fsql.window(partitionBy = p.CategoryId, sortBy = p.Price))
+        CatMaxPrice = fsql.max(p.Price, over = fsql.window(partitionBy = p.CategoryId))
     |}
 }
 """
@@ -588,7 +724,7 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 4. 🎯 Correlated Subqueries (`whereExists`, `whereNotExists` & Scalar Count)"
+                mkMarkdown "## 4. 🎯 Correlated Subqueries (`whereExists`, `whereNotExists` & Scalar Projection)"
                 mkCode """
 // 4.1 Customers who placed high-value orders, projecting correlated order count
 fsql {
@@ -627,9 +763,9 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 6. 🧩 Common Table Expressions (CTEs) & Set Operations (`union`, `intersect`, `except`)"
+                mkMarkdown "## 6. 🧩 Common Table Expressions (CTEs) & Transparent Multi-Query Composition"
                 mkCode """
-// 6.1 CTE (Common Table Expression) consumida diretamente via JOIN
+// 6.1 Multi-variable CTE composition in parts (transparent CTE bubble-up, zero dummy tables)
 let highStockProducts =
     fsql {
         for p in Connections.sql.SqlServer_Advanced.Products do
@@ -637,10 +773,29 @@ let highStockProducts =
         select p
     }
 
+let lowStockProducts =
+    fsql {
+        for p in Connections.sql.SqlServer_Advanced.Products do
+        where (p.StockQuantity < 25)
+        select p
+    }
+
+// Combining two independent query variables using union inside fsql
+let allStockAlerts =
+    fsql {
+        for p in highStockProducts do
+        unionAll lowStockProducts
+    }
+
+printfn "Formatted SQL (Multi-part CTE Union):\n%s" (toRawQuery allStockAlerts)
+allStockAlerts
+"""
+                mkCode """
+// 6.2 Transparent CTE with direct JOIN (without manual table registration)
 let catalogWithCategory =
     fsql {
         for c in Connections.sql.SqlServer_Advanced.Categories do
-        withCte "HighStockProducts" highStockProducts
+        withCte highStockProducts
         join p in highStockProducts on (c.Id = p.CategoryId)
         select (c.Name, p.Name, p.StockQuantity)
     }
@@ -649,8 +804,8 @@ printfn "Formatted SQL (CTE + JOIN):\n%s" (toRawQuery catalogWithCategory)
 catalogWithCategory
 """
                 mkCode """
-// 6.2 Set Operations: intersect and except directly inside fsql CE
-let filteredProducts =
+// 6.3 Set Operations: intersect and except directly inside fsql CE
+let midTierProducts =
     fsql {
         for p in Connections.sql.SqlServer_Advanced.Products do
         where (p.Price >= 50.0M)
@@ -662,12 +817,25 @@ let filteredProducts =
         })
     }
 
-printfn "Formatted SQL (EXCEPT):\n%s" (toRawQuery filteredProducts)
-filteredProducts
+printfn "Formatted SQL (EXCEPT):\n%s" (toRawQuery midTierProducts)
+midTierProducts
 """
-                mkMarkdown "## 7. 🔗 Relational Outer Joins (`leftOuterJoin`)"
                 mkCode """
-// 7. Left outer join of all customers and their orders (including customers without orders)
+// 6.4 Recursive CTE query (hierarchical / sequence generation)
+let sequenceCte =
+    fsql {
+        for p in Connections.sql.SqlServer_Advanced.Products do
+        withRecursiveCteSql "NumSeries" "SELECT 1 AS n UNION ALL SELECT n + 1 FROM NumSeries WHERE n < 5"
+        take 5
+        select p
+    }
+
+printfn "Formatted SQL (Recursive CTE):\n%s" (toRawQuery sequenceCte)
+sequenceCte
+"""
+                mkMarkdown "## 7. 🔗 Relational Joins & Outer Joins (`leftOuterJoin`, `fullOuterJoin`)"
+                mkCode """
+// 7.1 Left outer join of all customers and their orders (including customers without orders)
 fsql {
     for c in Connections.sql.SqlServer_Advanced.Customers do
     leftOuterJoin o in Connections.sql.SqlServer_Advanced.Orders on (c.Id = o.CustomerId) into orders
@@ -680,6 +848,18 @@ fsql {
         Status = (if isNull (box o) then "No Orders" else o.Status)
     |}
 }
+"""
+                mkCode """
+// 7.2 Full outer join directly inside fsql CE
+let catalogWithAllCategories =
+    fsql {
+        for p in Connections.sql.SqlServer_Advanced.Products do
+        fullOuterJoin "Categories" "c" "p.CategoryId = c.Id"
+        select p
+    }
+
+printfn "Formatted SQL (FULL OUTER JOIN):\n%s" (toRawQuery catalogWithAllCategories)
+catalogWithAllCategories
 """
                 mkMarkdown "## 8. ⚡ Correlated CROSS APPLY"
                 mkCode """
@@ -700,9 +880,41 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 9. 🔀 Conditional Expressions (CASE WHEN) & String Functions"
+                mkMarkdown "## 9. 📥 Subqueries with `IN` (`.Contains(...)`)"
                 mkCode """
-// 9. Inline conditional classification (CASE WHEN) and string transformations
+// 9. Products ordered in quantities of 3 or more using nested subquery IN
+fsql {
+    for p in Connections.sql.SqlServer_Advanced.Products do
+    where ((fsql { for oi in Connections.sql.SqlServer_Advanced.OrderItems do where (oi.Quantity >= 3); select oi.ProductId }).Contains(p.Id))
+    select {|
+        Id = p.Id
+        Product = p.Name
+        Price = p.Price
+        Stock = p.StockQuantity
+    |}
+}
+"""
+                mkMarkdown "## 10. 🌐 Multi-Table Relational Projection"
+                mkCode """
+// 10. Joining 4 relational tables (Orders, Customers, OrderItems, Products)
+fsql {
+    for o in Connections.sql.SqlServer_Advanced.Orders do
+    join c in Connections.sql.SqlServer_Advanced.Customers on (o.CustomerId = c.Id)
+    join oi in Connections.sql.SqlServer_Advanced.OrderItems on (o.Id = oi.OrderId)
+    join p in Connections.sql.SqlServer_Advanced.Products on (oi.ProductId = p.Id)
+    where (o.Status = "Completed")
+    select {|
+        OrderId = o.Id
+        Customer = c.FirstName + " " + c.LastName
+        Product = p.Name
+        Quantity = oi.Quantity
+        LineTotal = oi.LineTotal
+    |}
+}
+"""
+                mkMarkdown "## 11. 🔀 Conditional Expressions (CASE WHEN) & String Functions"
+                mkCode """
+// 11. Inline conditional classification (CASE WHEN) and string transformations
 fsql {
     for p in Connections.sql.SqlServer_Advanced.Products do
     select {|
@@ -713,9 +925,28 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 10. 🔍 Live SQL Server Execution Plan (`SHOWPLAN_TEXT` Diagnostics)"
+                mkMarkdown "## 12. 🔎 Query Inspection & Diagnostics (`toRawQuery` & `toRawSqlWithParameters`)"
                 mkCode """
-// 10. Inspect the execution plan returned directly by SQL Server engine using fsql
+// 12. Extract formatted SQL with parameter header for inspection and logging
+let parameterizedQuery =
+    fsql {
+        for p in Connections.sql.SqlServer_Advanced.Products do
+        where (p.Price >= 150.0M && p.StockQuantity > 10)
+        sortByDescending p.Price
+        take 5
+        select p
+    }
+
+let formattedSql = toRawQuery parameterizedQuery
+printfn "Formatted SQL with bound parameters:\n%s" formattedSql
+
+let (rawSql, paramsList) = toRawSqlWithParameters parameterizedQuery
+printfn "Raw SQL string: %s" rawSql
+printfn "Bound Parameters: %A" paramsList
+"""
+                mkMarkdown "## 13. 🔍 Live SQL Server Execution Plan (`SHOWPLAN_TEXT` Diagnostics)"
+                mkCode """
+// 13. Inspect the execution plan returned directly by SQL Server engine using fsql
 let complexQuery =
     fsql {
         for o in Connections.sql.SqlServer_Advanced.Orders do
@@ -735,305 +966,15 @@ printfn "%s" diag.PlanText
             ]
         serializeNotebook cells
 
-    let getSqliteNotebook () : string =
-        let cells =
-            [
-                mkMarkdown """
-# 🪶 SQLite Advanced FSQL Showcase & Diagnostics
-
-This notebook demonstrates the cutting-edge **FSQL** capabilities running locally on **SQLite 3.25+**:
-- **Analytical Window Functions** (`OVER (PARTITION BY ... ORDER BY ...)`, `rowNumber`, `rank`, `denseRank`, running totals)
-- **Positional Window Navigation** (`lag`, `lead`)
-- **Semi-Structured JSON Navigation** (`fsql.jsonValue` -> `json_extract(Specs, '$.brand')`)
-- **Correlated Subqueries** (`whereExists`, `whereNotExists`, scalar subqueries in projection)
-- **Group Aggregations with Filter** (`groupBy` + `having`)
-- **Common Table Expressions** (`withCte` / `WITH`)
-- **Set Operations** (`union`, `unionAll`, `intersect`, `except`)
-- **Relational Outer Joins** (`leftOuterJoin`)
-- **Conditional Expressions** (`if ... then ... else ...` -> `CASE WHEN`)
-- **Live Query Plan Diagnostics** (`EXPLAIN QUERY PLAN` via `fsql.explain`)
-"""
-                mkMarkdown "## 1. ⚡ Analytic Window Functions (Partitioning & Running Aggregates)"
-                mkCode """
-// 1. Ranking products per category by price with running totals in SQLite
-fsql {
-    for p in Connections.sql.SQLite_Advanced.Products do
-    select {|
-        CategoryId = p.CategoryId
-        Product = p.Name
-        Price = p.Price
-        RowInCat = fsql.rowNumber(fsql.window(partitionBy = p.CategoryId, sortByDescending = p.Price))
-        RankInCat = fsql.rank(fsql.window(partitionBy = p.CategoryId, sortByDescending = p.Price))
-        DenseRankInCat = fsql.denseRank(fsql.window(partitionBy = p.CategoryId, sortByDescending = p.Price))
-        PriceQuartile = fsql.ntile(4, fsql.window(sortByDescending = p.Price))
-        RunningSum = fsql.sum(p.Price, over = fsql.window(partitionBy = p.CategoryId, sortBy = p.Id))
-    |}
-}
-"""
-                mkMarkdown "## 2. 🧭 Positional Window Navigation (`lag` & `lead`)"
-                mkCode """
-// 2. Comparing order values with previous and subsequent orders using lag and lead
-fsql {
-    for o in Connections.sql.SQLite_Advanced.Orders do
-    select {|
-        OrderId = o.Id
-        CustomerId = o.CustomerId
-        Amount = o.TotalAmount
-        PreviousAmount = fsql.lag(o.TotalAmount, over = fsql.window(partitionBy = o.CustomerId, sortBy = o.OrderDate))
-        NextAmount = fsql.lead(o.TotalAmount, over = fsql.window(partitionBy = o.CustomerId, sortBy = o.OrderDate))
-    |}
-}
-"""
-                mkMarkdown "## 3. 📦 Semi-Structured JSON Extraction (`fsql.jsonValue` -> `json_extract`)"
-                mkCode """
-// 3. Filtering and extracting specs JSON fields directly on SQLite
-fsql {
-    for p in Connections.sql.SQLite_Advanced.Products do
-    where (fsql.jsonValue(p.Specs, "wireless") = "true" || fsql.jsonValue(p.Specs, "brand") = "VisionMax")
-    select {|
-        Sku = p.Sku
-        Name = p.Name
-        Brand = fsql.jsonValue(p.Specs, "brand")
-        Wireless = fsql.jsonValue(p.Specs, "wireless")
-    |}
-}
-"""
-                mkMarkdown "## 4. 🎯 Correlated Subqueries (`whereExists`, `whereNotExists` & Scalar Count)"
-                mkCode """
-// 4.1 Customers who placed orders >= $200, projecting correlated order count
-fsql {
-    for c in Connections.sql.SQLite_Advanced.Customers do
-    whereExists (fsql { for o in Connections.sql.SQLite_Advanced.Orders do where (o.CustomerId = c.Id && o.TotalAmount >= 200.0f) })
-    select {|
-        Customer = c.FirstName + " " + c.LastName
-        Email = c.Email
-        CompletedOrders = fsql { for o in Connections.sql.SQLite_Advanced.Orders do where (o.CustomerId = c.Id); count }
-    |}
-}
-"""
-                mkCode """
-// 4.2 Customers with NO pending orders using whereNotExists
-fsql {
-    for c in Connections.sql.SQLite_Advanced.Customers do
-    whereNotExists (fsql { for o in Connections.sql.SQLite_Advanced.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") })
-    select {|
-        Customer = c.FirstName + " " + c.LastName
-        City = c.City
-        Country = c.Country
-    |}
-}
-"""
-                mkMarkdown "## 5. 📊 Grouping & Aggregate Filter (`having`)"
-                mkCode """
-// 5. Group orders by customer and filter customers with more than 1 order
-fsql {
-    for o in Connections.sql.SQLite_Advanced.Orders do
-    groupBy o.CustomerId into g
-    having (fsql { for item in g do count } >= 2)
-    select {|
-        CustomerId = g.Key
-        OrderCount = fsql { for item in g do count }
-        TotalSpent = g.Sum(fun x -> x.TotalAmount)
-    |}
-}
-"""
-                mkMarkdown "## 6. 🧩 Common Table Expressions (CTEs) & Set Operations (`union`, `intersect`, `except`)"
-                mkCode """
-// 6.1 CTE (Common Table Expression) consumida diretamente via JOIN
-let highPriceProducts =
-    fsql {
-        for p in Connections.sql.SQLite_Advanced.Products do
-        where (p.Price >= 200.0f)
-        select p
-    }
-
-let catalogWithCategory =
-    fsql {
-        for c in Connections.sql.SQLite_Advanced.Categories do
-        withCte "HighPriceProducts" highPriceProducts
-        join p in highPriceProducts on (c.Id = p.CategoryId)
-        select (c.Name, p.Name, p.Price)
-    }
-
-printfn "Formatted SQL (CTE + JOIN):\n%s" (toRawQuery catalogWithCategory)
-catalogWithCategory
-"""
-                mkCode """
-// 6.2 Set Operations: intersect and except directly inside fsql CE
-let exclusiveProducts =
-    fsql {
-        for p in Connections.sql.SQLite_Advanced.Products do
-        where (p.StockQuantity > 40)
-        select p
-        except (fsql {
-            for p2 in Connections.sql.SQLite_Advanced.Products do
-            where (p2.Price > 300.0f)
-            select p2
-        })
-    }
-
-printfn "Formatted SQL (EXCEPT):\n%s" (toRawQuery exclusiveProducts)
-exclusiveProducts
-"""
-                mkMarkdown "## 7. 🔗 Relational Outer Joins (`leftOuterJoin`)"
-                mkCode """
-// 7. Left Outer Join showing all customers and their orders (including customers without orders)
-fsql {
-    for c in Connections.sql.SQLite_Advanced.Customers do
-    leftOuterJoin o in Connections.sql.SQLite_Advanced.Orders on (c.Id = o.CustomerId) into orders
-    for o in orders.DefaultIfEmpty() do
-    select {|
-        Cliente = c.FirstName + " " + c.LastName
-        Email = c.Email
-        OrderId = (if isNull (box o) then 0 else o.Id)
-        Valor = (if isNull (box o) then 0.0f else o.TotalAmount)
-        Status = (if isNull (box o) then "Sem Pedidos" else o.Status)
-    |}
-}
-"""
-                mkMarkdown "## 8. 🔀 Conditional Expressions (CASE WHEN) & String Functions"
-                mkCode """
-// 8. Conditional classification (CASE WHEN) and string transformations directly in SQL pushdown
-fsql {
-    for p in Connections.sql.SQLite_Advanced.Products do
-    select {|
-        Nome = p.Name.ToUpper()
-        Preco = p.Price
-        FaixaPreco = (if p.Price >= 300.0f then "Premium" elif p.Price >= 100.0f then "Intermediário" else "Econômico")
-        NivelEstoque = (if p.StockQuantity >= 100 then "Alto" else "Crítico")
-    |}
-}
-"""
-                mkMarkdown "## 9. 🔍 Live SQLite EXPLAIN QUERY PLAN"
-                mkCode """
-// 9. Live SQLite execution plan analysis using fsql
-let complexQuery =
-    fsql {
-        for o in Connections.sql.SQLite_Advanced.Orders do
-        join c in Connections.sql.SQLite_Advanced.Customers on (o.CustomerId = c.Id)
-        where (o.TotalAmount > 100.0f)
-        select {|
-            Id = o.Id
-            Customer = c.FirstName + " " + c.LastName
-            Amount = o.TotalAmount
-        |}
-    }
-
-let report = fsql.explain complexQuery
-printfn "Engine: %A" report.Dialect
-printfn "%s" report.PlanText
-"""
-            ]
-        serializeNotebook cells
-
-    let createAdvancedSqliteDatabase (dbPath: string) : unit =
-        let dir = Path.GetDirectoryName(dbPath)
-        if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
-            Directory.CreateDirectory(dir) |> ignore
-
-        if File.Exists dbPath then File.Delete dbPath
-
-        use conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}")
-        conn.Open()
-
-        let createTables = """
-CREATE TABLE Categories (
-    Id INTEGER PRIMARY KEY,
-    Name TEXT NOT NULL,
-    Description TEXT,
-    Code TEXT NOT NULL,
-    IsActive INTEGER NOT NULL
-);
-
-CREATE TABLE Products (
-    Id INTEGER PRIMARY KEY,
-    CategoryId INTEGER NOT NULL,
-    Name TEXT NOT NULL,
-    Sku TEXT NOT NULL,
-    Price REAL NOT NULL,
-    CostPrice REAL NOT NULL,
-    StockQuantity INTEGER NOT NULL,
-    Specs TEXT NOT NULL,
-    FOREIGN KEY (CategoryId) REFERENCES Categories(Id)
-);
-
-CREATE TABLE Customers (
-    Id INTEGER PRIMARY KEY,
-    FirstName TEXT NOT NULL,
-    LastName TEXT NOT NULL,
-    Email TEXT NOT NULL,
-    City TEXT NOT NULL,
-    Country TEXT NOT NULL,
-    Profile TEXT NOT NULL
-);
-
-CREATE TABLE Orders (
-    Id INTEGER PRIMARY KEY,
-    CustomerId INTEGER NOT NULL,
-    OrderDate TEXT NOT NULL,
-    Status TEXT NOT NULL,
-    TotalAmount REAL NOT NULL,
-    FOREIGN KEY (CustomerId) REFERENCES Customers(Id)
-);
-
-CREATE TABLE OrderItems (
-    Id INTEGER PRIMARY KEY,
-    OrderId INTEGER NOT NULL,
-    ProductId INTEGER NOT NULL,
-    Quantity INTEGER NOT NULL,
-    UnitPrice REAL NOT NULL,
-    LineTotal REAL NOT NULL,
-    FOREIGN KEY (OrderId) REFERENCES Orders(Id),
-    FOREIGN KEY (ProductId) REFERENCES Products(Id)
-);
-
-INSERT INTO Categories (Id, Name, Description, Code, IsActive) VALUES
-(1, 'Electronics', 'Gadgets and computing devices', 'ELEC', 1),
-(2, 'Furniture', 'Office and home furniture', 'FURN', 1),
-(3, 'Stationery', 'Office supplies and writing gear', 'STAT', 1);
-
-INSERT INTO Products (Id, CategoryId, Name, Sku, Price, CostPrice, StockQuantity, Specs) VALUES
-(1, 1, 'Pro Mechanical Keyboard', 'ELEC-KB-01', 129.99, 65.00, 150, '{"brand": "KeyMaster", "wireless": true, "switch": "Cherry MX Brown"}'),
-(2, 1, 'UltraWide Gaming Monitor', 'ELEC-MN-02', 499.99, 310.00, 45, '{"brand": "VisionMax", "resolution": "3440x1440", "refresh_hz": 144}'),
-(3, 1, 'Ergonomic Precision Mouse', 'ELEC-MS-03', 79.50, 32.00, 200, '{"brand": "PrecisionTech", "wireless": true, "dpi": 16000}'),
-(4, 2, 'Adjustable Standing Desk', 'FURN-DK-01', 349.00, 180.00, 30, '{"brand": "ErgoLift", "motor": "Dual", "max_kg": 120}'),
-(5, 2, 'Mesh Ergonomic Task Chair', 'FURN-CH-02', 249.99, 120.00, 60, '{"brand": "AeroComfort", "armrest": "4D", "tilt": true}'),
-(6, 3, 'Smart Digital Notebook', 'STAT-NB-01', 35.00, 14.00, 300, '{"brand": "PaperSync", "pages": 120, "cloud_sync": true}');
-
-INSERT INTO Customers (Id, FirstName, LastName, Email, City, Country, Profile) VALUES
-(1, 'Alice', 'Silva', 'alice.silva@example.com', 'Sao Paulo', 'Brazil', '{"tier": "Gold", "loyalty_points": 1450, "preferred_channel": "App"}'),
-(2, 'Bob', 'Miller', 'bob.miller@example.com', 'Austin', 'USA', '{"tier": "Platinum", "loyalty_points": 3200, "preferred_channel": "Web"}'),
-(3, 'Carla', 'Santos', 'carla.santos@example.com', 'Curitiba', 'Brazil', '{"tier": "Silver", "loyalty_points": 650, "preferred_channel": "Email"}'),
-(4, 'David', 'Kowalski', 'david.k@example.com', 'Warsaw', 'Poland', '{"tier": "Bronze", "loyalty_points": 210, "preferred_channel": "Web"}');
-
-INSERT INTO Orders (Id, CustomerId, OrderDate, Status, TotalAmount) VALUES
-(1, 1, '2026-01-15 10:30:00', 'Completed', 629.98),
-(2, 1, '2026-02-10 14:15:00', 'Completed', 129.99),
-(3, 2, '2026-02-20 18:45:00', 'Completed', 598.99),
-(4, 3, '2026-03-01 09:00:00', 'Pending', 79.50);
-
-INSERT INTO OrderItems (Id, OrderId, ProductId, Quantity, UnitPrice, LineTotal) VALUES
-(1, 1, 1, 1, 129.99, 129.99),
-(2, 1, 2, 1, 499.99, 499.99),
-(3, 2, 1, 1, 129.99, 129.99),
-(4, 3, 2, 1, 499.99, 499.99),
-(5, 3, 3, 1, 79.50, 79.50),
-(6, 4, 3, 1, 79.50, 79.50);
-"""
-        use cmd = conn.CreateCommand()
-        cmd.CommandText <- createTables
-        cmd.ExecuteNonQuery() |> ignore
-
     let generateAdvancedSamples (targetDir: string) (selectedEngines: string list) : AdvancedSampleResult =
         let normalizedEngines =
             selectedEngines
             |> List.map (fun e -> e.ToLowerInvariant().Trim())
-            |> List.filter (fun e -> e = "sqlite" || e = "postgresql" || e = "sqlserver" || e = "postgres" || e = "mssql")
+            |> List.filter (fun e -> e = "postgresql" || e = "sqlserver" || e = "postgres" || e = "mssql")
             |> List.distinct
 
         let hasPostgres = normalizedEngines |> List.exists (fun e -> e = "postgresql" || e = "postgres")
         let hasSqlServer = normalizedEngines |> List.exists (fun e -> e = "sqlserver" || e = "mssql")
-        let hasSqlite = normalizedEngines |> List.exists (fun e -> e = "sqlite")
 
         let mutable initScripts = []
         let mutable dockerComposePath = None
@@ -1068,24 +1009,6 @@ INSERT INTO OrderItems (Id, OrderId, ProductId, Quantity, UnitPrice, LineTotal) 
             let composePath = Path.Combine(targetDir, "docker-compose.fsqs.yml")
             File.WriteAllText(composePath, getDockerComposeYaml hasPostgres hasSqlServer)
             dockerComposePath <- Some composePath
-
-        if hasSqlite then
-            let sampleDir = Path.Combine(targetDir, "data_sources")
-            if not (Directory.Exists sampleDir) then
-                Directory.CreateDirectory sampleDir |> ignore
-            let dbPath = Path.Combine(sampleDir, "sqlite_advanced.db")
-            createAdvancedSqliteDatabase dbPath
-
-            let nbPath = Path.Combine(targetDir, "sample_sqlite.fsqnb")
-            File.WriteAllText(nbPath, getSqliteNotebook ())
-            notebooksGenerated <- nbPath :: notebooksGenerated
-            registeredConns <- "SQLite_Advanced" :: registeredConns
-
-        let nbDemoPath = Path.Combine(targetDir, "sample_demo.fsqnb")
-        let nbDemoPtPath = Path.Combine(targetDir, "sample_demo_pt.fsqnb")
-        SampleDataGenerator.createSampleDemoNotebook nbDemoPath
-        SampleDataGenerator.createSampleDemoNotebookPt nbDemoPtPath
-        notebooksGenerated <- nbDemoPath :: nbDemoPtPath :: notebooksGenerated
 
         { TargetDir = targetDir
           SelectedEngines = normalizedEngines

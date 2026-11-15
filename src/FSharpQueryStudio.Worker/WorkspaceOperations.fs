@@ -329,15 +329,7 @@ module WorkspaceOperations =
         let result = AdvancedSampleGenerator.generateAdvancedSamples dir engines
         let currentConns = Workspace.readConnections dir
 
-        let mutable newConns =
-            currentConns
-            |> List.filter (fun c ->
-                if String.Equals(c.Name, "SqliteAdvanced", StringComparison.OrdinalIgnoreCase) then
-                    try
-                        let p = c.Configuration.GetProperty("filePath").GetString()
-                        not (p.EndsWith("sqlite_advanced.db", StringComparison.OrdinalIgnoreCase))
-                    with _ -> true
-                else true)
+        let mutable newConns = currentConns
         for connName in result.RegisteredConnections do
             let alreadyExists = newConns |> List.exists (fun c -> String.Equals(c.Name, connName, StringComparison.OrdinalIgnoreCase))
             if not alreadyExists then
@@ -368,19 +360,6 @@ module WorkspaceOperations =
                           SecretReference = None
                           IsTrusted = true }
                     newConns <- newConns @ [ sqlDef ]
-                | "SQLite_Advanced" ->
-                    let sqliteDef: ConnectionDefinition =
-                        { Id = Guid.NewGuid()
-                          Name = "SQLite_Advanced"
-                          Kind = ConnectorKind.Sqlite
-                          Configuration =
-                              JsonSerializer.SerializeToElement(
-                                  {| filePath = "data_sources/sqlite_advanced.db" |},
-                                  Serialization.options
-                              )
-                          SecretReference = None
-                          IsTrusted = true }
-                    newConns <- newConns @ [ sqliteDef ]
                 | _ -> ()
 
         if newConns <> currentConns then
@@ -392,10 +371,6 @@ module WorkspaceOperations =
         with ex ->
             Log.Warning("FS Query Studio: Entity generation after advanced samples creation failed: {Error}", ex.Message)
         Connections.triggerBackgroundSync dir newConns secretStore
-
-        if engines |> List.exists (fun e -> String.Equals(e, "sqlite", StringComparison.OrdinalIgnoreCase)) then
-            let _ = autoImportDataSources dir secretStore
-            ()
 
         SessionStore.resetAll ()
         result

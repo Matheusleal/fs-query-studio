@@ -705,7 +705,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
       } else if (wsFolders && wsFolders.length > 1) {
         const pick = await vscode.window.showQuickPick(
           wsFolders.map((f) => ({ label: f.name, description: f.uri.fsPath, uri: f.uri })),
-          { placeHolder: "Select a workspace folder for sample data" },
+          { placeHolder: "Select a workspace folder for sample demo" },
         );
         if (!pick) return;
         targetDir = pick.uri.fsPath;
@@ -714,77 +714,165 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
           canSelectFiles: false,
           canSelectFolders: true,
           canSelectMany: false,
-          openLabel: "Select Folder for Sample Data",
+          openLabel: "Select Folder for Sample Demo",
         });
         if (!picked || picked.length === 0) return;
         targetDir = picked[0].fsPath;
       }
 
-      log(`[Workspace] Creating sample data in directory: ${targetDir}`);
-      try {
-        const worker = await getWorker();
-        const res = await worker.send({
-          id: randomUUID(),
-          method: "workspace/createSampleData",
-          params: { targetDir, targetDirectory: targetDir },
-        });
+      const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
 
-        if (res.error) {
-          log(`[Workspace] Failed to create sample data: ${res.error.message}`);
-          outputChannel?.show(true);
-          const choice = await vscode.window.showErrorMessage(
-            `Failed to create sample data: ${res.error.message}`,
-            "Show Logs",
-          );
-          if (choice === "Show Logs") {
-            outputChannel?.show(true);
+      interface DemoOption extends vscode.QuickPickItem {
+        id: "standard" | "postgresql" | "sqlserver";
+      }
+
+      const demoOptions: DemoOption[] = [
+        {
+          label: "$(database) Standard Multi-Source Demo (SQLite, CSV, Excel & REST)",
+          description: isPt
+            ? "Demonstração completa em inglês com todas as fontes de dados originais e sample_demo.fsqnb"
+            : "Complete demo in English with all original data sources and sample_demo.fsqnb",
+          id: "standard",
+          picked: true,
+        },
+        {
+          label: "$(server) PostgreSQL Advanced Demo (Docker & FSQL)",
+          description: isPt
+            ? "Container Docker postgres:16-alpine (JSONB, CTEs recursivas, LATERAL e sample_postgresql.fsqnb)"
+            : "Docker container postgres:16-alpine (JSONB, recursive CTEs, LATERAL and sample_postgresql.fsqnb)",
+          id: "postgresql",
+          picked: false,
+        },
+        {
+          label: "$(server-process) SQL Server Advanced Demo (Docker & FSQL)",
+          description: isPt
+            ? "Container Docker MSSQL 2022 (T-SQL, SHOWPLAN, CROSS APPLY, CTEs e sample_sqlserver.fsqnb)"
+            : "Docker container MSSQL 2022 (T-SQL, SHOWPLAN, CROSS APPLY, CTEs and sample_sqlserver.fsqnb)",
+          id: "sqlserver",
+          picked: false,
+        },
+      ];
+
+      const selected = await vscode.window.showQuickPick(demoOptions, {
+        canPickMany: true,
+        title: isPt
+          ? "Selecione as Demonstrações do F# Query Studio"
+          : "Select F# Query Studio Sample Demos",
+        placeHolder: isPt
+          ? "Escolha uma ou mais demonstrações para gerar arquivos, conexões e notebooks"
+          : "Choose one or more sample demos to generate files, connections and notebooks",
+      });
+
+      if (!selected || selected.length === 0) {
+        return;
+      }
+
+      const hasStandard = selected.some((s) => s.id === "standard");
+      const advancedEngines = selected
+        .filter((s) => s.id === "postgresql" || s.id === "sqlserver")
+        .map((s) => s.id);
+
+      log(`[Workspace] Creating demos (standard=${hasStandard}, advanced=[${advancedEngines.join(", ")}]) in directory: ${targetDir}`);
+
+      try {
+        const openedNotebooks: string[] = [];
+
+        if (hasStandard) {
+          log(`[Workspace] Creating standard multi-source sample data in directory: ${targetDir}`);
+          const worker = await getWorker();
+          const res = await worker.send({
+            id: randomUUID(),
+            method: "workspace/createSampleData",
+            params: { targetDir, targetDirectory: targetDir },
+          });
+
+          if (res.error) {
+            log(`[Workspace] Failed to create standard sample data: ${res.error.message}`);
+            throw new Error(res.error.message);
           }
-          return;
+
+          const data = res.result as {
+            sqlitePath: string;
+            sqlite2Path?: string;
+            csvPath: string;
+            csv2Path?: string;
+            excelPath?: string;
+            excel2Path?: string;
+            notebookPath: string;
+            notebookPtPath?: string;
+          };
+
+          log(`[Workspace] Standard sample data created: Notebook=${data.notebookPath}`);
+          openedNotebooks.push(data.notebookPath);
+          startDataSourcesWatcher();
+          void runSyncDataSources(targetDir, true);
         }
 
-        const data = res.result as {
-          sqlitePath: string;
-          sqlite2Path?: string;
-          csvPath: string;
-          csv2Path?: string;
-          excelPath?: string;
-          excel2Path?: string;
-          notebookPath: string;
-          notebookPtPath?: string;
-        };
+        if (advancedEngines.length > 0) {
+          log(`[Workspace] Creating advanced database samples for [${advancedEngines.join(", ")}] in directory: ${targetDir}`);
+          const worker = await getWorker();
+          const res = await worker.send({
+            id: randomUUID(),
+            method: "workspace/createAdvancedSamples",
+            params: {
+              targetDir,
+              targetDirectory: targetDir,
+              engines: advancedEngines,
+              selectedEngines: advancedEngines,
+            },
+          });
 
-        log(
-          `[Workspace] Sample data created successfully in data_sources: SQLite=${data.sqlitePath}, SQLite2=${data.sqlite2Path}, CSV=${data.csvPath}, CSV2=${data.csv2Path}, Excel=${data.excelPath}, Excel2=${data.excel2Path}, Notebook=${data.notebookPath}, NotebookPt=${data.notebookPtPath}`,
-        );
+          if (res.error) {
+            log(`[Workspace] Failed to create advanced database samples: ${res.error.message}`);
+            throw new Error(res.error.message);
+          }
 
-        startDataSourcesWatcher();
+          const data = res.result as {
+            targetDir: string;
+            selectedEngines: string[];
+            dockerComposePath?: string;
+            initScripts: string[];
+            notebooksGenerated: string[];
+            registeredConnections: string[];
+          };
+
+          log(`[Workspace] Advanced database samples generated: Notebooks=${data.notebooksGenerated.join(", ")}`);
+          if (data.notebooksGenerated) {
+            openedNotebooks.push(...data.notebooksGenerated);
+          }
+
+          if (data.dockerComposePath) {
+            const composeName = data.dockerComposePath.split(/[\\/]/).pop();
+            const dockerNotice = isPt
+              ? `Para iniciar os bancos no Docker: 'docker compose -f ${composeName} up -d'.`
+              : `To start containers with Docker: 'docker compose -f ${composeName} up -d'.`;
+            void vscode.window.showInformationMessage(dockerNotice);
+          }
+        }
+
         await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
 
-        const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
-        const targetNotebook =
-          isPt && data.notebookPtPath ? data.notebookPtPath : data.notebookPath;
-
-        try {
-          const doc = await vscode.workspace.openNotebookDocument(
-            vscode.Uri.file(targetNotebook),
-          );
-          await vscode.window.showNotebookDocument(doc);
-        } catch {
-          // ignore error if notebook viewer fails to open immediately
+        if (openedNotebooks.length > 0) {
+          try {
+            const doc = await vscode.workspace.openNotebookDocument(
+              vscode.Uri.file(openedNotebooks[0]),
+            );
+            await vscode.window.showNotebookDocument(doc);
+          } catch {
+            // ignore error if notebook viewer fails to open immediately
+          }
         }
 
         const successMsg = isPt
-          ? "Fontes de dados na pasta 'data_sources' (SQLite, CSV e XLSX) e notebooks interativos ('sample_demo_pt.fsqnb', 'sample_demo.fsqnb') criados e importados com sucesso!"
-          : "Sample data sources in 'data_sources' (SQLite, CSV & XLSX) and interactive notebooks ('sample_demo.fsqnb', 'sample_demo_pt.fsqnb') created and imported successfully!";
-
-        void runSyncDataSources(targetDir, true);
+          ? "Demonstrações e conexões criadas com sucesso!"
+          : "Sample demos and connections created successfully!";
         void vscode.window.showInformationMessage(successMsg);
       } catch (err) {
         const msg = (err as Error).message;
-        log(`[Workspace] Error creating sample data: ${msg}`);
+        log(`[Workspace] Error creating sample demos: ${msg}`);
         outputChannel?.show(true);
         const choice = await vscode.window.showErrorMessage(
-          `Error creating sample data: ${msg}`,
+          `Error creating sample demos: ${msg}`,
           "Show Logs",
         );
         if (choice === "Show Logs") {
@@ -797,147 +885,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
   const createAdvancedSamplesCommand = vscode.commands.registerCommand(
     "fs-query-studio.createAdvancedSamples",
     async () => {
-      let targetDir: string | undefined;
-      const wsFolders = vscode.workspace.workspaceFolders;
-      if (wsFolders && wsFolders.length === 1) {
-        targetDir = wsFolders[0].uri.fsPath;
-      } else if (wsFolders && wsFolders.length > 1) {
-        const pick = await vscode.window.showQuickPick(
-          wsFolders.map((f) => ({ label: f.name, description: f.uri.fsPath, uri: f.uri })),
-          { placeHolder: "Select a workspace folder for advanced database samples" },
-        );
-        if (!pick) return;
-        targetDir = pick.uri.fsPath;
-      } else {
-        const picked = await vscode.window.showOpenDialog({
-          canSelectFiles: false,
-          canSelectFolders: true,
-          canSelectMany: false,
-          openLabel: "Select Folder for Advanced Samples",
-        });
-        if (!picked || picked.length === 0) return;
-        targetDir = picked[0].fsPath;
-      }
-
-      const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
-      const dbOptions = [
-        {
-          label: "$(server) SQLite",
-          description: isPt
-            ? "Banco local em arquivo (zero Docker, SQLite 3.25+ com Window Functions, CTEs, JSON)"
-            : "Local disk database (zero Docker, SQLite 3.25+ with Window Functions, CTEs, JSON)",
-          engine: "sqlite",
-          picked: true,
-        },
-        {
-          label: "$(database) PostgreSQL",
-          description: isPt
-            ? "Container Docker postgres:16-alpine (JSONB, CTEs recursivas, LATERAL e Window Functions)"
-            : "Docker container postgres:16-alpine (JSONB, recursive CTEs, LATERAL and Window Functions)",
-          engine: "postgresql",
-          picked: true,
-        },
-        {
-          label: "$(server-process) SQL Server",
-          description: isPt
-            ? "Container Docker MSSQL 2022 (T-SQL, SHOWPLAN, JSON_VALUE e Window Functions analíticas)"
-            : "Docker container MSSQL 2022 (T-SQL, SHOWPLAN, JSON_VALUE and analytical Window Functions)",
-          engine: "sqlserver",
-          picked: true,
-        },
-      ];
-
-      const selected = await vscode.window.showQuickPick(dbOptions, {
-        canPickMany: true,
-        title: isPt
-          ? "Selecione os Bancos de Dados para os Exemplos Avançados"
-          : "Select Database Engines for Advanced FSQL Samples",
-        placeHolder: isPt
-          ? "Escolha um ou mais bancos de dados suportados para gerar containers e notebooks"
-          : "Choose one or more supported databases to generate containers and notebooks",
-      });
-
-      if (!selected || selected.length === 0) {
-        return;
-      }
-
-      const engines = selected.map((s) => s.engine);
-      log(`[Workspace] Creating advanced samples for engines [${engines.join(", ")}] in directory: ${targetDir}`);
-
-      try {
-        const worker = await getWorker();
-        const res = await worker.send({
-          id: randomUUID(),
-          method: "workspace/createAdvancedSamples",
-          params: { targetDir, targetDirectory: targetDir, engines, selectedEngines: engines },
-        });
-
-        if (res.error) {
-          log(`[Workspace] Failed to create advanced database samples: ${res.error.message}`);
-          outputChannel?.show(true);
-          const choice = await vscode.window.showErrorMessage(
-            `Failed to create advanced database samples: ${res.error.message}`,
-            "Show Logs",
-          );
-          if (choice === "Show Logs") {
-            outputChannel?.show(true);
-          }
-          return;
-        }
-
-        const data = res.result as {
-          targetDir: string;
-          selectedEngines: string[];
-          dockerComposePath?: string;
-          initScripts: string[];
-          notebooksGenerated: string[];
-          registeredConnections: string[];
-        };
-
-        log(
-          `[Workspace] Advanced database samples generated: Compose=${data.dockerComposePath}, Notebooks=${data.notebooksGenerated.join(", ")}, Connections=${data.registeredConnections.join(", ")}`,
-        );
-
-        if (engines.includes("sqlite")) {
-          startDataSourcesWatcher();
-        }
-        await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
-
-        // Open the first generated notebook
-        if (data.notebooksGenerated && data.notebooksGenerated.length > 0) {
-          const firstNb = data.notebooksGenerated[0];
-          try {
-            const doc = await vscode.workspace.openNotebookDocument(vscode.Uri.file(firstNb));
-            await vscode.window.showNotebookDocument(doc);
-          } catch {
-            // ignore error opening notebook
-          }
-        }
-
-        let successMsg = isPt
-          ? `Exemplos avançados criados com sucesso! Notebooks: ${data.notebooksGenerated.map((p) => p.split(/[\\/]/).pop()).join(", ")}.`
-          : `Advanced database samples created successfully! Notebooks: ${data.notebooksGenerated.map((p) => p.split(/[\\/]/).pop()).join(", ")}.`;
-
-        if (data.dockerComposePath) {
-          const composeName = data.dockerComposePath.split(/[\\/]/).pop();
-          successMsg += isPt
-            ? ` Para iniciar os bancos no Docker: 'docker compose -f ${composeName} up -d'.`
-            : ` To start containers with Docker: 'docker compose -f ${composeName} up -d'.`;
-        }
-
-        void vscode.window.showInformationMessage(successMsg);
-      } catch (err) {
-        const msg = (err as Error).message;
-        log(`[Workspace] Error creating advanced samples: ${msg}`);
-        outputChannel?.show(true);
-        const choice = await vscode.window.showErrorMessage(
-          `Error creating advanced database samples: ${msg}`,
-          "Show Logs",
-        );
-        if (choice === "Show Logs") {
-          outputChannel?.show(true);
-        }
-      }
+      await vscode.commands.executeCommand("fs-query-studio.createSampleData");
     },
   );
 
