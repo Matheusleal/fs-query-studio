@@ -1627,6 +1627,59 @@ let ``fsql CE supports withCte without name directly inside query expression`` (
     Assert.Contains("WITH cte_1 AS", fluentRaw)
 
 [<Fact>]
+let ``fsql supports composing cte and union in separate variables executed in third query`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
+
+    // Parte 1: a CTE isolada em uma variável
+    let highPriceCte =
+        fsql {
+            for p in products do
+            where (p.Price >= 100.0M)
+            select p
+        }
+
+    // Parte 2: a query de união (RHS) isolada em uma variável
+    let lowPriceProducts =
+        fsql {
+            for p in products do
+            where (p.Price < 10.0M)
+            select p
+        }
+
+    // Parte 3: a terceira query combinando a CTE e a união
+    let combined =
+        fsql {
+            for p in products do
+            withCte highPriceCte
+            where (p.Price >= 100.0M)
+            select p
+            union lowPriceProducts
+        }
+
+    let raw = toRawQuery combined
+    Assert.Contains("WITH cte_1 AS", raw)
+    Assert.Contains("UNION", raw)
+    let list = combined |> Seq.toList
+    Assert.Equal(3, list.Length)
+
+    // Também com CTE nomeada explicitamente:
+    let combinedNamed =
+        fsql {
+            for p in products do
+            withCte "HighEndProducts" highPriceCte
+            where (p.Price >= 100.0M)
+            select p
+            union lowPriceProducts
+        }
+    let rawNamed = toRawQuery combinedNamed
+    Assert.Contains("WITH HighEndProducts AS", rawNamed)
+    Assert.Contains("UNION", rawNamed)
+    let listNamed = combinedNamed |> Seq.toList
+    Assert.Equal(3, listNamed.Length)
+
+[<Fact>]
 let ``fsql CE supports unionAll intersect except directly inside query expression`` () =
     use db = new TempSqliteDb()
     let conn = SqliteConnector(db.Path)

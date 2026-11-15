@@ -3369,5 +3369,50 @@ module SqlComputationExtensions =
     /// Semi-structured JSON navigation pushdown (JSON_VALUE / ->> / json_extract).
     let jsonValue (column: obj) (path: string) : string = ""
 
+[<AutoOpen>]
+module FSqlExtensions =
+
+    type System.Linq.IQueryable<'T> with
+        member this.WithCte(cteQuery: System.Linq.IQueryable<'U>, ?isRecursive: bool) : System.Linq.IQueryable<'T> =
+            match box this with
+            | :? SqlPushdownQueryable<'T> as spq -> spq.WithCte(cteQuery, ?isRecursive = isRecursive)
+            | _ ->
+                match SqlPushdownQuery.tryFindPushdownSource this.Expression with
+                | Some (sourceIq, Some plan) ->
+                    match box sourceIq with
+                    | :? ISqlPushdownQueryable as spq ->
+                        let autoName = $"cte_{plan.Ctes.Count + 1}"
+                        let newPlan = plan.Clone()
+                        let (subSql, subParams) = SqlPushdownQuery.extractSqlWithParameters cteQuery
+                        let mutable remappedSql = subSql
+                        for (pName, pVal) in subParams do
+                            let uniqueName = $"@p{newPlan.Parameters.Count}"
+                            remappedSql <- remappedSql.Replace(pName, uniqueName)
+                            newPlan.Parameters.Add(uniqueName, pVal)
+                        newPlan.Ctes.Add({ Name = autoName; SubquerySql = remappedSql; IsRecursive = defaultArg isRecursive false })
+                        SqlPushdownQueryable<'T>(sourceIq.Provider, this.Expression, spq.Connector, "", [], newPlan) :> System.Linq.IQueryable<'T>
+                    | _ -> this
+                | _ -> this
+
+        member this.WithCte(name: string, cteQuery: System.Linq.IQueryable<'U>, ?isRecursive: bool) : System.Linq.IQueryable<'T> =
+            match box this with
+            | :? SqlPushdownQueryable<'T> as spq -> spq.WithCte(name, cteQuery, ?isRecursive = isRecursive)
+            | _ ->
+                match SqlPushdownQuery.tryFindPushdownSource this.Expression with
+                | Some (sourceIq, Some plan) ->
+                    match box sourceIq with
+                    | :? ISqlPushdownQueryable as spq ->
+                        let newPlan = plan.Clone()
+                        let (subSql, subParams) = SqlPushdownQuery.extractSqlWithParameters cteQuery
+                        let mutable remappedSql = subSql
+                        for (pName, pVal) in subParams do
+                            let uniqueName = $"@p{newPlan.Parameters.Count}"
+                            remappedSql <- remappedSql.Replace(pName, uniqueName)
+                            newPlan.Parameters.Add(uniqueName, pVal)
+                        newPlan.Ctes.Add({ Name = name; SubquerySql = remappedSql; IsRecursive = defaultArg isRecursive false })
+                        SqlPushdownQueryable<'T>(sourceIq.Provider, this.Expression, spq.Connector, "", [], newPlan) :> System.Linq.IQueryable<'T>
+                    | _ -> this
+                | _ -> this
+
 
 
