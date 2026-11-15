@@ -47,8 +47,10 @@ open FSharpQueryStudio.Connectors   // API Connections.*
 |---|---|---|
 | `Connections.sql.<Conn>` | SQLite, SQL Server, PostgreSQL, MySQL | Tabelas tipadas (`.Users`) e queries parametrizadas `.rawQuery "..." [ ... ]` |
 | `Connections.csv.<Conn>` | CSV | Linhas tipadas via `fsql { for r in Connections.csv.<Conn> do ... }` ou `.Rows` |
-| `Connections.excel.<Conn>` | Excel (XLSX) | Planilhas tipadas (`.<NomePlanilha>`) e `.Raw()` |
-| `Connections.rest.<Conn>` | REST JSON | Itens tipados (`.Items`) e `.SendAsync()` |
+| `Connections.excel.<Conn>` | Excel (XLSX, XLS) | Planilhas tipadas (`.<NomePlanilha>`) e `.Raw()` |
+| `Connections.json.<Conn>` | JSON | Acesso tipado a nós e arrays JSON estruturados |
+| `Connections.xml.<Conn>` | XML | Navegação hierárquica tipada em árvores XML |
+| `Connections.rest.<Conn>` | REST JSON | Itens tipados (`.Items`) e `.SendAsync()` com `RestRequestOptions` |
 
 ### Pushdown Universal de Consultas para SQL (Estilo EF)
 
@@ -73,17 +75,65 @@ ORDER BY _t0.CreatedAt DESC
 LIMIT 10
 ```
 
-### Inspeção de SQL Gerado (`toRawQuery` / `toRawSql`)
+### Common Table Expressions (CTEs) & Operações de Conjunto
 
-Para inspecionar o SQL e os parâmetros traduzidos antes do envio ao banco de dados:
+O FSQL oferece suporte nativo e direto a CTEs e operações de conjunto dentro da própria computation expression:
 
 ```fsharp
+// CTE Sem Nome: Injetada automaticamente sem tabelas fictícias
+let produtosEmEstoque =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity >= 100)
+        select p
+    }
+
+let catalogo =
+    fsql {
+        for c in Connections.sql.SampleStore.Categories do
+        withCte produtosEmEstoque
+        join p in produtosEmEstoque on (c.Id = p.CategoryId)
+        select {| Categoria = c.Name; Produto = p.Name; Estoque = p.StockQuantity |}
+    }
+
+// Operações de Conjunto: union, unionAll, intersect, except
+let catalogoUnificado =
+    fsql {
+        for a in catalogoOnline do
+        union catalogoFisico
+    }
+```
+
+### Joins 100% Idiomáticos: Inner, Left Outer, Right Outer e Full Outer Join
+
+Todos os tipos de joins relacionais possuem suporte completo:
+
+```fsharp
+// Full Outer Join utilizando sintaxe LINQ GroupJoin com DefaultIfEmpty()
+let catalogoCompleto =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        fullOuterJoin c in Connections.sql.SampleStore.Categories on (p.CategoryId = c.Id) into catGroup
+        for c in catGroup.DefaultIfEmpty() do
+        select {| Produto = p.Name; Categoria = c.Name |}
+    }
+```
+
+### Inspeção de Plano de Execução & SQL Gerado (`explain` / `toRawQuery`)
+
+Para inspecionar o plano de execução ou a query formatada com cabeçalho de parâmetros:
+
+```fsharp
+// Exibe a query SQL formatada
+printfn "%s" (toRawQuery minhaQuery)
+
+// Diagnóstico de plano de execução na CE
 fsql {
     for o in Connections.sql.Sales.Orders do
     where (o.TotalAmount >= 100.0f)
+    explain
     select o
 }
-|> toRawQuery
 ```
 
 ### Engine de Staging de Alta Performance para CSV & Excel (`.fsqs/cache/engine.db`)

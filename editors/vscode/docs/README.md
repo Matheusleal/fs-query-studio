@@ -47,8 +47,10 @@ open FSharpQueryStudio.Connectors   // the Connections.* API
 |---|---|---|
 | `Connections.sql.<Conn>` | SQLite, SQL Server, PostgreSQL, MySQL | Typed tables (`.Users`) and scoped `.rawQuery "..." [ ... ]` |
 | `Connections.csv.<Conn>` | CSV | Typed rows via `fsql { for r in Connections.csv.<Conn> do ... }` or `.Rows` |
-| `Connections.excel.<Conn>` | Excel (XLSX) | Typed sheets (`.<SheetName>`) and `.Raw()` |
-| `Connections.rest.<Conn>` | REST JSON | Typed items (`.Items`) and `.SendAsync()` |
+| `Connections.excel.<Conn>` | Excel (XLSX, XLS) | Typed sheets (`.<SheetName>`) and `.Raw()` |
+| `Connections.json.<Conn>` | JSON | Structured data with typed accessors or `.Root` |
+| `Connections.xml.<Conn>` | XML | Hierarchical data with typed node navigation or `.Root` |
+| `Connections.rest.<Conn>` | REST JSON | Typed items (`.Items`) and `.SendAsync()` with `RestRequestOptions` |
 
 ### Universal SQL Pushdown (EF-Style)
 
@@ -73,17 +75,65 @@ ORDER BY _t0.CreatedAt DESC
 LIMIT 10
 ```
 
-### Inspecting Generated SQL (`toRawQuery` / `toRawSql`)
+### Common Table Expressions (CTEs) & Set Operations
 
-To inspect the translated SQL query and parameters before execution:
+FSQL offers first-class support for Common Table Expressions and set operations directly within the computation expression:
 
 ```fsharp
+// Unnamed CTE: automatically inferred, no dummy tables required
+let topProducts =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity > 50)
+        select p
+    }
+
+let catalogWithCte =
+    fsql {
+        for c in Connections.sql.SampleStore.Categories do
+        withCte topProducts
+        join p in topProducts on (c.Id = p.CategoryId)
+        select {| Category = c.Name; Product = p.Name; Stock = p.StockQuantity |}
+    }
+
+// In-CE Set Operations: union, unionAll, intersect, except
+let combinedFeed =
+    fsql {
+        for a in onlineCatalog do
+        union inStoreCatalog
+    }
+```
+
+### Idiomatic Joins: Inner, Outer, Full Outer, Cross Apply & Lateral
+
+All standard and advanced relational joins are supported with 100% idiomatic F# syntax:
+
+```fsharp
+// Full Outer Join using LINQ group-join and DefaultIfEmpty()
+let fullCatalog =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        fullOuterJoin c in Connections.sql.SampleStore.Categories on (p.CategoryId = c.Id) into catGroup
+        for c in catGroup.DefaultIfEmpty() do
+        select {| Product = p.Name; Category = c.Name |}
+    }
+```
+
+### Execution Plan Diagnostics & SQL Preview (`explain` / `toRawQuery`)
+
+To inspect the translated SQL query and parameters before execution, or analyze the execution plan:
+
+```fsharp
+// Formatted SQL with bound parameter header
+printfn "%s" (toRawQuery myQuery)
+
+// In-CE query plan inspection
 fsql {
     for o in Connections.sql.Sales.Orders do
     where (o.TotalAmount >= 100.0f)
+    explain
     select o
 }
-|> toRawQuery
 ```
 
 ### High-Performance Staging Engine for CSV & Excel (`.fsqs/cache/engine.db`)

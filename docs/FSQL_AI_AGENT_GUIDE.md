@@ -225,11 +225,27 @@ let errors =
     }
 ```
 
-### 3.9 Common Table Expressions (CTEs) & Set Operations (Composição Transparente em Partes)
+### 3.9 Common Table Expressions (CTEs) & Set Operations (Transparent Composition)
 FSQL supports declaring CTEs and set operations in parts as separate variables, and combining them seamlessly with **zero dummy tables** or manual registration:
 
 ```fsharp
-// 1. Definição em partes de queries independentes com CTEs e filtros:
+// 1. Unnamed CTE (Preferred): Injected transparently without requiring dummy table registration or explicit names
+let highStockProducts =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity >= 100)
+        select p
+    }
+
+let catalogWithUnnamedCte =
+    fsql {
+        for c in Connections.sql.SampleStore.Categories do
+        withCte highStockProducts
+        join p in highStockProducts on (c.Id = p.CategoryId)
+        select {| Category = c.Name; Product = p.Name; Stock = p.StockQuantity |}
+    }
+
+// 2. Named CTE: Explicit identifier overload
 let highPriceProducts =
     fsql {
         for p in Connections.sql.SampleStore.Products do
@@ -246,27 +262,38 @@ let budgetProducts =
         select p
     }
 
-// 2. Composição em 4 formas equivalentes (as CTEs de ambos os lados sobem automaticamente para o WITH principal sem duplicações e sem WITH interno inválido):
+// 3. Raw Recursive CTEs (T-SQL, PostgreSQL, SQLite)
+let orgHierarchy =
+    fsql {
+        for e in Connections.sql.SampleStore.Employees do
+        withRecursiveCteSql "OrgHierarchy" """
+            SELECT Id, Name, ManagerId, 1 AS Level
+            FROM Employees WHERE ManagerId IS NULL
+            UNION ALL
+            SELECT e.Id, e.Name, e.ManagerId, h.Level + 1
+            FROM Employees e
+            INNER JOIN OrgHierarchy h ON e.ManagerId = h.Id
+        """
+        select e
+    }
 
-// Forma A: Dentro da Computation Expression (fsql)
+// 4. Composition in 4 equivalent forms (CTEs bubble up into top-level WITH automatically without duplicate WITH clauses):
+
+// Form A: Inside Computation Expression (fsql)
 let combinedA =
     fsql {
         for p in highPriceProducts do
         union budgetProducts
     }
 
-// Forma B: Builder fsql currificado
+// Form B: Curried builder function
 let combinedB = fsql.union highPriceProducts budgetProducts
 
-// Forma C: Função de módulo currificada
+// Form C: Module function
 let combinedC = union highPriceProducts budgetProducts
 
-// Forma D: Método de extensão IQueryable
+// Form D: Extension method on IQueryable
 let combinedD = highPriceProducts.Union(budgetProducts)
-
-// Todas as 4 formas produzem o mesmo SQL limpo:
-// WITH HighEnd AS (...), Budget AS (...)
-// SELECT * FROM HighEnd WHERE ... UNION SELECT * FROM Budget WHERE ...
 
 // In-CE Set Operations: union, unionAll, intersect, except
 let allItems =
@@ -287,8 +314,7 @@ let exclusiveItems =
         except wholesaleItems
     }
 
-// 3. Composição de Subqueries em whereExists e crossApply:
-// Variáveis pré-definidas com filtros e ordenações são injetadas transparentemente
+// 5. Composition of Subqueries in whereExists and crossApply:
 let completedOrders =
     fsql {
         for o in Connections.sql.SampleStore.Orders do
@@ -304,13 +330,41 @@ let customersWithOrders =
     }
 ```
 
-### 3.10 Outer Joins inside `fsql` CE
+### 3.10 Idiomatic Outer Joins inside `fsql` CE
+AI agents must generate 100% idiomatic LINQ `GroupJoin` syntax using `into <group>` and `for <var> in <group>.DefaultIfEmpty() do`:
+
 ```fsharp
-// Full Outer Join directly within fsql
+// 1. Full Outer Join directly within fsql
 let suppliersProducts =
     fsql {
         for p in Connections.sql.SampleStore.Products do
-        fullOuterJoin "Suppliers" "s" "p.SupplierId = s.Id"
+        fullOuterJoin s in Connections.sql.SampleStore.Suppliers on (p.SupplierId = s.Id) into suppliers
+        for s in suppliers.DefaultIfEmpty() do
+        select {|
+            Product = p.Name
+            Supplier = (if isNull (box s) then "Unknown" else s.Name)
+        |}
+    }
+
+// 2. Right Outer Join directly within fsql
+let rightJoined =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        rightOuterJoin c in Connections.sql.SampleStore.Categories on (p.CategoryId = c.Id) into categories
+        for c in categories.DefaultIfEmpty() do
+        select {| Category = c.Name; Product = (if isNull (box p) then "None" else p.Name) |}
+    }
+```
+
+### 3.11 Execution Plan Inspection (`explain` & `fsql.explain`)
+AI agents can request execution plans directly inside the CE:
+
+```fsharp
+let planInspection =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity > 50)
+        explain
         select p
     }
 ```

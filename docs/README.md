@@ -22,7 +22,8 @@ Welcome to the central documentation index for **F# Query Studio**. This folder 
 | Document | Description |
 |---|---|
 | [`FSQL_LANGUAGE_SPECIFICATION.md`](FSQL_LANGUAGE_SPECIFICATION.md) | **FSQL Language Specification** — Formal syntax and semantics of the `fsql { ... }` computation expression across relational engines, joins, subqueries, aggregations, window functions, and pushdown rules. |
-| [`FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md) | **FSQL AI Agent Guide** — Strict rules, canonical patterns, syntax guidelines, and anti-patterns for AI Agents generating queries in F# Query Studio. |
+| [`FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md) | **FSQL AI Agent Guide (English)** — Strict rules, canonical patterns, syntax guidelines, and anti-patterns for AI Agents generating queries in F# Query Studio. |
+| [`FSQL_AI_AGENT_GUIDE_PT.md`](FSQL_AI_AGENT_GUIDE_PT.md) | **FSQL AI Agent Guide (Portuguese)** — Guia canônico em português para assistentes de código e agentes de IA gerando consultas FSQL. |
 
 ---
 

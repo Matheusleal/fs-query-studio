@@ -33,41 +33,51 @@ O pipeline de CI também publica o pacote VSIX automaticamente a cada push na br
 
 ## Início Rápido
 
-1. **Novo notebook** — execute o comando **F# Query Studio: New F# Query Notebook** na Command Palette (`Ctrl+Shift+P`), ou crie qualquer arquivo com extensão `.fsqnb`.
+1. **Novo notebook ou gerador de demonstrações** — execute o comando **F# Query Studio: New F# Query Notebook** na Command Palette (`Ctrl+Shift+P`), ou clique no botão **Create Sample Data & Demo Notebooks** (`$(database)`) na barra de conexões para gerar notebooks de demonstração prontos para execução (`sample_demo.fsqnb`, PostgreSQL ou SQL Server) com escolha de idioma (**English**, **Português** ou **Both / Ambos**).
 2. **Execute F#** — digite código F# em uma célula e execute-a. Declarações `let` persistem para as células seguintes (uma sessão FSI por notebook). O comando **F# Query Studio: Restart Notebook Session** reinicializa a sessão quando desejado.
-3. **Adicione ou importe conexões automaticamente** — adicione arquivos `.csv`, `.xlsx` ou `.db` na pasta `data_sources/` do projeto e execute **F# Query Studio: Auto-Import Data Sources Directory**, ou use **Add Connection** no painel da barra lateral. Fontes de arquivos são sincronizadas de forma assíncrona em cache persistente SQLite (`.fsqs/cache/engine.db`) com índices B-tree compostos automáticos.
-4. **Consulte com Pushdown Completo para SQL & fsql** — consultas `fsql` são traduzidas diretamente para SQL nativo no banco de dados (`SELECT`, `WHERE`, `JOIN`, `ORDER BY`, `LIMIT`, `SKIP`, `COUNT`, `SUM`), sem puxar tabelas inteiras para a memória RAM:
+3. **Adicione ou importe conexões automaticamente** — adicione arquivos `.csv`, `.xlsx`, `.json`, `.xml` ou `.db` na pasta `data_sources/` do projeto e execute **F# Query Studio: Auto-Import Data Sources Directory**, ou use **Add Connection** no painel da barra lateral. Fontes de arquivos são sincronizadas de forma assíncrona em cache persistente SQLite (`.fsqs/cache/engine.db`) com índices B-tree compostos automáticos.
+4. **Consulte com Pushdown Completo para SQL & fsql** — consultas `fsql` são traduzidas diretamente para SQL nativo no banco de dados (`SELECT`, `WHERE`, `JOIN`, `LEFT/RIGHT/FULL OUTER JOIN`, `ORDER BY`, `LIMIT`, `SKIP`, `COUNT`, `SUM`, `EXISTS`, `HAVING`, `CROSS APPLY`, `LATERAL`, `CTEs`, `UNION`, `INTERSECT`, `EXCEPT`, `WINDOW`), sem puxar tabelas inteiras para a memória RAM:
    ```fsharp
+   // DQL funcional puro com fsql
    fsql {
        for u in Connections.sql.MinhaConexao.Users do
        where (u.IsActive && u.Age >= 21)
+       whereExists (fsql { for o in Connections.sql.MinhaConexao.Orders do where (o.UserId = u.Id) })
        sortBy u.LastName
-       select {| Nome = u.FirstName + " " + u.LastName; Email = u.Email |}
+       select {|
+           Nome = u.FirstName + " " + u.LastName
+           Email = u.Email
+           TotalPedidos = fsql { for o in Connections.sql.MinhaConexao.Orders do where (o.UserId = u.Id); count }
+       |}
    }
    ```
-5. **Inspecione a Query SQL Gerada** — visualize a query SQL parametrizada exata antes ou durante a execução:
+5. **Inspecione a Query SQL Gerada (`toRawQuery`) ou Diagnósticos (`explain`)** — visualize a query SQL parametrizada exata com formatação profissional ou plano de execução antes de rodar:
    ```fsharp
-   printfn "%s" (Connections.toRawSql minhaQuery)
+   printfn "%s" (toRawQuery minhaQuery)
    ```
    Ou execute comandos SQL brutos: `Connections.sql.MinhaConexao.rawQuery "select * from Orders" []`.
-   O resultado é exibido em uma grade virtualizada interativa com aba de esquema e botão **Export CSV**.
+   O resultado é exibido em uma grade virtualizada interativa com aba de esquema, filtros e botão **Export CSV**.
 
 Guia prático passo a passo: **[`docs/TUTORIAL_PT.md`](docs/TUTORIAL_PT.md)** (English: [`docs/TUTORIAL.md`](docs/TUTORIAL.md)).  
-Guia Completo do Usuário: **[`docs/USER_GUIDE_PT.md`](docs/USER_GUIDE_PT.md)** (ou clique no ícone `$(book)` no VS Code).
+Guia Completo do Usuário: **[`docs/USER_GUIDE_PT.md`](docs/USER_GUIDE_PT.md)** (ou clique no ícone `$(book)` no VS Code).  
+Guia para Agentes de IA: **[`docs/FSQL_AI_AGENT_GUIDE.md`](docs/FSQL_AI_AGENT_GUIDE.md)**.  
+Especificação Formal da Linguagem: **[`docs/FSQL_LANGUAGE_SPECIFICATION.md`](docs/FSQL_LANGUAGE_SPECIFICATION.md)**.
 
 ## O que a Extensão Oferece
 
 - **Execução em Notebooks** — cada célula `.fsqnb` executa em uma sessão FSI isolada por notebook; saída ao vivo de stdout / stderr; cancelamento de células demoradas pela barra de ferramentas.
-- **Pushdown Completo de Queries para SQL** — tradução estilo Entity Framework para bancos relacionais e arquivos planos. Transforma projeções (`select`), filtros (`where`), joins (`join`), joins multi-propriedades (`on ((a.p1, a.p2) = (b.p1, b.p2))`), ordenação, fatiamento (`take`/`skip`) e agregações (`count`/`sum`) em instruções SQL nativas ultra-rápidas.
+- **Pushdown Completo de Queries para SQL** — tradução estilo Entity Framework para bancos relacionais e arquivos planos. Transforma projeções (`select`), filtros (`where`), joins (`join`, `leftOuterJoin`, `rightOuterJoin` e o 100% idiomático `fullOuterJoin` com `into ... DefaultIfEmpty()`), joins multi-propriedades (`on ((a.p1, a.p2) = (b.p1, b.p2))`), ordenação, fatiamento (`take`/`skip`), agregações (`count`/`sum`) e funções analíticas de janela (`rowNumber`, `rank`, `sumOver`, etc.) em instruções SQL nativas ultra-rápidas.
+- **Common Table Expressions (CTEs) & Operações de Conjunto** — Declare CTEs de forma transparente usando `withCte subquery` sem nome (sem necessidade de registrar tabelas fictícias) ou `withCte "Nome" subquery`, além de `withRecursiveCteSql` para consultas recursivas. Componha consultas e operações de conjunto (`union`, `unionAll`, `intersect`, `except`) em variáveis separadas com propagação automática de CTEs para a query principal.
+- **Gerador Unificado de Demonstrações Multi-Engine e Multi-Idioma** — Ponto único de entrada na barra de status e paleta de comandos. Gera workspaces completos para SQLite/CSV/Excel/REST, PostgreSQL ou SQL Server com seleção de idioma (**English**, **Português** ou **Both / Ambos**) e até 27 seções interativas de consulta em cada notebook.
 - **Cache Persistente em Disco SQLite & Joins Rápidos em Arquivos** — arquivos planos (CSV e Excel `.xlsx`) são pré-carregados em background em um banco SQLite persistente em disco (`.fsqs/cache/engine.db`). A sincronização valida a data de modificação (`mtime`) e o tamanho em bytes para evitar reprocessamento desnecessário. Índices B-tree compostos automáticos eliminam produtos cartesianos e consumo excessivo de RAM em arquivos com mais de 200.000 linhas.
 - **Inferência Precisa de Tipos Tabulares & Fórmulas** — Esquemas de Excel e CSV detectam tipos reais (inteiros, decimais, datas, booleanos) na árvore e nas entidades. Suporta tipos customizados (`columnTypes`) e fórmulas de transformação (`columnTransforms`, ex: `replace('.', '').replace(',', '.')` ou `trim`) com preservação total de números decimais de alta precisão. Instruções detalhadas e exemplos reais: [Guia do Usuário - Mapeamentos e Fórmulas](docs/USER_GUIDE_PT.md#tipos-de-coluna-personalizados--transformações-com-fórmulas-excel--csv).
-- **Visualização Prévia de SQL (`toRawSql`)** — inspecione o SQL bruto parametrizado gerado pelo pushdown a qualquer momento via `ResultKind.toRawSql query` ou `Connections.toRawSql query`.
-- **Descoberta Automática de Fontes (`data_sources/`)** — adicione arquivos `.csv`, `.xlsx`, `.db` ou `.sqlite` na pasta `data_sources/` do projeto e clique em **Auto-Import Data Sources** para detectar, registrar e tipar conexões instantaneamente.
+- **Diagnósticos de Plano de Execução & Visualização Prévia (`explain` / `toRawQuery`)** — inspecione o SQL bruto parametrizado ou o plano de execução a qualquer momento via `toRawQuery`, `toRawSql` ou a operação customizada `explain` dentro da CE.
+- **Descoberta Automática de Fontes (`data_sources/`)** — adicione arquivos `.csv`, `.xlsx`, `.json`, `.xml`, `.db` ou `.sqlite` na pasta `data_sources/` do projeto e clique em **Auto-Import Data Sources** para detectar, registrar e tipar conexões instantaneamente.
 - **Status Visual de Sincronização** — indicador animado na barra de status (`$(sync~spin) Sincronizando fontes de dados...` ➔ `$(database) Fontes prontas`) informa o progresso e prontidão das fontes em tempo real.
-- **Consultas LINQ Fortemente Tipadas** — geração automática de tipos record e contextos LINQ em background para bancos de dados (PostgreSQL, SQL Server, MySQL, SQLite) e arquivos (CSV, Excel, JSON).
-- **API `Connections` Unificada** — `Connections.sql` / `csv` / `excel` / `rest` acessam conexões diretamente com tipos gerados em background e execução `rawQuery` isolada por conexão. O valor da última expressão é renderizado automaticamente — coleções geram o grid, conectores adicionam **Export CSV**, valores escalares são exibidos como texto formatado.
+- **Consultas LINQ Fortemente Tipadas** — geração automática de tipos record e contextos LINQ em background para bancos de dados (PostgreSQL, SQL Server, MySQL, SQLite) e arquivos (CSV, Excel com múltiplas abas, JSON, XML).
+- **API `Connections` Unificada** — `Connections.sql` / `csv` / `excel` / `json` / `xml` / `rest` acessam conexões diretamente com tipos gerados em background e execução `rawQuery` isolada por conexão. O valor da última expressão é renderizado automaticamente — coleções geram o grid, conectores adicionam **Export CSV**, valores escalares são exibidos como texto formatado.
 - **Grid de Resultados Interativo** — tabela virtualizada de alta performance, alternância para visualização de metadados/esquema, exportação para CSV e paginação contínua ("Load More") para grandes volumes.
-- **Inteligência de Linguagem no Editor** — autocompletação, hover/tooltips, signature help, diagnósticos em tempo real e navegação **Go to Definition (`F12`)** entre células, tipos gerados e modelos de dados, além de autocomplete contextual de conexões filtrado por tipo.
+- **Inteligência de Linguagem no Editor** — autocompletação, hover/tooltips, signature help, diagnósticos em tempo real, realce semântico de tokens e navegação **Go to Definition (`F12`)** entre células, tipos gerados e modelos de dados, além de autocomplete contextual de conexões filtrado por tipo.
 - **Explorador de Conexões** — visualização em árvore na Activity Bar organizada por conexões → schemas → tabelas/views → colunas, com carregamento sob demanda e wizards de criação/edição.
 - **Documentação Embutida** — clique no ícone de livro `$(book)` na barra de conexões ou no título do editor para acessar o Guia do Usuário traduzido sem sair do editor.
 

@@ -76,23 +76,26 @@ O F# Query Studio se integra perfeitamente ao VS Code em três áreas principais
 
 ---
 
-## 3. Início Rápido: Criando Dados de Exemplo (SQLite, CSV e XLSX)
+## 3. Início Rápido: Gerador de Demonstrações Multi-Engine e Multi-Idioma
 
-Quer começar a explorar consultas LINQ imediatamente sem precisar configurar um banco externo?
+Quer começar a explorar consultas FSQL imediatamente sem precisar configurar um banco externo?
 
-Clique no botão **`Create Sample Data`** (`$(database)`) no cabeçalho do painel **Connections**, ou selecione `F# Query Studio: Create Sample Data (SQLite, CSV & XLSX)` no Command Palette.
+Clique no botão **`Create Sample Data & Demo Notebooks`** (`$(database)`) no cabeçalho do painel **Connections**, ou selecione `F# Query Studio: Create Sample Data & Demo Notebooks` no Command Palette.
 
-### O Que É Criado Automaticamente:
-1. **`sample_store.db` (SQLite)**: Um banco relacional completo contendo 5 tabelas populadas com dados consistentes:
-   - `Categories` (`Id`, `Name`, `Description`)
-   - `Products` (`Id`, `CategoryId`, `Name`, `UnitPrice`, `StockQuantity`)
-   - `Customers` (`Id`, `FullName`, `Email`, `Country`, `City`, `CreatedAt`)
-   - `Orders` (`Id`, `CustomerId`, `OrderDate`, `Status`, `TotalAmount`)
-   - `OrderItems` (`Id`, `OrderId`, `ProductId`, `Quantity`, `UnitPrice`)
-2. **`sales_feed.csv`**: Arquivo CSV de vendas com 10 transações reais:
-   - `TransactionId`, `Date`, `StoreCity`, `Category`, `Product`, `Quantity`, `UnitPrice`, `Total`
-3. **`sample_demo_pt.fsqnb` e `sample_demo.fsqnb`**: Notebooks interativos executáveis com formatação rica, tabelas comparativas, atalhos de teclado e exemplos completos de LINQ, Joins relacionais, agregações analíticas (`sumBy`, `groupBy`), consultas em CSV e SQL tradicional.
-4. As conexões `SampleStore` e `SalesFeed` são registradas no seu workspace e os tipos de entidades são mapeados automaticamente em segundo plano!
+### Seleção de Banco de Dados e Idioma:
+1. **Passo 1 — Seleção do Motor (QuickPick)**:
+   - **`Original (All data sources: SQLite, CSV, Excel, REST)`**: Workspace demonstrativo completo com 5 tabelas no SQLite (`sample_store.db`), vendas em CSV (`sales_feed.csv`), planilha Excel com abas (`inventory_report.xlsx`), taxas de câmbio JSON (`market_rates.json`), hierarquia XML (`company_hierarchy.xml`) e endpoint REST simulado.
+   - **`PostgreSQL`**: Conexão com sua instância PostgreSQL (ou container Docker pré-configurado) gerando o notebook avançado `sample_postgresql.fsqnb` ou `sample_postgresql_pt.fsqnb` com 13 seções de consultas e analytics.
+   - **`SQL Server`**: Conexão com SQL Server (ou container Docker) gerando `sample_sqlserver.fsqnb` ou `sample_sqlserver_pt.fsqnb` com 13 seções incluindo `CROSS APPLY`, funções analíticas e CTEs recursivas.
+2. **Passo 2 — Seleção de Idioma (Opcional)**:
+   - **`English`**: Gera exclusivamente os notebooks em inglês (`sample_demo.fsqnb`, `sample_postgresql.fsqnb`, `sample_sqlserver.fsqnb`).
+   - **`Português (Brasil)`**: Gera exclusivamente os notebooks em português (`sample_demo_pt.fsqnb`, `sample_postgresql_pt.fsqnb`, `sample_sqlserver_pt.fsqnb`).
+   - **`Both / Ambos`**: Gera ambos os idiomas lado a lado.
+3. **O Que É Criado Automaticamente**:
+   - Bancos relacionais populados com tabelas e relacionamentos íntegros.
+   - Arquivos planos em cache no SQLite persistente (`.fsqs/cache/engine.db`).
+   - Notebooks de até 27 seções cobrindo desde projeções básicas até CTEs anônimas, joins externos e diagnósticos.
+   - Conexões registradas e tipos de entidade tipados prontos para uso em células de código!
 
 ---
 
@@ -218,45 +221,45 @@ minhaQuery
 
 O F# Query Studio suporta o conjunto completo de operações analíticas relacionais compiladas diretamente para SQL nativo ou processadas em memória com alta performance:
 
-#### 1. Joins (INNER, LEFT OUTER JOIN e Encadeamento)
-Para realizar `LEFT JOIN` com múltiplas tabelas, utilize a sintaxe canônica do F# `leftOuterJoin ... in ... on ... into g` combinado com `for ... in g.DefaultIfEmpty()`:
+#### 1. Joins (INNER, LEFT OUTER, RIGHT OUTER e FULL OUTER JOIN)
+Todos os tipos de join relacionais são suportados com sintaxe 100% idiomática em F#:
 
 ```fsharp
+// 1. Encadeamento de Inner e Left Outer Joins
 fsql {
     for order in csv.Orders do
     join orderItem in csv.OrderItems on (order.order_id = orderItem.order_id)
     join customer in csv.Customers on (order.customer_id = customer.customer_id)
-    join product in csv.Products on (orderItem.product_id = product.product_id)
-    join payment in csv.Payments on (order.order_id = payment.order_id)
-
-    // Encadeamento de múltiplos Left Outer Joins
     leftOuterJoin shipmentGroup in csv.Shipments on (order.order_id = shipmentGroup.order_id) into shipmentGroup
-    leftOuterJoin returns in csv.Returns on (orderItem.order_item_id = returns.order_item_id) into returnGroup
-
     for shipment in shipmentGroup.DefaultIfEmpty() do
-    for returns in returnGroup.DefaultIfEmpty() do
-
     select {|
-        Order = order.order_id
-        Data = order.order_date
-        Status = order.status
-        Item = product.product_name
-        Qtd = orderItem.quantity
+        Pedido = order.order_id
+        Cliente = customer.customer_name
         Total = orderItem.line_total
-        // Expressões condicionais com tratamento de nulo compiladas para COALESCE / CASE WHEN no SQL
-        Transportadora = (if isNull (box shipment) then "N/A" else shipment.carrier)
-        MotivoDevolucao = (if isNull (box returns) then "N/A" else returns.reason)
+        Transportadora = (if isNull (box shipment) then "Pendente" else shipment.carrier)
+    |}
+}
+
+// 2. FULL OUTER JOIN 100% Idiomático com Group-Join e DefaultIfEmpty()
+fsql {
+    for p in Connections.sql.SampleStore.Products do
+    fullOuterJoin c in Connections.sql.SampleStore.Categories on (p.CategoryId = c.Id) into catGroup
+    for c in catGroup.DefaultIfEmpty() do
+    select {|
+        Produto = p.Name
+        Categoria = (if isNull (box c) then "Sem Categoria" else c.Name)
     |}
 }
 ```
 
-#### 2. Agrupamentos e Funções Agregadoras (`groupBy`, `count`, `sum`, `min`, `max`, `average`)
+#### 2. Agrupamentos e Funções Agregadoras (`groupBy`, `having`, `count`, `sum`, `min`, `max`, `average`)
 Agrupamentos compilam diretamente para instruções `GROUP BY` e `HAVING` indexadas no banco:
 
 ```fsharp
 fsql {
     for p in csv.Products do
     groupBy p.Category into g
+    having (fsql { for item in g do count } >= 5)
     select {|
         Categoria = g.Key
         Quantidade = g.Count()
@@ -335,20 +338,77 @@ fsql {
 }
 ```
 
-#### 7. Common Table Expressions (CTEs), Operações de Conjunto & Diagnóstico
+#### 7. Common Table Expressions (CTEs), CTEs Recursivas e Operações de Conjunto
+
+O FSQL oferece suporte de primeira classe para declaração de CTEs e operações de conjunto diretamente na computation expression `fsql`:
+
 ```fsharp
-// Pushdown de CTE
+// 1. CTE Sem Nome: Injetada de forma transparente no WITH sem necessidade de tabelas fictícias
+let produtosEmEstoque =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity >= 100)
+        select p
+    }
+
+let catalogoComCte =
+    fsql {
+        for c in Connections.sql.SampleStore.Categories do
+        withCte produtosEmEstoque
+        join p in produtosEmEstoque on (c.Id = p.CategoryId)
+        select {| Categoria = c.Name; Produto = p.Name; Estoque = p.StockQuantity |}
+    }
+
+// 2. CTE com Nome Explícito
 let clientesVip =
-    Connections.sql.SampleStore.Customers
-        .WithCte("GrandesCompradores", "SELECT CustomerId, SUM(TotalAmount) AS Total FROM Orders GROUP BY CustomerId HAVING SUM(TotalAmount) > 1000")
-        .Where("_t0.Id IN (SELECT CustomerId FROM GrandesCompradores)")
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        withCte "GrandesCompradores" (
+            fsql {
+                for o in Connections.sql.SampleStore.Orders do
+                where (o.TotalAmount >= 1000.0f)
+                select o.CustomerId
+            }
+        )
+        where (fsql { for gc in grandesCompradores do where (gc = c.Id); count } > 0)
+        select c
+    }
 
-// Operações de Conjunto: Union, Intersect, Except
-let combinados = clientesAtivos.Union(clientesArquivados)
+// 3. CTEs Recursivas Brutas (T-SQL, PostgreSQL, SQLite)
+let hierarquiaOrganizacional =
+    fsql {
+        for e in Connections.sql.SampleStore.Employees do
+        withRecursiveCteSql "Hierarquia" """
+            SELECT Id, Name, ManagerId, 1 AS Nivel
+            FROM Employees WHERE ManagerId IS NULL
+            UNION ALL
+            SELECT e.Id, e.Name, e.ManagerId, h.Nivel + 1
+            FROM Employees e
+            INNER JOIN Hierarquia h ON e.ManagerId = h.Id
+        """
+        select e
+    }
 
-// Diagnóstico de Plano de Execução ao Vivo
-let relatorioPlano = explainQuery combinados
-printfn "Plano:\n%s" relatorioPlano.PlanText
+// 4. Operações de Conjunto na CE: union, unionAll, intersect, except
+let todosItens =
+    fsql {
+        for a in catalogoOnline do
+        union catalogoLoja
+    }
+
+let itensExclusivos =
+    fsql {
+        for r in feedVarejo do
+        except feedAtacado
+    }
+
+// 5. Diagnóstico de Plano de Execução com a operação 'explain'
+fsql {
+    for p in Connections.sql.SampleStore.Products do
+    where (p.UnitPrice > 100.0M)
+    explain
+    select p
+}
 ```
 
 #### 8. Cross-tabulation e Pivot (Dinâmico e Em Memória)

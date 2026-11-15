@@ -138,10 +138,50 @@ fsql {
 }
 ```
 
-### Inspecionando o SQL Formatado com `toRawQuery`
-Quer verificar a query SQL exata que o compilador gerou com identação e documentação de parâmetros antes de enviá-la ao banco?
+### Joins Externos 100% Idiomáticos com `fullOuterJoin`
+Escreva joins externos completos sem strings cruas, usando a sintaxe LINQ com `GroupJoin` e `DefaultIfEmpty()`:
 
 ```fsharp
+fsql {
+    for t in Connections.sql.Chinook.Track do
+    fullOuterJoin g in Connections.sql.Chinook.Genre on (t.GenreId = g.GenreId) into generos
+    for g in generos.DefaultIfEmpty() do
+    select {| Faixa = t.Name; Genero = (if isNull (box g) then "Sem Genero" else g.Name) |}
+}
+```
+
+### Common Table Expressions (`withCte`) & Operações de Conjunto
+O FSQL permite declarar CTEs e operações de conjunto diretamente na CE, sem tabelas fictícias:
+
+```fsharp
+// CTE Sem Nome: Injetada de forma transparente no plano SQL
+let faixasLongas =
+    fsql {
+        for t in Connections.sql.Chinook.Track do
+        where (t.Milliseconds > 400000)
+        select t
+    }
+
+fsql {
+    for a in Connections.sql.Chinook.Album do
+    withCte faixasLongas
+    join t in faixasLongas on (a.AlbumId = t.AlbumId)
+    select {| Album = a.Title; Faixa = t.Name |}
+}
+
+// Operações de Conjunto na CE (union, unionAll, intersect, except)
+let todasFaixas =
+    fsql {
+        for t in faixasDigitais do
+        union faixasFisicas
+    }
+```
+
+### Diagnóstico de Planos com `explain` e SQL com `toRawQuery`
+Quer verificar a query SQL exata gerada pelo compilador com identação e documentação de parâmetros ou inspecionar o plano de execução?
+
+```fsharp
+// 1. SQL formatado com cabeçalho de parâmetros
 let q =
     fsql {
         for t in Connections.sql.Chinook.Track do
@@ -150,6 +190,14 @@ let q =
     }
 
 printfn "%s" (toRawQuery q)
+
+// 2. Diagnóstico de plano de execução diretamente na CE
+fsql {
+    for t in Connections.sql.Chinook.Track do
+    where (t.Milliseconds > 300000)
+    explain
+    select t
+}
 ```
 
 Para agentes de inteligência artificial e assistentes de código, consulte o guia detalhado em [`docs/FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md).

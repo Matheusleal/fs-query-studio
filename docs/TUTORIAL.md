@@ -168,10 +168,50 @@ fsql {
 }
 ```
 
-### Inspect the Generated SQL with `toRawQuery`
-Curious about what query is being compiled? Preview the exact, indented, multi-dialect SQL with bound parameters at any time:
+### Idiomatic Full Outer Joins
+Write 100% idiomatic outer joins using LINQ `GroupJoin` and `DefaultIfEmpty()`:
 
 ```fsharp
+fsql {
+    for t in Connections.sql.Chinook.Track do
+    fullOuterJoin g in Connections.sql.Chinook.Genre on (t.GenreId = g.GenreId) into genres
+    for g in genres.DefaultIfEmpty() do
+    select {| Track = t.Name; Genre = (if isNull (box g) then "No Genre" else g.Name) |}
+}
+```
+
+### Common Table Expressions (`withCte`) & Set Operations
+FSQL allows you to write CTEs and set operations directly in the CE with zero dummy tables:
+
+```fsharp
+// Unnamed CTE: transparently registered in the SQL plan
+let longTracks =
+    fsql {
+        for t in Connections.sql.Chinook.Track do
+        where (t.Milliseconds > 400000)
+        select t
+    }
+
+fsql {
+    for a in Connections.sql.Chinook.Album do
+    withCte longTracks
+    join t in longTracks on (a.AlbumId = t.AlbumId)
+    select {| Album = a.Title; Track = t.Name |}
+}
+
+// In-CE Set Operations (union, unionAll, intersect, except)
+let allTracks =
+    fsql {
+        for t in digitalTracks do
+        union physicalTracks
+    }
+```
+
+### Inspect Query Plans with `explain` or SQL with `toRawQuery`
+Curious about what query or execution plan is being generated? Preview the exact, indented, multi-dialect SQL with bound parameters or execute an EXPLAIN plan directly:
+
+```fsharp
+// 1. Formatted SQL with parameter header
 let q =
     fsql {
         for t in Connections.sql.Chinook.Track do
@@ -180,6 +220,14 @@ let q =
     }
 
 printfn "%s" (toRawQuery q)
+
+// 2. In-CE execution plan diagnostic
+fsql {
+    for t in Connections.sql.Chinook.Track do
+    where (t.Milliseconds > 300000)
+    explain
+    select t
+}
 ```
 
 ### Traditional Raw Parameterized SQL
