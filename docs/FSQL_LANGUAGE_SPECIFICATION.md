@@ -722,6 +722,14 @@ let highValue =
     queryable
         .WithCte("HighValueCust", "SELECT CustomerId, SUM(TotalAmount) AS Total FROM Orders GROUP BY CustomerId HAVING SUM(TotalAmount) > 1000")
         .Where("_t0.CustomerId IN (SELECT CustomerId FROM HighValueCust)")
+
+// Recursive CTEs via Fluent API (generating WITH RECURSIVE on PostgreSQL and SQLite, WITH on SQL Server)
+let orgHierarchyFluent =
+    queryable
+        .WithCte(
+            name = "Hierarchy",
+            subquerySql = "SELECT EmpId, MgrId FROM Employees WHERE MgrId IS NULL UNION ALL SELECT e.EmpId, e.MgrId FROM Employees e INNER JOIN Hierarchy h ON e.MgrId = h.EmpId",
+            isRecursive = true)
 ```
 
 ### 10.5 Set Operations (`union`, `unionAll`, `intersect`, `except`)
@@ -759,8 +767,11 @@ let combinedB = fsql.union onlineCatalog inStoreCatalog
 // Form C: Module Function
 let combinedC = union onlineCatalog inStoreCatalog
 
-// Form D: Extension Method
+// Form D: Extension Method on SqlPushdownQueryable
 let combinedD = onlineCatalog.Union(inStoreCatalog)
+let allOrders = retailOrders.UnionAll(wholesaleOrders)
+let common = branchAProducts.Intersect(branchBProducts)
+let missing = targetInventory.Except(actualInventory)
 ```
 
 ### 10.6 Execution Plan Inspection (`explain` & `fsql.explain`)

@@ -412,6 +412,15 @@ fsql {
     explain
     select p
 }
+
+// 6. API Fluente & Diagnóstico de Plano de Execução ao Vivo
+let clientesVipFluente =
+    Connections.sql.SampleStore.Customers
+        .WithCte("GrandesCompradores", "SELECT CustomerId, SUM(TotalAmount) AS Total FROM Orders GROUP BY CustomerId HAVING SUM(TotalAmount) > 1000")
+        .Where("_t0.Id IN (SELECT CustomerId FROM GrandesCompradores)")
+
+let relatorioPlano = explainQuery (catalogoOnline.Union(catalogoLoja))
+printfn "Plano:\n%s" relatorioPlano.PlanText
 ```
 
 #### 8. Cross-tabulation e Pivot (Dinâmico e Em Memória)

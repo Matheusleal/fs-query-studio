@@ -297,6 +297,10 @@ let combinedC = union highPriceProducts budgetProducts
 // Form D: Extension method on IQueryable
 let combinedD = highPriceProducts.Union(budgetProducts)
 
+// All 4 forms produce the same clean SQL:
+// WITH HighEnd AS (...), Budget AS (...)
+// SELECT * FROM HighEnd WHERE ... UNION SELECT * FROM Budget WHERE ...
+
 // In-CE Set Operations: union, unionAll, intersect, except
 let allItems =
     fsql {
@@ -317,6 +321,7 @@ let exclusiveItems =
     }
 
 // 5. Composition of Subqueries in whereExists and crossApply:
+// Pre-defined variables with filters and ordering are injected transparently
 let completedOrders =
     fsql {
         for o in Connections.sql.SampleStore.Orders do
