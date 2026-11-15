@@ -25,7 +25,7 @@ sortable grid with a schema tab and CSV export.
 2. Type F# into a code cell and run it. `let` bindings persist to later cells in
    the same notebook — it is one FSI session per notebook file. **F# Query
    Studio: Restart Notebook Session** clears it.
-3. Open the **F# Query Studio** view in the Activity Bar and **Add Connection** (or drop files into `data_sources/` and run **Auto-Import Data Sources Directory**). Credentials are stored in the OS keychain via VS Code `SecretStorage` — never written to `workspace.json` or the notebook.
+3. **Generate Demo Notebooks or Add Connections** — click the **Create Sample Data & Demo Notebooks** button (`$(database)`) on the connections panel toolbar to generate ready-to-run multi-engine sample databases (SQLite, PostgreSQL, SQL Server) with language choice (**English**, **Português**, or **Both**). Or use **Add Connection** (or drop files into `data_sources/` and run **Auto-Import Data Sources Directory**). Credentials are stored in the OS keychain via VS Code `SecretStorage` — never written to `workspace.json` or the notebook.
 4. Reference a connection from a cell and run it; a tabular result renders as a
    grid with a schema tab and **Export CSV**.
 
@@ -47,8 +47,10 @@ open FSharpQueryStudio.Connectors   // the Connections.* API
 |---|---|---|
 | `Connections.sql.<Conn>` | SQLite, SQL Server, PostgreSQL, MySQL | Typed tables (`.Users`) and scoped `.rawQuery "..." [ ... ]` |
 | `Connections.csv.<Conn>` | CSV | Typed rows via `fsql { for r in Connections.csv.<Conn> do ... }` or `.Rows` |
-| `Connections.excel.<Conn>` | Excel (XLSX) | Typed sheets (`.<SheetName>`) and `.Raw()` |
-| `Connections.rest.<Conn>` | REST JSON | Typed items (`.Items`) and `.SendAsync()` |
+| `Connections.excel.<Conn>` | Excel (XLSX, XLS) | Typed sheets (`.<SheetName>`) and `.Raw()` |
+| `Connections.json.<Conn>` | JSON | Structured data with typed accessors or `.Root` |
+| `Connections.xml.<Conn>` | XML | Hierarchical data with typed node navigation or `.Root` |
+| `Connections.rest.<Conn>` | REST JSON | Typed items (`.Items`) and `.SendAsync()` with `RestRequestOptions` |
 
 ### Universal SQL Pushdown (EF-Style)
 
@@ -73,17 +75,65 @@ ORDER BY _t0.CreatedAt DESC
 LIMIT 10
 ```
 
-### Inspecting Generated SQL (`toRawQuery` / `toRawSql`)
+### Common Table Expressions (CTEs) & Set Operations
 
-To inspect the translated SQL query and parameters before execution:
+FSQL offers first-class support for Common Table Expressions and set operations directly within the computation expression:
 
 ```fsharp
+// Unnamed CTE: automatically inferred, no dummy tables required
+let topProducts =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity > 50)
+        select p
+    }
+
+let catalogWithCte =
+    fsql {
+        for c in Connections.sql.SampleStore.Categories do
+        withCte topProducts
+        join p in topProducts on (c.Id = p.CategoryId)
+        select {| Category = c.Name; Product = p.Name; Stock = p.StockQuantity |}
+    }
+
+// In-CE Set Operations: union, unionAll, intersect, except
+let combinedFeed =
+    fsql {
+        for a in onlineCatalog do
+        union inStoreCatalog
+    }
+```
+
+### Idiomatic Joins: Inner, Outer, Full Outer, Cross Apply & Lateral
+
+All standard and advanced relational joins are supported with 100% idiomatic F# syntax:
+
+```fsharp
+// Full Outer Join using LINQ group-join and DefaultIfEmpty()
+let fullCatalog =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        fullOuterJoin c in Connections.sql.SampleStore.Categories on (p.CategoryId = c.Id) into catGroup
+        for c in catGroup.DefaultIfEmpty() do
+        select {| Product = p.Name; Category = c.Name |}
+    }
+```
+
+### Execution Plan Diagnostics & SQL Preview (`explain` / `toRawQuery`)
+
+To inspect the translated SQL query and parameters before execution, or analyze the execution plan:
+
+```fsharp
+// Formatted SQL with bound parameter header
+printfn "%s" (toRawQuery myQuery)
+
+// In-CE query plan inspection
 fsql {
     for o in Connections.sql.Sales.Orders do
     where (o.TotalAmount >= 100.0f)
+    explain
     select o
 }
-|> toRawQuery
 ```
 
 ### High-Performance Staging Engine for CSV & Excel (`.fsqs/cache/engine.db`)
@@ -198,7 +248,7 @@ RPC to the worker, and never lands in the workspace file or the notebook.
 | **F# Query Studio: New F# Query Notebook Here** | Explorer folder context menu — writes and opens a `.fsqnb` in that folder. |
 | **F# Query Studio: Auto-Import Data Sources Directory** | Auto-detects and adds compatible files from `data_sources/` as connections. |
 | **F# Query Studio: Sync Data Sources Cache** | Triggers asynchronous background caching of CSV and Excel data sources into `.fsqs/cache/engine.db`. |
-| **F# Query Studio: Create Sample Data (SQLite, CSV & XLSX)** | Generates multi-source sample files in `data_sources/` and demo notebooks (`sample_demo.fsqnb` and `sample_demo_pt.fsqnb`). |
+| **F# Query Studio: Create Sample Demo & Data Sources** | Generates multi-source sample files in `data_sources/` and multi-engine demo notebooks (`sample_demo.fsqnb`, `sample_demo_pt.fsqnb`, PostgreSQL, and SQL Server). |
 | **F# Query Studio: Restart Notebook Session** | Discards the active notebook's FSI session. |
 | **F# Query Studio: Check Worker** | Reports worker health and protocol version; explains what to fix if `dotnet` is missing. |
 | **F# Query Studio: Connections: Add / Edit / Remove / Refresh** | Manage the connections tree. |

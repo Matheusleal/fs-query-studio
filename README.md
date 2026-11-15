@@ -36,7 +36,7 @@ No Marketplace listing yet. Build the VSIX and install it:
 cd editors/vscode
 npm install
 npm run package          # produces editors/vscode/fs-query-studio.vsix
-code --install-extension fs-query-studio.vsix
+code --install-extension fs-query-studio.vsix --force
 ```
 
 CI also uploads a `fs-query-studio-vsix` artifact on every push to `main` /
@@ -45,13 +45,10 @@ of building locally.
 
 ## Quick start
 
-1. **New notebook** — run **F# Query Studio: New F# Query Notebook** from the
-   Command Palette, or create any file ending in `.fsqnb` and open it.
-2. **Run F#** — type into a code cell and run it. `let` bindings persist to
-   later cells (one FSI session per notebook). **F# Query Studio: Restart
-   Notebook Session** clears it.
-3. **Add or auto-import connections** — drop `.csv`, `.xlsx`, or `.db` files into the `data_sources/` folder and run **F# Query Studio: Auto-Import Data Sources Directory**, or use **Add Connection** in the Activity Bar sidebar. Tabular files are immediately and asynchronously pre-staged into a persistent SQLite disk cache (`.fsqs/cache/engine.db`) with automatic B-tree indexing.
-4. **Query with `fsql` (F# Query Language) & SQL Pushdown** — queries are translated into database-side SQL (`SELECT`, `WHERE`, `JOIN`, `ORDER BY`, `LIMIT`, `SKIP`, `COUNT`, `SUM`, `EXISTS`, `HAVING`, `CROSS APPLY`, `LATERAL`) rather than pulling raw tables into memory:
+1. **New notebook or demo generator** — run **F# Query Studio: New F# Query Notebook** from the Command Palette, or click the **Create Sample Data & Demo Notebooks** button (`$(database)`) to generate ready-to-run demo notebooks (`sample_demo.fsqnb`, PostgreSQL, or SQL Server) with language choice (**English**, **Português**, or **Both**).
+2. **Run F#** — type into a code cell and run it. `let` bindings persist to later cells (one FSI session per notebook). **F# Query Studio: Restart Notebook Session** clears it.
+3. **Add or auto-import connections** — drop `.csv`, `.xlsx`, `.json`, `.xml`, or `.db` files into the `data_sources/` folder and run **F# Query Studio: Auto-Import Data Sources Directory**, or use **Add Connection** in the Activity Bar sidebar. Tabular files are immediately and asynchronously pre-staged into a persistent SQLite disk cache (`.fsqs/cache/engine.db`) with automatic B-tree indexing.
+4. **Query with `fsql` (F# Query Language) & SQL Pushdown** — queries are translated into database-side SQL (`SELECT`, `WHERE`, `JOIN`, `LEFT/RIGHT/FULL OUTER JOIN`, `ORDER BY`, `LIMIT`, `SKIP`, `COUNT`, `SUM`, `EXISTS`, `HAVING`, `CROSS APPLY`, `LATERAL`, `CTEs`, `UNION`, `INTERSECT`, `EXCEPT`, `WINDOW`) rather than pulling raw tables into memory:
    ```fsharp
    // Pure functional DQL with fsql
    fsql {
@@ -66,39 +63,35 @@ of building locally.
        |}
    }
    ```
-5. **Inspect Formatted SQL (`toRawQuery`)** — preview the indented SQL query and bound parameters without round-trips:
+5. **Inspect Formatted SQL (`toRawQuery`) or Explain (`explain`)** — preview the indented SQL query and bound parameters without round-trips:
    ```fsharp
    printfn "%s" (toRawQuery myQuery)
    ```
    Or run raw SQL directly: `Connections.sql.MyConn.rawQuery "select * from Orders" []`.
-   Results render in a virtualized interactive grid with schema view and **Export CSV**.
+   Results render in a virtualized interactive grid with schema view, filtering, and **Export CSV**.
 
-Full walkthrough: **[`docs/TUTORIAL.md`](docs/TUTORIAL.md)**.
-Comprehensive AI Agent Guide: **[`docs/FSQL_AI_AGENT_GUIDE.md`](docs/FSQL_AI_AGENT_GUIDE.md)**.
+Full walkthrough: **[`docs/TUTORIAL.md`](docs/TUTORIAL.md)**.  
+Comprehensive AI Agent Guide: **[`docs/FSQL_AI_AGENT_GUIDE.md`](docs/FSQL_AI_AGENT_GUIDE.md)**.  
+Formal Language Specification: **[`docs/FSQL_LANGUAGE_SPECIFICATION.md`](docs/FSQL_LANGUAGE_SPECIFICATION.md)**.  
 Comprehensive User Guide: **[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md)** (or click `$(book)` in VS Code).
 
 ## What you get
 
-- **Notebook execution** — every `.fsqnb` code cell runs against a persistent,
-  per-notebook FSI session; stdout / stderr stream live; cancel a running cell
-  from the toolbar.
-- **Full Database Query Pushdown** — Entity Framework-style query translation for relational databases and flat files. Translates projections (`select`), filters (`where`), joins (`join`), multi-property joins (`on ((a.p1, a.p2) = (b.p1, b.p2))`), sorting, slicing (`take`/`skip`), and aggregations (`count`/`sum`) into optimized native SQL queries.
+- **Notebook execution** — every `.fsqnb` code cell runs against a persistent, per-notebook FSI session; stdout / stderr stream live; cancel a running cell from the toolbar.
+- **Full Database Query Pushdown** — Entity Framework-style query translation for relational databases and flat files. Translates projections (`select`), filters (`where`), joins (`join`, `leftOuterJoin`, `rightOuterJoin`, and 100% idiomatic `fullOuterJoin` with `into ... DefaultIfEmpty()`), composite joins (`on ((a.p1, a.p2) = (b.p1, b.p2))`), sorting, slicing (`take`/`skip`), aggregations (`count`/`sum`), and window functions (`rowNumber`, `rank`, `sumOver`, etc.) into native SQL queries.
+- **Common Table Expressions (CTEs) & Set Operations** — Declare CTEs seamlessly using unnamed `withCte subquery` (no dummy tables required) or named `withCte "Name" subquery`, plus `withRecursiveCteSql` for recursive queries. Compose queries and set operations (`union`, `unionAll`, `intersect`, `except`) across separate variables with automatic CTE bubbling into the main query plan.
+- **Unified Multi-Engine Demo Generator** — Single one-click entry point in the status bar and command palette. Generates complete sample workspaces for SQLite/CSV/Excel/REST, PostgreSQL, or SQL Server with language selection (**English**, **Português**, or **Both**) and up to 27 fully-working query demo sections.
 - **Asynchronous SQLite Disk Cache & Fast File Joins** — Flat files (CSV and Excel `.xlsx`) are pre-staged in the background into a persistent on-disk SQLite database (`.fsqs/cache/engine.db`). Staging validates file modification times (`mtime`) and byte sizes to skip re-importing unchanged files. Automatic composite B-tree indexes prevent Cartesian products and high RAM consumption when joining large files (200,000+ rows).
 - **Accurate Tabular Type Inference & Formulas** — Excel and CSV schemas detect genuine column types (ints, decimals, dates, bools) in both tree view and entities. Configure custom column type overrides (`columnTypes`) and formula replacements (`columnTransforms`, e.g. `replace('.', '').replace(',', '.')` or `trim`) while preserving high-precision decimals. Detailed instructions and real-world examples: [Custom Column Types & Formulas](docs/USER_GUIDE.md#custom-column-types--formula-transformations-excel--csv).
-- **SQL Preview (`toRawSql`)** — inspect the raw parameterized SQL query generated by LINQ pushdown at any time using `ResultKind.toRawSql query` or `Connections.toRawSql query`.
-- **Automatic Folder Discovery (`data_sources/`)** — drop `.csv`, `.xlsx`, `.db`, or `.sqlite` files into your workspace's `data_sources/` folder and click **Auto-Import Data Sources** to detect, configure, and generate types automatically.
-- **Strongly-typed LINQ queries** — automatic background entity generation for
-  databases (PostgreSQL, SQL Server, MySQL, SQLite) and flat files (CSV, Excel, JSON).
+- **Execution Plan Diagnostics & SQL Preview (`explain` / `toRawQuery`)** — inspect the raw parameterized SQL query or execution plan at any time using `toRawQuery`, `toRawSql`, or the in-CE `explain` custom operation.
+- **Automatic Folder Discovery (`data_sources/`)** — drop `.csv`, `.xlsx`, `.json`, `.xml`, `.db`, or `.sqlite` files into your workspace's `data_sources/` folder and click **Auto-Import Data Sources** to detect, configure, and generate types automatically.
 - **Visual Sync Status** — animated status bar feedback (`$(sync~spin) Syncing data sources...` ➔ `$(database) Data sources ready`) indicates background caching progress and readiness in real time.
-- **Results grid** — virtualized table, schema view, CSV export, paged loading
-  for large results.
-- **In-cell F# intelligence** — completion, hover, signature help, diagnostics, and
-  **Go to Definition (`F12`)** across cells and generated entity types, plus
-  type-filtered connection name autocomplete.
-- **Connection management** — an Activity Bar tree of connections → schemas → tables →
-  columns, lazily loaded; add / edit / remove via guided pickers.
-- **Built-in Documentation** — click the `$(book)` icon in the Connections view toolbar
-  or the Notebook editor title bar to open the User Guide directly in VS Code.
+- **Strongly-typed LINQ queries** — automatic background entity generation for databases (PostgreSQL, SQL Server, MySQL, SQLite) and flat files (CSV, Excel multi-sheet, JSON, XML).
+- **Unified `Connections` API** — `Connections.sql` / `csv` / `excel` / `json` / `xml` / `rest` access data connections directly with background-generated types and connection-scoped `rawQuery` execution. The value of the last expression renders automatically — collections produce the grid, connectors include **Export CSV**, and scalar values display as formatted text.
+- **Results grid** — virtualized table, schema view, CSV export, paged loading for large results.
+- **In-cell F# intelligence** — completion, hover, signature help, diagnostics, semantic tokens syntax highlighting, and **Go to Definition (`F12`)** across cells and generated entity types.
+- **Connection management** — an Activity Bar tree of connections → schemas → tables → columns, lazily loaded; add / edit / remove via guided pickers.
+- **Built-in Documentation** — click the `$(book)` icon in the Connections view toolbar or the Notebook editor title bar to open the User Guide directly in VS Code.
 
 Detail and limits: **[`editors/vscode/README.md`](editors/vscode/README.md)**.
 

@@ -22,12 +22,12 @@ grade ordenável e filtrável com aba de esquema e exportação para CSV.
 1. Execute **F# Query Studio: New F# Query Notebook** na Command Palette (também em
    *File > New File…*, e no menu de contexto do Explorer como **New F# Query Notebook Here**).
    Ou simplesmente crie e abra qualquer arquivo com extensão `.fsqnb`.
-2. Digite código F# em uma célula e execute-a. As variáveis e funções definidas com `let` persistem
+2. **Execute F#** — digite código F# em uma célula e execute-a. As variáveis e funções definidas com `let` persistem
    para células subsequentes no mesmo notebook — é uma sessão FSI por arquivo.
    O comando **F# Query Studio: Restart Notebook Session** reinicia a sessão.
-3. Abra a visão **F# Query Studio** na Activity Bar e clique em **Add Connection** (ou adicione arquivos na pasta `data_sources/` e execute **Auto-Import Data Sources Directory**).
+3. **Gerador de Demonstrações ou Adição de Conexões** — clique no botão **Create Sample Data & Demo Notebooks** (`$(database)`) na barra de ferramentas de conexões para gerar automaticamente demonstrações multi-engine (SQLite, PostgreSQL, SQL Server) com suporte a múltiplos idiomas (**English**, **Português** ou **Both / Ambos**), ou use **Add Connection** (ou adicione arquivos na pasta `data_sources/` e execute **Auto-Import Data Sources Directory**).
    Credenciais são armazenadas no chaveiro seguro do sistema operacional via `SecretStorage` do VS Code — nunca gravadas no `workspace.json` ou no notebook.
-4. Referencie uma conexão em uma célula e execute; o resultado tabular é renderizado como
+4. **Consulte e visualize** — referencie uma conexão em uma célula e execute; o resultado tabular é renderizado como
    uma grade interativa com aba de tipos/esquema e botão **Export CSV**.
 
 Um tutorial prático completo está disponível em
@@ -47,8 +47,10 @@ open FSharpQueryStudio.Connectors   // API Connections.*
 |---|---|---|
 | `Connections.sql.<Conn>` | SQLite, SQL Server, PostgreSQL, MySQL | Tabelas tipadas (`.Users`) e queries parametrizadas `.rawQuery "..." [ ... ]` |
 | `Connections.csv.<Conn>` | CSV | Linhas tipadas via `fsql { for r in Connections.csv.<Conn> do ... }` ou `.Rows` |
-| `Connections.excel.<Conn>` | Excel (XLSX) | Planilhas tipadas (`.<NomePlanilha>`) e `.Raw()` |
-| `Connections.rest.<Conn>` | REST JSON | Itens tipados (`.Items`) e `.SendAsync()` |
+| `Connections.excel.<Conn>` | Excel (XLSX, XLS) | Planilhas tipadas (`.<NomePlanilha>`) e `.Raw()` |
+| `Connections.json.<Conn>` | JSON | Acesso tipado a nós e arrays JSON estruturados |
+| `Connections.xml.<Conn>` | XML | Navegação hierárquica tipada em árvores XML |
+| `Connections.rest.<Conn>` | REST JSON | Itens tipados (`.Items`) e `.SendAsync()` com `RestRequestOptions` |
 
 ### Pushdown Universal de Consultas para SQL (Estilo EF)
 
@@ -73,17 +75,65 @@ ORDER BY _t0.CreatedAt DESC
 LIMIT 10
 ```
 
-### Inspeção de SQL Gerado (`toRawQuery` / `toRawSql`)
+### Common Table Expressions (CTEs) & Operações de Conjunto
 
-Para inspecionar o SQL e os parâmetros traduzidos antes do envio ao banco de dados:
+O FSQL oferece suporte nativo e direto a CTEs e operações de conjunto dentro da própria computation expression:
 
 ```fsharp
+// CTE Sem Nome: Injetada automaticamente sem tabelas fictícias
+let produtosEmEstoque =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity >= 100)
+        select p
+    }
+
+let catalogo =
+    fsql {
+        for c in Connections.sql.SampleStore.Categories do
+        withCte produtosEmEstoque
+        join p in produtosEmEstoque on (c.Id = p.CategoryId)
+        select {| Categoria = c.Name; Produto = p.Name; Estoque = p.StockQuantity |}
+    }
+
+// Operações de Conjunto: union, unionAll, intersect, except
+let catalogoUnificado =
+    fsql {
+        for a in catalogoOnline do
+        union catalogoFisico
+    }
+```
+
+### Joins 100% Idiomáticos: Inner, Outer, Full Outer, Cross Apply & Lateral
+
+Todos os tipos de joins relacionais possuem suporte completo:
+
+```fsharp
+// Full Outer Join utilizando sintaxe LINQ GroupJoin com DefaultIfEmpty()
+let catalogoCompleto =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        fullOuterJoin c in Connections.sql.SampleStore.Categories on (p.CategoryId = c.Id) into catGroup
+        for c in catGroup.DefaultIfEmpty() do
+        select {| Produto = p.Name; Categoria = c.Name |}
+    }
+```
+
+### Inspeção de Plano de Execução & SQL Gerado (`explain` / `toRawQuery`)
+
+Para inspecionar o plano de execução ou a query formatada com cabeçalho de parâmetros:
+
+```fsharp
+// Exibe a query SQL formatada
+printfn "%s" (toRawQuery minhaQuery)
+
+// Diagnóstico de plano de execução na CE
 fsql {
     for o in Connections.sql.Sales.Orders do
     where (o.TotalAmount >= 100.0f)
+    explain
     select o
 }
-|> toRawQuery
 ```
 
 ### Engine de Staging de Alta Performance para CSV & Excel (`.fsqs/cache/engine.db`)
@@ -186,7 +236,7 @@ As informações públicas são gravadas em `workspace.json`. Quando uma senha �
 | **F# Query Studio: New F# Query Notebook Here** | Menu de contexto de pastas no Explorer — cria um `.fsqnb` na pasta selecionada. |
 | **F# Query Studio: Auto-Import Data Sources Directory** | Detecta e adiciona automaticamente arquivos compatíveis da pasta `data_sources/`. |
 | **F# Query Studio: Sync Data Sources Cache** | Dispara a sincronização e cache assíncrono em disco (`.fsqs/cache/engine.db`) para arquivos CSV e Excel. |
-| **F# Query Studio: Create Sample Data (SQLite, CSV & XLSX)** | Gera arquivos de dados de exemplo em `data_sources/` e os notebooks de demonstração (`sample_demo.fsqnb` e `sample_demo_pt.fsqnb`). |
+| **F# Query Studio: Create Sample Demo & Data Sources** | Gera arquivos de dados de exemplo em `data_sources/` e os notebooks de demonstração multi-engine com suporte a múltiplos idiomas (`sample_demo.fsqnb`, `sample_demo_pt.fsqnb`, PostgreSQL e SQL Server). |
 | **F# Query Studio: Restart Notebook Session** | Reinicia a sessão FSI do notebook atual, limpando o estado em memória. |
 | **F# Query Studio: Check Worker** | Diagnostica a integridade do processo worker F# e a compatibilidade do ambiente .NET. |
 | **F# Query Studio: Connections: Add / Edit / Remove / Refresh** | Gerencia as conexões de dados cadastradas na árvore. |
@@ -195,3 +245,37 @@ As informações públicas são gravadas em `workspace.json`. Quando uma senha �
 | **F# Query Studio: Show Output Logs** | Abre o canal de saída do VS Code exibindo os logs detalhados do worker. |
 
 Para tutoriais passo a passo e exemplos de consultas, consulte o [`USER_GUIDE_PT.md`](USER_GUIDE_PT.md) ([English User Guide](USER_GUIDE.md)).
+
+## Limitações
+
+- Apenas uma avaliação é executada por vez entre todos os notebooks `.fsqnb` abertos na mesma janela.
+- Requer `dotnet` no `PATH`; ainda não há uma versão autossuficiente (self-contained).
+
+## Contribuindo / desenvolvimento local
+
+```bash
+cd editors/vscode
+npm install
+npm run build         # publica o worker F# em .NET + type-check + bundle com esbuild
+npm test              # testes unitários (vitest)
+npm run test:vscode   # testes no host da extensão em um VS Code baixado
+```
+
+Pressione **F5** no VS Code para abrir o Extension Development Host. Defina `FSQS_WORKER_DLL` para apontar para um worker compilado em outro local em vez de `dist/worker`.
+
+### Compilação e empacotamento
+
+| Comando | Finalidade |
+|---|---|
+| `npm run build` | Compilação executável completa: publica o worker F#, valida tipos TypeScript e empacota. |
+| `npm run package` | Compila e gera o arquivo `fs-query-studio.vsix` com as mesmas validações de integridade do CI. |
+| `npm run doctor` | Verificação prévia somente-leitura para release (toolchain, ID da extensão, ícone do Marketplace, `VSCE_PAT`). |
+| `npm run publish` | Pré-checagem → empacotamento → `vsce publish`. Requer `VSCE_PAT`. |
+
+Mecânica detalhada e flags: [`editors/vscode/scripts/README.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/editors/vscode/scripts/README.md).  
+Runbook completo de release: [`docs/vscode-extension-release.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/vscode-extension-release.md).  
+Especificação de design: [`docs/archive/specs/2026-09-03-vscode-extension-migration-design.md`](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/archive/specs/2026-09-03-vscode-extension-migration-design.md).
+
+## Licença
+
+[MIT](LICENSE) © 2026 Matheus Leal.

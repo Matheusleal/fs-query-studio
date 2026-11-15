@@ -22,23 +22,25 @@ Escreva consultas com segurança de tipos em tempo de compilação, alta express
 
 1. [Requisitos e Instalação](#1-requisitos-e-instalação)
 2. [Interface e Acesso Rápido](#2-interface-e-acesso-rápido)
-3. [Início Rápido: Criando Dados de Exemplo (SQLite e CSV)](#3-início-rápido-criando-dados-de-exemplo-sqlite-e-csv)
+3. [Início Rápido: Gerador de Demonstrações Multi-Engine e Multi-Idioma](#3-início-rápido-gerador-de-demonstrações-multi-engine-e-multi-idioma)
 4. [Gerenciamento de Conexões (Sidebar Explorer)](#4-gerenciamento-de-conexões-sidebar-explorer)
-5. [Auto-complete Inteligente de Conexões](#5-auto-complete-inteligente-de-conexões)
+5. [Auto-complete Inteligente de Conexões e Badges de Tipo](#5-auto-complete-inteligente-de-conexões-e-badges-de-tipo)
 6. [Consultas LINQ e Type Provider em Background](#6-consultas-linq-e-type-provider-em-background)
-   - [Filtragem Básica e Projeção](#filtragem-básica-e-projeção)
+   - [Filtragem Básica e Projeção com `fsql`](#filtragem-básica-e-projeção-com-fsql-f-query-language)
    - [Pushdown Completo de Consultas para SQL](#pushdown-completo-de-consultas-para-sql)
    - [Joins Multi-Propriedades sem Explosão de Memória](#joins-multi-propriedades-sem-explosão-de-memória)
-   - [Inspeção do SQL Gerado (toRawSql)](#inspeção-do-sql-gerado-torawsql)
-   - [Agrupamentos e Agregações](#agrupamentos-e-agregações)
+   - [Inspeção do SQL Gerado (`toRawQuery` & `toRawSql`)](#inspeção-do-sql-gerado-torawquery--torawsql)
+   - [Recursos Avançados da Engine (Joins, CTEs, Window & Set Ops)](#recursos-avançados-da-engine-joins-agregações-subqueries-e-pivot)
    - [Cache Persistente em Disco SQLite para CSV e Excel](#cache-persistente-em-disco-sqlite-para-csv-e-excel)
-   - [Descoberta Automática via Pasta data_sources](#descoberta-automática-via-pasta-data_sources)
+   - [Descoberta Automática e Monitoramento em Tempo Real via Pasta `data_sources`](#descoberta-automática-e-monitoramento-em-tempo-real-via-pasta-data_sources)
+   - [Tipos de Coluna Personalizados & Fórmulas (Excel e CSV)](#tipos-de-coluna-personalizados--transformações-com-fórmulas-excel--csv)
 7. [Consultas SQL Tradicionais Parametrizadas (Raw SQL)](#7-consultas-sql-tradicionais-parametrizadas-raw-sql)
-8. [Grid Interativo de Resultados](#8-grid-interativo-de-resultados)
-9. [Recursos de Linguagem e Go to Definition (F12)](#9-recursos-de-linguagem-e-go-to-definition-f12)
-10. [Ciclo de Vida do Notebook e Sessão FSI](#10-ciclo-de-vida-do-notebook-e-sessão-fsi)
-11. [Diagnóstico e Solução de Problemas](#11-diagnóstico-e-solução-de-problemas)
-12. [Benchmarks de Performance e Confiabilidade de UI](#12-benchmarks-de-performance-e-confiabilidade-de-ui)
+8. [Referência da API do Módulo Connections](#8-referência-da-api-do-módulo-connections)
+9. [Grid Interativo de Resultados](#9-grid-interativo-de-resultados)
+10. [Recursos de Linguagem, Syntax Highlighting & Go to Definition (F12)](#10-recursos-de-linguagem-syntax-highlighting--go-to-definition-f12)
+11. [Ciclo de Vida do Notebook e Sessão FSI](#11-ciclo-de-vida-do-notebook-e-sessão-fsi)
+12. [Diagnóstico e Solução de Problemas](#12-diagnóstico-e-solução-de-problemas)
+13. [Benchmarks de Performance e Confiabilidade de Elementos de UI](#13-benchmarks-de-performance-e-confiabilidade-de-elementos-de-ui)
 
 ---
 
@@ -76,23 +78,26 @@ O F# Query Studio se integra perfeitamente ao VS Code em três áreas principais
 
 ---
 
-## 3. Início Rápido: Criando Dados de Exemplo (SQLite, CSV e XLSX)
+## 3. Início Rápido: Gerador de Demonstrações Multi-Engine e Multi-Idioma
 
-Quer começar a explorar consultas LINQ imediatamente sem precisar configurar um banco externo?
+Quer começar a explorar consultas FSQL imediatamente sem precisar configurar um banco externo?
 
-Clique no botão **`Create Sample Data`** (`$(database)`) no cabeçalho do painel **Connections**, ou selecione `F# Query Studio: Create Sample Data (SQLite, CSV & XLSX)` no Command Palette.
+Clique no botão **`Create Sample Data & Demo Notebooks`** (`$(database)`) no cabeçalho do painel **Connections**, ou selecione `F# Query Studio: Create Sample Data & Demo Notebooks` no Command Palette.
 
-### O Que É Criado Automaticamente:
-1. **`sample_store.db` (SQLite)**: Um banco relacional completo contendo 5 tabelas populadas com dados consistentes:
-   - `Categories` (`Id`, `Name`, `Description`)
-   - `Products` (`Id`, `CategoryId`, `Name`, `UnitPrice`, `StockQuantity`)
-   - `Customers` (`Id`, `FullName`, `Email`, `Country`, `City`, `CreatedAt`)
-   - `Orders` (`Id`, `CustomerId`, `OrderDate`, `Status`, `TotalAmount`)
-   - `OrderItems` (`Id`, `OrderId`, `ProductId`, `Quantity`, `UnitPrice`)
-2. **`sales_feed.csv`**: Arquivo CSV de vendas com 10 transações reais:
-   - `TransactionId`, `Date`, `StoreCity`, `Category`, `Product`, `Quantity`, `UnitPrice`, `Total`
-3. **`sample_demo_pt.fsqnb` e `sample_demo.fsqnb`**: Notebooks interativos executáveis com formatação rica, tabelas comparativas, atalhos de teclado e exemplos completos de LINQ, Joins relacionais, agregações analíticas (`sumBy`, `groupBy`), consultas em CSV e SQL tradicional.
-4. As conexões `SampleStore` e `SalesFeed` são registradas no seu workspace e os tipos de entidades são mapeados automaticamente em segundo plano!
+### Seleção de Banco de Dados e Idioma:
+1. **Passo 1 — Seleção do Motor (QuickPick)**:
+   - **`Original (All data sources: SQLite, CSV, Excel, REST)`**: Workspace demonstrativo completo com 5 tabelas no SQLite (`sample_store.db`), vendas em CSV (`sales_feed.csv`), planilha Excel com abas (`inventory_report.xlsx`), taxas de câmbio JSON (`market_rates.json`), hierarquia XML (`company_hierarchy.xml`) e endpoint REST simulado.
+   - **`PostgreSQL`**: Conexão com sua instância PostgreSQL (ou container Docker pré-configurado) gerando o notebook avançado `sample_postgresql.fsqnb` ou `sample_postgresql_pt.fsqnb` com 13 seções de consultas e analytics.
+   - **`SQL Server`**: Conexão com SQL Server (ou container Docker) gerando `sample_sqlserver.fsqnb` ou `sample_sqlserver_pt.fsqnb` com 13 seções incluindo `CROSS APPLY`, funções analíticas e CTEs recursivas.
+2. **Passo 2 — Seleção de Idioma (Opcional)**:
+   - **`English`**: Gera exclusivamente os notebooks em inglês (`sample_demo.fsqnb`, `sample_postgresql.fsqnb`, `sample_sqlserver.fsqnb`).
+   - **`Português (Brasil)`**: Gera exclusivamente os notebooks em português (`sample_demo_pt.fsqnb`, `sample_postgresql_pt.fsqnb`, `sample_sqlserver_pt.fsqnb`).
+   - **`Both / Ambos`**: Gera ambos os idiomas lado a lado.
+3. **O Que É Criado Automaticamente**:
+   - Tabelas de bancos relacionais (`Categories`, `Products`, `Customers`, `Orders`, `OrderItems`).
+   - Arquivos planos em cache no SQLite persistente (`.fsqs/cache/engine.db`).
+   - Notebooks de até 27 seções cobrindo desde projeções básicas até CTEs anônimas, joins externos e diagnósticos.
+   - Todas as conexões são registradas automaticamente em `.fsqs/workspace.json` e os tipos de entidade tipados ficam prontos para uso em células de código!
 
 ---
 
@@ -109,6 +114,7 @@ Clique no botão **`Create Sample Data`** (`$(database)`) no cabeçalho do paine
 | **CSV** | Arquivos delimitados (vírgula, ponto-e-vírgula, tabulação) | Caminho: `sales_feed.csv` |
 | **Excel (XLSX)** | Planilhas Excel com múltiplas abas | Caminho: `financas.xlsx` |
 | **JSON** | Arquivos JSON locais (objeto ou lista de objetos) | Caminho: `catalogo.json` |
+| **XML** | Hierarquia de documentos XML locais (nós, elementos, atributos) | Caminho: `company_hierarchy.xml` |
 | **REST API** | Endpoints HTTP/HTTPS retornando JSON | URL base: `https://api.github.com` |
 
 ### Segurança e Armazenamento Seguro de Credenciais
@@ -193,7 +199,7 @@ WHERE (_t0.TotalAmount >= @p0)
 ### Inspeção do SQL Gerado (`toRawQuery` e `toRawSql`)
 
 Deseja verificar o SQL parametrizado exato com indentação e documentação de parâmetros antes ou durante a execução contra a base de dados?
-Use `toRawQuery`:
+Use `toRawQuery` para SQL multi-dialeto indentado e formatado com declaração de parâmetros, ou `toRawSql`:
 
 ```fsharp
 let minhaQuery =
@@ -212,51 +218,51 @@ printfn "SQL Gerado:\n%s" (toRawQuery minhaQuery)
 minhaQuery
 ```
 
-> **Guia para Agentes de IA**: Consulte [`docs/FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md) para especificações formais de prompts e geração de queries.
+> **Guia para Agentes de IA**: Consulte [`docs/FSQL_AI_AGENT_GUIDE_PT.md`](FSQL_AI_AGENT_GUIDE_PT.md) para especificações formais de prompts e geração de queries (English: [`FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md)).
 
 ### Recursos Avançados de Consulta (Joins, Agregações, Subqueries e Pivot)
 
 O F# Query Studio suporta o conjunto completo de operações analíticas relacionais compiladas diretamente para SQL nativo ou processadas em memória com alta performance:
 
-#### 1. Joins (INNER, LEFT OUTER JOIN e Encadeamento)
-Para realizar `LEFT JOIN` com múltiplas tabelas, utilize a sintaxe canônica do F# `leftOuterJoin ... in ... on ... into g` combinado com `for ... in g.DefaultIfEmpty()`:
+#### 1. Joins (INNER, LEFT OUTER, RIGHT OUTER e FULL OUTER JOIN)
+Todos os tipos de join relacionais são suportados com sintaxe 100% idiomática em F#:
 
 ```fsharp
+// 1. Encadeamento de Inner e Left Outer Joins
 fsql {
     for order in csv.Orders do
     join orderItem in csv.OrderItems on (order.order_id = orderItem.order_id)
     join customer in csv.Customers on (order.customer_id = customer.customer_id)
-    join product in csv.Products on (orderItem.product_id = product.product_id)
-    join payment in csv.Payments on (order.order_id = payment.order_id)
-
-    // Encadeamento de múltiplos Left Outer Joins
     leftOuterJoin shipmentGroup in csv.Shipments on (order.order_id = shipmentGroup.order_id) into shipmentGroup
-    leftOuterJoin returns in csv.Returns on (orderItem.order_item_id = returns.order_item_id) into returnGroup
-
     for shipment in shipmentGroup.DefaultIfEmpty() do
-    for returns in returnGroup.DefaultIfEmpty() do
-
     select {|
-        Order = order.order_id
-        Data = order.order_date
-        Status = order.status
-        Item = product.product_name
-        Qtd = orderItem.quantity
+        Pedido = order.order_id
+        Cliente = customer.customer_name
         Total = orderItem.line_total
-        // Expressões condicionais com tratamento de nulo compiladas para COALESCE / CASE WHEN no SQL
-        Transportadora = (if isNull (box shipment) then "N/A" else shipment.carrier)
-        MotivoDevolucao = (if isNull (box returns) then "N/A" else returns.reason)
+        Transportadora = (if isNull (box shipment) then "Pendente" else shipment.carrier)
+    |}
+}
+
+// 2. FULL OUTER JOIN 100% Idiomático com Group-Join e DefaultIfEmpty()
+fsql {
+    for p in Connections.sql.SampleStore.Products do
+    fullOuterJoin c in Connections.sql.SampleStore.Categories on (p.CategoryId = c.Id) into catGroup
+    for c in catGroup.DefaultIfEmpty() do
+    select {|
+        Produto = p.Name
+        Categoria = (if isNull (box c) then "Sem Categoria" else c.Name)
     |}
 }
 ```
 
-#### 2. Agrupamentos e Funções Agregadoras (`groupBy`, `count`, `sum`, `min`, `max`, `average`)
+#### 2. Agrupamentos e Funções Agregadoras (`groupBy`, `having`, `count`, `sum`, `min`, `max`, `average`)
 Agrupamentos compilam diretamente para instruções `GROUP BY` e `HAVING` indexadas no banco:
 
 ```fsharp
 fsql {
     for p in csv.Products do
     groupBy p.Category into g
+    having (fsql { for item in g do count } >= 5)
     select {|
         Categoria = g.Key
         Quantidade = g.Count()
@@ -335,19 +341,85 @@ fsql {
 }
 ```
 
-#### 7. Common Table Expressions (CTEs), Operações de Conjunto & Diagnóstico
+#### 7. Common Table Expressions (CTEs), CTEs Recursivas e Operações de Conjunto
+
+O FSQL oferece suporte de primeira classe para declaração de CTEs e operações de conjunto diretamente na computation expression `fsql`:
+
 ```fsharp
-// Pushdown de CTE
+// 1. CTE Sem Nome: Injetada de forma transparente no WITH sem necessidade de tabelas fictícias
+let produtosEmEstoque =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity >= 100)
+        select p
+    }
+
+let catalogoComCte =
+    fsql {
+        for c in Connections.sql.SampleStore.Categories do
+        withCte produtosEmEstoque
+        join p in produtosEmEstoque on (c.Id = p.CategoryId)
+        select {| Categoria = c.Name; Produto = p.Name; Estoque = p.StockQuantity |}
+    }
+
+// 2. CTE com Nome Explícito
 let clientesVip =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        withCte "GrandesCompradores" (
+            fsql {
+                for o in Connections.sql.SampleStore.Orders do
+                where (o.TotalAmount >= 1000.0f)
+                select o.CustomerId
+            }
+        )
+        where (fsql { for gc in grandesCompradores do where (gc = c.Id); count } > 0)
+        select c
+    }
+
+// 3. CTEs Recursivas Brutas (T-SQL, PostgreSQL, SQLite)
+let hierarquiaOrganizacional =
+    fsql {
+        for e in Connections.sql.SampleStore.Employees do
+        withRecursiveCteSql "Hierarquia" """
+            SELECT Id, Name, ManagerId, 1 AS Nivel
+            FROM Employees WHERE ManagerId IS NULL
+            UNION ALL
+            SELECT e.Id, e.Name, e.ManagerId, h.Nivel + 1
+            FROM Employees e
+            INNER JOIN Hierarquia h ON e.ManagerId = h.Id
+        """
+        select e
+    }
+
+// 4. Operações de Conjunto na CE: union, unionAll, intersect, except
+let todosItens =
+    fsql {
+        for a in catalogoOnline do
+        union catalogoLoja
+    }
+
+let itensExclusivos =
+    fsql {
+        for r in feedVarejo do
+        except feedAtacado
+    }
+
+// 5. Diagnóstico de Plano de Execução com a operação 'explain'
+fsql {
+    for p in Connections.sql.SampleStore.Products do
+    where (p.UnitPrice > 100.0M)
+    explain
+    select p
+}
+
+// 6. API Fluente & Diagnóstico de Plano de Execução ao Vivo
+let clientesVipFluente =
     Connections.sql.SampleStore.Customers
         .WithCte("GrandesCompradores", "SELECT CustomerId, SUM(TotalAmount) AS Total FROM Orders GROUP BY CustomerId HAVING SUM(TotalAmount) > 1000")
         .Where("_t0.Id IN (SELECT CustomerId FROM GrandesCompradores)")
 
-// Operações de Conjunto: Union, Intersect, Except
-let combinados = clientesAtivos.Union(clientesArquivados)
-
-// Diagnóstico de Plano de Execução ao Vivo
-let relatorioPlano = explainQuery combinados
+let relatorioPlano = explainQuery (catalogoOnline.Union(catalogoLoja))
 printfn "Plano:\n%s" relatorioPlano.PlanText
 ```
 
@@ -507,7 +579,7 @@ Após configuradas, o F# Query Studio gera tipos fortes e inteligência de códi
 ```fsharp
 fsql {
     for pedido in Connections.excel.RelatorioFinanceiro.Receitas_Q4 do
-    // pedido.Receita é tipado como System.Decimal, pedido.TaxaCambio como double
+    // pedido.Receita é tipado como System.Decimal, pedido.AliquotaImposto como double
     where (pedido.Receita > 1000.0M && pedido.AliquotaImposto <= 0.20)
     sortByDescending pedido.Receita
     select {| Conta = pedido.CodigoConta; Receita = pedido.Receita; ReceitaLiquida = pedido.Receita * (1.0M - decimal pedido.AliquotaImposto) |}
@@ -551,6 +623,8 @@ O módulo `Connections` fornece a interface programática principal dentro dos s
 | `Connections.sql.<Conn>` | `DatabaseConnection` | Acesso às tabelas relacionais e execução isolada de `.rawQuery "..." [ ... ]`. |
 | `Connections.csv.<Conn>` | `CsvConnector.Data` | Acesso às linhas fortemente tipadas do CSV (implementa `IQueryable<'Row>`) e `.Raw()`. |
 | `Connections.excel.<Conn>` | `ExcelConnector.Data` | Acesso às abas fortemente tipadas do Excel (implementa `IQueryable<'Row>`), pushdown `SheetQueryable` e `.Raw()`. |
+| `Connections.json.<Conn>` | `JsonConnector.Data` | Acesso estruturado a nós JSON, propriedades tipadas e `.Root`. |
+| `Connections.xml.<Conn>` | `XmlConnector.Data` | Acesso hierárquico a elementos XML, nós tipados e `.Root`. |
 | `Connections.rest.<Conn>` | `RestConnector.Data` | Acesso aos itens tipados da REST API e `.SendAsync()`. |
 | `Connections.getConnectionString` | `string -> string` | Retorna a connection string resolvida com as credenciais seguras injetadas. |
 
@@ -562,6 +636,9 @@ O módulo `Connections` fornece a interface programática principal dentro dos s
 | `Connections.queryExcel<'T>` | `string -> int option -> 'T seq` | Mapeia linhas do Excel diretamente para registros `'T seq`. |
 | `Connections.queryExcelSheet<'T>` | `string -> string option -> int option -> 'T seq` | Lê uma aba específica do Excel para registros `'T seq`. |
 | `Connections.queryJson<'T>` | `string -> 'T seq` | Desserializa listas ou objetos JSON em registros fortemente tipados `'T seq`. |
+| `Connections.queryJsonFile<'T>` | `string -> 'T seq` | Lê registros diretamente de um arquivo JSON local. |
+| `Connections.queryXml<'T>` | `string -> 'T seq` | Desserializa elementos XML em registros fortemente tipados `'T seq`. |
+| `Connections.queryXmlTable<'T>` | `string -> string -> 'T seq` | Lê registros XML a partir de um nome de elemento repetido. |
 
 ### Métodos e Propriedades de DatabaseConnection
 - **`db.rawQuery(sqlText, [params])`**: Executa SQL parametrizado estritamente isolado nesta conexão e retorna `ConnectorQueryResult` para o grid visual.
@@ -629,7 +706,7 @@ O F# Query Studio é submetido a rigorosos benchmarks automatizados de performan
 - **fsql e Records F# Dinâmicos**: Mapeamento de records fortemente tipados (`Connections.query<'T>`) e expressões `fsql { for ... in ... do where ... select ... }` processam 1.000 linhas em **~2.0 ms** utilizando cache de construtores pré-compilados.
 - **Processamento de Arquivos CSV**: Taxa de transferência contínua de **~500.000 registros/segundo**.
 
-Para detalhes da metodologia, métricas brutas e especificações de hardware, consulte o **[Relatório Completo de Benchmarks](BENCHMARK_REPORT.md)** ([ver no GitHub](https://github.com/Matheusleal/fs-query-studio/blob/main/docs/BENCHMARK_REPORT.md)).
+Para detalhes da metodologia, métricas brutas e especificações de hardware, consulte o **[Relatório Completo de Benchmarks](BENCHMARK_REPORT_PT.md)** (English: [BENCHMARK_REPORT.md](BENCHMARK_REPORT.md)).
 
 ### Suíte de Confiabilidade de Elementos de UI
 A interface visual da extensão é coberta por testes automatizados de componentes:

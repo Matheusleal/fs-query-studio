@@ -152,31 +152,109 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ### Adicionado
 
-- **Arquitetura Modular de Conectores** — Separação modular de conectores no backend e frontend.
-- **Suporte a Novas Fontes nos Notebooks de Demonstração** — Demonstração integrada de Excel `.xlsx` e REST HTTPS do GitHub.
-- **Watcher Externo de Testes com Timeout** — Scripts `watch-tests.ps1`, `run-all-tests.ps1` e `run-all-tests.sh` garantindo término limpo e controle de travamento em suites de teste.
+- **Arquitetura Modular de Conectores (Backend & Frontend)** — Desacoplamento de conectores em módulos independentes e autocontidos (`FSharpQueryStudio.Connectors.Abstractions`, `.Sqlite`, `.SqlServer`, `.PostgreSql`, `.Csv`, `.Excel`, `.Rest`) no backend e módulos declarativos no frontend (`editors/vscode/src/connections/modules/*.ts`) registrados via `ConnectorRegistry` e `ConnectorFrontRegistry`.
+- **Assistente Declarativo de Conexão Orientado a Esquemas (`connector/list`)** — Adicionado endpoint RPC `connector/list` expondo descritores de conectores e esquemas de campos de formulário para que a extensão VS Code renderize formulários dinâmicos de conexão, manuseio seguro de credenciais e regras de validação por conector.
+- **Notebooks de Exemplo Multi-Fonte Expandidos (`sample_demo.fsqnb` & `sample_demo_pt.fsqnb`)** — Adicionadas conexões de **Excel (`.xlsx`)** multi-aba (`RegionalTargets`) e **API REST HTTPS do GitHub (`https://`)** (`GitHubFSharp`), além de células de consulta interativa LINQ (11 células de código em 6 fontes de dados: 2x SQLite, 2x CSV, Excel `.xlsx` e GitHub HTTPS REST).
+- **Monitor Externo de Execução de Testes com Timeout** — Adicionados scripts `scripts/watch-tests.ps1`, `scripts/run-all-tests.ps1` e `scripts/run-all-tests.sh` aplicando timeout externo estrito de 5 minutos e encerramento da árvore de processos em todas as suítes de teste.
 
 ### Corrigido
 
-- **Preservação de Encoding UTF-8** — UTF-8 sem BOM em streams NDJSON eliminando problemas de caracteres acentuados (mojibake).
-- **Auto-Cura e Deduplicação de Dados de Exemplo** — Tratamento de arquivos vazios e recarregamento síncrono de entidades FSI.
+- **Preservação de Codificação UTF-8 na Célula e Grade de Resultados** — Aplicação de UTF-8 sem BOM em streams NDJSON stdio no worker e processo host, preservando caracteres acentuados (ex: `Transações`, `São Paulo`) sem corrupção (mojibake).
+- **Deduplicação, Auto-Cura e Recarga de Entidades FSI de Amostra** — Correção no registro duplicado de conexões no `workspace.json`, adição de auto-cura para arquivos de amostra zerados ou ausentes, aplicação de geração síncrona quando `GeneratedEntities.fs` está ausente ou defasado, e recarga automática via `#load` de entidades atualizadas em sessões FSI persistentes.
+- **Ordenação de Campos no Esquema v2 do Workspace** — Posicionamento da propriedade `connections` como última chave em `.fsqs/workspace.json` para melhor legibilidade dos metadados de nível superior (`schemaVersion`, `extensionVersion`, `updatedAt`).
 
 ## [0.3.2] — 2026-10-28
 
 ### Removido
 
-- **Limpeza de Dependências Não Utilizadas** — Remoção de pacotes desnecessários e atualização para arquitetura FSI autônoma.
+- **Limpeza de Dependências Não Utilizadas e Referências Externas** — Remoção da dependência não utilizada do pacote `SSH.NET` da suíte de testes de integração e do gerenciamento central de pacotes (`Directory.Packages.props`). Limpeza de referências obsoletas ao Ionide em toda a documentação para refletir o worker de serviço de linguagem integrado e autônomo do F# Query Studio.
 
 ## [0.3.1] — 2026-10-28
 
 ### Corrigido
 
-- **Links da Documentação de Benchmark** — Inclusão de `BENCHMARK_REPORT.md` e `BENCHMARK_REPORT_PT.md` diretamente no pacote da extensão para navegação offline.
+- **Links do Relatório de Benchmark na Documentação** — Empacotamento de `BENCHMARK_REPORT.md` e `BENCHMARK_REPORT_PT.md` diretamente no pacote da extensão e atualização de links em `USER_GUIDE.md` e `USER_GUIDE_PT.md` para que a abertura do relatório a partir da pré-visualização de documentação no VS Code funcione diretamente sem erros de navegação.
 
 ## [0.3.0] — 2026-10-28
 
 ### Adicionado
 
-- **API de Conexões Categorizadas por Tipo** — Isolamento sob `Connections.sql`, `Connections.csv`, `Connections.excel` e `Connections.rest`.
-- **Badges de Tipo Alinhados à Direita no Autocomplete** — Exibição do tipo real nas sugestões do IntelliSense.
-- **Progresso de Mapeamento de Entidades na Barra de Status** — Feedback visual durante geração de tipos F#.
+- **API de Conexões Categorizadas por Tipo** — Substituição do vazamento global de conexões por categorias estritamente isoladas sob `Connections`:
+  - `Connections.sql.<NomeDaConexao>.<Tabela>` para bancos de dados relacionais (SQLite, PostgreSQL, SQL Server, MySQL).
+  - `Connections.sql.<NomeDaConexao>.rawQuery` com escopo restrito àquela conexão específica.
+  - `Connections.csv.<NomeDaConexao>` para streams de linhas CSV fortemente tipadas e consultas LINQ diretas.
+  - `Connections.excel.<NomeDaConexao>` para planilhas Excel.
+  - `Connections.rest.<NomeDaConexao>` para endpoints de APIs REST.
+  - Métodos legados (`connect`, `connectCsv`, `connectExcel`, `connectRest`) e `.asEntities` foram descontinuados.
+- **Badges de Tipo Alinhados à Direita no Autocomplete** — Sugestões no dropdown de autocompletar agora exibem seu tipo exato (`int`, `string`, `bool`, `decimal`, `DateTime`, etc.) ou categoria alinhados à direita:
+  - Campos e propriedades resolvem e exibem seu tipo real subjacente.
+  - Métodos exibem `method`.
+  - Conexões exibem a categoria do seu conector (`sql`, `csv`, `excel`, `rest`).
+- **Progresso de Mapeamento de Entidades na Barra de Status** — Indicador animado na barra de status (`$(sync~spin) Mapeando entidades...`) durante a inspeção de esquemas e geração de tipos F# em segundo plano, fornecendo feedback visual claro ao atualizar conexões.
+- **Resolução de Workspace de Células de Notebook no FSAC** — O motor de análise F# em segundo plano agora mapeia automaticamente os URIs virtuais de células de notebook (`vscode-notebook-cell:`) para a pasta do workspace e carrega `GeneratedEntities.fs` no FSAC, eliminando falsos positivos de sublinhados vermelhos e fornecendo IntelliSense completo e navegação Go to Definition (`F12`) entre células.
+
+## [0.2.3] — 2026-10-27
+
+### Melhorias
+
+- **Formatação Rica dos Notebooks de Exemplo e Suporte Bilíngue** — Reformulação completa dos notebooks de exemplo gerados por `Create Sample Data` (`sample_demo.fsqnb` em inglês e `sample_demo_pt.fsqnb` em português):
+  - Células markdown formatadas com badges visuais, tabelas de fontes de dados, atalhos de teclado e orientações.
+  - Substituição de projeções de tupla por registros anônimos (`{| Id = ...; Nome = ... |}`) para que o renderizador de tabela interativa exiba cabeçalhos nomeados com ordenação, filtros e badges de tipo em vez de `Item1`, `Item2` genéricos.
+  - Adição de exemplos de agregação analítica (`groupBy`, `sumBy`, `averageBy`) e consultas multi-fonte cruzando dados relacionais SQLite com transações em arquivos CSV planos.
+  - Detecção automática de idioma que abre `sample_demo_pt.fsqnb` para usuários em português e `sample_demo.fsqnb` para usuários em inglês, criando ambos no workspace.
+
+## [0.2.2] — 2026-10-27
+
+### Corrigido
+
+- **Geração de Código Multi-Fonte de Dados** — Correção na geração de entidades em segundo plano quando múltiplas fontes de dados do mesmo tipo (ex: dois arquivos CSV) são cadastradas. Nomes de módulos únicos e acessadores tipados são gerados, e `.asEntities` realiza pattern matching correto em todas as conexões registradas sem perder extensões ou gerar colisões de nomes.
+- **Inferência de Tipo Decimal em CSV** — Colunas de arquivos planos com números decimais / ponto flutuante (ex: `355272835.53` ou `355272835,53`) agora são inferidas com precisão como `decimal` em vez de regredirem para `string`. Aspas e espaços em branco nas linhas de amostragem são removidos antes da inferência.
+- **Parsing Numérico e Decimal Invariante de Cultura** — Adicionada conversão invariante de cultura em `Connections.convertValue` suportando separadores decimais com ponto (`.`) e vírgula (`,`) sob qualquer cultura de sistema (como `pt-BR`), resolvendo o erro `FormatException: Input string was not in a correct format`.
+- **Sanitização de Nomes de Colunas** — Cabeçalhos de coluna vazios ou duplicados em arquivos CSV e planos são sanitizados automaticamente (`Column1`, `Column2`, sufixos de deduplicação) para evitar erros de sintaxe nos tipos de registro gerados em F#.
+
+## [0.2.0] — 2026-10-27
+
+### Adicionado
+
+- **Benchmarks de Execução e Recursos** — Suíte dedicada de benchmark (`tests/FSharpQueryStudio.Benchmarks`) e testes automatizados de regressão medindo latência, tempo de CPU e alocações de GC desde a conexão até a execução em cenários de inicialização a frio, consultas a quente, escalabilidade de volume (100 a 50.000 linhas), consultas LINQ e arquivos CSV. Consulte `docs/BENCHMARK_REPORT_PT.md`.
+- **Testes Abrangentes de Elementos de Interface** — Suíte completa de testes (`editors/vscode/src/renderer/ui-elements.test.ts` e `connections/ui-elements.test.ts`) cobrindo 100% dos componentes de UI: layout de grade, barra de ferramentas, visualizações segmentadas, contadores de linhas, cabeçalhos fixos, dimensionador de virtualização, estilos alternados de linhas, formatadores de células (`NULL`, numérico, string, booleano), inspetor de esquemas, paginação "carregar mais", banners de notificação e itens da árvore do Explorador de Conexões.
+- **Comandos de Criação de Notebooks F# Query** — **F# Query Studio: New F# Query Notebook** (na Paleta de Comandos e em *Arquivo > Novo Arquivo…*) abre um novo notebook sem título com uma célula F# vazia. O menu de contexto do Explorer ganha a opção **New F# Query Notebook Here**, que grava e abre um arquivo `.fsqnb` real na pasta selecionada.
+- **Descoberta Multi-Esquema e Views** — Descoberta expandida para PostgreSQL, SQL Server e SQLite incluindo esquemas de usuário (ex: `dbo`, esquemas customizados) e views, agrupando-os em namespaces limpos de esquemas na árvore de Conexões.
+- **LINQ Fortemente Tipado e Gerador de Entidades em Segundo Plano** — Geração automática em segundo plano de tipos de registro tipados e contextos de consulta LINQ para bancos de dados e arquivos planos (CSV, Excel, JSON) com integração `SQLProvider`.
+- **Autocomplete Contextual de Nomes de Conexão** — Autocompletar de nomes de conexão em `Connections.connect(...)`, `Connections.get(...)`, `Connections.query(...)` e conectores específicos (`sql`, `csv`, `excel`, `rest`), filtrados pelo tipo compatível de conector.
+- **Go to Definition (`F12`)** — Navegação direta para definições entre células de notebook, arquivos externos e modelos de entidade gerados em segundo plano.
+- **Sanitização Segura de Senhas** — Detecção e extração automática de senhas em texto puro de strings de conexão para o chaveiro seguro do sistema operacional (`SecretStorage`), substituídas por marcadores `{password}`.
+- **Gerador de Dados de Amostra** — Geração em 1 clique de banco SQLite de exemplo (`sample_store.db`), feed CSV (`sales_feed.csv`) e notebook de demonstração interativo (`sample_demo.fsqnb`).
+- **Destaque de Sintaxe para Expressões de Consulta LINQ** — Gramática de injeção TextMate e provedor de tokens semânticos para palavras-chave de consulta F# (`select`, `where`, `join`, `groupBy`, `sortBy`, etc.).
+- **Documentação Bilíngue** — Manuais completos do usuário em inglês (`USER_GUIDE.md`) e português (`USER_GUIDE_PT.md`), com detecção automática de idioma e links oficiais da documentação F# da Microsoft.
+- **Ícone da Extensão** — Ícone customizado com símbolo lambda de F# brilhante e emblema de cilindro holográfico de banco de dados.
+- Scripts de compilação / empacotamento / publicação em `editors/vscode/scripts/` (`npm run build` / `package` / `publish` / `doctor`). O CI empacota o VSIX através do mesmo caminho `npm run package`.
+
+### Alterado
+
+- A grade de resultados agora é a visualização padrão para células que produzem tabelas. Anteriormente a grade ficava oculta no menu "Alterar apresentação" e a célula exibia apenas o eco `val … =` do FSI. Esse eco e saídas de `printf` agora são direcionados para a apresentação de dados brutos (`text/plain`).
+- A grade de resultados foi reestilizada para seguir o design nativo de tabelas do VS Code: fonte padrão da UI, colunas numéricas alinhadas à direita, linhas zebradas, cabeçalho fixo contido, cartão arredondado, marcadores `NULL` sutis e aviso de "Nenhuma linha encontrada".
+
+### Corrigido
+
+- A saída padrão (stdout) e o resultado da célula agora são saídas separadas, garantindo que o resultado em tabela não seja suprimido por saídas de `printf` na mesma célula.
+- O eco de declaração bruta do FSI agora é a visualização de fallback em texto, e não a padrão.
+
+## [0.1.0] — 2026-10-27
+
+Primeira versão empacotada da extensão — paridade de recursos com o aplicativo desktop Avalonia descontinuado para o fluxo de consultas e execução.
+
+### Adicionado
+
+- **F# Query Notebook** (`.fsqnb`) — tipo de notebook customizado; cada célula de código roda contra uma sessão interativa persistente do FSI em um processo worker F# em segundo plano. Transmissão ao vivo de stdout / stderr; cancelamento de células em execução; comando **Restart Notebook Session** para limpar a sessão.
+- **Renderizador de Grade de Resultados** — tabela virtualizada para dados tabulares com aba de esquema, exportação para CSV e paginação "carregar mais" para grandes volumes de dados.
+- **Inteligência F# na Célula** — autocomplete, hover, signature help e diagnósticos para células de notebook direcionados aos métodos `analysis/*` do worker (sem dependência do Ionide). Inclui completamento de nomes de conexão em literais de string sob `Connections.*`.
+- **Painel de Conexões** — árvore na Barra de Atividades com conexões → tabelas → colunas (carregamento sob demanda); adição / edição / remoção através de assistentes guiados. Suporte a SQLite, CSV, Excel, SQL Server, PostgreSQL e REST JSON.
+- **Armazenamento de Segredos Multiplataforma** — credenciais armazenadas no chaveiro do sistema operacional via `SecretStorage` do VS Code através de RPC reverso do worker. Nenhuma senha é gravada no `workspace.json` ou arquivo de notebook.
+- Verificação de integridade do worker e versão do protocolo na ativação, com mensagem orientativa quando o `dotnet` (≥ 10) não for encontrado.
+
+### Limitações Conhecidas
+
+- Requer o **.NET 10 SDK** no `PATH`; o VSIX empacota um worker dependente do framework instalado.
+- A inteligência na célula restringe-se a autocomplete / hover / signature help / diagnósticos — sem find-all-references, formatação ou renomeação entre células.
+- Apenas uma avaliação é executada por vez, inclusive entre múltiplos arquivos `.fsqnb` abertos na mesma janela.

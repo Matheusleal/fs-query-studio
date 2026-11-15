@@ -5,6 +5,7 @@
 > **Status**: Canonical  
 > **Applies to**: F# Query Studio Universal Query Engine  
 > **Target Dialects**: SQL Server (T-SQL), PostgreSQL, SQLite  
+> **Language Guides**: [English Guide](FSQL_AI_AGENT_GUIDE.md) | [Guia em Português](FSQL_AI_AGENT_GUIDE_PT.md)  
 
 ---
 
@@ -394,14 +395,44 @@ fsql {
 ```
 - **Generated SQL:** `FROM Customers _t0 LEFT OUTER JOIN Orders _t1 ON (_t0.Id = _t1.CustomerId)`
 
-### 6.3 Composite Key Joins
+### 6.3 Right & Full Outer Joins (`rightOuterJoin`, `fullOuterJoin`)
+FSQL provides 100% idiomatic LINQ `GroupJoin` custom operations directly inside `fsql { ... }`:
+
+```fsharp
+// 1. Full Outer Join
+fsql {
+    for p in Connections.sql.SampleStore.Products do
+    fullOuterJoin c in Connections.sql.SampleStore.Categories on (p.CategoryId = c.Id) into catGroup
+    for c in catGroup.DefaultIfEmpty() do
+    select {|
+        Product = p.Name
+        Category = (if isNull (box c) then "Uncategorized" else c.Name)
+    |}
+}
+
+// 2. Right Outer Join
+fsql {
+    for p in Connections.sql.SampleStore.Products do
+    rightOuterJoin c in Connections.sql.SampleStore.Categories on (p.CategoryId = c.Id) into catGroup
+    for c in catGroup.DefaultIfEmpty() do
+    select {|
+        Product = (if isNull (box p) then "None" else p.Name)
+        Category = c.Name
+    |}
+}
+```
+- **Generated SQL:**
+  - SQL Server & PostgreSQL: `FROM Products _t0 FULL OUTER JOIN Categories _t1 ON (_t0.CategoryId = _t1.Id)`
+  - SQLite: `FROM Products _t0 FULL OUTER JOIN Categories _t1 ON (_t0.CategoryId = _t1.Id)` (SQLite 3.39+)
+
+### 6.4 Composite Key Joins
 Tuple equality expresses multi-column join criteria:
 ```fsharp
 join t in Connections.excel.Targets.Sheet1 on ((s.StoreId, s.Region) = (t.StoreId, t.Region))
 ```
 - **Generated SQL:** `ON (_t0.StoreId = _t1.StoreId AND _t0.Region = _t1.Region)`
 
-### 6.4 Correlated Row-Level Joins (`crossApply` and `lateral`)
+### 6.5 Correlated Row-Level Joins (`crossApply` and `lateral`)
 Correlates each outer row with a parameterized subquery (e.g., retrieving the latest order per customer):
 ```fsharp
 fsql {
@@ -637,16 +668,63 @@ let withDetails =
         .CrossJoin("Categories", "_c")
 ```
 
-### 10.4 Common Table Expressions (`WithCte`)
-CTEs define reusable named subqueries executed before the main query:
+### 10.4 Common Table Expressions (`withCte` & `WithCte`)
+CTEs define reusable subqueries executed before the main query. FSQL supports declaring CTEs both directly inside the `fsql { ... }` computation expression and via the fluent API:
+
 ```fsharp
+// 1. In-CE Unnamed CTE (Transparent pushdown without dummy table registration)
+let topProducts =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity >= 100)
+        select p
+    }
+
+let catalog =
+    fsql {
+        for c in Connections.sql.SampleStore.Categories do
+        withCte topProducts
+        join p in topProducts on (c.Id = p.CategoryId)
+        select {| Category = c.Name; Product = p.Name |}
+    }
+
+// 2. In-CE Named CTE
+let namedCteQuery =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        withCte "HighSpenders" (
+            fsql {
+                for o in Connections.sql.SampleStore.Orders do
+                where (o.TotalAmount >= 1000.0f)
+                select o.CustomerId
+            }
+        )
+        select c
+    }
+
+// 3. Raw Recursive CTEs (T-SQL, PostgreSQL, SQLite)
+let orgHierarchy =
+    fsql {
+        for e in Connections.sql.SampleStore.Employees do
+        withRecursiveCteSql "Hierarchy" """
+            SELECT EmpId, MgrId, 1 AS Level
+            FROM Employees WHERE MgrId IS NULL
+            UNION ALL
+            SELECT e.EmpId, e.MgrId, h.Level + 1
+            FROM Employees e
+            INNER JOIN Hierarchy h ON e.MgrId = h.EmpId
+        """
+        select e
+    }
+
+// 4. Fluent API WithCte
 let highValue =
     queryable
         .WithCte("HighValueCust", "SELECT CustomerId, SUM(TotalAmount) AS Total FROM Orders GROUP BY CustomerId HAVING SUM(TotalAmount) > 1000")
         .Where("_t0.CustomerId IN (SELECT CustomerId FROM HighValueCust)")
 
-// Recursive CTEs (generating WITH RECURSIVE on PostgreSQL and SQLite, WITH on SQL Server)
-let orgHierarchy =
+// Recursive CTEs via Fluent API (generating WITH RECURSIVE on PostgreSQL and SQLite, WITH on SQL Server)
+let orgHierarchyFluent =
     queryable
         .WithCte(
             name = "Hierarchy",
@@ -654,16 +732,61 @@ let orgHierarchy =
             isRecursive = true)
 ```
 
-### 10.5 Set Operations (`Union`, `UnionAll`, `Intersect`, `Except`)
-Chains multiple `SqlPushdownQueryable` queries combining their results at the database level:
+### 10.5 Set Operations (`union`, `unionAll`, `intersect`, `except`)
+FSQL supports set operations combining queries at the database level across 4 equivalent idiomatic forms:
+
 ```fsharp
-let combined = activeCustomers.Union(archivedCustomers)
+// Form A: In-CE Custom Operations
+let allItems =
+    fsql {
+        for a in onlineCatalog do
+        union inStoreCatalog
+    }
+
+let allFeed =
+    fsql {
+        for a in retailOrders do
+        unionAll wholesaleOrders
+    }
+
+let commonFeed =
+    fsql {
+        for a in branchA do
+        intersect branchB
+    }
+
+let exclusiveFeed =
+    fsql {
+        for a in targetInventory do
+        except actualInventory
+    }
+
+// Form B: Curried Builder Function
+let combinedB = fsql.union onlineCatalog inStoreCatalog
+
+// Form C: Module Function
+let combinedC = union onlineCatalog inStoreCatalog
+
+// Form D: Extension Method on SqlPushdownQueryable
+let combinedD = onlineCatalog.Union(inStoreCatalog)
 let allOrders = retailOrders.UnionAll(wholesaleOrders)
 let common = branchAProducts.Intersect(branchBProducts)
 let missing = targetInventory.Except(actualInventory)
 ```
 
-### 10.6 Direct Aggregate Execution
+### 10.6 Execution Plan Inspection (`explain` & `fsql.explain`)
+Inspect database-generated execution plans directly inside the CE:
+
+```fsharp
+fsql {
+    for p in Connections.sql.SampleStore.Products do
+    where (p.UnitPrice > 100.0M)
+    explain
+    select p
+}
+```
+
+### 10.7 Direct Aggregate Execution
 ```fsharp
 let total = queryable.Count()
 let uniqueCats = queryable.CountDistinct("Category")
@@ -882,4 +1005,4 @@ On `PushdownQueryPlan`:
 2. **Zero Raw SQL String Concatenation**: Write 100% pure F# DSL. Do not interpolate SQL strings (`$"SELECT ..."`).
 3. **Immutability of Plans**: Transforming a `PushdownQueryPlan` must always yield a new independent instance via `.Clone()`.
 4. **Anonymous Records for Projections**: Projections with multiple fields should use anonymous records `{| Field = value |}` for strong typing and zero boilerplate.
-5. **Reference Guide**: AI coding agents generating queries must consult [`docs/FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md) for full usage instructions and guardrails.
+5. **Reference Guide**: AI coding agents generating queries must consult [`docs/FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md) ([Português](FSQL_AI_AGENT_GUIDE_PT.md)) for full usage instructions and guardrails.

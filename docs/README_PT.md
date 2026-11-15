@@ -22,7 +22,8 @@ Bem-vindo ao índice central de documentação do **F# Query Studio**. Este dire
 | Documento | Descrição |
 |---|---|
 | [`FSQL_LANGUAGE_SPECIFICATION.md`](FSQL_LANGUAGE_SPECIFICATION.md) | **Especificação da Linguagem FSQL** — Especificação formal canônica de sintaxe e semântica da computation expression `fsql { ... }` para todos os bancos relacionais e engines analíticas suportadas. |
-| [`FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md) | **Guia Canônico de FSQL para Agentes de IA** — Regras estritas, padrões recomendados e anti-padrões para agentes de IA gerando código FSQL. |
+| [`FSQL_AI_AGENT_GUIDE_PT.md`](FSQL_AI_AGENT_GUIDE_PT.md) | **Guia Canônico de FSQL para Agentes de IA (Português)** — Regras estritas, padrões recomendados e anti-padrões para agentes de IA gerando código FSQL. |
+| [`FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md) | **Guia de FSQL para Agentes de IA (Inglês)** — Versão em inglês do guia para agentes e LLMs. |
 
 ---
 
