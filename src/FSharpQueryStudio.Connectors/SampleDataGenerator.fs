@@ -708,7 +708,7 @@ fsql {
 """
 
                 mkMarkdown """
-## 19. 📊 Advanced DQL: GroupBy with Cláusula `having` (`SampleStore`)
+## 19. 📊 Advanced DQL: GroupBy with `having` Clause (`SampleStore`)
 
 Filter grouped aggregations directly using the dedicated `having` operation in `fsql`. The condition compiles to a native SQL `GROUP BY ... HAVING (COUNT(*) >= @p0)` clause.
 """
@@ -778,7 +778,7 @@ Combine multiple query projections using SQL pushdown set operations and CTEs di
 """
 
                 mkCode """
-// 22.1 CTE (Common Table Expression) consumida diretamente via JOIN
+// 22.1 Named CTE (Common Table Expression) consumed directly via JOIN
 let highPriceProducts =
     fsql {
         for p in Connections.sql.SampleStore.Products do
@@ -794,12 +794,33 @@ let catalogWithCategory =
         select (c.Name, p.Name, p.Price)
     }
 
-printfn "Formatted SQL (CTE + JOIN):\n%s" (toRawQuery catalogWithCategory)
+printfn "Formatted SQL (Named CTE + JOIN):\n%s" (toRawQuery catalogWithCategory)
 catalogWithCategory
 """
 
                 mkCode """
-// 22.2 Set Operations: intersect and except directly inside fsql CE
+// 22.2 Unnamed CTE with transparent injection and JOIN
+let highStockProducts =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity >= 100)
+        select p
+    }
+
+let catalogHighStock =
+    fsql {
+        for c in Connections.sql.SampleStore.Categories do
+        withCte highStockProducts
+        join p in highStockProducts on (c.Id = p.CategoryId)
+        select (c.Name, p.Name, p.StockQuantity)
+    }
+
+printfn "Formatted SQL (Unnamed CTE + JOIN):\n%s" (toRawQuery catalogHighStock)
+catalogHighStock
+"""
+
+                mkCode """
+// 22.3 Set Operations: intersect and except directly inside fsql CE
 let stockExcept =
     fsql {
         for p in Connections.sql.SampleStore.Products do
@@ -831,12 +852,12 @@ fsql {
     for o in orders.DefaultIfEmpty() do
     take 15
     select {|
-        Cliente = c.FirstName + " " + c.LastName
-        Pais = c.Country
-        PedidoId = (if isNull (box o) then 0 else o.Id)
-        Valor = (if isNull (box o) then 0.0f else o.TotalAmount)
-        Status = (if isNull (box o) then "Sem Pedidos" else o.Status)
-        CategoriaCliente = (if c.LoyaltyPoints >= 1000 then "VIP" else "Regular")
+        Customer = c.FirstName + " " + c.LastName
+        Country = c.Country
+        OrderId = if isNull (box o) then 0 else o.Id
+        Amount = if isNull (box o) then 0.0f else o.TotalAmount
+        Status = if isNull (box o) then "No Orders" else o.Status
+        CustomerCategory = if c.LoyaltyPoints >= 1000 then "VIP" else "Regular"
     |}
 }
 """
@@ -1482,7 +1503,7 @@ Combine múltiplas projeções de consulta usando operações de conjunto e CTEs
 """
 
                 mkCode """
-// 22.1 CTE (Common Table Expression) consumida diretamente via JOIN
+// 22.1 CTE nomeada consumida diretamente via JOIN
 let produtosCaros =
     fsql {
         for p in Connections.sql.SampleStore.Products do
@@ -1498,12 +1519,33 @@ let catalogoComCategoria =
         select (c.Name, p.Name, p.Price)
     }
 
-printfn "SQL Formatado (CTE + JOIN):\n%s" (toRawQuery catalogoComCategoria)
+printfn "SQL Formatado (CTE nomeada + JOIN):\n%s" (toRawQuery catalogoComCategoria)
 catalogoComCategoria
 """
 
                 mkCode """
-// 22.2 Operações de Conjunto: intersect e except diretamente dentro da CE fsql
+// 22.2 CTE sem nome com injeção transparente e JOIN
+let produtosEstoque =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity >= 100)
+        select p
+    }
+
+let catalogoEstoque =
+    fsql {
+        for c in Connections.sql.SampleStore.Categories do
+        withCte produtosEstoque
+        join p in produtosEstoque on (c.Id = p.CategoryId)
+        select (c.Name, p.Name, p.StockQuantity)
+    }
+
+printfn "SQL Formatado (CTE sem nome + JOIN):\n%s" (toRawQuery catalogoEstoque)
+catalogoEstoque
+"""
+
+                mkCode """
+// 22.3 Operações de Conjunto: intersect e except diretamente dentro da CE fsql
 let estoqueExcept =
     fsql {
         for p in Connections.sql.SampleStore.Products do
@@ -1537,10 +1579,10 @@ fsql {
     select {|
         Cliente = c.FirstName + " " + c.LastName
         Pais = c.Country
-        PedidoId = (if isNull (box o) then 0 else o.Id)
-        Valor = (if isNull (box o) then 0.0f else o.TotalAmount)
-        Status = (if isNull (box o) then "Sem Pedidos" else o.Status)
-        CategoriaCliente = (if c.LoyaltyPoints >= 1000 then "VIP" else "Regular")
+        PedidoId = if isNull (box o) then 0 else o.Id
+        Valor = if isNull (box o) then 0.0f else o.TotalAmount
+        Status = if isNull (box o) then "Sem Pedidos" else o.Status
+        CategoriaCliente = if c.LoyaltyPoints >= 1000 then "VIP" else "Regular"
     |}
 }
 """
@@ -2486,7 +2528,7 @@ auditoriaPendentes
 
         File.WriteAllText(filePath, getSampleDemoPortugueseNotebook ())
 
-    let generateAllSamples (targetDir: string) : SampleFilesResult =
+    let generateAllSamplesWithLanguage (targetDir: string) (language: string option) : SampleFilesResult =
         let sampleDir = Path.Combine(targetDir, "data_sources")
         if not (Directory.Exists sampleDir) then
             Directory.CreateDirectory sampleDir |> ignore
@@ -2520,8 +2562,14 @@ auditoriaPendentes
         if not (isFileValid excel2Path 100000L) then createSampleCommerceExcelWorkbook excel2Path
         if not (isFileValid jsonPath 1000000L) then createSampleJsonFile jsonPath
         if not (isFileValid xmlPath 1000000L) then createSampleXmlFile xmlPath
-        createSampleDemoNotebook notebookPath
-        createSampleDemoNotebookPt notebookPtPath
+
+        let isPtOnly = language = Some "pt"
+        let isEnOnly = language = Some "en"
+
+        if not isPtOnly then
+            createSampleDemoNotebook notebookPath
+        if not isEnOnly then
+            createSampleDemoNotebookPt notebookPtPath
 
         { SqlitePath = dbPath
           Sqlite2Path = db2Path
@@ -2534,5 +2582,8 @@ auditoriaPendentes
           RestUrl = DefaultGitHubRestUrl
           NotebookPath = notebookPath
           NotebookPtPath = notebookPtPath }
+
+    let generateAllSamples (targetDir: string) : SampleFilesResult =
+        generateAllSamplesWithLanguage targetDir None
 
 

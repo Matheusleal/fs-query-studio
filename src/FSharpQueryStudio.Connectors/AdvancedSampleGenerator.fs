@@ -512,9 +512,9 @@ fsql {
     select {|
         Customer = c.first_name + " " + c.last_name
         City = c.city
-        OrderId = (if isNull (box o) then 0 else o.id)
-        TotalAmount = (if isNull (box o) then 0.0M else o.total_amount)
-        Status = (if isNull (box o) then "No Orders" else o.status)
+        OrderId = if isNull (box o) then 0 else o.id
+        TotalAmount = if isNull (box o) then 0.0M else o.total_amount
+        Status = if isNull (box o) then "No Orders" else o.status
     |}
 }
 """
@@ -523,8 +523,12 @@ fsql {
 let catalogWithAllCategories =
     fsql {
         for p in Connections.sql.PostgreSQL_Advanced.products do
-        fullOuterJoin "categories" "c" "p.category_id = c.id"
-        select p
+        fullOuterJoin c in Connections.sql.PostgreSQL_Advanced.categories on (p.category_id = c.id) into categories
+        for c in categories.DefaultIfEmpty() do
+        select {|
+            Product = p.name
+            Category = if isNull (box c) then "None" else c.name
+        |}
     }
 
 printfn "Formatted SQL (FULL OUTER JOIN):\n%s" (toRawQuery catalogWithAllCategories)
@@ -589,8 +593,8 @@ fsql {
     select {|
         ProductUpper = p.name.ToUpper()
         Price = p.price
-        Tier = (if p.price >= 300.0M then "Premium" elif p.price >= 100.0M then "Mid-Range" else "Budget")
-        StockStatus = (if p.stock_quantity >= 100 then "In Stock" else "Low Stock")
+        Tier = if p.price >= 300.0M then "Premium" elif p.price >= 100.0M then "Mid-Range" else "Budget"
+        StockStatus = if p.stock_quantity >= 100 then "In Stock" else "Low Stock"
     |}
 }
 """
@@ -843,9 +847,9 @@ fsql {
     select {|
         Customer = c.FirstName + " " + c.LastName
         City = c.City
-        OrderId = (if isNull (box o) then 0 else o.Id)
-        TotalAmount = (if isNull (box o) then 0.0M else o.TotalAmount)
-        Status = (if isNull (box o) then "No Orders" else o.Status)
+        OrderId = if isNull (box o) then 0 else o.Id
+        TotalAmount = if isNull (box o) then 0.0M else o.TotalAmount
+        Status = if isNull (box o) then "No Orders" else o.Status
     |}
 }
 """
@@ -854,8 +858,12 @@ fsql {
 let catalogWithAllCategories =
     fsql {
         for p in Connections.sql.SqlServer_Advanced.Products do
-        fullOuterJoin "Categories" "c" "p.CategoryId = c.Id"
-        select p
+        fullOuterJoin c in Connections.sql.SqlServer_Advanced.Categories on (p.CategoryId = c.Id) into categories
+        for c in categories.DefaultIfEmpty() do
+        select {|
+            Product = p.Name
+            Category = if isNull (box c) then "None" else c.Name
+        |}
     }
 
 printfn "Formatted SQL (FULL OUTER JOIN):\n%s" (toRawQuery catalogWithAllCategories)
@@ -920,8 +928,8 @@ fsql {
     select {|
         ProductUpper = p.Name.ToUpper()
         Price = p.Price
-        Tier = (if p.Price >= 300.0M then "Premium" elif p.Price >= 100.0M then "Mid-Range" else "Budget")
-        StockStatus = (if p.StockQuantity >= 100 then "In Stock" else "Low Stock")
+        Tier = if p.Price >= 300.0M then "Premium" elif p.Price >= 100.0M then "Mid-Range" else "Budget"
+        StockStatus = if p.StockQuantity >= 100 then "In Stock" else "Low Stock"
     |}
 }
 """
@@ -966,7 +974,696 @@ printfn "%s" diag.PlanText
             ]
         serializeNotebook cells
 
-    let generateAdvancedSamples (targetDir: string) (selectedEngines: string list) : AdvancedSampleResult =
+
+    let getPostgresNotebookPt () : string =
+        let cells =
+            [
+                mkMarkdown """
+# 🐘 Demonstração Avançada e Diagnósticos do FSQL com PostgreSQL
+
+Este notebook demonstra todo o poder do **FSQL** com pushdown no **PostgreSQL**:
+- **Funções de Janela Analíticas** (`OVER (PARTITION BY ... ORDER BY ...)`, `rowNumber`, `rank`, `denseRank`, agregações acumuladas)
+- **Funções Posicionais e de Valor** (`lag`, `lead`, `firstValue`, `lastValue`, `avg` e `max` acumulados)
+- **Navegação em JSON Semi-Estruturado** (`fsql.jsonValue` -> `specs ->> 'brand'`)
+- **Subqueries Correlacionadas** (`whereExists`, `whereNotExists`, subqueries escalares na projeção)
+- **Agrupamentos com Filtro de Agregação** (`groupBy` + `having`)
+- **Common Table Expressions** (Composição multivariável, `withCte` transparente sem nome, recursiva com `withRecursiveCteSql`)
+- **Operações de Conjunto** (`union`, `unionAll`, `intersect`, `except`)
+- **Junções Relacionais e Outer Joins** (`join`, `leftOuterJoin`, `fullOuterJoin`)
+- **Junção Lateral Correlacionada** (`lateral (fsql { ... })`)
+- **Subqueries com IN** (`.Contains(...)`)
+- **Expressões Condicionais** (`if ... then ... else ...` -> `CASE WHEN`)
+- **Inspeção de Queries e Diagnósticos de Parâmetros** (`toRawQuery`, `toRawSqlWithParameters`)
+- **Diagnósticos em Tempo Real do Plano de Execução** (`fsql.explain`)
+
+---
+### 🛠️ Pré-requisitos de Container
+Certifique-se de que o container do PostgreSQL está em execução:
+```bash
+docker compose -f docker-compose.fsqs.yml up -d fsqs-postgres
+```
+"""
+                mkMarkdown "## 1. ⚡ Funções de Janela Analíticas (Particionamento e Agregações Acumuladas)"
+                mkCode """
+// 1. Ranking de produtos por categoria por preço com totais acumulados no PostgreSQL
+fsql {
+    for p in Connections.sql.PostgreSQL_Advanced.products do
+    select {|
+        Category = p.category_id
+        Product = p.name
+        Price = p.price
+        RowInCat = fsql.rowNumber(fsql.window(partitionBy = p.category_id, sortByDescending = p.price))
+        RankInCat = fsql.rank(fsql.window(partitionBy = p.category_id, sortByDescending = p.price))
+        DenseRankInCat = fsql.denseRank(fsql.window(partitionBy = p.category_id, sortByDescending = p.price))
+        PriceQuartile = fsql.ntile(4, fsql.window(sortByDescending = p.price))
+        RunningSum = fsql.sum(p.price, over = fsql.window(partitionBy = p.category_id, sortBy = p.id))
+        RunningAvg = fsql.avg(p.price, over = fsql.window(partitionBy = p.category_id, sortBy = p.id))
+    |}
+}
+"""
+                mkMarkdown "## 2. 🧭 Funções de Janela Posicionais e de Valor (`lag`, `lead`, `firstValue`, `lastValue`)"
+                mkCode """
+// 2.1 Comparando valores de pedidos com pedidos anteriores e posteriores usando lag e lead
+fsql {
+    for o in Connections.sql.PostgreSQL_Advanced.orders do
+    select {|
+        OrderId = o.id
+        CustomerId = o.customer_id
+        Amount = o.total_amount
+        PreviousAmount = fsql.lag(o.total_amount, over = fsql.window(partitionBy = o.customer_id, sortBy = o.order_date))
+        NextAmount = fsql.lead(o.total_amount, over = fsql.window(partitionBy = o.customer_id, sortBy = o.order_date))
+    |}
+}
+"""
+                mkCode """
+// 2.2 Primeiros e últimos valores dentro da janela de cada categoria
+fsql {
+    for p in Connections.sql.PostgreSQL_Advanced.products do
+    select {|
+        Category = p.category_id
+        Product = p.name
+        Price = p.price
+        CheapestInCat = fsql.firstValue(p.price, over = fsql.window(partitionBy = p.category_id, sortBy = p.price))
+        MostExpensiveInCat = fsql.lastValue(p.price, over = fsql.window(partitionBy = p.category_id, sortBy = p.price))
+        CatMaxPrice = fsql.max(p.price, over = fsql.window(partitionBy = p.category_id))
+    |}
+}
+"""
+                mkMarkdown "## 3. 📦 Extração de JSON Semi-Estruturado (`fsql.jsonValue` -> `specs ->> ...`)"
+                mkCode """
+// 3. Filtrando e extraindo campos JSONB de especificações diretamente no PostgreSQL
+fsql {
+    for p in Connections.sql.PostgreSQL_Advanced.products do
+    where (fsql.jsonValue(p.specs, "brand") = "VisionMax" || fsql.jsonValue(p.specs, "wireless") = "true")
+    select {|
+        Sku = p.sku
+        Name = p.name
+        Brand = fsql.jsonValue(p.specs, "brand")
+        Wireless = fsql.jsonValue(p.specs, "wireless")
+    |}
+}
+"""
+                mkMarkdown "## 4. 🎯 Subqueries Correlacionadas (`whereExists`, `whereNotExists` e Projeção Escalar)"
+                mkCode """
+// 4.1 Clientes que realizaram pedidos concluídos, projetando contagem correlacionada de pedidos
+fsql {
+    for c in Connections.sql.PostgreSQL_Advanced.customers do
+    whereExists (fsql { for o in Connections.sql.PostgreSQL_Advanced.orders do where (o.customer_id = c.id && o.status = "Completed") })
+    select {|
+        Customer = c.first_name + " " + c.last_name
+        Email = c.email
+        CompletedOrders = fsql { for o in Connections.sql.PostgreSQL_Advanced.orders do where (o.customer_id = c.id && o.status = "Completed"); count }
+    |}
+}
+"""
+                mkCode """
+// 4.2 Clientes sem pedidos pendentes usando whereNotExists
+fsql {
+    for c in Connections.sql.PostgreSQL_Advanced.customers do
+    whereNotExists (fsql { for o in Connections.sql.PostgreSQL_Advanced.orders do where (o.customer_id = c.id && o.status = "Pending") })
+    select {|
+        Customer = c.first_name + " " + c.last_name
+        City = c.city
+        Country = c.country
+    |}
+}
+"""
+                mkMarkdown "## 5. 📊 Agrupamento e Filtro por Agregação (`having`)"
+                mkCode """
+// 5. Agrupa pedidos por cliente e filtra clientes com 2 ou mais pedidos
+fsql {
+    for o in Connections.sql.PostgreSQL_Advanced.orders do
+    groupBy o.customer_id into g
+    having (fsql { for item in g do count } >= 2)
+    select {|
+        CustomerId = g.Key
+        OrderCount = fsql { for item in g do count }
+        TotalSpent = g.Sum(fun x -> x.total_amount)
+    |}
+}
+"""
+                mkMarkdown "## 6. 🧩 Common Table Expressions (CTEs) e Composição Transparente de Múltiplas Queries"
+                mkCode """
+// 6.1 Composição de CTE multivariável em partes (propagação transparente de CTEs, sem tabelas intermediárias manuais)
+let premiumProducts =
+    fsql {
+        for p in Connections.sql.PostgreSQL_Advanced.products do
+        where (p.price >= 300.0M)
+        select p
+    }
+
+let budgetProducts =
+    fsql {
+        for p in Connections.sql.PostgreSQL_Advanced.products do
+        where (p.price <= 50.0M)
+        select p
+    }
+
+// Combinando duas variáveis de consulta independentes usando unionAll dentro do fsql
+let allSpecialTiers =
+    fsql {
+        for p in premiumProducts do
+        unionAll budgetProducts
+    }
+
+printfn "SQL Formatado (União de CTEs em Múltiplas Partes):
+%s" (toRawQuery allSpecialTiers)
+allSpecialTiers
+"""
+                mkCode """
+// 6.2 CTE transparente com JOIN direto (sem registro manual de tabela)
+let highValueOrders =
+    fsql {
+        for o in Connections.sql.PostgreSQL_Advanced.orders do
+        where (o.total_amount >= 300.0M)
+        select o
+    }
+
+let ordersWithCustomer =
+    fsql {
+        for c in Connections.sql.PostgreSQL_Advanced.customers do
+        withCte highValueOrders
+        join o in highValueOrders on (c.id = o.customer_id)
+        select (c.first_name + " " + c.last_name, o.id, o.total_amount)
+    }
+
+printfn "SQL Formatado (CTE + JOIN):
+%s" (toRawQuery ordersWithCustomer)
+ordersWithCustomer
+"""
+                mkCode """
+// 6.3 Operações de Conjunto: intersect e except diretamente dentro da CE fsql
+let midTierProducts =
+    fsql {
+        for p in Connections.sql.PostgreSQL_Advanced.products do
+        where (p.price >= 50.0M)
+        select p
+        except (fsql {
+            for p2 in Connections.sql.PostgreSQL_Advanced.products do
+            where (p2.price > 400.0M)
+            select p2
+        })
+    }
+
+printfn "SQL Formatado (EXCEPT):
+%s" (toRawQuery midTierProducts)
+midTierProducts
+"""
+                mkCode """
+// 6.4 Consulta CTE recursiva (hierarquia / geração de sequências)
+let sequenceCte =
+    fsql {
+        for p in Connections.sql.PostgreSQL_Advanced.products do
+        withRecursiveCteSql "NumSeries" "SELECT 1 AS n UNION ALL SELECT n + 1 FROM NumSeries WHERE n < 5"
+        take 5
+        select p
+    }
+
+printfn "SQL Formatado (CTE Recursiva):
+%s" (toRawQuery sequenceCte)
+sequenceCte
+"""
+                mkMarkdown "## 7. 🔗 Junções Relacionais e Outer Joins (`leftOuterJoin`, `fullOuterJoin`)"
+                mkCode """
+// 7.1 Left outer join de todos os clientes e seus pedidos (incluindo clientes sem pedidos)
+fsql {
+    for c in Connections.sql.PostgreSQL_Advanced.customers do
+    leftOuterJoin o in Connections.sql.PostgreSQL_Advanced.orders on (c.id = o.customer_id) into orders
+    for o in orders.DefaultIfEmpty() do
+    select {|
+        Customer = c.first_name + " " + c.last_name
+        City = c.city
+        OrderId = if isNull (box o) then 0 else o.id
+        TotalAmount = if isNull (box o) then 0.0M else o.total_amount
+        Status = if isNull (box o) then "No Orders" else o.status
+    |}
+}
+"""
+                mkCode """
+// 7.2 Full outer join diretamente dentro da CE fsql
+let catalogWithAllCategories =
+    fsql {
+        for p in Connections.sql.PostgreSQL_Advanced.products do
+        fullOuterJoin c in Connections.sql.PostgreSQL_Advanced.categories on (p.category_id = c.id) into categories
+        for c in categories.DefaultIfEmpty() do
+        select {|
+            Product = p.name
+            Category = if isNull (box c) then "None" else c.name
+        |}
+    }
+
+printfn "SQL Formatado (FULL OUTER JOIN):
+%s" (toRawQuery catalogWithAllCategories)
+catalogWithAllCategories
+"""
+                mkMarkdown "## 8. ⚡ Junção Lateral Correlacionada (`lateral (fsql { ... })`)"
+                mkCode """
+// 8. Junção LATERAL correlacionada: maior pedido por cliente
+fsql {
+    for c in Connections.sql.PostgreSQL_Advanced.customers do
+    for topOrder in (lateral (fsql {
+        for o in Connections.sql.PostgreSQL_Advanced.orders do
+        where (o.customer_id = c.id)
+        sortByDescending o.total_amount
+        take 1
+        select o
+    })) do
+    select {|
+        Customer = c.first_name + " " + c.last_name
+        TopOrderId = topOrder.id
+        TopOrderAmount = topOrder.total_amount
+    |}
+}
+"""
+                mkMarkdown "## 9. 📥 Subqueries com `IN` (`.Contains(...)`)"
+                mkCode """
+// 9. Produtos pedidos em quantidades de 3 ou mais usando subquery aninhada IN
+fsql {
+    for p in Connections.sql.PostgreSQL_Advanced.products do
+    where ((fsql { for oi in Connections.sql.PostgreSQL_Advanced.order_items do where (oi.quantity >= 3); select oi.product_id }).Contains(p.id))
+    select {|
+        Id = p.id
+        Product = p.name
+        Price = p.price
+        Stock = p.stock_quantity
+    |}
+}
+"""
+                mkMarkdown "## 10. 🌐 Projeção Relacional Multi-Tabela"
+                mkCode """
+// 10. Junção de 4 tabelas relacionais (pedidos, clientes, itens de pedidos e produtos)
+fsql {
+    for o in Connections.sql.PostgreSQL_Advanced.orders do
+    join c in Connections.sql.PostgreSQL_Advanced.customers on (o.customer_id = c.id)
+    join oi in Connections.sql.PostgreSQL_Advanced.order_items on (o.id = oi.order_id)
+    join p in Connections.sql.PostgreSQL_Advanced.products on (oi.product_id = p.id)
+    where (o.status = "Completed")
+    select {|
+        OrderId = o.id
+        Customer = c.first_name + " " + c.last_name
+        Product = p.name
+        Quantity = oi.quantity
+        LineTotal = oi.line_total
+    |}
+}
+"""
+                mkMarkdown "## 11. 🔀 Expressões Condicionais (CASE WHEN) e Funções de String"
+                mkCode """
+// 11. Classificação condicional inline (CASE WHEN) e transformações de texto
+fsql {
+    for p in Connections.sql.PostgreSQL_Advanced.products do
+    select {|
+        ProductUpper = p.name.ToUpper()
+        Price = p.price
+        Tier = if p.price >= 300.0M then "Premium" elif p.price >= 100.0M then "Mid-Range" else "Budget"
+        StockStatus = if p.stock_quantity >= 100 then "In Stock" else "Low Stock"
+    |}
+}
+"""
+                mkMarkdown "## 12. 🔎 Inspeção de Query e Diagnósticos (`toRawQuery` & `toRawSqlWithParameters`)"
+                mkCode """
+// 12. Extração do SQL formatado com cabeçalho de parâmetros para inspeção e auditoria
+let parameterizedQuery =
+    fsql {
+        for p in Connections.sql.PostgreSQL_Advanced.products do
+        where (p.price >= 150.0M && p.stock_quantity > 10)
+        sortByDescending p.price
+        take 5
+        select p
+    }
+
+let formattedSql = toRawQuery parameterizedQuery
+printfn "SQL formatado com parâmetros vinculados:
+%s" formattedSql
+
+let (rawSql, paramsList) = toRawSqlWithParameters parameterizedQuery
+printfn "String SQL bruta: %s" rawSql
+printfn "Parâmetros vinculados: %A" paramsList
+"""
+                mkMarkdown "## 13. 🔍 Diagnósticos em Tempo Real do Plano de Execução do PostgreSQL (`fsql.explain`)"
+                mkCode """
+// 13. Inspeciona o plano de execução retornado diretamente pelo motor do PostgreSQL usando fsql
+let complexQuery =
+    fsql {
+        for o in Connections.sql.PostgreSQL_Advanced.orders do
+        join c in Connections.sql.PostgreSQL_Advanced.customers on (o.customer_id = c.id)
+        where (o.total_amount >= 100.0M)
+        select {|
+            OrderId = o.id
+            Customer = c.first_name + " " + c.last_name
+            Amount = o.total_amount
+        |}
+    }
+
+let diag = fsql.explain complexQuery
+printfn "Dialeto: %A" diag.Dialect
+printfn "%s" diag.PlanText
+"""
+            ]
+        serializeNotebook cells
+
+    let getSqlServerNotebookPt () : string =
+        let cells =
+            [
+                mkMarkdown """
+# 🛡️ Demonstração Avançada e Diagnósticos do FSQL com SQL Server (T-SQL)
+
+Este notebook demonstra todo o poder do **FSQL** com pushdown no **SQL Server 2022**:
+- **Funções de Janela Analíticas** (`ROW_NUMBER`, `RANK`, `DENSE_RANK`, agregações acumuladas)
+- **Mitigação T-SQL 412** (`ORDER BY (SELECT NULL)` seguro injetado automaticamente quando necessário)
+- **Funções Posicionais e de Valor** (`lag`, `lead`, `firstValue`, `lastValue`, `avg` e `max` acumulados)
+- **Navegação em JSON Semi-Estruturado** (`fsql.jsonValue` -> `JSON_VALUE`)
+- **Subqueries Correlacionadas** (`whereExists`, `whereNotExists`, subqueries escalares na projeção)
+- **Agrupamentos com Filtro de Agregação** (`groupBy` + `having`)
+- **Common Table Expressions** (Composição multivariável, `withCte` transparente sem nome, recursiva com `withRecursiveCteSql`)
+- **Operações de Conjunto** (`union`, `unionAll`, `intersect`, `except`)
+- **Junções Relacionais e Outer Joins** (`join`, `leftOuterJoin`, `fullOuterJoin`)
+- **Junção Correlacionada CROSS APPLY** (`crossApply (fsql { ... })`)
+- **Subqueries com IN** (`.Contains(...)`)
+- **Expressões Condicionais** (`if ... then ... else ...` -> `CASE WHEN`)
+- **Inspeção de Queries e Diagnósticos de Parâmetros** (`toRawQuery`, `toRawSqlWithParameters`)
+- **Diagnósticos em Tempo Real do Plano de Execução** (`SET SHOWPLAN_TEXT ON ... OFF` via `fsql.explain`)
+
+---
+### 🛠️ Pré-requisitos de Container
+Certifique-se de que o container do SQL Server está em execução:
+```bash
+docker compose -f docker-compose.fsqs.yml up -d fsqs-sqlserver
+```
+"""
+                mkMarkdown "## 1. ⚡ Funções de Janela Analíticas (Particionamento e Agregações Acumuladas)"
+                mkCode """
+// 1. Ranking de produtos por categoria por preço com totais acumulados no SQL Server
+fsql {
+    for p in Connections.sql.SqlServer_Advanced.Products do
+    select {|
+        CategoryId = p.CategoryId
+        Product = p.Name
+        Price = p.Price
+        RowInCat = fsql.rowNumber(fsql.window(partitionBy = p.CategoryId, sortByDescending = p.Price))
+        RankInCat = fsql.rank(fsql.window(partitionBy = p.CategoryId, sortByDescending = p.Price))
+        DenseRankInCat = fsql.denseRank(fsql.window(partitionBy = p.CategoryId, sortByDescending = p.Price))
+        PriceQuartile = fsql.ntile(4, fsql.window(sortByDescending = p.Price))
+        RunningSum = fsql.sum(p.Price, over = fsql.window(partitionBy = p.CategoryId, sortBy = p.Id))
+        RunningAvg = fsql.avg(p.Price, over = fsql.window(partitionBy = p.CategoryId, sortBy = p.Id))
+    |}
+}
+"""
+                mkMarkdown "## 2. 🧭 Funções de Janela Posicionais e de Valor (`lag`, `lead`, `firstValue`, `lastValue`)"
+                mkCode """
+// 2.1 Comparando valores de pedidos com pedidos anteriores e posteriores
+fsql {
+    for o in Connections.sql.SqlServer_Advanced.Orders do
+    select {|
+        OrderId = o.Id
+        CustomerId = o.CustomerId
+        Amount = o.TotalAmount
+        PreviousAmount = fsql.lag(o.TotalAmount, over = fsql.window(partitionBy = o.CustomerId, sortBy = o.OrderDate))
+        NextAmount = fsql.lead(o.TotalAmount, over = fsql.window(partitionBy = o.CustomerId, sortBy = o.OrderDate))
+    |}
+}
+"""
+                mkCode """
+// 2.2 Primeiros e últimos valores dentro da janela de cada categoria
+fsql {
+    for p in Connections.sql.SqlServer_Advanced.Products do
+    select {|
+        CategoryId = p.CategoryId
+        Product = p.Name
+        Price = p.Price
+        CheapestInCat = fsql.firstValue(p.Price, over = fsql.window(partitionBy = p.CategoryId, sortBy = p.Price))
+        MostExpensiveInCat = fsql.lastValue(p.Price, over = fsql.window(partitionBy = p.CategoryId, sortBy = p.Price))
+        CatMaxPrice = fsql.max(p.Price, over = fsql.window(partitionBy = p.CategoryId))
+    |}
+}
+"""
+                mkMarkdown "## 3. 📦 Extração de JSON Semi-Estruturado (`fsql.jsonValue` -> `JSON_VALUE`)"
+                mkCode """
+// 3. Filtrando e extraindo campos JSON de especificações diretamente no SQL Server
+fsql {
+    for p in Connections.sql.SqlServer_Advanced.Products do
+    where (fsql.jsonValue(p.Specs, "wireless") = "true" || fsql.jsonValue(p.Specs, "brand") = "KeyMaster")
+    select {|
+        Sku = p.Sku
+        Name = p.Name
+        Brand = fsql.jsonValue(p.Specs, "brand")
+        Wireless = fsql.jsonValue(p.Specs, "wireless")
+    |}
+}
+"""
+                mkMarkdown "## 4. 🎯 Subqueries Correlacionadas (`whereExists`, `whereNotExists` e Projeção Escalar)"
+                mkCode """
+// 4.1 Clientes que realizaram pedidos de alto valor, projetando contagem correlacionada de pedidos
+fsql {
+    for c in Connections.sql.SqlServer_Advanced.Customers do
+    whereExists (fsql { for o in Connections.sql.SqlServer_Advanced.Orders do where (o.CustomerId = c.Id && o.TotalAmount >= 200.0M) })
+    select {|
+        Customer = c.FirstName + " " + c.LastName
+        Email = c.Email
+        TotalOrders = fsql { for o in Connections.sql.SqlServer_Advanced.Orders do where (o.CustomerId = c.Id); count }
+    |}
+}
+"""
+                mkCode """
+// 4.2 Clientes sem pedidos pendentes usando whereNotExists
+fsql {
+    for c in Connections.sql.SqlServer_Advanced.Customers do
+    whereNotExists (fsql { for o in Connections.sql.SqlServer_Advanced.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") })
+    select {|
+        Customer = c.FirstName + " " + c.LastName
+        City = c.City
+        Country = c.Country
+    |}
+}
+"""
+                mkMarkdown "## 5. 📊 Agrupamento e Filtro por Agregação (`having`)"
+                mkCode """
+// 5. Agrupa pedidos por cliente e filtra clientes com 2 ou mais pedidos
+fsql {
+    for o in Connections.sql.SqlServer_Advanced.Orders do
+    groupBy o.CustomerId into g
+    having (fsql { for item in g do count } >= 2)
+    select {|
+        CustomerId = g.Key
+        OrderCount = fsql { for item in g do count }
+        TotalSpent = g.Sum(fun x -> x.TotalAmount)
+    |}
+}
+"""
+                mkMarkdown "## 6. 🧩 Common Table Expressions (CTEs) e Composição Transparente de Múltiplas Queries"
+                mkCode """
+// 6.1 Composição de CTE multivariável em partes (propagação transparente de CTEs, sem tabelas intermediárias manuais)
+let highStockProducts =
+    fsql {
+        for p in Connections.sql.SqlServer_Advanced.Products do
+        where (p.StockQuantity >= 100)
+        select p
+    }
+
+let lowStockProducts =
+    fsql {
+        for p in Connections.sql.SqlServer_Advanced.Products do
+        where (p.StockQuantity < 25)
+        select p
+    }
+
+// Combinando duas variáveis de consulta independentes usando union dentro do fsql
+let allStockAlerts =
+    fsql {
+        for p in highStockProducts do
+        unionAll lowStockProducts
+    }
+
+printfn "SQL Formatado (União de CTEs em Múltiplas Partes):
+%s" (toRawQuery allStockAlerts)
+allStockAlerts
+"""
+                mkCode """
+// 6.2 CTE transparente com JOIN direto (sem registro manual de tabela)
+let catalogWithCategory =
+    fsql {
+        for c in Connections.sql.SqlServer_Advanced.Categories do
+        withCte highStockProducts
+        join p in highStockProducts on (c.Id = p.CategoryId)
+        select (c.Name, p.Name, p.StockQuantity)
+    }
+
+printfn "SQL Formatado (CTE + JOIN):
+%s" (toRawQuery catalogWithCategory)
+catalogWithCategory
+"""
+                mkCode """
+// 6.3 Operações de Conjunto: intersect e except diretamente dentro da CE fsql
+let midTierProducts =
+    fsql {
+        for p in Connections.sql.SqlServer_Advanced.Products do
+        where (p.Price >= 50.0M)
+        select p
+        except (fsql {
+            for p2 in Connections.sql.SqlServer_Advanced.Products do
+            where (p2.Price > 400.0M)
+            select p2
+        })
+    }
+
+printfn "SQL Formatado (EXCEPT):
+%s" (toRawQuery midTierProducts)
+midTierProducts
+"""
+                mkCode """
+// 6.4 Consulta CTE recursiva (hierarquia / geração de sequências)
+let sequenceCte =
+    fsql {
+        for p in Connections.sql.SqlServer_Advanced.Products do
+        withRecursiveCteSql "NumSeries" "SELECT 1 AS n UNION ALL SELECT n + 1 FROM NumSeries WHERE n < 5"
+        take 5
+        select p
+    }
+
+printfn "SQL Formatado (CTE Recursiva):
+%s" (toRawQuery sequenceCte)
+sequenceCte
+"""
+                mkMarkdown "## 7. 🔗 Junções Relacionais e Outer Joins (`leftOuterJoin`, `fullOuterJoin`)"
+                mkCode """
+// 7.1 Left outer join de todos os clientes e seus pedidos (incluindo clientes sem pedidos)
+fsql {
+    for c in Connections.sql.SqlServer_Advanced.Customers do
+    leftOuterJoin o in Connections.sql.SqlServer_Advanced.Orders on (c.Id = o.CustomerId) into orders
+    for o in orders.DefaultIfEmpty() do
+    select {|
+        Customer = c.FirstName + " " + c.LastName
+        City = c.City
+        OrderId = if isNull (box o) then 0 else o.Id
+        TotalAmount = if isNull (box o) then 0.0M else o.TotalAmount
+        Status = if isNull (box o) then "No Orders" else o.Status
+    |}
+}
+"""
+                mkCode """
+// 7.2 Full outer join diretamente dentro da CE fsql
+let catalogWithAllCategories =
+    fsql {
+        for p in Connections.sql.SqlServer_Advanced.Products do
+        fullOuterJoin c in Connections.sql.SqlServer_Advanced.Categories on (p.CategoryId = c.Id) into categories
+        for c in categories.DefaultIfEmpty() do
+        select {|
+            Product = p.Name
+            Category = if isNull (box c) then "None" else c.Name
+        |}
+    }
+
+printfn "SQL Formatado (FULL OUTER JOIN):
+%s" (toRawQuery catalogWithAllCategories)
+catalogWithAllCategories
+"""
+                mkMarkdown "## 8. ⚡ Junção Correlacionada CROSS APPLY"
+                mkCode """
+// 8. Junção CROSS APPLY correlacionada: maior pedido por cliente
+fsql {
+    for c in Connections.sql.SqlServer_Advanced.Customers do
+    for topOrder in (crossApply (fsql {
+        for o in Connections.sql.SqlServer_Advanced.Orders do
+        where (o.CustomerId = c.Id)
+        sortByDescending o.TotalAmount
+        take 1
+        select o
+    })) do
+    select {|
+        Customer = c.FirstName + " " + c.LastName
+        TopOrderId = topOrder.Id
+        TopOrderAmount = topOrder.TotalAmount
+    |}
+}
+"""
+                mkMarkdown "## 9. 📥 Subqueries com `IN` (`.Contains(...)`)"
+                mkCode """
+// 9. Produtos pedidos em quantidades de 3 ou mais usando subquery aninhada IN
+fsql {
+    for p in Connections.sql.SqlServer_Advanced.Products do
+    where ((fsql { for oi in Connections.sql.SqlServer_Advanced.OrderItems do where (oi.Quantity >= 3); select oi.ProductId }).Contains(p.Id))
+    select {|
+        Id = p.Id
+        Product = p.Name
+        Price = p.Price
+        Stock = p.StockQuantity
+    |}
+}
+"""
+                mkMarkdown "## 10. 🌐 Projeção Relacional Multi-Tabela"
+                mkCode """
+// 10. Junção de 4 tabelas relacionais (Orders, Customers, OrderItems, Products)
+fsql {
+    for o in Connections.sql.SqlServer_Advanced.Orders do
+    join c in Connections.sql.SqlServer_Advanced.Customers on (o.CustomerId = c.Id)
+    join oi in Connections.sql.SqlServer_Advanced.OrderItems on (o.Id = oi.OrderId)
+    join p in Connections.sql.SqlServer_Advanced.Products on (oi.ProductId = p.Id)
+    where (o.Status = "Completed")
+    select {|
+        OrderId = o.Id
+        Customer = c.FirstName + " " + c.LastName
+        Product = p.Name
+        Quantity = oi.Quantity
+        LineTotal = oi.LineTotal
+    |}
+}
+"""
+                mkMarkdown "## 11. 🔀 Expressões Condicionais (CASE WHEN) e Funções de String"
+                mkCode """
+// 11. Classificação condicional inline (CASE WHEN) e transformações de texto
+fsql {
+    for p in Connections.sql.SqlServer_Advanced.Products do
+    select {|
+        ProductUpper = p.Name.ToUpper()
+        Price = p.Price
+        Tier = if p.Price >= 300.0M then "Premium" elif p.Price >= 100.0M then "Mid-Range" else "Budget"
+        StockStatus = if p.StockQuantity >= 100 then "In Stock" else "Low Stock"
+    |}
+}
+"""
+                mkMarkdown "## 12. 🔎 Inspeção de Query e Diagnósticos (`toRawQuery` & `toRawSqlWithParameters`)"
+                mkCode """
+// 12. Extração do SQL formatado com cabeçalho de parâmetros para inspeção e auditoria
+let parameterizedQuery =
+    fsql {
+        for p in Connections.sql.SqlServer_Advanced.Products do
+        where (p.Price >= 150.0M && p.StockQuantity > 10)
+        sortByDescending p.Price
+        take 5
+        select p
+    }
+
+let formattedSql = toRawQuery parameterizedQuery
+printfn "SQL formatado com parâmetros vinculados:
+%s" formattedSql
+
+let (rawSql, paramsList) = toRawSqlWithParameters parameterizedQuery
+printfn "String SQL bruta: %s" rawSql
+printfn "Parâmetros vinculados: %A" paramsList
+"""
+                mkMarkdown "## 13. 🔍 Diagnósticos em Tempo Real do Plano de Execução do SQL Server (`SHOWPLAN_TEXT`)"
+                mkCode """
+// 13. Inspeciona o plano de execução retornado diretamente pelo motor do SQL Server usando fsql
+let complexQuery =
+    fsql {
+        for o in Connections.sql.SqlServer_Advanced.Orders do
+        join c in Connections.sql.SqlServer_Advanced.Customers on (o.CustomerId = c.Id)
+        where (o.TotalAmount >= 100.0M)
+        select {|
+            OrderId = o.Id
+            Customer = c.FirstName + " " + c.LastName
+            Amount = o.TotalAmount
+        |}
+    }
+
+let diag = fsql.explain complexQuery
+printfn "Dialeto: %A" diag.Dialect
+printfn "%s" diag.PlanText
+"""
+            ]
+        serializeNotebook cells
+
+    let generateAdvancedSamplesWithLanguage (targetDir: string) (selectedEngines: string list) (language: string option) : AdvancedSampleResult =
         let normalizedEngines =
             selectedEngines
             |> List.map (fun e -> e.ToLowerInvariant().Trim())
@@ -985,14 +1682,24 @@ printfn "%s" diag.PlanText
         if (hasPostgres || hasSqlServer) && not (Directory.Exists initScriptsDir) then
             Directory.CreateDirectory initScriptsDir |> ignore
 
+        let isPtOnly = language = Some "pt"
+        let isEnOnly = language = Some "en"
+
         if hasPostgres then
             let pgScriptPath = Path.Combine(initScriptsDir, "init_postgres.sql")
             File.WriteAllText(pgScriptPath, getPostgresInitSql ())
             initScripts <- pgScriptPath :: initScripts
 
-            let nbPath = Path.Combine(targetDir, "sample_postgresql.fsqnb")
-            File.WriteAllText(nbPath, getPostgresNotebook ())
-            notebooksGenerated <- nbPath :: notebooksGenerated
+            if not isPtOnly then
+                let nbPath = Path.Combine(targetDir, "sample_postgresql.fsqnb")
+                File.WriteAllText(nbPath, getPostgresNotebook ())
+                notebooksGenerated <- nbPath :: notebooksGenerated
+
+            if not isEnOnly then
+                let nbPtPath = Path.Combine(targetDir, "sample_postgresql_pt.fsqnb")
+                File.WriteAllText(nbPtPath, getPostgresNotebookPt ())
+                notebooksGenerated <- nbPtPath :: notebooksGenerated
+
             registeredConns <- "PostgreSQL_Advanced" :: registeredConns
 
         if hasSqlServer then
@@ -1000,9 +1707,16 @@ printfn "%s" diag.PlanText
             File.WriteAllText(sqlServerScriptPath, getSqlServerInitSql ())
             initScripts <- sqlServerScriptPath :: initScripts
 
-            let nbPath = Path.Combine(targetDir, "sample_sqlserver.fsqnb")
-            File.WriteAllText(nbPath, getSqlServerNotebook ())
-            notebooksGenerated <- nbPath :: notebooksGenerated
+            if not isPtOnly then
+                let nbPath = Path.Combine(targetDir, "sample_sqlserver.fsqnb")
+                File.WriteAllText(nbPath, getSqlServerNotebook ())
+                notebooksGenerated <- nbPath :: notebooksGenerated
+
+            if not isEnOnly then
+                let nbPtPath = Path.Combine(targetDir, "sample_sqlserver_pt.fsqnb")
+                File.WriteAllText(nbPtPath, getSqlServerNotebookPt ())
+                notebooksGenerated <- nbPtPath :: notebooksGenerated
+
             registeredConns <- "SqlServer_Advanced" :: registeredConns
 
         if hasPostgres || hasSqlServer then
@@ -1016,3 +1730,6 @@ printfn "%s" diag.PlanText
           InitScripts = List.rev initScripts
           NotebooksGenerated = List.rev notebooksGenerated
           RegisteredConnections = List.rev registeredConns }
+
+    let generateAdvancedSamples (targetDir: string) (selectedEngines: string list) : AdvancedSampleResult =
+        generateAdvancedSamplesWithLanguage targetDir selectedEngines None

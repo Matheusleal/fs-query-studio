@@ -767,12 +767,53 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
         return;
       }
 
+      interface LanguageOption extends vscode.QuickPickItem {
+        lang?: "en" | "pt" | "all";
+      }
+
+      const defaultLang = isPt ? "pt" : "en";
+      const languageOptions: LanguageOption[] = [
+        {
+          label: "$(globe) English",
+          description: isPt
+            ? "Gerar cadernos de demonstração em inglês (*.fsqnb)"
+            : "Generate demo notebooks in English (*.fsqnb)",
+          lang: "en",
+        },
+        {
+          label: "$(globe) Português (Brasil)",
+          description: isPt
+            ? "Gerar cadernos de demonstração em português (*_pt.fsqnb)"
+            : "Generate demo notebooks in Portuguese (*_pt.fsqnb)",
+          lang: "pt",
+        },
+        {
+          label: "$(files) Both / Ambos",
+          description: isPt
+            ? "Gerar demonstrações em inglês e português"
+            : "Generate demos in both English and Portuguese",
+          lang: "all",
+        },
+      ];
+
+      const selectedLangItem = await vscode.window.showQuickPick(languageOptions, {
+        title: isPt
+          ? "Passo 2 de 2: Selecione o Idioma das Demonstrações (Opcional)"
+          : "Step 2 of 2: Select Demo Language (Optional)",
+        placeHolder: isPt
+          ? "Escolha o idioma dos cadernos (pressione Esc para usar o padrão)"
+          : "Choose notebook language (press Esc for default)",
+      });
+
+      const chosenLang = selectedLangItem ? selectedLangItem.lang : defaultLang;
+      const langParam = chosenLang === "all" ? undefined : chosenLang;
+
       const hasStandard = selected.some((s) => s.id === "standard");
       const advancedEngines = selected
         .filter((s) => s.id === "postgresql" || s.id === "sqlserver")
         .map((s) => s.id);
 
-      log(`[Workspace] Creating demos (standard=${hasStandard}, advanced=[${advancedEngines.join(", ")}]) in directory: ${targetDir}`);
+      log(`[Workspace] Creating demos (standard=${hasStandard}, advanced=[${advancedEngines.join(", ")}], lang=${chosenLang}) in directory: ${targetDir}`);
 
       try {
         const openedNotebooks: string[] = [];
@@ -783,7 +824,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
           const res = await worker.send({
             id: randomUUID(),
             method: "workspace/createSampleData",
-            params: { targetDir, targetDirectory: targetDir },
+            params: {
+              targetDir,
+              targetDirectory: targetDir,
+              ...(langParam ? { language: langParam } : {}),
+            },
           });
 
           if (res.error) {
@@ -802,8 +847,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
             notebookPtPath?: string;
           };
 
-          log(`[Workspace] Standard sample data created: Notebook=${data.notebookPath}`);
-          openedNotebooks.push(data.notebookPath);
+          const primaryNotebook =
+            chosenLang === "pt" && data.notebookPtPath
+              ? data.notebookPtPath
+              : data.notebookPath;
+          log(`[Workspace] Standard sample data created: Notebook=${primaryNotebook}`);
+          openedNotebooks.push(primaryNotebook);
           startDataSourcesWatcher();
           void runSyncDataSources(targetDir, true);
         }
@@ -819,6 +868,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
               targetDirectory: targetDir,
               engines: advancedEngines,
               selectedEngines: advancedEngines,
+              ...(langParam ? { language: langParam } : {}),
             },
           });
 

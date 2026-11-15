@@ -13,7 +13,7 @@ type OrderClause = {
 }
 
 type JoinPlan = {
-    JoinType: string
+    mutable JoinType: string
     SourceTable: string
     Alias: string
     OnClause: string
@@ -126,6 +126,7 @@ type PushdownQueryPlan = {
     Having: ResizeArray<string>
     Ctes: ResizeArray<CtePlan>
     SetOperations: ResizeArray<SetOperationPlan>
+    FullOuterJoinTables: ResizeArray<string>
     mutable IsDistinct: bool
     mutable BaseRowType: Type option
     mutable Skip: int option
@@ -148,6 +149,7 @@ type PushdownQueryPlan = {
             Having = ResizeArray<string>()
             Ctes = ResizeArray<CtePlan>()
             SetOperations = ResizeArray<SetOperationPlan>()
+            FullOuterJoinTables = ResizeArray<string>()
             IsDistinct = false
             BaseRowType = baseRowType
             Skip = None
@@ -168,6 +170,7 @@ type PushdownQueryPlan = {
         p.Having.AddRange(this.Having)
         p.Ctes.AddRange(this.Ctes)
         p.SetOperations.AddRange(this.SetOperations)
+        p.FullOuterJoinTables.AddRange(this.FullOuterJoinTables)
         p.IsDistinct <- this.IsDistinct
         p.Skip <- this.Skip
         p.Take <- this.Take

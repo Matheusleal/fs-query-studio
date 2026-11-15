@@ -95,3 +95,72 @@ module SampleDataGeneratorTests =
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
             if Directory.Exists tempDir then
                 try Directory.Delete(tempDir, true) with _ -> ()
+
+    [<Fact>]
+    let ``generateAllSamplesWithLanguage respects language filter`` () =
+        let tempDir = Path.Combine(Path.GetTempPath(), "fsqs_sample_lang_" + Guid.NewGuid().ToString("N"))
+        try
+            Directory.CreateDirectory tempDir |> ignore
+
+            // English only
+            let dirEn = Path.Combine(tempDir, "en")
+            Directory.CreateDirectory dirEn |> ignore
+            let resEn = SampleDataGenerator.generateAllSamplesWithLanguage dirEn (Some "en")
+            Assert.True(File.Exists resEn.NotebookPath, "English notebook should exist")
+            Assert.False(File.Exists resEn.NotebookPtPath, "Portuguese notebook should not exist when language is en")
+
+            // Portuguese only
+            let dirPt = Path.Combine(tempDir, "pt")
+            Directory.CreateDirectory dirPt |> ignore
+            let resPt = SampleDataGenerator.generateAllSamplesWithLanguage dirPt (Some "pt")
+            Assert.False(File.Exists resPt.NotebookPath, "English notebook should not exist when language is pt")
+            Assert.True(File.Exists resPt.NotebookPtPath, "Portuguese notebook should exist when language is pt")
+        finally
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+            if Directory.Exists tempDir then
+                try Directory.Delete(tempDir, true) with _ -> ()
+
+    [<Fact>]
+    let ``generateAdvancedSamplesWithLanguage respects language filter and produces valid dialect notebooks`` () =
+        let tempDir = Path.Combine(Path.GetTempPath(), "fsqs_adv_lang_" + Guid.NewGuid().ToString("N"))
+        try
+            Directory.CreateDirectory tempDir |> ignore
+
+            // English only
+            let dirEn = Path.Combine(tempDir, "en")
+            Directory.CreateDirectory dirEn |> ignore
+            let resEn = AdvancedSampleGenerator.generateAdvancedSamplesWithLanguage dirEn [ "postgresql"; "sqlserver" ] (Some "en")
+            Assert.Contains(Path.Combine(dirEn, "sample_postgresql.fsqnb"), resEn.NotebooksGenerated)
+            Assert.Contains(Path.Combine(dirEn, "sample_sqlserver.fsqnb"), resEn.NotebooksGenerated)
+            Assert.DoesNotContain(Path.Combine(dirEn, "sample_postgresql_pt.fsqnb"), resEn.NotebooksGenerated)
+            Assert.DoesNotContain(Path.Combine(dirEn, "sample_sqlserver_pt.fsqnb"), resEn.NotebooksGenerated)
+
+            // Portuguese only
+            let dirPt = Path.Combine(tempDir, "pt")
+            Directory.CreateDirectory dirPt |> ignore
+            let resPt = AdvancedSampleGenerator.generateAdvancedSamplesWithLanguage dirPt [ "postgresql"; "sqlserver" ] (Some "pt")
+            Assert.Contains(Path.Combine(dirPt, "sample_postgresql_pt.fsqnb"), resPt.NotebooksGenerated)
+            Assert.Contains(Path.Combine(dirPt, "sample_sqlserver_pt.fsqnb"), resPt.NotebooksGenerated)
+            Assert.DoesNotContain(Path.Combine(dirPt, "sample_postgresql.fsqnb"), resPt.NotebooksGenerated)
+            Assert.DoesNotContain(Path.Combine(dirPt, "sample_sqlserver.fsqnb"), resPt.NotebooksGenerated)
+
+            // Validate Portuguese PostgreSQL notebook JSON and content
+            let pgPtJson = File.ReadAllText(Path.Combine(dirPt, "sample_postgresql_pt.fsqnb"))
+            let pgPtDoc = JsonDocument.Parse pgPtJson
+            Assert.Equal(1, pgPtDoc.RootElement.GetProperty("version").GetInt32())
+            Assert.True(pgPtDoc.RootElement.GetProperty("cells").GetArrayLength() >= 13)
+            Assert.Contains("PostgreSQL", pgPtJson)
+            Assert.Contains("fullOuterJoin c in Connections.sql.PostgreSQL_Advanced.categories", pgPtJson)
+            Assert.Contains("withRecursiveCteSql", pgPtJson)
+
+            // Validate Portuguese SQL Server notebook JSON and content
+            let ssPtJson = File.ReadAllText(Path.Combine(dirPt, "sample_sqlserver_pt.fsqnb"))
+            let ssPtDoc = JsonDocument.Parse ssPtJson
+            Assert.Equal(1, ssPtDoc.RootElement.GetProperty("version").GetInt32())
+            Assert.True(ssPtDoc.RootElement.GetProperty("cells").GetArrayLength() >= 13)
+            Assert.Contains("SQL Server", ssPtJson)
+            Assert.Contains("fullOuterJoin c in Connections.sql.SqlServer_Advanced.Categories", ssPtJson)
+            Assert.Contains("withRecursiveCteSql", ssPtJson)
+        finally
+            if Directory.Exists tempDir then
+                try Directory.Delete(tempDir, true) with _ -> ()

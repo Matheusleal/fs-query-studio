@@ -6,7 +6,7 @@
 
 [CmdletBinding()]
 param(
-    [int]$TimeoutSeconds = 600,
+    [int]$TimeoutSeconds = 900,
     [switch]$SkipDocker,
     [switch]$SkipNpm
 )

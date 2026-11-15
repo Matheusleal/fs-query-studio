@@ -1827,17 +1827,23 @@ let ``fsql explain and explainQuery report execution plan for fsql queries`` () 
 [<Fact>]
 let ``fsql CE supports fullOuterJoin directly inside query expression`` () =
     let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
-    let products = SqlPushdownQueryable<TestProduct>(dummyConn, "Products")
+    let customers = SqlPushdownQueryable<TestCustomer>(dummyConn, "Customers")
+    let orders = SqlPushdownQueryable<TestOrder>(dummyConn, "Orders")
 
     let q =
         fsql {
-            for p in products do
-            fullOuterJoin "Suppliers" "s" "p.SupplierId = s.Id"
-            select p
+            for c in customers do
+            fullOuterJoin o in orders on (c.CustomerId = o.CustomerId) into ords
+            for o in ords.DefaultIfEmpty() do
+            select {|
+                Customer = c.CustomerName
+                OrderId = if isNull (box o) then 0 else o.OrderId
+            |}
         }
 
     let raw = toRawQuery q
-    Assert.Contains("FULL OUTER JOIN Suppliers s ON p.SupplierId = s.Id", raw)
+    Assert.Contains("FULL OUTER JOIN Orders", raw)
+    Assert.Contains("ON", raw)
 
 [<Fact>]
 let ``fsql combines separate query variables with CTEs in union without duplication or lost CTEs`` () =
@@ -2016,6 +2022,60 @@ let ``fsql crossApply preserves filters on pre-defined subquery variables`` () =
     Assert.Single(rows) |> ignore
     Assert.Equal("Alice", fst rows.[0])
     Assert.Equal(150.0M, snd rows.[0])
+
+[<Fact>]
+let ``fsql CE supports fully idiomatic fullOuterJoin with into and DefaultIfEmpty`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let customers = SqlPushdownQueryable<TestCustomer>(conn, "Customers")
+    let orders = SqlPushdownQueryable<TestOrder>(conn, "Orders")
+
+    let q =
+        fsql {
+            for c in customers do
+            fullOuterJoin o in orders on (c.CustomerId = o.CustomerId) into ords
+            for o in ords.DefaultIfEmpty() do
+            select {|
+                Customer = c.CustomerName
+                OrderId = if isNull (box o) then 0 else o.OrderId
+            |}
+        }
+
+    let sql = toRawQuery q
+    Assert.Contains("FULL OUTER JOIN Orders", sql)
+    Assert.Contains("ON", sql)
+
+[<Fact>]
+let ``fsql CE supports withRecursiveCteSql and withRecursiveCte with raw subquery`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
+
+    let q1 =
+        fsql {
+            for p in products do
+            withRecursiveCteSql "NumSeries" "SELECT 1 AS n UNION ALL SELECT n + 1 FROM NumSeries WHERE n < 5"
+            take 5
+            select p
+        }
+
+    let sql1 = toRawQuery q1
+    Assert.Contains("WITH RECURSIVE NumSeries AS", sql1)
+    Assert.Contains("FROM NumSeries", sql1)
+    Assert.Contains("LIMIT 5", sql1)
+
+    let q2 =
+        fsql {
+            for p in products do
+            withRecursiveCte "Series2" "SELECT 1 AS n UNION ALL SELECT n + 1 FROM Series2 WHERE n < 10"
+            take 2
+            select p
+        }
+
+    let sql2 = toRawQuery q2
+    Assert.Contains("WITH RECURSIVE Series2 AS", sql2)
+    Assert.Contains("FROM Series2", sql2)
+
 
 
 

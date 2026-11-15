@@ -1496,7 +1496,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(26, codeCells.Length)
+            Assert.Equal(27, codeCells.Length)
 
             for idx, code in List.indexed codeCells do
                 let evalReq = notebookCellRequest $"cell-{idx + 1}" code "sample_demo.fsqnb"
@@ -1543,7 +1543,7 @@ let ``evaluating sample_demo_pt notebook cells succeeds against generated sample
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(26, codeCellsPt.Length)
+            Assert.Equal(27, codeCellsPt.Length)
 
             for idx, code in List.indexed codeCellsPt do
                 let evalReq = notebookCellRequest $"cell-pt-{idx + 1}" code "sample_demo_pt.fsqnb"
@@ -2588,6 +2588,38 @@ let ``results/exportCsv resolves unescaped Windows URI when stored with encoded 
             let content = File.ReadAllText exportPath
             Assert.Contains("Val", content)
             Assert.Contains("999", content)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
+[<Fact>]
+let ``workspace/createSampleData and workspace/createAdvancedSamples respect language parameter`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-handlers-sample-lang-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tmp) |> ignore
+        Handlers.setWorkspaceDirForTests (Some tmp)
+
+        try
+            // 1. createSampleData with language = "pt"
+            let reqSamplePt: WorkerRequestFrame =
+                { Id = "req-sample-pt"
+                  Method = "workspace/createSampleData"
+                  Params = JsonSerializer.SerializeToElement({| targetDir = tmp; language = "pt" |}, Serialization.options) }
+            let! respSamplePt = Handlers.dispatch reqSamplePt
+            Assert.True(respSamplePt.Error.IsNone, (match respSamplePt.Error with Some e -> e.Message | None -> ""))
+            Assert.True(File.Exists(Path.Combine(tmp, "sample_demo_pt.fsqnb")), "Portuguese notebook should be created")
+            Assert.False(File.Exists(Path.Combine(tmp, "sample_demo.fsqnb")), "English notebook should NOT be created when language is pt")
+
+            // 2. createAdvancedSamples with language = "en"
+            let reqAdvEn: WorkerRequestFrame =
+                { Id = "req-adv-en"
+                  Method = "workspace/createAdvancedSamples"
+                  Params = JsonSerializer.SerializeToElement({| targetDir = tmp; engines = [ "postgresql" ]; language = "en" |}, Serialization.options) }
+            let! respAdvEn = Handlers.dispatch reqAdvEn
+            Assert.True(respAdvEn.Error.IsNone, (match respAdvEn.Error with Some e -> e.Message | None -> ""))
+            Assert.True(File.Exists(Path.Combine(tmp, "sample_postgresql.fsqnb")), "English PostgreSQL notebook should be created")
+            Assert.False(File.Exists(Path.Combine(tmp, "sample_postgresql_pt.fsqnb")), "Portuguese PostgreSQL notebook should NOT be created when language is en")
         finally
             Handlers.setWorkspaceDirForTests None
             cleanTempDir tmp

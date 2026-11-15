@@ -1933,10 +1933,14 @@ module ExpressionPushdownTranslator =
                             let innerColRef = if innerCol.Contains(".") then innerCol else $"{innerAlias}.{innerCol}"
                             $"{outerColRef} = {innerColRef}"
 
+                    let isFullOuter =
+                        plan.FullOuterJoinTables.Contains("*")
+                        || (plan.FullOuterJoinTables |> Seq.exists (fun tbl -> String.Equals(tbl, innerTable, StringComparison.OrdinalIgnoreCase)))
                     let joinType =
                         match mName with
                         | "FullOuterJoin" -> "FULL OUTER JOIN"
                         | "RightOuterJoin" -> "RIGHT OUTER JOIN"
+                        | "GroupJoin" when isFullOuter -> "FULL OUTER JOIN"
                         | "GroupJoin" -> "LEFT JOIN"
                         | _ -> "INNER JOIN"
                     plan.Joins.Add({
@@ -3387,6 +3391,14 @@ module SqlComputationExtensions =
         member inline _.WithCteSql(source: QuerySource<'T, 'Q>, subquerySql: string) : QuerySource<'T, 'Q> =
             failwith "withCte marker"
 
+        [<CustomOperation("withCteSql", MaintainsVariableSpace = true)>]
+        member inline _.WithCteSqlAlt(source: QuerySource<'T, 'Q>, name: string, subquerySql: string) : QuerySource<'T, 'Q> =
+            failwith "withCteSql marker"
+
+        [<CustomOperation("withCteSql", MaintainsVariableSpace = true)>]
+        member inline _.WithCteSqlAlt(source: QuerySource<'T, 'Q>, subquerySql: string) : QuerySource<'T, 'Q> =
+            failwith "withCteSql marker"
+
         [<CustomOperation("withRecursiveCte", MaintainsVariableSpace = true)>]
         member inline _.WithRecursiveCte(source: QuerySource<'T, 'Q>, name: string, cteQuery: System.Collections.Generic.IEnumerable<'U>) : QuerySource<'T, 'Q> =
             failwith "withRecursiveCte marker"
@@ -3396,19 +3408,35 @@ module SqlComputationExtensions =
             failwith "withRecursiveCte marker"
 
         [<CustomOperation("withRecursiveCte", MaintainsVariableSpace = true)>]
-        member inline _.WithRecursiveCteSql(source: QuerySource<'T, 'Q>, name: string, subquerySql: string) : QuerySource<'T, 'Q> =
+        member inline _.WithRecursiveCte(source: QuerySource<'T, 'Q>, name: string, subquerySql: string) : QuerySource<'T, 'Q> =
             failwith "withRecursiveCte marker"
 
         [<CustomOperation("withRecursiveCte", MaintainsVariableSpace = true)>]
-        member inline _.WithRecursiveCteSql(source: QuerySource<'T, 'Q>, subquerySql: string) : QuerySource<'T, 'Q> =
+        member inline _.WithRecursiveCte(source: QuerySource<'T, 'Q>, subquerySql: string) : QuerySource<'T, 'Q> =
             failwith "withRecursiveCte marker"
 
-        [<CustomOperation("fullOuterJoin", MaintainsVariableSpace = true)>]
-        member inline _.FullOuterJoin(source: QuerySource<'T, 'Q>, tableOrQuery: string, alias: string, onClause: string) : QuerySource<'T, 'Q> =
+        [<CustomOperation("withRecursiveCteSql", MaintainsVariableSpace = true)>]
+        member inline _.WithRecursiveCteSql(source: QuerySource<'T, 'Q>, name: string, subquerySql: string) : QuerySource<'T, 'Q> =
+            failwith "withRecursiveCteSql marker"
+
+        [<CustomOperation("withRecursiveCteSql", MaintainsVariableSpace = true)>]
+        member inline _.WithRecursiveCteSql(source: QuerySource<'T, 'Q>, subquerySql: string) : QuerySource<'T, 'Q> =
+            failwith "withRecursiveCteSql marker"
+
+        [<CustomOperation("fullOuterJoin", IsLikeGroupJoin = true)>]
+        member inline _.FullOuterJoin(source: QuerySource<'T, 'Q>, provider: QuerySource<'U, 'Q>, outerKey: 'T -> 'Key, innerKey: 'U -> 'Key, resultSelector: 'T -> seq<'U> -> 'Result) : QuerySource<'Result, 'Q> =
             failwith "fullOuterJoin marker"
 
-        [<CustomOperation("rightOuterJoin", MaintainsVariableSpace = true)>]
-        member inline _.RightOuterJoin(source: QuerySource<'T, 'Q>, tableOrQuery: string, alias: string, onClause: string) : QuerySource<'T, 'Q> =
+        [<CustomOperation("rightOuterJoin", IsLikeGroupJoin = true)>]
+        member inline _.RightOuterJoin(source: QuerySource<'T, 'Q>, provider: QuerySource<'U, 'Q>, outerKey: 'T -> 'Key, innerKey: 'U -> 'Key, resultSelector: 'T -> seq<'U> -> 'Result) : QuerySource<'Result, 'Q> =
+            failwith "rightOuterJoin marker"
+
+        [<CustomOperation("fullOuterJoinRaw", MaintainsVariableSpace = true)>]
+        member inline _.FullOuterJoinRaw(source: QuerySource<'T, 'Q>, tableOrQuery: string, alias: string, onClause: string) : QuerySource<'T, 'Q> =
+            failwith "fullOuterJoin marker"
+
+        [<CustomOperation("rightOuterJoinRaw", MaintainsVariableSpace = true)>]
+        member inline _.RightOuterJoinRaw(source: QuerySource<'T, 'Q>, tableOrQuery: string, alias: string, onClause: string) : QuerySource<'T, 'Q> =
             failwith "rightOuterJoin marker"
 
         [<CustomOperation("crossJoin", MaintainsVariableSpace = true)>]
@@ -3487,6 +3515,9 @@ module SqlComputationExtensions =
             let countMethod =
                 typeof<System.Linq.Enumerable>.GetMethods()
                 |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)
+            let leftOuterJoinMethod =
+                typeof<QueryBuilder>.GetMethods()
+                |> Seq.find (fun m -> m.Name = "LeftOuterJoin" && m.GetParameters().Length = 5)
             let queryBuilderRunMethod =
                 typeof<QueryBuilder>.GetMethods()
                 |> Seq.find (fun m ->
@@ -3496,6 +3527,7 @@ module SqlComputationExtensions =
 
             let ctes = ResizeArray<string * obj * bool>()
             let explicitJoins = ResizeArray<string * string * string * string>()
+            let fullOuterJoinTables = ResizeArray<string>()
             let mutable fromCteName: string option = None
 
             let rec tryFindRootSource (e: Expr) : obj option =
@@ -3539,7 +3571,7 @@ module SqlComputationExtensions =
 
             let rec peelCustomOps (expr: Expr) : Expr =
                 match expr with
-                | Call(instanceOpt, mi, [ innerSource; nameArg; cteArg ]) when mi.Name = "WithCte" || mi.Name = "WithCteSql" || mi.Name = "WithRecursiveCte" || mi.Name = "WithRecursiveCteSql" ->
+                | Call(instanceOpt, mi, [ innerSource; nameArg; cteArg ]) when mi.Name = "WithCte" || mi.Name = "WithCteSql" || mi.Name = "WithCteSqlAlt" || mi.Name = "WithRecursiveCte" || mi.Name = "WithRecursiveCteSql" ->
                     let name = LeafExpressionConverter.EvaluateQuotation(nameArg) :?> string
                     let cteVal =
                         match cteArg with
@@ -3551,7 +3583,7 @@ module SqlComputationExtensions =
                     | Some rSrc when isSourceMatch rSrc cteVal -> fromCteName <- Some name
                     | _ -> ()
                     peelCustomOps innerSource
-                | Call(instanceOpt, mi, [ innerSource; cteArg ]) when mi.Name = "WithCte" || mi.Name = "WithCteSql" || mi.Name = "WithRecursiveCte" || mi.Name = "WithRecursiveCteSql" ->
+                | Call(instanceOpt, mi, [ innerSource; cteArg ]) when mi.Name = "WithCte" || mi.Name = "WithCteSql" || mi.Name = "WithCteSqlAlt" || mi.Name = "WithRecursiveCte" || mi.Name = "WithRecursiveCteSql" ->
                     let autoName = $"cte_{ctes.Count + 1}"
                     let cteVal =
                         match cteArg with
@@ -3563,11 +3595,11 @@ module SqlComputationExtensions =
                     | Some rSrc when isSourceMatch rSrc cteVal -> fromCteName <- Some autoName
                     | _ -> ()
                     peelCustomOps innerSource
-                | Call(instanceOpt, mi, [ innerSource; tableArg; aliasArg; onArg ]) when mi.Name = "FullOuterJoin" || mi.Name = "RightOuterJoin" ->
+                | Call(instanceOpt, mi, [ innerSource; tableArg; aliasArg; onArg ]) when mi.Name = "FullOuterJoinRaw" || mi.Name = "RightOuterJoinRaw" ->
                     let tbl = LeafExpressionConverter.EvaluateQuotation(tableArg) :?> string
                     let alias = LeafExpressionConverter.EvaluateQuotation(aliasArg) :?> string
                     let onCl = LeafExpressionConverter.EvaluateQuotation(onArg) :?> string
-                    let jt = if mi.Name = "FullOuterJoin" then "FULL OUTER JOIN" else "RIGHT OUTER JOIN"
+                    let jt = if mi.Name.StartsWith("Full") then "FULL OUTER JOIN" else "RIGHT OUTER JOIN"
                     explicitJoins.Add((jt, tbl, alias, onCl))
                     peelCustomOps innerSource
                 | Call(instanceOpt, mi, [ innerSource; tableArg; aliasArg ]) when mi.Name = "CrossJoin" ->
@@ -3588,6 +3620,46 @@ module SqlComputationExtensions =
                     match instanceOpt with
                     | Some inst -> Expr.Call(inst, genericRun, [ newInner ])
                     | None -> Expr.Call(genericRun, [ newInner ])
+                | Call(instanceOpt, mi, [ source; provider; outerKey; innerKey; resultSelector ]) when (mi.Name = "FullOuterJoin" || mi.Name = "RightOuterJoin") && mi.GetGenericArguments().Length = 5 ->
+                    let genArgs = mi.GetGenericArguments()
+                    let genericLeftOuterJoin = leftOuterJoinMethod.MakeGenericMethod(genArgs)
+                    let provObj =
+                        try
+                            let v = LeafExpressionConverter.EvaluateQuotation(provider)
+                            let t = v.GetType()
+                            let srcProp = t.GetProperty("Source")
+                            if not (isNull srcProp) then srcProp.GetValue(v) else v
+                        with _ -> null
+                    if not (isNull provObj) then
+                        match provObj with
+                        | :? IQueryable as iq ->
+                            match SqlPushdownQuery.tryFindPushdownSource iq.Expression with
+                            | Some (_, Some p) -> fullOuterJoinTables.Add(p.BaseSql)
+                            | Some (sIq, None) ->
+                                try
+                                    let pProp = sIq.GetType().GetProperty("Plan")
+                                    if not (isNull pProp) then
+                                        let p = pProp.GetValue(sIq) :?> PushdownQueryPlan
+                                        fullOuterJoinTables.Add(p.BaseSql)
+                                with _ -> ()
+                            | None -> ()
+                        | _ -> ()
+                    let rec tryFindTable (e: Expr) : string option =
+                        match e with
+                        | PropertyGet(_, pi, _) -> Some pi.Name
+                        | Call(_, _, args) -> args |> List.tryPick tryFindTable
+                        | Coerce(inner, _) -> tryFindTable inner
+                        | _ -> None
+                    match tryFindTable provider with
+                    | Some tbl -> fullOuterJoinTables.Add(tbl)
+                    | None -> ()
+                    if fullOuterJoinTables.Count = 0 then fullOuterJoinTables.Add("*")
+                    let newSource = rewrite source
+                    let newProvider = rewrite provider
+                    let newResultSelector = rewrite resultSelector
+                    match instanceOpt with
+                    | Some inst -> Expr.Call(inst, genericLeftOuterJoin, [ newSource; newProvider; outerKey; innerKey; newResultSelector ])
+                    | None -> Expr.Call(genericLeftOuterJoin, [ newSource; newProvider; outerKey; innerKey; newResultSelector ])
                 | Call(Some instance, mi, [ source; Lambda(var, body) ]) when mi.Name = "WhereExists" ->
                     let srcType = mi.GetGenericArguments().[0]
                     let qType = mi.GetGenericArguments().[1]
@@ -3654,6 +3726,11 @@ module SqlComputationExtensions =
                             plan.Ctes.Add({ Name = name; SubquerySql = remappedSql; IsRecursive = isRec; SourceQuery = Some cteVal })
                 for (jt, tbl, alias, onCl) in explicitJoins do
                     plan.Joins.Add({ JoinType = jt; SourceTable = tbl; Alias = alias; OnClause = onCl; RowType = None })
+                plan.FullOuterJoinTables.AddRange(fullOuterJoinTables)
+                if fullOuterJoinTables.Count > 0 then
+                    for j in plan.Joins do
+                        if fullOuterJoinTables.Contains("*") || (fullOuterJoinTables |> Seq.exists (fun tbl -> String.Equals(tbl, j.SourceTable, StringComparison.OrdinalIgnoreCase))) then
+                            j.JoinType <- "FULL OUTER JOIN"
                 match fromCteName with
                 | Some cName ->
                     plan.BaseSql <- cName

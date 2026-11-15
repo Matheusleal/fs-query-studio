@@ -908,7 +908,26 @@ module Handlers =
                 |> Option.orElse (tryGetProp "TargetDirectory")
                 |> Option.defaultValue (workspaceDir ())
 
-            let result = WorkspaceOperations.createSampleData dir secretStore
+            let language =
+                let tryGetProp (name: string) =
+                    try
+                        if request.Params.ValueKind = JsonValueKind.Object then
+                            let mutable prop = Unchecked.defaultof<JsonElement>
+                            if request.Params.TryGetProperty(name, &prop) && prop.ValueKind = JsonValueKind.String then
+                                let v = prop.GetString()
+                                if String.IsNullOrWhiteSpace v then None else Some(v.Trim().ToLowerInvariant())
+                            else
+                                None
+                        else
+                            None
+                    with _ ->
+                        None
+
+                tryGetProp "language"
+                |> Option.orElse (tryGetProp "Language")
+                |> Option.orElse (tryGetProp "lang")
+
+            let result = WorkspaceOperations.createSampleDataWithLanguage dir language secretStore
             { Id = request.Id
               Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
               Error = None }
@@ -956,7 +975,26 @@ module Handlers =
                 with _ ->
                     [ "sqlite"; "postgresql"; "sqlserver" ]
 
-            let result = WorkspaceOperations.createAdvancedSamples dir engines secretStore
+            let language =
+                let tryGetProp (name: string) =
+                    try
+                        if request.Params.ValueKind = JsonValueKind.Object then
+                            let mutable prop = Unchecked.defaultof<JsonElement>
+                            if request.Params.TryGetProperty(name, &prop) && prop.ValueKind = JsonValueKind.String then
+                                let v = prop.GetString()
+                                if String.IsNullOrWhiteSpace v then None else Some(v.Trim().ToLowerInvariant())
+                            else
+                                None
+                        else
+                            None
+                    with _ ->
+                        None
+
+                tryGetProp "language"
+                |> Option.orElse (tryGetProp "Language")
+                |> Option.orElse (tryGetProp "lang")
+
+            let result = WorkspaceOperations.createAdvancedSamplesWithLanguage dir engines language secretStore
             { Id = request.Id
               Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
               Error = None }

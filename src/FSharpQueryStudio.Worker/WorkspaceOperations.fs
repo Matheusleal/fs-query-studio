@@ -276,8 +276,8 @@ module WorkspaceOperations =
           SkippedCount = candidateFiles.Length - newlyImported.Length }
 
     /// Generates sample data files inside data_sources/ and registers them via the natural auto-import pipeline plus the sample REST source.
-    let createSampleData (dir: string) (secretStore: ISecretStore) : SampleCreateResult =
-        let files = SampleDataGenerator.generateAllSamples dir
+    let createSampleDataWithLanguage (dir: string) (language: string option) (secretStore: ISecretStore) : SampleCreateResult =
+        let files = SampleDataGenerator.generateAllSamplesWithLanguage dir language
 
         let sampleFileNames =
             set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "ProductCatalog"; "LogisticsHub"; "GitHubFSharp" ]
@@ -324,9 +324,13 @@ module WorkspaceOperations =
           NotebookPtPath = files.NotebookPtPath
           RegisteredConnections = [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "ProductCatalog"; "LogisticsHub"; "GitHubFSharp" ] }
 
+    /// Generates sample data files inside data_sources/ and registers them via the natural auto-import pipeline plus the sample REST source.
+    let createSampleData (dir: string) (secretStore: ISecretStore) : SampleCreateResult =
+        createSampleDataWithLanguage dir None secretStore
+
     /// Generates containerized and dialect-specific advanced database sample environments, Docker Compose configs, and notebooks.
-    let createAdvancedSamples (dir: string) (engines: string list) (secretStore: ISecretStore) : AdvancedSampleGenerator.AdvancedSampleResult =
-        let result = AdvancedSampleGenerator.generateAdvancedSamples dir engines
+    let createAdvancedSamplesWithLanguage (dir: string) (engines: string list) (language: string option) (secretStore: ISecretStore) : AdvancedSampleGenerator.AdvancedSampleResult =
+        let result = AdvancedSampleGenerator.generateAdvancedSamplesWithLanguage dir engines language
         let currentConns = Workspace.readConnections dir
 
         let mutable newConns = currentConns
@@ -374,5 +378,9 @@ module WorkspaceOperations =
 
         SessionStore.resetAll ()
         result
+
+    /// Generates containerized and dialect-specific advanced database sample environments, Docker Compose configs, and notebooks.
+    let createAdvancedSamples (dir: string) (engines: string list) (secretStore: ISecretStore) : AdvancedSampleGenerator.AdvancedSampleResult =
+        createAdvancedSamplesWithLanguage dir engines None secretStore
 
 
