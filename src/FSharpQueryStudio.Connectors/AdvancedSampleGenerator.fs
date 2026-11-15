@@ -410,26 +410,24 @@ fsql {
 """
                 mkMarkdown "## 6. 🧩 Common Table Expressions (CTEs) & Set Operations (`union`, `intersect`, `except`)"
                 mkCode """
-// 6.1 CTE combined with union directly inside fsql CE
-let combinedOrders =
+// 6.1 CTE (Common Table Expression) consumida diretamente via JOIN
+let highValueOrders =
     fsql {
         for o in Connections.sql.PostgreSQL_Advanced.orders do
-        withCte (fsql {
-            for o2 in Connections.sql.PostgreSQL_Advanced.orders do
-            where (o2.total_amount >= 300.0M)
-            select o2
-        })
         where (o.total_amount >= 300.0M)
         select o
-        union (fsql {
-            for o3 in Connections.sql.PostgreSQL_Advanced.orders do
-            where (o3.total_amount < 150.0M)
-            select o3
-        })
     }
 
-printfn "Formatted SQL (UNION):\n%s" (toRawQuery combinedOrders)
-combinedOrders
+let ordersWithCustomer =
+    fsql {
+        for c in Connections.sql.PostgreSQL_Advanced.customers do
+        withCte "HighValueOrders" highValueOrders
+        join o in highValueOrders on (c.id = o.customer_id)
+        select (c.first_name + " " + c.last_name, o.id, o.total_amount)
+    }
+
+printfn "Formatted SQL (CTE + JOIN):\n%s" (toRawQuery ordersWithCustomer)
+ordersWithCustomer
 """
                 mkCode """
 // 6.2 Set Operations: intersect and except directly inside fsql CE
@@ -631,26 +629,24 @@ fsql {
 """
                 mkMarkdown "## 6. 🧩 Common Table Expressions (CTEs) & Set Operations (`union`, `intersect`, `except`)"
                 mkCode """
-// 6.1 CTE combined with union directly inside fsql CE
-let combinedCatalog =
+// 6.1 CTE (Common Table Expression) consumida diretamente via JOIN
+let highStockProducts =
     fsql {
         for p in Connections.sql.SqlServer_Advanced.Products do
-        withCte (fsql {
-            for p2 in Connections.sql.SqlServer_Advanced.Products do
-            where (p2.StockQuantity >= 100)
-            select p2
-        })
         where (p.StockQuantity >= 100)
         select p
-        union (fsql {
-            for p3 in Connections.sql.SqlServer_Advanced.Products do
-            where (p3.StockQuantity < 50)
-            select p3
-        })
     }
 
-printfn "Formatted SQL (UNION):\n%s" (toRawQuery combinedCatalog)
-combinedCatalog
+let catalogWithCategory =
+    fsql {
+        for c in Connections.sql.SqlServer_Advanced.Categories do
+        withCte "HighStockProducts" highStockProducts
+        join p in highStockProducts on (c.Id = p.CategoryId)
+        select (c.Name, p.Name, p.StockQuantity)
+    }
+
+printfn "Formatted SQL (CTE + JOIN):\n%s" (toRawQuery catalogWithCategory)
+catalogWithCategory
 """
                 mkCode """
 // 6.2 Set Operations: intersect and except directly inside fsql CE
@@ -843,26 +839,24 @@ fsql {
 """
                 mkMarkdown "## 6. 🧩 Common Table Expressions (CTEs) & Set Operations (`union`, `intersect`, `except`)"
                 mkCode """
-// 6.1 CTE combined with union directly inside fsql CE
-let combinedCatalog =
+// 6.1 CTE (Common Table Expression) consumida diretamente via JOIN
+let highPriceProducts =
     fsql {
         for p in Connections.sql.SQLite_Advanced.Products do
-        withCte (fsql {
-            for p2 in Connections.sql.SQLite_Advanced.Products do
-            where (p2.Price >= 200.0f)
-            select p2
-        })
         where (p.Price >= 200.0f)
         select p
-        union (fsql {
-            for p3 in Connections.sql.SQLite_Advanced.Products do
-            where (p3.Price < 100.0f)
-            select p3
-        })
     }
 
-printfn "Formatted SQL (UNION):\n%s" (toRawQuery combinedCatalog)
-combinedCatalog
+let catalogWithCategory =
+    fsql {
+        for c in Connections.sql.SQLite_Advanced.Categories do
+        withCte "HighPriceProducts" highPriceProducts
+        join p in highPriceProducts on (c.Id = p.CategoryId)
+        select (c.Name, p.Name, p.Price)
+    }
+
+printfn "Formatted SQL (CTE + JOIN):\n%s" (toRawQuery catalogWithCategory)
+catalogWithCategory
 """
                 mkCode """
 // 6.2 Set Operations: intersect and except directly inside fsql CE

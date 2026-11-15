@@ -229,16 +229,36 @@ let errors =
 FSQL supports declaring CTEs (with or without an explicit name) and performing set operations directly within the `fsql { ... }` computation expression:
 
 ```fsharp
-// Common Table Expression (CTE without explicit name) combined with Set Operations directly inside fsql CE
-let topCatalog =
+// 1. Common Table Expression (CTE) declarada em variável e consumida diretamente no JOIN (sem dummy tables!)
+let highPriceProducts =
     fsql {
         for p in Connections.sql.SampleStore.Products do
-        withCte (fsql {
-            for p2 in Connections.sql.SampleStore.Products do
-            where (p2.Price >= 200.0f)
-            select p2
-        })
         where (p.Price >= 200.0f)
+        select p
+    }
+
+// A CTE é injetada de forma transparente e consumida com tipagem completa:
+let ordersWithHighPrice =
+    fsql {
+        for o in Connections.sql.SampleStore.Orders do
+        withCte "HighPriceProducts" highPriceProducts
+        join h in highPriceProducts on (o.ProductId = h.Id)
+        select (o.OrderId, o.Quantity, h.Name, h.Price)
+    }
+
+// 2. Auto-CTE: ao juntar uma subquery fsql, ela é promovida a CTE automaticamente mesmo sem withCte:
+let autoCteJoin =
+    fsql {
+        for o in Connections.sql.SampleStore.Orders do
+        join h in highPriceProducts on (o.ProductId = h.Id)
+        select (o.OrderId, o.Quantity, h.Name, h.Price)
+    }
+
+// 3. Composição de CTE com Set Operations (UNION, UNION ALL, INTERSECT, EXCEPT)
+let topAndCheapCatalog =
+    fsql {
+        for p in highPriceProducts do
+        withCte highPriceProducts
         select p
         union (fsql {
             for p3 in Connections.sql.SampleStore.Products do

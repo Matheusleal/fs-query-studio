@@ -44,7 +44,15 @@ type CtePlan = {
     Name: string
     SubquerySql: string
     IsRecursive: bool
-}
+    SourceQuery: obj option
+} with
+    static member Create(name: string, subquerySql: string, ?isRecursive: bool, ?sourceQuery: obj) =
+        {
+            Name = name
+            SubquerySql = subquerySql
+            IsRecursive = defaultArg isRecursive false
+            SourceQuery = sourceQuery
+        }
 
 type ExecutionPlanReport = {
     Dialect: SqlDialect
@@ -107,7 +115,7 @@ module SqlPushdownFormatting =
 
 /// Represents the planned SQL pushdown query and any in-memory fallback predicates.
 type PushdownQueryPlan = {
-    BaseSql: string
+    mutable BaseSql: string
     BaseParameters: (string * obj) list
     BaseAlias: string
     Joins: ResizeArray<JoinPlan>

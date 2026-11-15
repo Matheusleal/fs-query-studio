@@ -181,6 +181,21 @@ module ExpressionPushdownTranslator =
             tryFindPushdownSource u.Operand
         | _ -> None
 
+    let tryExtractSubquerySql (plan: PushdownQueryPlan) (queryObj: obj) : (string * (string * obj) list) option =
+        match queryObj with
+        | null -> None
+        | :? IQueryable as iq ->
+            match tryFindPushdownSource iq.Expression with
+            | Some (sourceIq, seedPlan) ->
+                let t = sourceIq.Provider.GetType()
+                let m = t.GetMethod("ToSqlWithParameters", [| typeof<Expression>; typeof<PushdownQueryPlan option> |])
+                if not (isNull m) then
+                    let res = m.Invoke(sourceIq.Provider, [| box iq.Expression; box seedPlan |]) :?> (string * (string * obj) list)
+                    Some res
+                else None
+            | None -> None
+        | _ -> None
+
     let rec unwrapOptionOrNullableMember (expr: Expression) : Expression =
         match expr with
         | null -> null
@@ -1652,8 +1667,117 @@ module ExpressionPushdownTranslator =
                     | None | _ -> ()
 
                 let innerArg = mc.Arguments.[1]
-                match tryExtractQueryableInfo innerArg with
-                | Some (innerTable, _, innerRowType) ->
+                let innerObjOpt =
+                    try
+                        match unwrapQuote innerArg with
+                        | :? ConstantExpression as ce when not (isNull ce.Value) -> Some ce.Value
+                        | :? MemberExpression as me ->
+                            let target =
+                                if isNull me.Expression then null
+                                else
+                                    match me.Expression with
+                                    | :? ConstantExpression as ce -> ce.Value
+                                    | other ->
+                                        let lambda = Expression.Lambda(other)
+                                        lambda.Compile().DynamicInvoke()
+                            let v =
+                                match me.Member with
+                                | :? System.Reflection.FieldInfo as fi -> fi.GetValue(target)
+                                | :? System.Reflection.PropertyInfo as pi -> pi.GetValue(target)
+                                | _ -> null
+                            if not (isNull v) then Some v else None
+                        | other when typeof<IQueryable>.IsAssignableFrom(other.Type) ->
+                            let lambda = Expression.Lambda(other)
+                            let v = lambda.Compile().DynamicInvoke()
+                            if not (isNull v) then Some v else None
+                        | _ -> None
+                    with _ -> None
+
+                let matchingCte =
+                    match innerObjOpt with
+                    | Some objVal ->
+                        plan.Ctes
+                        |> Seq.tryFind (fun c ->
+                            match c.SourceQuery with
+                            | Some sq ->
+                                obj.ReferenceEquals(sq, objVal)
+                                || (
+                                    // Compare underlying pushdown source/expression
+                                    match box sq, box objVal with
+                                    | (:? IQueryable as sqIq), (:? IQueryable as objIq) ->
+                                        obj.ReferenceEquals(sqIq.Expression, objIq.Expression)
+                                        || (
+                                            match tryFindPushdownSource sqIq.Expression, tryFindPushdownSource objIq.Expression with
+                                            | Some (s1, _), Some (s2, _) -> obj.ReferenceEquals(s1, s2)
+                                            | _ -> false
+                                        )
+                                    | _ -> false
+                                )
+                            | None -> false)
+                        |> Option.orElseWith (fun () ->
+                            match tryExtractSubquerySql plan objVal with
+                            | Some (subSql, _) ->
+                                plan.Ctes |> Seq.tryFind (fun c -> c.SubquerySql = subSql)
+                            | None -> None)
+                    | None -> None
+
+                let innerTableOpt, innerRowTypeOpt =
+                    match matchingCte with
+                    | Some cte ->
+                        let rType =
+                            match tryExtractQueryableInfo innerArg with
+                            | Some (_, _, t) -> t
+                            | None ->
+                                if innerArg.Type.IsGenericType then Some (innerArg.Type.GetGenericArguments().[0])
+                                else None
+                        (Some cte.Name, rType)
+                    | None ->
+                        match innerObjOpt with
+                        | Some objVal when typeof<IQueryable>.IsAssignableFrom(objVal.GetType()) ->
+                            let isActualSubquery =
+                                match objVal with
+                                | :? IQueryable as iq ->
+                                    match iq.Expression with
+                                    | :? MethodCallExpression -> true
+                                    | _ ->
+                                        match tryFindPushdownSource iq.Expression with
+                                        | Some (_, Some p) ->
+                                            p.WhereClauses.Count > 0 || p.Joins.Count > 0 || p.GroupBy.Count > 0 || p.Projection.IsSome || p.Ctes.Count > 0 || p.Having.Count > 0
+                                        | _ -> false
+                                | _ -> false
+                            if isActualSubquery then
+                                match tryExtractSubquerySql plan objVal with
+                                | Some (subSql, subParams) ->
+                                    let autoCteName = $"cte_{plan.Ctes.Count + 1}"
+                                    let mutable remappedSql = subSql
+                                    for (pName, pVal) in subParams do
+                                        let uniqueName = $"@p{plan.Parameters.Count}"
+                                        remappedSql <- remappedSql.Replace(pName, uniqueName)
+                                        plan.Parameters.Add(uniqueName, pVal)
+                                    plan.Ctes.Add({ Name = autoCteName; SubquerySql = remappedSql; IsRecursive = false; SourceQuery = Some objVal })
+                                    let rType =
+                                        match tryExtractQueryableInfo innerArg with
+                                        | Some (_, _, t) -> t
+                                        | None ->
+                                            if innerArg.Type.IsGenericType then Some (innerArg.Type.GetGenericArguments().[0])
+                                            else None
+                                    (Some autoCteName, rType)
+                                | None ->
+                                    match tryExtractQueryableInfo innerArg with
+                                    | Some (tbl, _, rt) -> (Some tbl, rt)
+                                    | None -> (None, None)
+                            else
+                                match tryExtractQueryableInfo innerArg with
+                                | Some (tbl, _, rt) -> (Some tbl, rt)
+                                | None -> (None, None)
+                        | _ ->
+                            match tryExtractQueryableInfo innerArg with
+                            | Some (tbl, _, rt) -> (Some tbl, rt)
+                            | None -> (None, None)
+
+                match innerTableOpt with
+                | Some innerTable when not (String.IsNullOrWhiteSpace innerTable) ->
+                    let innerRowType = innerRowTypeOpt
                     let nextIdx = plan.Joins.Count + 1
                     let innerAlias = sprintf "_t%d" nextIdx
                     let defaultOuterAlias = if plan.Joins.Count = 0 then plan.BaseAlias else sprintf "_t%d" plan.Joins.Count
@@ -1686,7 +1810,7 @@ module ExpressionPushdownTranslator =
                         OnClause = onClause
                         RowType = innerRowType
                     })
-                | None | _ -> ()
+                | _ -> ()
             | "SelectMany" when mc.Arguments.Count >= 2 ->
                 let innerArg = unwrapQuote mc.Arguments.[1]
                 let outerParamOpt, innerExpr =
@@ -2662,7 +2786,7 @@ and SqlPushdownQueryable<'T>(
                 let uniqueName = $"@p{newPlan.Parameters.Count}"
                 subSql <- subSql.Replace(pName, uniqueName)
                 newPlan.Parameters.Add(uniqueName, pVal)
-            newPlan.Ctes.Add({ Name = name; SubquerySql = subSql; IsRecursive = defaultArg isRecursive false })
+            newPlan.Ctes.Add({ Name = name; SubquerySql = subSql; IsRecursive = defaultArg isRecursive false; SourceQuery = Some (box cteQuery) })
         | _ -> ()
         SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
 
@@ -2709,7 +2833,7 @@ and SqlPushdownQueryable<'T>(
             let uniqueName = $"@p{newPlan.Parameters.Count}"
             remappedSql <- remappedSql.Replace(k, uniqueName)
             newPlan.Parameters.Add(uniqueName, v)
-        newPlan.Ctes.Add({ Name = name; SubquerySql = remappedSql; IsRecursive = defaultArg isRecursive false })
+        newPlan.Ctes.Add({ Name = name; SubquerySql = remappedSql; IsRecursive = defaultArg isRecursive false; SourceQuery = None })
         SqlPushdownQueryable<'T>(provider, (this :> IQueryable<'T>).Expression, connector, baseSql, baseParameters, newPlan)
 
     /// Returns a structured query execution plan report for diagnostics.
@@ -3144,6 +3268,46 @@ module SqlComputationExtensions =
 
             let ctes = ResizeArray<string * obj * bool>()
             let explicitJoins = ResizeArray<string * string * string * string>()
+            let mutable fromCteName: string option = None
+
+            let rec tryFindRootSource (e: Expr) : obj option =
+                match e with
+                | Call(_, mi, firstArg :: _) when mi.DeclaringType = typeof<QueryBuilder> || mi.DeclaringType = typeof<FSqlQueryBuilder> ->
+                    tryFindRootSource firstArg
+                    |> Option.orElseWith (fun () ->
+                        try
+                            let v = LeafExpressionConverter.EvaluateQuotation firstArg
+                            if isNull v then None
+                            else
+                                let t = v.GetType()
+                                let srcProp = t.GetProperty("Source")
+                                if not (isNull srcProp) then Some (srcProp.GetValue(v))
+                                else Some v
+                        with _ -> None)
+                | _ ->
+                    try
+                        let v = LeafExpressionConverter.EvaluateQuotation e
+                        if isNull v then None
+                        else
+                            let t = v.GetType()
+                            let srcProp = t.GetProperty("Source")
+                            if not (isNull srcProp) then Some (srcProp.GetValue(v))
+                            else Some v
+                    with _ -> None
+
+            let isSourceMatch (sourceObj: obj) (targetCte: obj) =
+                if isNull sourceObj || isNull targetCte then false
+                elif obj.ReferenceEquals(sourceObj, targetCte) then true
+                else
+                    match sourceObj, targetCte with
+                    | (:? IQueryable as sqIq), (:? IQueryable as cteIq) ->
+                        obj.ReferenceEquals(sqIq.Expression, cteIq.Expression)
+                        || (
+                            match SqlPushdownQuery.tryFindPushdownSource sqIq.Expression, SqlPushdownQuery.tryFindPushdownSource cteIq.Expression with
+                            | Some (s1, _), Some (s2, _) -> obj.ReferenceEquals(s1, s2)
+                            | _ -> false
+                        )
+                    | _ -> false
 
             let rec peelCustomOps (expr: Expr) : Expr =
                 match expr with
@@ -3155,6 +3319,9 @@ module SqlComputationExtensions =
                         | _ -> LeafExpressionConverter.EvaluateQuotation(cteArg)
                     let isRec = mi.Name.StartsWith("WithRecursive")
                     ctes.Add((name, cteVal, isRec))
+                    match tryFindRootSource innerSource with
+                    | Some rSrc when isSourceMatch rSrc cteVal -> fromCteName <- Some name
+                    | _ -> ()
                     peelCustomOps innerSource
                 | Call(instanceOpt, mi, [ innerSource; cteArg ]) when mi.Name = "WithCte" || mi.Name = "WithCteSql" || mi.Name = "WithRecursiveCte" || mi.Name = "WithRecursiveCteSql" ->
                     let autoName = $"cte_{ctes.Count + 1}"
@@ -3164,6 +3331,9 @@ module SqlComputationExtensions =
                         | _ -> LeafExpressionConverter.EvaluateQuotation(cteArg)
                     let isRec = mi.Name.StartsWith("WithRecursive")
                     ctes.Add((autoName, cteVal, isRec))
+                    match tryFindRootSource innerSource with
+                    | Some rSrc when isSourceMatch rSrc cteVal -> fromCteName <- Some autoName
+                    | _ -> ()
                     peelCustomOps innerSource
                 | Call(instanceOpt, mi, [ innerSource; tableArg; aliasArg; onArg ]) when mi.Name = "FullOuterJoin" || mi.Name = "RightOuterJoin" ->
                     let tbl = LeafExpressionConverter.EvaluateQuotation(tableArg) :?> string
@@ -3244,7 +3414,7 @@ module SqlComputationExtensions =
                 for (name, cteVal, isRec) in ctes do
                     match cteVal with
                     | :? string as rawSql ->
-                        plan.Ctes.Add({ Name = name; SubquerySql = rawSql; IsRecursive = isRec })
+                        plan.Ctes.Add({ Name = name; SubquerySql = rawSql; IsRecursive = isRec; SourceQuery = None })
                     | _ ->
                         let (subSql, subParams) = SqlPushdownQuery.extractSqlWithParameters cteVal
                         let mutable remappedSql = subSql
@@ -3252,21 +3422,39 @@ module SqlComputationExtensions =
                             let uniqueName = $"@p{plan.Parameters.Count}"
                             remappedSql <- remappedSql.Replace(pName, uniqueName)
                             plan.Parameters.Add(uniqueName, pVal)
-                        plan.Ctes.Add({ Name = name; SubquerySql = remappedSql; IsRecursive = isRec })
+                        plan.Ctes.Add({ Name = name; SubquerySql = remappedSql; IsRecursive = isRec; SourceQuery = Some cteVal })
                 for (jt, tbl, alias, onCl) in explicitJoins do
                     plan.Joins.Add({ JoinType = jt; SourceTable = tbl; Alias = alias; OnClause = onCl; RowType = None })
+                match fromCteName with
+                | Some cName ->
+                    plan.BaseSql <- cName
+                    plan.WhereClauses.Clear()
+                | None -> ()
 
             let attachToQueryable (queryable: System.Linq.IQueryable<'T>) : System.Linq.IQueryable<'T> =
-                match box queryable with
-                | :? SqlPushdownQueryable<'T> as spq ->
-                    attachToPlan spq.Plan
+                let planOpt =
+                    match box queryable with
+                    | :? SqlPushdownQueryable<'T> as spq -> Some spq.Plan
+                    | _ ->
+                        match SqlPushdownQuery.tryFindPushdownSource queryable.Expression with
+                        | Some (_, Some p) -> Some p
+                        | _ -> None
+                match planOpt with
+                | Some plan ->
+                    attachToPlan plan
+                    for (name, cteVal, _) in ctes do
+                        let isBaseFromThisCte =
+                            match box queryable with
+                            | :? ISqlPushdownQueryable as spq -> obj.ReferenceEquals(spq, cteVal)
+                            | _ ->
+                                match SqlPushdownQuery.tryFindPushdownSource queryable.Expression with
+                                | Some (sourceIq, _) -> obj.ReferenceEquals(sourceIq, cteVal)
+                                | None -> false
+                        if isBaseFromThisCte then
+                            plan.BaseSql <- name
+                            plan.WhereClauses.Clear()
                     queryable
-                | _ ->
-                    match SqlPushdownQuery.tryFindPushdownSource queryable.Expression with
-                    | Some (_, Some plan) ->
-                        attachToPlan plan
-                        queryable
-                    | _ -> queryable
+                | None -> queryable
 
             let doUnion (lhs: System.Linq.IQueryable<'T>) (rhs: obj) : System.Linq.IQueryable<'T> =
                 match box lhs, rhs with
@@ -3389,7 +3577,7 @@ module FSqlExtensions =
                             let uniqueName = $"@p{newPlan.Parameters.Count}"
                             remappedSql <- remappedSql.Replace(pName, uniqueName)
                             newPlan.Parameters.Add(uniqueName, pVal)
-                        newPlan.Ctes.Add({ Name = autoName; SubquerySql = remappedSql; IsRecursive = defaultArg isRecursive false })
+                        newPlan.Ctes.Add({ Name = autoName; SubquerySql = remappedSql; IsRecursive = defaultArg isRecursive false; SourceQuery = Some (box cteQuery) })
                         SqlPushdownQueryable<'T>(sourceIq.Provider, this.Expression, spq.Connector, "", [], newPlan) :> System.Linq.IQueryable<'T>
                     | _ -> this
                 | _ -> this
@@ -3409,7 +3597,7 @@ module FSqlExtensions =
                             let uniqueName = $"@p{newPlan.Parameters.Count}"
                             remappedSql <- remappedSql.Replace(pName, uniqueName)
                             newPlan.Parameters.Add(uniqueName, pVal)
-                        newPlan.Ctes.Add({ Name = name; SubquerySql = remappedSql; IsRecursive = defaultArg isRecursive false })
+                        newPlan.Ctes.Add({ Name = name; SubquerySql = remappedSql; IsRecursive = defaultArg isRecursive false; SourceQuery = Some (box cteQuery) })
                         SqlPushdownQueryable<'T>(sourceIq.Provider, this.Expression, spq.Connector, "", [], newPlan) :> System.Linq.IQueryable<'T>
                     | _ -> this
                 | _ -> this

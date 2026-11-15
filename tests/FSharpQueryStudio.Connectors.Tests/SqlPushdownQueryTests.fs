@@ -1680,6 +1680,80 @@ let ``fsql supports composing cte and union in separate variables executed in th
     Assert.Equal(3, listNamed.Length)
 
 [<Fact>]
+let ``fsql supports useful CTE with JOIN and SELECT from CTE`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let orders = SqlPushdownQueryable<TestOrder>(conn, "Orders")
+    let customers = SqlPushdownQueryable<TestCustomer>(conn, "Customers")
+
+    // 1. CTE real que filtra clientes VIP
+    let vipCustomers =
+        fsql {
+            for c in customers do
+            where (c.CustomerId = 1)
+            select c
+        }
+
+    // 2. Query que realmente faz JOIN com a CTE usando o próprio objeto da CTE diretamente (sem dummy table!)
+    let queryWithJoin =
+        fsql {
+            for o in orders do
+            withCte "VipCustomers" vipCustomers
+            join v in vipCustomers on (o.CustomerId = v.CustomerId)
+            select (o.OrderId, o.Amount, (v: TestCustomer).CustomerName)
+        }
+
+    let raw = toRawQuery queryWithJoin
+    Assert.Contains("WITH VipCustomers AS", raw)
+    Assert.Contains("INNER JOIN VipCustomers", raw)
+    let list = queryWithJoin |> Seq.toList
+    Assert.Equal(2, list.Length)
+
+    // 3. Query que seleciona diretamente DA CTE (FROM CTE) usando o próprio objeto da CTE diretamente!
+    let queryFromCte =
+        fsql {
+            for v in vipCustomers do
+            withCte "VipCustomers" vipCustomers
+            select (v: TestCustomer).CustomerName
+        }
+
+    let rawFrom = toRawQuery queryFromCte
+    Assert.Contains("WITH VipCustomers AS", rawFrom)
+    Assert.Contains("FROM VipCustomers", rawFrom)
+    let listFrom = queryFromCte |> Seq.toList
+    Assert.Equal(1, listFrom.Length)
+    Assert.Equal("Alice", listFrom.[0])
+
+    // 4. Query que faz JOIN transparente com auto-CTE mesmo sem withCte explícito!
+    let queryAutoCte =
+        fsql {
+            for o in orders do
+            join v in vipCustomers on (o.CustomerId = v.CustomerId)
+            select (o.OrderId, o.Amount, (v: TestCustomer).CustomerName)
+        }
+
+    let rawAuto = toRawQuery queryAutoCte
+    Assert.Contains("WITH cte_1 AS", rawAuto)
+    Assert.Contains("JOIN cte_1", rawAuto)
+    let listAuto = queryAutoCte |> Seq.toList
+    Assert.Equal(2, listAuto.Length)
+
+    // 5. Query que seleciona diretamente DA CTE sem nome explícito (FROM CTE unnamed)
+    let queryFromCteUnnamed =
+        fsql {
+            for v in vipCustomers do
+            withCte vipCustomers
+            select (v: TestCustomer).CustomerName
+        }
+
+    let rawFromUnnamed = toRawQuery queryFromCteUnnamed
+    Assert.Contains("WITH cte_1 AS", rawFromUnnamed)
+    Assert.Contains("FROM cte_1", rawFromUnnamed)
+    let listFromUnnamed = queryFromCteUnnamed |> Seq.toList
+    Assert.Equal(1, listFromUnnamed.Length)
+    Assert.Equal("Alice", listFromUnnamed.[0])
+
+[<Fact>]
 let ``fsql CE supports unionAll intersect except directly inside query expression`` () =
     use db = new TempSqliteDb()
     let conn = SqliteConnector(db.Path)

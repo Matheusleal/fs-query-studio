@@ -778,22 +778,24 @@ Combine multiple query projections using SQL pushdown set operations and CTEs di
 """
 
                 mkCode """
-// 22.1 CTE combined with union directly inside fsql CE
-let unionCatalog =
+// 22.1 CTE (Common Table Expression) consumida diretamente via JOIN
+let highPriceProducts =
     fsql {
         for p in Connections.sql.SampleStore.Products do
-        withCte (fsql { for p2 in Connections.sql.SampleStore.Products do where (p2.Price >= 200.0f); select p2 })
         where (p.Price >= 200.0f)
         select p
-        union (fsql {
-            for p3 in Connections.sql.SampleStore.Products do
-            where (p3.Price < 50.0f)
-            select p3
-        })
     }
 
-printfn "Formatted SQL (UNION):\n%s" (toRawQuery unionCatalog)
-unionCatalog
+let catalogWithCategory =
+    fsql {
+        for c in Connections.sql.SampleStore.Categories do
+        withCte "HighPriceProducts" highPriceProducts
+        join p in highPriceProducts on (c.Id = p.CategoryId)
+        select (c.Name, p.Name, p.Price)
+    }
+
+printfn "Formatted SQL (CTE + JOIN):\n%s" (toRawQuery catalogWithCategory)
+catalogWithCategory
 """
 
                 mkCode """
@@ -1480,22 +1482,24 @@ Combine múltiplas projeções de consulta usando operações de conjunto e CTEs
 """
 
                 mkCode """
-// 22.1 CTE combinada com union diretamente dentro da CE fsql
-let catalogoCombinado =
+// 22.1 CTE (Common Table Expression) consumida diretamente via JOIN
+let produtosCaros =
     fsql {
         for p in Connections.sql.SampleStore.Products do
-        withCte (fsql { for p2 in Connections.sql.SampleStore.Products do where (p2.Price >= 200.0f); select p2 })
         where (p.Price >= 200.0f)
         select p
-        union (fsql {
-            for p3 in Connections.sql.SampleStore.Products do
-            where (p3.Price < 50.0f)
-            select p3
-        })
     }
 
-printfn "SQL Formatado (UNION):\n%s" (toRawQuery catalogoCombinado)
-catalogoCombinado
+let catalogoComCategoria =
+    fsql {
+        for c in Connections.sql.SampleStore.Categories do
+        withCte "ProdutosCaros" produtosCaros
+        join p in produtosCaros on (c.Id = p.CategoryId)
+        select (c.Name, p.Name, p.Price)
+    }
+
+printfn "SQL Formatado (CTE + JOIN):\n%s" (toRawQuery catalogoComCategoria)
+catalogoComCategoria
 """
 
                 mkCode """
