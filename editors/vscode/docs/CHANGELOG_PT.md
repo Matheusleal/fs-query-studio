@@ -6,6 +6,31 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ## [Não Lançado]
 
+## [0.6.0] — 2026-11-15
+
+### Adicionado
+
+- **Common Table Expressions (CTEs) Modernas na CE** — Suporte nativo completo para declaração de CTEs diretamente dentro da computation expression `fsql { ... }`:
+  - **CTEs Sem Nome (`withCte subquery`)**: Injetadas de forma transparente no plano SQL sem necessidade de registrar tabelas fictícias ou fornecer nomes explícitos.
+  - **CTEs com Nome Explícito (`withCte "Nome" subquery`)**: Sobrecarga para consultas estruturadas com múltiplos blocos WITH.
+  - **CTEs Recursivas em SQL Bruto (`withRecursiveCteSql "Nome" sql` e `withRecursiveCteSql sql`)**: Suporte nativo para consultas hierárquicas e de grafos com geração de `WITH RECURSIVE` no PostgreSQL e SQLite, e `WITH` no SQL Server.
+  - **Composição Transparente de CTEs**: Consultas declaradas em variáveis separadas combinam suas CTEs automaticamente no `WITH` principal de nível superior sem duplicações de cláusulas.
+- **Operações de Conjunto na CE (`union`, `unionAll`, `intersect`, `except`)** — Operações de conjunto escritas diretamente dentro de `fsql { ... }`, com paridade total via builder currificado (`fsql.union`), funções de módulo (`union`) e métodos de extensão em `IQueryable` (`.Union()`).
+- **Joins Externos 100% Idiomáticos** — Sintaxe LINQ pura com `GroupJoin` e `DefaultIfEmpty()` para `fullOuterJoin` e `rightOuterJoin` diretamente na CE `fsql`, eliminando templates de joins em strings cruas e garantindo tipagem forte total.
+- **Motor Avançado de DQL com Pushdown Universal** — Expansão do suporte em SQL Server, PostgreSQL e SQLite:
+  - Pushdown de agregados em colunas (`count`, `sum`, `avg`, `min`, `max`) contornando a restrição T-SQL 412 do SQL Server.
+  - Filtro dedicado `having` para agregações agrupadas.
+  - Joins correlacionados por linha: `CROSS APPLY` (SQL Server), `CROSS JOIN LATERAL` (PostgreSQL) e fallback em memória transparente (SQLite).
+  - Subqueries correlacionadas (`whereExists`, `whereNotExists`, subqueries escalares na projeção `select`).
+  - Funções de janela analíticas (`fsql.window`, `rowNumber`, `rank`, `lag`, `lead`) com suporte a `OVER (PARTITION BY ... ORDER BY ...)`.
+  - Navegação em dados semi-estruturados JSON (`fsql.jsonValue`) mapeada para extração nativa em cada dialeto (`JSON_VALUE`, `->>`, `json_extract`).
+- **Diagnóstico de Plano de Execução ao Vivo e SQL Formatado** — Novas ferramentas de inspeção:
+  - Operação customizada `explain` diretamente na CE.
+  - Função `toRawQuery` gerando SQL formatado com indentação por dialeto e cabeçalho de documentação de parâmetros.
+  - `explainQuery` e `.Explain()` para inspeção direta do plano de execução do banco de dados (`EXPLAIN QUERY PLAN`, `EXPLAIN`, `SET SHOWPLAN_TEXT`).
+- **Gerador de Demos Unificado Multi-Banco com Seleção de Idioma** — Botão unificado na barra de ferramentas e de status (`$(database)`) e comando (`F# Query Studio: Create Sample Data & Demo Notebooks`) com seletor de engine (Original [SQLite, CSV, Excel, REST], PostgreSQL, SQL Server) e idioma opcional (English, Português, Both / Ambos), gerando notebooks de demonstração prontos para rodar com conexões pré-cadastradas.
+- **Documentação Bilíngue e Especificação Canônica do FSQL** — Paridade 100% sincronizada entre inglês e português em tutoriais, manuais do usuário, especificações de linguagem e guia de boas práticas para agentes de IA (`FSQL_AI_AGENT_GUIDE.md` e `FSQL_AI_AGENT_GUIDE_PT.md`).
+
 ## [0.5.3] — 2026-11-11
 
 ### Corrigido

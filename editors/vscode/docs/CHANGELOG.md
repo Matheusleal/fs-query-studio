@@ -8,6 +8,31 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-11-15
+
+### Added
+
+- **Modern In-CE Common Table Expressions (CTEs)** — Full first-class support for declaring CTEs directly within `fsql { ... }`:
+  - **Unnamed CTEs (`withCte subquery`)**: Automatically and transparently injected into the SQL execution plan without requiring dummy table registrations or explicit alias strings.
+  - **Named CTEs (`withCte "Name" subquery`)**: Explicitly named CTE overloads for structured multi-CTE queries.
+  - **Raw Recursive CTEs (`withRecursiveCteSql "Name" sql` & `withRecursiveCteSql sql`)**: First-class support for hierarchical and graph queries with recursive CTE pushdown across T-SQL, PostgreSQL, and SQLite.
+  - **Transparent CTE Composition**: Queries defined across separate F# variables automatically merge and bubble up their CTE definitions into a unified top-level `WITH` clause without syntax duplication.
+- **In-CE Set Operations (`union`, `unionAll`, `intersect`, `except`)** — Set operations can be written directly inside the `fsql { ... }` computation expression, as well as via curried builder functions (`fsql.union`), module functions (`union`), and `IQueryable` extension methods (`.Union()`).
+- **100% Idiomatic Outer Joins** — Pure LINQ `GroupJoin` and `DefaultIfEmpty()` syntax for `fullOuterJoin` and `rightOuterJoin` inside `fsql { ... }`, eliminating raw SQL string join templates and preserving complete type safety.
+- **Advanced DQL Pushdown Engine** — Expanded pushdown capabilities across SQL Server, PostgreSQL, and SQLite:
+  - Column-level aggregate pushdown (`count`, `sum`, `avg`, `min`, `max`) avoiding SQL Server T-SQL 412 ordering restrictions.
+  - Dedicated `having` filtering on grouped aggregates.
+  - Correlated row-level joins: `CROSS APPLY` (SQL Server), `CROSS JOIN LATERAL` (PostgreSQL), and transparent in-memory fallback (SQLite).
+  - Correlated subqueries (`whereExists`, `whereNotExists`, scalar subqueries in `select`).
+  - Window functions and analytics (`fsql.window`, `rowNumber`, `rank`, `lag`, `lead`) with `OVER (PARTITION BY ... ORDER BY ...)`.
+  - Semi-structured JSON navigation (`fsql.jsonValue`) mapped to native dialect extraction (`JSON_VALUE`, `->>`, `json_extract`).
+- **Live Query Plan Diagnostics & Formatted SQL Output** — Integrated diagnostic tools:
+  - In-CE `explain` custom operation.
+  - `toRawQuery` for formatted, beautified SQL with dialect-specific indentation and parameter documentation headers.
+  - `explainQuery` and `.Explain()` for live execution plan retrieval from the underlying database engine (`EXPLAIN QUERY PLAN`, `EXPLAIN`, `SET SHOWPLAN_TEXT`).
+- **Unified Multi-Engine Demo Generator & Language Selection** — Unified single-click status bar / toolbar button (`$(database)`) and command (`F# Query Studio: Create Sample Data & Demo Notebooks`) with multi-engine selection (Original [SQLite, CSV, Excel, REST], PostgreSQL, SQL Server) and optional language selection (English, Português, Both / Ambos), generating engine-specific demo notebooks with all connections pre-registered.
+- **Bilingual Documentation & Formal FSQL Specifications** — 100% synchronized English and Portuguese documentation across user guides, tutorials, FSQL language specifications, and AI coding agent guidelines (`FSQL_AI_AGENT_GUIDE.md` & `FSQL_AI_AGENT_GUIDE_PT.md`).
+
 ## [0.5.3] — 2026-11-11
 
 ### Fixed
