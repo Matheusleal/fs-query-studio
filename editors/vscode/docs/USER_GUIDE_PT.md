@@ -212,7 +212,7 @@ printfn "SQL Gerado:\n%s" (toRawQuery minhaQuery)
 minhaQuery
 ```
 
-> **Guia para Agentes de IA**: Consulte [`docs/FSQL_AI_AGENT_GUIDE.md`](../../docs/FSQL_AI_AGENT_GUIDE.md) para especificações formais de prompts e geração de queries.
+> **Guia para Agentes de IA**: Consulte [`docs/FSQL_AI_AGENT_GUIDE.md`](FSQL_AI_AGENT_GUIDE.md) para especificações formais de prompts e geração de queries.
 
 ### Recursos Avançados de Consulta (Joins, Agregações, Subqueries e Pivot)
 
@@ -304,7 +304,54 @@ fsql {
 }
 ```
 
-#### 5. Cross-tabulation e Pivot (Dinâmico e Em Memória)
+#### 5. Funções de Janela Analíticas (`OVER`, `rowNumber`, `rank`, `lag`, `lead`)
+Avalie métricas cumulativas, partições e ranqueamento compilados diretamente para cláusulas analíticas nativas SQL:
+
+```fsharp
+fsql {
+    for p in Connections.sql.SampleStore.Products do
+    select {|
+        Categoria = p.Category
+        Nome = p.Name
+        Preco = p.Price
+        LinhaNaCategoria = fsql.rowNumber(fsql.window(partitionBy = p.Category, sortByDescending = p.Price))
+        RankNaCategoria = fsql.rank(fsql.window(partitionBy = p.Category, sortByDescending = p.Price))
+        SomaCumulativa = fsql.sum(p.Price, over = fsql.window(partitionBy = p.Category, sortBy = p.Id))
+    |}
+}
+```
+
+#### 6. Navegação em Dados Semi-Estruturados JSON (`fsql.jsonValue`)
+Empurra a extração escalar diretamente para os motores SQL (`JSON_VALUE` no SQL Server, `->>` / `#>>` no Postgres, `json_extract` no SQLite):
+
+```fsharp
+fsql {
+    for l in Connections.sql.SampleStore.AuditLogs do
+    where (fsql.jsonValue(l.Payload, "status") = "FAILED")
+    select {|
+        LogId = l.Id
+        Usuario = fsql.jsonValue(l.Payload, "user.email")
+    |}
+}
+```
+
+#### 7. Common Table Expressions (CTEs), Operações de Conjunto & Diagnóstico
+```fsharp
+// Pushdown de CTE
+let clientesVip =
+    Connections.sql.SampleStore.Customers
+        .WithCte("GrandesCompradores", "SELECT CustomerId, SUM(TotalAmount) AS Total FROM Orders GROUP BY CustomerId HAVING SUM(TotalAmount) > 1000")
+        .Where("_t0.Id IN (SELECT CustomerId FROM GrandesCompradores)")
+
+// Operações de Conjunto: Union, Intersect, Except
+let combinados = clientesAtivos.Union(clientesArquivados)
+
+// Diagnóstico de Plano de Execução ao Vivo
+let relatorioPlano = explainQuery combinados
+printfn "Plano:\n%s" relatorioPlano.PlanText
+```
+
+#### 8. Cross-tabulation e Pivot (Dinâmico e Em Memória)
 - **SQL Pivot Dinâmico (`Connections.sql.pivot`)**: Executa agregação condicional com `CASE WHEN` dinamicamente no motor SQL:
   ```fsharp
   Connections.sql.pivot "Vendas" ["Ano"] "Produto" "Valor" ~aggFunc:"SUM"

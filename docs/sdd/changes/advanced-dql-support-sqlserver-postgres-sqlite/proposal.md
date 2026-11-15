@@ -3,7 +3,7 @@
 - **Change ID**: `advanced-dql-support-sqlserver-postgres-sqlite`
 - **Author**: Matheus Leal / Antigravity AI
 - **Date**: 2026-11-12
-- **Status**: Proposed
+- **Status**: Completed
 - **Target Version**: v0.5.4
 
 ---
@@ -12,10 +12,10 @@
 
 ```text
 Intent Block:
-Goal:        Fix SQL Server query generation bugs when counting columns and provide comprehensive, first-class Data Query Language (DQL) support across SQL Server, PostgreSQL, and SQLite, embracing F# functional query idioms beyond traditional LINQ limitations.
-Expectation: Queries using column-specific aggregates (COUNT(col), COUNT(DISTINCT col), MIN, MAX, SUM, AVG), sub-selects (scalar subqueries in projections, WHERE IN / NOT IN, WHERE EXISTS / NOT EXISTS), CROSS APPLY / OUTER APPLY / LATERAL joins, HAVING clauses, and functional combinators execute seamlessly and generate compliant SQL dialects for SQL Server, PostgreSQL, and SQLite without syntax errors or runtime crashes.
-Action:      Refactor SqlPushdownQuery and SqlPushdownPlan to correctly track projection overrides when terminal aggregates are applied after Select; implement dialect-aware CROSS APPLY/OUTER APPLY (transpiled to CROSS/LEFT JOIN LATERAL for Postgres); add column-targeted count, distinct count, scalar subquery, HAVING clause, and functional query combinators to SqlPushdownQueryable; validate with extensive test suites across SQL Server, PostgreSQL, and SQLite.
-Result:      Developers can express powerful, expressive, and idiomatic F# functional queries leveraging all core DQL capabilities with guaranteed dialect precision across all supported database engines.
+Goal:        Fix SQL Server query generation bugs when counting columns and provide comprehensive, first-class Data Query Language (DQL) support across SQL Server, PostgreSQL, and SQLite, embracing F# functional query idioms and pure computation expression DSL (fsql { ... }) beyond traditional LINQ limitations.
+Expectation: Queries using column-specific aggregates (COUNT(col), COUNT(DISTINCT col), MIN, MAX, SUM, AVG), sub-selects (scalar subqueries in projections, WHERE IN / NOT IN, WHERE EXISTS / NOT EXISTS), CROSS APPLY / OUTER APPLY / LATERAL joins, HAVING clauses, pure F# computation expressions (fsql { ... }), and functional combinators execute seamlessly and generate compliant SQL dialects for SQL Server, PostgreSQL, and SQLite without syntax errors, runtime crashes, or SQL injection vulnerabilities.
+Action:      Refactor SqlPushdownQuery and SqlPushdownPlan to correctly track projection overrides when terminal aggregates are applied after Select; implement dialect-aware CROSS APPLY/OUTER APPLY (transpiled to CROSS/LEFT JOIN LATERAL for Postgres); add column-targeted count, distinct count, scalar subquery, HAVING clause, and pure F# computation expression builder (FSqlQueryBuilder with whereExists, whereNotExists, having, crossApply, lateral); provide diagnostic APIs (toRawQuery with formatted SQL and parameter headers); validate with 100% test pass on live Docker containers (SQL Server 2022, PostgreSQL 17) and SQLite.
+Result:      Developers and AI agents can express powerful, expressive, and idiomatic F# queries leveraging all core DQL capabilities with guaranteed dialect precision across all supported database engines without writing raw SQL strings.
 ```
 
 ---
@@ -25,7 +25,7 @@ Result:      Developers can express powerful, expressive, and idiomatic F# funct
 1. **SQL Server Count Breakdown**:
    - When a user writes `fsql { for p in db.Products do select p.Id; count }` or `queryable.Select(fun p -> p.Id).Count()`, the `Select` method call registers a projection (`_t0.Id AS [Id]`) which subsequently overwrote the `plan.Projection` intended by `Count()` (`COUNT(*)` or `COUNT(col)`).
    - The query compiler generated `SELECT _t0.Id AS [Id] FROM Products _t0`, which failed during scalar conversion (`ExecuteScalar<int>`) with invalid cast or conversion format errors.
-   - Furthermore, SQL Server strictly prohibits `ORDER BY` in single-row aggregate queries without `GROUP BY`, causing query failures when sorting was combined with terminal aggregates.
+   - Furthermore, SQL Server strictly prohibits `ORDER BY` in single-row aggregate queries without `GROUP BY` (Error 412), causing query failures when sorting was combined with terminal aggregates.
 2. **Missing Column-Specific Count & Aggregation**:
    - In SQL DQL, `COUNT(col)` differs semantically from `COUNT(*)` as it only counts non-NULL column values.
    - Users need both `COUNT(col)` and `COUNT(DISTINCT col)` natively in F# query expressions and via fluent functional methods.
@@ -34,8 +34,11 @@ Result:      Developers can express powerful, expressive, and idiomatic F# funct
    - SQL Server heavily relies on `CROSS APPLY` and `OUTER APPLY` for table-valued functions and correlated subqueries. PostgreSQL uses `CROSS JOIN LATERAL` and `LEFT JOIN LATERAL ... ON true`.
    - Existing pushdown query plans forced `ON <condition>` on every join, making `CROSS APPLY` and `CROSS JOIN` emit invalid SQL (`CROSS APPLY tbl ON 1=1`).
    - Scalar subqueries in `SELECT` projections and correlated subqueries in `WHERE` / `HAVING` filters lacked full native transpilation support.
-4. **Functional F# Approach Beyond Traditional LINQ**:
-   - F# developers should not be constrained by C# LINQ's rigid query operators. First-class functional methods such as `.Count(colSelector)`, `.CountDistinct(colSelector)`, `.CrossApply(...)`, `.OuterApply(...)`, `.WhereExists(...)`, `.Having(...)`, and `.Select(rawProjection)` empower users to write expressive queries.
+4. **Pure F# Computation Expression DSL (`fsql { ... }`)**:
+   - Standard F# `query { ... }` lacks syntax for correlated row-level joins (`crossApply`, `lateral`), aggregate filtering (`having`), and subquery existence (`whereExists`, `whereNotExists`).
+   - A dedicated `fsql { ... }` computation expression with custom operations and quotation rewriting eliminates the need for raw SQL strings or LINQ boilerplate.
+5. **Diagnostics and Formatted SQL Tooling**:
+   - Users and AI agents need to inspect the generated SQL and parameter bindings directly in notebooks and debug logs without executing database round-trips. `toRawQuery` provides formatted SQL with indentation and documented parameter headers.
 
 ---
 
@@ -55,7 +58,17 @@ Result:      Developers can express powerful, expressive, and idiomatic F# funct
 4. **Subqueries & Having Clauses**:
    - Support scalar subqueries in `Projection`.
    - Support `WHERE EXISTS`, `WHERE NOT EXISTS`, `WHERE IN`, `WHERE NOT IN` with subquery pushdown plans.
-   - Support `HAVING` clauses via `.Having(condition, ?parameters)`.
-5. **Comprehensive Cross-Dialect Tests**:
+   - Support `HAVING` clauses via `.Having(condition, ?parameters)` and pure F# computation expressions.
+5. **Pure F# Computation Expression DSL (`fsql { ... }`)**:
+   - Implement `FSqlQueryBuilder` inheriting from `QueryBuilder`.
+   - Add custom operations: `whereExists`, `whereNotExists`, `having`.
+   - Add marker functions: `exists`, `notExists`, `crossApply`, `lateral`.
+   - Implement Quotation rewriting in `Run(q)` to transpile CE custom operations into pushdown LINQ expressions.
+6. **Diagnostic APIs**:
+   - Implement `toRawQuery` (formatted, indented SQL with parameter comment headers).
+   - Implement `toRawSql` and `toRawSqlWithParameters`.
+   - Integrate with `ResultKind.RegisterRawSqlExtractor`.
+7. **Comprehensive Multi-Dialect Verification & Test Environments**:
    - Unit and integration tests covering SQLite, PostgreSQL, and SQL Server dialect generation and execution.
-
+   - Live Docker test containers for SQL Server 2022 (`fsqs-sqlserver-test`) and PostgreSQL 17 (`fsqs-postgres-test`).
+   - Interactive demo showcase notebook `dql_advanced_demo.fsqnb`.

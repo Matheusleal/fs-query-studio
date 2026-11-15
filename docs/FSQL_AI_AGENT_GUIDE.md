@@ -191,6 +191,130 @@ let highVolumeProducts =
     }
 ```
 
+### 3.7 Window Functions & Analytics (`fsql.window`, `rowNumber`, `rank`, `lag`, `lead`)
+Analytics and ranking functions map directly to SQL standard `OVER (PARTITION BY ... ORDER BY ...)`:
+
+```fsharp
+let rankedProducts =
+    fsql {
+        for p in mssqlProducts do
+        select {|
+            Category = p.Category
+            Name = p.Name
+            Price = p.Price
+            RowInCat = fsql.rowNumber(fsql.window(partitionBy = p.Category, sortByDescending = p.Price))
+            RankInCat = fsql.rank(fsql.window(partitionBy = p.Category, sortByDescending = p.Price))
+            RunningTotal = fsql.sum(p.Price, over = fsql.window(partitionBy = p.Category, sortBy = p.Id))
+        |}
+    }
+```
+
+### 3.8 Semi-Structured JSON Navigation (`fsql.jsonValue`)
+Pushes scalar extraction directly to database engines (`JSON_VALUE` on SQL Server, `->>` on Postgres, `json_extract` on SQLite):
+
+```fsharp
+let errors =
+    fsql {
+        for log in mssqlLogs do
+        where (fsql.jsonValue(log.Payload, "status") = "ERROR")
+        select {|
+            Id = log.Id
+            UserId = fsql.jsonValue(log.Payload, "user.id")
+            Code = fsql.jsonValue(log.Payload, "error.code")
+        |}
+    }
+```
+
+### 3.9 Common Table Expressions (CTEs) & Set Operations (Composição Transparente em Partes)
+FSQL supports declaring CTEs and set operations in parts as separate variables, and combining them seamlessly with **zero dummy tables** or manual registration:
+
+```fsharp
+// 1. Definição em partes de queries independentes com CTEs e filtros:
+let highPriceProducts =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        withCte "HighEnd" (fsql { for p2 in Connections.sql.SampleStore.Products do where (p2.Price >= 500.0f); select p2 })
+        where (p.Price >= 200.0f)
+        select p
+    }
+
+let budgetProducts =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        withCte "Budget" (fsql { for p2 in Connections.sql.SampleStore.Products do where (p2.Price <= 30.0f); select p2 })
+        where (p.Price < 15.0f)
+        select p
+    }
+
+// 2. Composição em 4 formas equivalentes (as CTEs de ambos os lados sobem automaticamente para o WITH principal sem duplicações e sem WITH interno inválido):
+
+// Forma A: Dentro da Computation Expression (fsql)
+let combinedA =
+    fsql {
+        for p in highPriceProducts do
+        union budgetProducts
+    }
+
+// Forma B: Builder fsql currificado
+let combinedB = fsql.union highPriceProducts budgetProducts
+
+// Forma C: Função de módulo currificada
+let combinedC = union highPriceProducts budgetProducts
+
+// Forma D: Método de extensão IQueryable
+let combinedD = highPriceProducts.Union(budgetProducts)
+
+// Todas as 4 formas produzem o mesmo SQL limpo:
+// WITH HighEnd AS (...), Budget AS (...)
+// SELECT * FROM HighEnd WHERE ... UNION SELECT * FROM Budget WHERE ...
+
+// In-CE Set Operations: union, unionAll, intersect, except
+let allItems =
+    fsql {
+        for a in activeItems do
+        unionAll archivedItems
+    }
+
+let commonItems =
+    fsql {
+        for r in retailItems do
+        intersect wholesaleItems
+    }
+
+let exclusiveItems =
+    fsql {
+        for r in retailItems do
+        except wholesaleItems
+    }
+
+// 3. Composição de Subqueries em whereExists e crossApply:
+// Variáveis pré-definidas com filtros e ordenações são injetadas transparentemente
+let completedOrders =
+    fsql {
+        for o in Connections.sql.SampleStore.Orders do
+        where (o.Status = "Completed")
+        select o
+    }
+
+let customersWithOrders =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        whereExists (fsql { for o in completedOrders do where (o.CustomerId = c.Id) })
+        select c
+    }
+```
+
+### 3.10 Outer Joins inside `fsql` CE
+```fsharp
+// Full Outer Join directly within fsql
+let suppliersProducts =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        fullOuterJoin "Suppliers" "s" "p.SupplierId = s.Id"
+        select p
+    }
+```
+
 ---
 
 ## 4. Query Inspection & Diagnostic Tools
@@ -229,6 +353,20 @@ let (sql, parameters) = toRawSqlWithParameters highVolumeProducts
 // parameters: [("@p0", box 2)]
 ```
 
+### 4.4 `explainQuery` & `.Explain()` (Live Execution Plan Diagnostics)
+Retrieves the execution plan generated directly by the underlying database engine:
+- SQLite: `EXPLAIN QUERY PLAN`
+- PostgreSQL: `EXPLAIN`
+- SQL Server: `SET SHOWPLAN_TEXT ON ... OFF`
+
+```fsharp
+let diag = explainQuery highVolumeProducts
+// Or:
+let diag = highVolumeProducts.Explain()
+
+printfn "Plan text:\n%s" diag.PlanText
+```
+
 ---
 
 ## 5. Dialect Pushdown Rules for AI Agents
@@ -239,6 +377,11 @@ let (sql, parameters) = toRawSqlWithParameters highVolumeProducts
 | **Cross Apply** | Native `CROSS APPLY (...)` | Emitted as `CROSS JOIN LATERAL` | Transparent memory fallback |
 | **Lateral Join** | Emitted as `CROSS APPLY` | Native `CROSS JOIN LATERAL (...)` | Transparent memory fallback |
 | **Scalar Count without GroupBy** | Omit `ORDER BY` (prevents T-SQL 412 error) | Native pushdown | Native pushdown |
+| **Window Functions OVER** | Native (Auto `ORDER BY (SELECT NULL)` for ranking) | Native `OVER (...)` | Native `OVER (...)` (SQLite 3.25+) |
+| **JSON Extraction** | `JSON_VALUE(col, '$.path')` | `col ->> 'path'` / `col #>> '{path}'` | `json_extract(col, '$.path')` |
+| **Common Table Expressions** | `WITH [name] AS (...)` | `WITH [RECURSIVE] "name" AS (...)` | `WITH [RECURSIVE] [name] AS (...)` |
+| **Set Operations** | `UNION [ALL]`, `INTERSECT`, `EXCEPT` | `UNION [ALL]`, `INTERSECT`, `EXCEPT` | `UNION [ALL]`, `INTERSECT`, `EXCEPT` |
+| **Outer Joins** | `FULL OUTER JOIN`, `RIGHT OUTER JOIN` | `FULL OUTER JOIN`, `RIGHT OUTER JOIN` | `FULL OUTER JOIN`, `RIGHT OUTER JOIN` |
 | **String Parameters** | `N'value'` / `@pN` | `'value'` / `@pN` | `'value'` / `@pN` |
 | **Boolean Types** | Transpiled to `1 / 0` (bit) | Native `true / false` | `1 / 0` |
 

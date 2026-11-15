@@ -221,7 +221,7 @@ Access strongly-typed entities directly using `Connections.sql.SampleStore.Custo
 
                 mkCode """
 // 1. Query SQLite (SampleStore) customers from Brazil directly via Connections.sql
-query {
+fsql {
     for c in Connections.sql.SampleStore.Customers do
     where (c.Country = "Brazil")
     sortBy c.FirstName
@@ -243,7 +243,7 @@ Join tables cleanly and naturally using standard F# LINQ `join ... on (...)` syn
 
                 mkCode """
 // 2. Join Orders and Customers within SampleStore to view transaction details with customer info
-query {
+fsql {
     for o in Connections.sql.SampleStore.Orders do
     join c in Connections.sql.SampleStore.Customers on (o.CustomerId = c.Id)
     sortByDescending o.TotalAmount
@@ -267,7 +267,7 @@ Here we query the second database directly via `Connections.sql.InventoryStore`.
 
                 mkCode """
 // 3. Query the second SQLite database (InventoryStore) directly via Connections.sql
-query {
+fsql {
     for w in Connections.sql.InventoryStore.Warehouses do
     join s in Connections.sql.InventoryStore.StockLevels on (w.Id = s.WarehouseId)
     sortByDescending s.QuantityOnHand
@@ -311,7 +311,7 @@ Access the feed directly via `Connections.csv.SalesFeed`.
 
                 mkCode """
 // 5. Query the first CSV feed (SalesFeed) directly and filter electronics purchases
-query {
+fsql {
     for row in Connections.csv.SalesFeed do
     where (row.Category = "Electronics")
     sortByDescending row.TotalAmount
@@ -335,7 +335,7 @@ A second CSV source is registered alongside `SalesFeed`. Both CSV sources genera
 
                 mkCode """
 // 6. Query the second CSV feed (CustomersFeed) directly
-query {
+fsql {
     for row in Connections.csv.CustomersFeed do
     where (row.TotalSpent >= 300.0M)
     sortByDescending row.Score
@@ -361,7 +361,7 @@ Seamlessly join and correlate data from both CSV files (`SalesFeed` + `Customers
 let salesRows = Connections.csv.SalesFeed |> Seq.toList
 let loyaltyRows = Connections.csv.CustomersFeed |> Seq.toList
 
-query {
+fsql {
     for s in salesRows do
     join l in loyaltyRows on (s.Customer = l.CustomerName)
     where (s.TotalAmount >= 100.0M)
@@ -387,7 +387,7 @@ Use `ResultKind.toRawSql` to preview the pushdown SQL before or alongside execut
                 mkCode """
 // 7.1 Preview generated pushdown SQL for relational joins before execution
 let complexJoinQuery =
-    query {
+    fsql {
         for o in Connections.sql.SampleStore.Orders do
         join i in Connections.sql.SampleStore.OrderItems on (o.Id = i.OrderId)
         where (o.TotalAmount >= 100.0f)
@@ -429,7 +429,7 @@ Excel workbooks (`.xlsx`) are inspected per worksheet and exposed with strongly-
 
                 mkCode """
 // 9. Query the RegionalTargets worksheet from the Excel (.xlsx) workbook
-query {
+fsql {
     for row in Connections.excel.RegionalTargets.RegionalTargets do
     where (row.GrowthRate >= 10.0M)
     sortByDescending row.AchievedRevenue
@@ -452,7 +452,7 @@ Each Excel connection acts as a schema container (`Connections.excel.CommerceOps
 
                 mkCode """
 // 10. Join all 4 sheets (Sales, Customers, ProductsStock, DeliveryLogs) in CommerceOps (.xlsx)
-query {
+fsql {
     for s in Connections.excel.CommerceOps.Sales do
     join c in Connections.excel.CommerceOps.Customers on (s.CustomerId = c.CustomerId)
     join p in Connections.excel.CommerceOps.ProductsStock on (s.ProductId = p.ProductId)
@@ -481,7 +481,7 @@ Local JSON files (`.json`) work just like Excel workbooks: each discovered array
 
                 mkCode """
 // 11. Join Products and Reviews inside the local JSON file (ProductCatalog.json) via Connections.json
-query {
+fsql {
     for p in Connections.json.ProductCatalog.Products do
     join r in Connections.json.ProductCatalog.Reviews on (p.ProductId = r.ProductId)
     where (r.Stars >= 4)
@@ -506,7 +506,7 @@ Local XML files (`.xml`) automatically extract both XML attributes (`@CarrierId`
 
                 mkCode """
 // 12. Join Shipments and Carriers inside the local XML file (logistics_hub.xml) via Connections.xml
-query {
+fsql {
     for s in Connections.xml.LogisticsHub.Shipments do
     join c in Connections.xml.LogisticsHub.Carriers on (s.CarrierId = c.CarrierId)
     sortByDescending s.ShippingCost
@@ -531,7 +531,7 @@ REST/JSON endpoints over HTTPS are automatically sampled and mapped into strongl
 
                 mkCode """
 // 13. Query public F# repositories from GitHub HTTPS REST API via Connections.rest
-query {
+fsql {
     for repo in Connections.rest.GitHubFSharp do
     sortByDescending repo.stargazers_count
     select {|
@@ -708,7 +708,7 @@ fsql {
 """
 
                 mkMarkdown """
-## 19. 📊 Advanced DQL: GroupBy with Cláusula `having` (`SampleStore`)
+## 19. 📊 Advanced DQL: GroupBy with `having` Clause (`SampleStore`)
 
 Filter grouped aggregations directly using the dedicated `having` operation in `fsql`. The condition compiles to a native SQL `GROUP BY ... HAVING (COUNT(*) >= @p0)` clause.
 """
@@ -747,6 +747,146 @@ let inspectedQuery =
 
 printfn "Pushdown SQL Inspection via toRawQuery:\n%s" (toRawQuery inspectedQuery)
 inspectedQuery
+"""
+
+                mkMarkdown """
+## 21. ⚡ Analytical Window Functions (`fsql.window`, `rowNumber`, `rank`, `runningTotal`)
+
+Execute analytical window pushdown natively in SQLite 3.25+ using `fsql.window`.
+Here we rank products in their category by price and calculate running revenue totals.
+"""
+
+                mkCode """
+// 21. Window Functions: rowNumber, rank and running sum over category partition
+fsql {
+    for p in Connections.sql.SampleStore.Products do
+    select {|
+        Category = p.CategoryId
+        Product = p.Name
+        Price = p.Price
+        RowInCat = fsql.rowNumber(fsql.window(partitionBy = p.CategoryId, sortByDescending = p.Price))
+        RankInCat = fsql.rank(fsql.window(partitionBy = p.CategoryId, sortByDescending = p.Price))
+        RunningSum = fsql.sum(p.Price, over = fsql.window(partitionBy = p.CategoryId, sortBy = p.Id))
+    |}
+}
+"""
+
+                mkMarkdown """
+## 22. 🧩 Common Table Expressions (CTEs) & Set Operations (`union`, `unionAll`, `intersect`, `except`)
+
+Combine multiple query projections using SQL pushdown set operations and CTEs directly inside the **`fsql { ... }`** computation expression.
+"""
+
+                mkCode """
+// 22.1 Named CTE (Common Table Expression) consumed directly via JOIN
+let highPriceProducts =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.Price >= 200.0f)
+        select p
+    }
+
+let catalogWithCategory =
+    fsql {
+        for c in Connections.sql.SampleStore.Categories do
+        withCte "HighPriceProducts" highPriceProducts
+        join p in highPriceProducts on (c.Id = p.CategoryId)
+        select (c.Name, p.Name, p.Price)
+    }
+
+printfn "Formatted SQL (Named CTE + JOIN):\n%s" (toRawQuery catalogWithCategory)
+catalogWithCategory
+"""
+
+                mkCode """
+// 22.2 Unnamed CTE with transparent injection and JOIN
+let highStockProducts =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity >= 100)
+        select p
+    }
+
+let catalogHighStock =
+    fsql {
+        for c in Connections.sql.SampleStore.Categories do
+        withCte highStockProducts
+        join p in highStockProducts on (c.Id = p.CategoryId)
+        select (c.Name, p.Name, p.StockQuantity)
+    }
+
+printfn "Formatted SQL (Unnamed CTE + JOIN):\n%s" (toRawQuery catalogHighStock)
+catalogHighStock
+"""
+
+                mkCode """
+// 22.3 Set Operations: intersect and except directly inside fsql CE
+let stockExcept =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity >= 100)
+        select p
+        except (fsql {
+            for p2 in Connections.sql.SampleStore.Products do
+            where (p2.Price > 300.0f)
+            select p2
+        })
+    }
+
+printfn "Formatted SQL (EXCEPT):\n%s" (toRawQuery stockExcept)
+stockExcept
+"""
+
+                mkMarkdown """
+## 23. 🔗 Relational Outer Joins & Conditional CASE WHEN Expressions
+
+Query tables with `leftOuterJoin ... into ... for ... in ... .DefaultIfEmpty()` and format columns with inline `if ... then ... else` branching compiled to native SQL `CASE WHEN`.
+"""
+
+                mkCode """
+// 23. Left outer join with conditional classification (CASE WHEN)
+fsql {
+    for c in Connections.sql.SampleStore.Customers do
+    where (c.Country = "Brazil" || c.Country = "USA")
+    leftOuterJoin o in Connections.sql.SampleStore.Orders on (c.Id = o.CustomerId) into orders
+    for o in orders.DefaultIfEmpty() do
+    take 15
+    select {|
+        Customer = c.FirstName + " " + c.LastName
+        Country = c.Country
+        OrderId = if isNull (box o) then 0 else o.Id
+        Amount = if isNull (box o) then 0.0f else o.TotalAmount
+        Status = if isNull (box o) then "No Orders" else o.Status
+        CustomerCategory = if c.LoyaltyPoints >= 1000 then "VIP" else "Regular"
+    |}
+}
+"""
+
+                mkMarkdown """
+## 24. 🔍 Correlated Non-Existence (`whereNotExists`) & Engine Execution Plan (`fsql.explain`)
+
+Find entities without related records using `whereNotExists` and inspect the database execution plan directly.
+"""
+
+                mkCode """
+// 24. Customers with no pending orders and live execution plan report
+let pendingAudit =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        where (c.Country = "Brazil")
+        whereNotExists (fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") })
+        take 10
+        select {|
+            Cliente = c.FirstName + " " + c.LastName
+            Cidade = c.City
+            Email = c.Email
+        |}
+    }
+
+let planReport = fsql.explain pendingAudit
+printfn "Engine Execution Plan Report:\n%s" planReport.PlanText
+printfn "Formatted SQL:\n%s" (toRawQuery pendingAudit)
+pendingAudit
 """
 
                 mkMarkdown """
@@ -806,7 +946,7 @@ Ao usar `Connections.sql.SampleStore.Customers`, o **F# Query Studio** fornece s
 
                 mkCode """
 // 1. Conecta e consulta clientes do Brasil diretamente via Connections.sql
-query {
+fsql {
     for c in Connections.sql.SampleStore.Customers do
     where (c.Country = "Brazil")
     sortBy c.FirstName
@@ -828,7 +968,7 @@ Combine tabelas relacionais de forma natural utilizando a sintaxe `join ... on (
 
                 mkCode """
 // 2. Junção relacional entre Pedidos (Orders) e Clientes (Customers) dentro de SampleStore
-query {
+fsql {
     for o in Connections.sql.SampleStore.Orders do
     join c in Connections.sql.SampleStore.Customers on (o.CustomerId = c.Id)
     sortByDescending o.TotalAmount
@@ -852,7 +992,7 @@ Aqui consultamos a segunda base SQLite diretamente via `Connections.sql.Inventor
 
                 mkCode """
 // 3. Consulta a segunda base SQLite (InventoryStore) diretamente via Connections.sql
-query {
+fsql {
     for w in Connections.sql.InventoryStore.Warehouses do
     join s in Connections.sql.InventoryStore.StockLevels on (w.Id = s.WarehouseId)
     sortByDescending s.QuantityOnHand
@@ -896,7 +1036,7 @@ Acesse o feed diretamente via `Connections.csv.SalesFeed`.
 
                 mkCode """
 // 5. Consulta o primeiro arquivo CSV (SalesFeed) diretamente
-query {
+fsql {
     for row in Connections.csv.SalesFeed do
     where (row.Category = "Electronics")
     sortByDescending row.TotalAmount
@@ -920,7 +1060,7 @@ Uma segunda fonte CSV registrada ao lado de `SalesFeed`. Ambas possuem inferênc
 
                 mkCode """
 // 6. Consulta o segundo arquivo CSV (CustomersFeed) diretamente
-query {
+fsql {
     for row in Connections.csv.CustomersFeed do
     where (row.TotalSpent >= 300.0M)
     sortByDescending row.Score
@@ -946,7 +1086,7 @@ Cruze dados de múltiplos arquivos CSV distintos (`SalesFeed` + `CustomersFeed`)
 let salesRows = Connections.csv.SalesFeed |> Seq.toList
 let loyaltyRows = Connections.csv.CustomersFeed |> Seq.toList
 
-query {
+fsql {
     for s in salesRows do
     join l in loyaltyRows on (s.Customer = l.CustomerName)
     where (s.TotalAmount >= 100.0M)
@@ -972,7 +1112,7 @@ Use `ResultKind.toRawSql` para visualizar a query SQL gerada antes de enviá-la 
                 mkCode """
 // 7.1 Inspeciona o SQL gerado com pushdown para joins antes da execução
 let consultaComplexa =
-    query {
+    fsql {
         for o in Connections.sql.SampleStore.Orders do
         join i in Connections.sql.SampleStore.OrderItems on (o.Id = i.OrderId)
         where (o.TotalAmount >= 100.0f)
@@ -1014,7 +1154,7 @@ Arquivos Excel (`.xlsx`) têm suas abas (worksheets) inspecionadas e tipadas aut
 
                 mkCode """
 // 9. Consulta a aba RegionalTargets da planilha Excel (.xlsx) diretamente via Connections.excel
-query {
+fsql {
     for row in Connections.excel.RegionalTargets.RegionalTargets do
     where (row.GrowthRate >= 10.0M)
     sortByDescending row.AchievedRevenue
@@ -1037,7 +1177,7 @@ Cada conexão Excel funciona como um schema/container (`Connections.excel.Commer
 
                 mkCode """
 // 10. Join entre as 4 abas da planilha em inglês CommerceOps (Sales, Customers, ProductsStock, DeliveryLogs)
-query {
+fsql {
     for s in Connections.excel.CommerceOps.Sales do
     join c in Connections.excel.CommerceOps.Customers on (s.CustomerId = c.CustomerId)
     join p in Connections.excel.CommerceOps.ProductsStock on (s.ProductId = p.ProductId)
@@ -1066,7 +1206,7 @@ Arquivos JSON locais (`.json`) funcionam exatamente como planilhas Excel: cada a
 
                 mkCode """
 // 11. Join entre Products e Reviews dentro do arquivo JSON local (product_catalog.json) via Connections.json
-query {
+fsql {
     for p in Connections.json.ProductCatalog.Products do
     join r in Connections.json.ProductCatalog.Reviews on (p.ProductId = r.ProductId)
     where (r.Stars >= 4)
@@ -1091,7 +1231,7 @@ Arquivos XML locais (`.xml`) extraem automaticamente tanto atributos XML (`@Carr
 
                 mkCode """
 // 12. Join entre Shipments e Carriers dentro do arquivo XML local (logistics_hub.xml) via Connections.xml
-query {
+fsql {
     for s in Connections.xml.LogisticsHub.Shipments do
     join c in Connections.xml.LogisticsHub.Carriers on (s.CarrierId = c.CarrierId)
     sortByDescending s.ShippingCost
@@ -1116,7 +1256,7 @@ Endpoints REST/JSON em páginas seguras (`https://`) são inspecionados e mapead
 
                 mkCode """
 // 13. Consulta repositórios públicos da comunidade F# via API HTTPS do GitHub em Connections.rest
-query {
+fsql {
     for repo in Connections.rest.GitHubFSharp do
     sortByDescending repo.stargazers_count
     select {|
@@ -1332,6 +1472,146 @@ let queryInspecionada =
 
 printfn "SQL Pushdown via toRawQuery:\n%s" (toRawQuery queryInspecionada)
 queryInspecionada
+"""
+
+                mkMarkdown """
+## 21. ⚡ Funções de Janela Analíticas (`fsql.window`, `rowNumber`, `rank`, `runningTotal`)
+
+Execute funções de janela analíticas nativas no SQLite 3.25+ usando `fsql.window`.
+Aqui ranqueamos os produtos por preço em cada categoria e calculamos a soma acumulada de valores.
+"""
+
+                mkCode """
+// 21. Funções de Janela: rowNumber, rank e soma acumulada particionada por categoria
+fsql {
+    for p in Connections.sql.SampleStore.Products do
+    select {|
+        Categoria = p.CategoryId
+        Produto = p.Name
+        Preco = p.Price
+        LinhaNaCategoria = fsql.rowNumber(fsql.window(partitionBy = p.CategoryId, sortByDescending = p.Price))
+        RankNaCategoria = fsql.rank(fsql.window(partitionBy = p.CategoryId, sortByDescending = p.Price))
+        SomaAcumulada = fsql.sum(p.Price, over = fsql.window(partitionBy = p.CategoryId, sortBy = p.Id))
+    |}
+}
+"""
+
+                mkMarkdown """
+## 22. 🧩 Expressões de Tabela Comuns (CTEs) & Operações de Conjunto (`union`, `unionAll`, `intersect`, `except`)
+
+Combine múltiplas projeções de consulta usando operações de conjunto e CTEs diretamente dentro da computation expression **`fsql { ... }`**.
+"""
+
+                mkCode """
+// 22.1 CTE nomeada consumida diretamente via JOIN
+let produtosCaros =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.Price >= 200.0f)
+        select p
+    }
+
+let catalogoComCategoria =
+    fsql {
+        for c in Connections.sql.SampleStore.Categories do
+        withCte "ProdutosCaros" produtosCaros
+        join p in produtosCaros on (c.Id = p.CategoryId)
+        select (c.Name, p.Name, p.Price)
+    }
+
+printfn "SQL Formatado (CTE nomeada + JOIN):\n%s" (toRawQuery catalogoComCategoria)
+catalogoComCategoria
+"""
+
+                mkCode """
+// 22.2 CTE sem nome com injeção transparente e JOIN
+let produtosEstoque =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity >= 100)
+        select p
+    }
+
+let catalogoEstoque =
+    fsql {
+        for c in Connections.sql.SampleStore.Categories do
+        withCte produtosEstoque
+        join p in produtosEstoque on (c.Id = p.CategoryId)
+        select (c.Name, p.Name, p.StockQuantity)
+    }
+
+printfn "SQL Formatado (CTE sem nome + JOIN):\n%s" (toRawQuery catalogoEstoque)
+catalogoEstoque
+"""
+
+                mkCode """
+// 22.3 Operações de Conjunto: intersect e except diretamente dentro da CE fsql
+let estoqueExcept =
+    fsql {
+        for p in Connections.sql.SampleStore.Products do
+        where (p.StockQuantity >= 100)
+        select p
+        except (fsql {
+            for p2 in Connections.sql.SampleStore.Products do
+            where (p2.Price > 300.0f)
+            select p2
+        })
+    }
+
+printfn "SQL Formatado (EXCEPT):\n%s" (toRawQuery estoqueExcept)
+estoqueExcept
+"""
+
+                mkMarkdown """
+## 23. 🔗 Outer Joins Relacionais & Expressões Condicionais (CASE WHEN)
+
+Consulte tabelas com `leftOuterJoin ... into ... for ... in ... .DefaultIfEmpty()` e formate colunas com ramificações `if ... then ... else` compiladas para `CASE WHEN` nativo em SQL.
+"""
+
+                mkCode """
+// 23. Left outer join com classificação condicional inline (CASE WHEN)
+fsql {
+    for c in Connections.sql.SampleStore.Customers do
+    where (c.Country = "Brazil" || c.Country = "USA")
+    leftOuterJoin o in Connections.sql.SampleStore.Orders on (c.Id = o.CustomerId) into orders
+    for o in orders.DefaultIfEmpty() do
+    take 15
+    select {|
+        Cliente = c.FirstName + " " + c.LastName
+        Pais = c.Country
+        PedidoId = if isNull (box o) then 0 else o.Id
+        Valor = if isNull (box o) then 0.0f else o.TotalAmount
+        Status = if isNull (box o) then "Sem Pedidos" else o.Status
+        CategoriaCliente = if c.LoyaltyPoints >= 1000 then "VIP" else "Regular"
+    |}
+}
+"""
+
+                mkMarkdown """
+## 24. 🔍 Não-Existência Correlacionada (`whereNotExists`) & Diagnóstico do Plano de Execução (`fsql.explain`)
+
+Encontre entidades sem registros relacionados usando `whereNotExists` e inspecione o relatório do plano de execução do banco de dados em tempo real.
+"""
+
+                mkCode """
+// 24. Clientes sem pedidos pendentes e diagnóstico do plano de execução ao vivo
+let auditoriaPendentes =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        where (c.Country = "Brazil")
+        whereNotExists (fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") })
+        take 10
+        select {|
+            Cliente = c.FirstName + " " + c.LastName
+            Cidade = c.City
+            Email = c.Email
+        |}
+    }
+
+let relatorioPlano = fsql.explain auditoriaPendentes
+printfn "Relatório do Plano de Execução:\n%s" relatorioPlano.PlanText
+printfn "SQL Formatado:\n%s" (toRawQuery auditoriaPendentes)
+auditoriaPendentes
 """
 
                 mkMarkdown """
@@ -2248,7 +2528,7 @@ queryInspecionada
 
         File.WriteAllText(filePath, getSampleDemoPortugueseNotebook ())
 
-    let generateAllSamples (targetDir: string) : SampleFilesResult =
+    let generateAllSamplesWithLanguage (targetDir: string) (language: string option) : SampleFilesResult =
         let sampleDir = Path.Combine(targetDir, "data_sources")
         if not (Directory.Exists sampleDir) then
             Directory.CreateDirectory sampleDir |> ignore
@@ -2282,8 +2562,14 @@ queryInspecionada
         if not (isFileValid excel2Path 100000L) then createSampleCommerceExcelWorkbook excel2Path
         if not (isFileValid jsonPath 1000000L) then createSampleJsonFile jsonPath
         if not (isFileValid xmlPath 1000000L) then createSampleXmlFile xmlPath
-        if not (File.Exists notebookPath) then createSampleDemoNotebook notebookPath
-        if not (File.Exists notebookPtPath) then createSampleDemoNotebookPt notebookPtPath
+
+        let isPtOnly = language = Some "pt"
+        let isEnOnly = language = Some "en"
+
+        if not isPtOnly then
+            createSampleDemoNotebook notebookPath
+        if not isEnOnly then
+            createSampleDemoNotebookPt notebookPtPath
 
         { SqlitePath = dbPath
           Sqlite2Path = db2Path
@@ -2296,4 +2582,8 @@ queryInspecionada
           RestUrl = DefaultGitHubRestUrl
           NotebookPath = notebookPath
           NotebookPtPath = notebookPtPath }
+
+    let generateAllSamples (targetDir: string) : SampleFilesResult =
+        generateAllSamplesWithLanguage targetDir None
+
 

@@ -1496,7 +1496,7 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(21, codeCells.Length)
+            Assert.Equal(27, codeCells.Length)
 
             for idx, code in List.indexed codeCells do
                 let evalReq = notebookCellRequest $"cell-{idx + 1}" code "sample_demo.fsqnb"
@@ -1543,7 +1543,7 @@ let ``evaluating sample_demo_pt notebook cells succeeds against generated sample
                 |> Seq.map (fun c -> c.GetProperty("value").GetString())
                 |> Seq.toList
 
-            Assert.Equal(21, codeCellsPt.Length)
+            Assert.Equal(27, codeCellsPt.Length)
 
             for idx, code in List.indexed codeCellsPt do
                 let evalReq = notebookCellRequest $"cell-pt-{idx + 1}" code "sample_demo_pt.fsqnb"
@@ -1654,6 +1654,74 @@ query {
             try
                 if Directory.Exists tmp then Directory.Delete(tmp, true)
             with _ -> ()
+    }
+
+[<Fact>]
+let ``workspace/createAdvancedSamples generates docker-compose, init scripts, database and notebooks`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-adv-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let escapedTmp = tmp.Replace("\\", "\\\\")
+            let req: WorkerRequestFrame =
+                { Id = "adv-1"
+                  Method = "workspace/createAdvancedSamples"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}", "engines": ["postgresql", "sqlserver"]}}""").RootElement }
+            let! res = Handlers.dispatch req
+            Assert.True(res.Error.IsNone, (match res.Error with Some e -> e.Message | None -> ""))
+            Assert.True(res.Result.IsSome)
+
+            let r = res.Result.Value
+            let composePath = Path.Combine(tmp, "docker-compose.fsqs.yml")
+            let pgScript = Path.Combine(tmp, "init-scripts", "init_postgres.sql")
+            let sqlServerScript = Path.Combine(tmp, "init-scripts", "init_sqlserver.sql")
+            let pgNb = Path.Combine(tmp, "sample_postgresql.fsqnb")
+            let sqlServerNb = Path.Combine(tmp, "sample_sqlserver.fsqnb")
+
+            Assert.True(File.Exists composePath, $"docker-compose should exist: {composePath}")
+            Assert.True(File.Exists pgScript, $"Postgres init script should exist: {pgScript}")
+            Assert.True(File.Exists sqlServerScript, $"SQL Server init script should exist: {sqlServerScript}")
+            Assert.True(File.Exists pgNb, $"PostgreSQL notebook should exist: {pgNb}")
+            Assert.True(File.Exists sqlServerNb, $"SQL Server notebook should exist: {sqlServerNb}")
+
+            let composeContent = File.ReadAllText composePath
+            Assert.Contains("fsqs-postgres", composeContent)
+            Assert.Contains("fsqs-sqlserver", composeContent)
+
+            // Verify connections written to workspace
+            let conns = Workspace.readConnections tmp
+            Assert.Contains(conns, fun c -> c.Name = "PostgreSQL_Advanced")
+            Assert.Contains(conns, fun c -> c.Name = "SqlServer_Advanced")
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+            try
+                if Directory.Exists tmp then Directory.Delete(tmp, true)
+            with _ -> ()
+    }
+
+[<Fact>]
+let ``workspace/createAdvancedSamples updates user download demo workspace if present`` () =
+    task {
+        let downloadPath = @"C:\Users\theus\Downloads\fs-qs"
+        if Directory.Exists downloadPath then
+            Handlers.setWorkspaceDirForTests (Some downloadPath)
+            let escaped = downloadPath.Replace("\\", "\\\\")
+            let req: WorkerRequestFrame =
+                { Id = "adv-user-test"
+                  Method = "workspace/createAdvancedSamples"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escaped}", "engines": ["postgresql", "sqlserver"]}}""").RootElement }
+            let! res = Handlers.dispatch req
+            Assert.True(res.Error.IsNone)
+            EntityBackgroundGenerator.waitForPendingGeneration()
+            let conns = Workspace.readConnections downloadPath
+            Assert.Contains(conns, fun c -> c.Name = "PostgreSQL_Advanced")
+            Assert.Contains(conns, fun c -> c.Name = "SqlServer_Advanced")
+            let genPath = EntityBackgroundGenerator.generatedFilePath downloadPath
+            if File.Exists genPath then
+                let genCode = File.ReadAllText genPath
+                Assert.Contains("PostgreSQL_Advanced", genCode)
     }
 
 [<Fact>]
@@ -2520,6 +2588,38 @@ let ``results/exportCsv resolves unescaped Windows URI when stored with encoded 
             let content = File.ReadAllText exportPath
             Assert.Contains("Val", content)
             Assert.Contains("999", content)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
+[<Fact>]
+let ``workspace/createSampleData and workspace/createAdvancedSamples respect language parameter`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-handlers-sample-lang-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tmp) |> ignore
+        Handlers.setWorkspaceDirForTests (Some tmp)
+
+        try
+            // 1. createSampleData with language = "pt"
+            let reqSamplePt: WorkerRequestFrame =
+                { Id = "req-sample-pt"
+                  Method = "workspace/createSampleData"
+                  Params = JsonSerializer.SerializeToElement({| targetDir = tmp; language = "pt" |}, Serialization.options) }
+            let! respSamplePt = Handlers.dispatch reqSamplePt
+            Assert.True(respSamplePt.Error.IsNone, (match respSamplePt.Error with Some e -> e.Message | None -> ""))
+            Assert.True(File.Exists(Path.Combine(tmp, "sample_demo_pt.fsqnb")), "Portuguese notebook should be created")
+            Assert.False(File.Exists(Path.Combine(tmp, "sample_demo.fsqnb")), "English notebook should NOT be created when language is pt")
+
+            // 2. createAdvancedSamples with language = "en"
+            let reqAdvEn: WorkerRequestFrame =
+                { Id = "req-adv-en"
+                  Method = "workspace/createAdvancedSamples"
+                  Params = JsonSerializer.SerializeToElement({| targetDir = tmp; engines = [ "postgresql" ]; language = "en" |}, Serialization.options) }
+            let! respAdvEn = Handlers.dispatch reqAdvEn
+            Assert.True(respAdvEn.Error.IsNone, (match respAdvEn.Error with Some e -> e.Message | None -> ""))
+            Assert.True(File.Exists(Path.Combine(tmp, "sample_postgresql.fsqnb")), "English PostgreSQL notebook should be created")
+            Assert.False(File.Exists(Path.Combine(tmp, "sample_postgresql_pt.fsqnb")), "Portuguese PostgreSQL notebook should NOT be created when language is en")
         finally
             Handlers.setWorkspaceDirForTests None
             cleanTempDir tmp

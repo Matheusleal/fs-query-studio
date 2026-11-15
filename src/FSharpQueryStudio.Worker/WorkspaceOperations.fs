@@ -276,8 +276,8 @@ module WorkspaceOperations =
           SkippedCount = candidateFiles.Length - newlyImported.Length }
 
     /// Generates sample data files inside data_sources/ and registers them via the natural auto-import pipeline plus the sample REST source.
-    let createSampleData (dir: string) (secretStore: ISecretStore) : SampleCreateResult =
-        let files = SampleDataGenerator.generateAllSamples dir
+    let createSampleDataWithLanguage (dir: string) (language: string option) (secretStore: ISecretStore) : SampleCreateResult =
+        let files = SampleDataGenerator.generateAllSamplesWithLanguage dir language
 
         let sampleFileNames =
             set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "ProductCatalog"; "LogisticsHub"; "GitHubFSharp" ]
@@ -323,4 +323,64 @@ module WorkspaceOperations =
           NotebookPath = files.NotebookPath
           NotebookPtPath = files.NotebookPtPath
           RegisteredConnections = [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "ProductCatalog"; "LogisticsHub"; "GitHubFSharp" ] }
+
+    /// Generates sample data files inside data_sources/ and registers them via the natural auto-import pipeline plus the sample REST source.
+    let createSampleData (dir: string) (secretStore: ISecretStore) : SampleCreateResult =
+        createSampleDataWithLanguage dir None secretStore
+
+    /// Generates containerized and dialect-specific advanced database sample environments, Docker Compose configs, and notebooks.
+    let createAdvancedSamplesWithLanguage (dir: string) (engines: string list) (language: string option) (secretStore: ISecretStore) : AdvancedSampleGenerator.AdvancedSampleResult =
+        let result = AdvancedSampleGenerator.generateAdvancedSamplesWithLanguage dir engines language
+        let currentConns = Workspace.readConnections dir
+
+        let mutable newConns = currentConns
+        for connName in result.RegisteredConnections do
+            let alreadyExists = newConns |> List.exists (fun c -> String.Equals(c.Name, connName, StringComparison.OrdinalIgnoreCase))
+            if not alreadyExists then
+                match connName with
+                | "PostgreSQL_Advanced" ->
+                    let pgDef: ConnectionDefinition =
+                        { Id = Guid.NewGuid()
+                          Name = "PostgreSQL_Advanced"
+                          Kind = ConnectorKind.PostgreSql
+                          Configuration =
+                              JsonSerializer.SerializeToElement(
+                                  {| connectionString = "Host=localhost;Port=5432;Database=fsqs_demo;Username=postgres;Password=Password123!" |},
+                                  Serialization.options
+                              )
+                          SecretReference = None
+                          IsTrusted = true }
+                    newConns <- newConns @ [ pgDef ]
+                | "SqlServer_Advanced" ->
+                    let sqlDef: ConnectionDefinition =
+                        { Id = Guid.NewGuid()
+                          Name = "SqlServer_Advanced"
+                          Kind = ConnectorKind.SqlServer
+                          Configuration =
+                              JsonSerializer.SerializeToElement(
+                                  {| connectionString = "Server=localhost,1433;Database=master;User Id=sa;Password=Password123!;TrustServerCertificate=True;" |},
+                                  Serialization.options
+                              )
+                          SecretReference = None
+                          IsTrusted = true }
+                    newConns <- newConns @ [ sqlDef ]
+                | _ -> ()
+
+        if newConns <> currentConns then
+            Workspace.writeConnections dir newConns
+
+        Connections.configure (WorkspaceConnectionResolver(newConns, secretStore, dir))
+        try
+            (EntityBackgroundGenerator.generateForConnectionsAsync dir newConns secretStore).GetAwaiter().GetResult() |> ignore
+        with ex ->
+            Log.Warning("FS Query Studio: Entity generation after advanced samples creation failed: {Error}", ex.Message)
+        Connections.triggerBackgroundSync dir newConns secretStore
+
+        SessionStore.resetAll ()
+        result
+
+    /// Generates containerized and dialect-specific advanced database sample environments, Docker Compose configs, and notebooks.
+    let createAdvancedSamples (dir: string) (engines: string list) (secretStore: ISecretStore) : AdvancedSampleGenerator.AdvancedSampleResult =
+        createAdvancedSamplesWithLanguage dir engines None secretStore
+
 

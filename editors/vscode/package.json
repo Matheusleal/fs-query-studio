@@ -45,6 +45,7 @@
     "onCommand:fs-query-studio.checkWorker",
     "onCommand:fs-query-studio.showOutput",
     "onCommand:fs-query-studio.createSampleData",
+    "onCommand:fs-query-studio.createAdvancedSamples",
     "onCommand:fs-query-studio.autoImportFolder",
     "onCommand:fs-query-studio.syncDataSources",
     "onCommand:fs-query-studio.openDocs",
@@ -98,8 +99,14 @@
       },
       {
         "command": "fs-query-studio.createSampleData",
-        "title": "F# Query Studio: Create Sample Data (SQLite, CSV & XLSX)",
-        "shortTitle": "Create Sample Data",
+        "title": "F# Query Studio: Create Sample Demo & Data Sources",
+        "shortTitle": "Create Sample Demo",
+        "icon": "$(database)"
+      },
+      {
+        "command": "fs-query-studio.createAdvancedSamples",
+        "title": "F# Query Studio: Create Sample Demo & Data Sources",
+        "shortTitle": "Create Sample Demo",
         "icon": "$(database)"
       },
       {
@@ -177,7 +184,7 @@
     "viewsWelcome": [
       {
         "view": "fsQueryStudioConnections",
-        "contents": "No connections registered yet.\n[Add Connection](command:fs-query-studio.connections.add)\n\n[Auto-Import Data Sources Directory](command:fs-query-studio.autoImportFolder)\n\n[Sync Data Sources Cache](command:fs-query-studio.syncDataSources)\n\n[Initialize Empty Project](command:fs-query-studio.initEmptyProject)\n\n[Create Sample Data (SQLite, CSV & XLSX)](command:fs-query-studio.createSampleData)\n\n[Open Documentation](command:fs-query-studio.openDocs)\n\n[Show Output Logs](command:fs-query-studio.showOutput)"
+        "contents": "No connections registered yet.\n[Add Connection](command:fs-query-studio.connections.add)\n\n[Auto-Import Data Sources Directory](command:fs-query-studio.autoImportFolder)\n\n[Sync Data Sources Cache](command:fs-query-studio.syncDataSources)\n\n[Initialize Empty Project](command:fs-query-studio.initEmptyProject)\n\n[Create Sample Demo & Data Sources](command:fs-query-studio.createSampleData)\n\n[Open Documentation](command:fs-query-studio.openDocs)\n\n[Show Output Logs](command:fs-query-studio.showOutput)"
       }
     ],
     "menus": {
