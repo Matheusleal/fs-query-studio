@@ -38,11 +38,22 @@
   5. Empacotamento do arquivo `editors/vscode/fs-query-studio.vsix` e verificação de segurança de conteúdo (`vsce ls`).
 - Nunca abra um PR se `dotnet fsi .\build.fsx release` apresentar qualquer erro ou falha.
 
-## Regra Obrigatória: Validação do `sample_demo` em Toda Alteração
-- Sempre que **qualquer alteração** for feita no backend, nos conectores ou na extensão VS Code, é **obrigatório** validar ponta a ponta os notebooks `sample_demo.fsqnb` e `sample_demo_pt.fsqnb` (incluindo SQLite, CSV, Excel `.xlsx` e REST `https://` do GitHub, bem como recriação sobre um workspace existente):
-  - Backend: `dotnet test tests/FSharpQueryStudio.Worker.Tests --filter "FullyQualifiedName~sample"`
-  - Frontend/Worker E2E: `npx vitest run src/worker/sample-notebook.integration.test.ts` (após publicar o worker para `editors/vscode/dist/worker` ou via `./scripts/run-all-tests.ps1`).
-  - Quando a extensão estiver instalada localmente em `~/.vscode/extensions/fs-query-studio.fs-query-studio-*`, sincronizar os artefatos compilados (`dist/`) para garantir que o ambiente local do VS Code nunca execute código defasado.
+## Regra Obrigatória: Validação E2E Real dos Samples em Toda Entrega (Notebooks EN e PT)
+- Sempre que **qualquer alteração** for finalizada no backend, conectores ou na extensão VS Code (que não seja estritamente alteração de documentação), é **estritamente obrigatório**:
+  1. Inicializar e recriar os projetos de amostra básicos e avançados (`workspace/createSampleData` e `workspace/createAdvancedSamples` com `language: "all"`, `engines: ["all"]`).
+  2. Executar e validar ponta a ponta **100% das células de todos os cadernos** (tanto em Inglês quanto em Português) sem nenhum erro:
+     - Cadernos Básicos: `sample_demo.fsqnb` e `sample_demo_pt.fsqnb` (SQLite, CSV, Excel, XML, JSON, REST).
+     - Cadernos de Bancos de Dados: `sample_mysql.fsqnb`, `sample_mariadb.fsqnb`, `sample_oracle.fsqnb`, `sample_postgresql.fsqnb`, `sample_sqlserver.fsqnb` (e seus equivalentes `*_pt.fsqnb`).
+  3. Validação automatizada via comando:
+     ```powershell
+     node editors/vscode/test_all_samples_e2e.mjs
+     # ou no diretório editors/vscode:
+     npm run test:samples
+     ```
+  4. Backend: `dotnet test tests/FSharpQueryStudio.Worker.Tests --filter "FullyQualifiedName~sample"`
+  5. Frontend/Worker E2E: `npx vitest run src/worker/sample-notebook.integration.test.ts`
+  6. Nenhuma entrega ou PR pode ser concluído se houver qualquer célula falhando ou quebrando.
+  7. Quando a extensão estiver instalada localmente em `~/.vscode/extensions/fs-query-studio.fs-query-studio-*`, sincronizar os artefatos compilados (`dist/`) e/ou reinstalar o VSIX compilado via `code --install-extension editors/vscode/fs-query-studio.vsix --force`.
 
 ## Regra de Criação de Queries: Guia Canônico `fsql` para Agentes de IA
 - Todo código de consulta de dados deve seguir rigorosamente as especificações em [`docs/FSQL_AI_AGENT_GUIDE.md`](file:///docs/FSQL_AI_AGENT_GUIDE.md).
@@ -76,8 +87,19 @@
   5. Packaging `editors/vscode/fs-query-studio.vsix` and running package security checks (`vsce ls`).
 - Never open a PR if `dotnet fsi .\build.fsx release` reports any errors or failures.
 
-## Mandatory Rule: `sample_demo` Validation on Every Change (English)
-- Whenever **any change** is made to the backend, connectors, or VS Code extension, end-to-end validation of `sample_demo.fsqnb` and `sample_demo_pt.fsqnb` (covering SQLite, CSV, Excel `.xlsx`, and secure GitHub `https://` REST endpoints, including re-creation over an existing workspace) is **mandatory**:
-  - Backend: `dotnet test tests/FSharpQueryStudio.Worker.Tests --filter "FullyQualifiedName~sample"`
-  - Frontend/Worker E2E: `npx vitest run src/worker/sample-notebook.integration.test.ts` (after publishing the worker to `editors/vscode/dist/worker` or via `./scripts/run-all-tests.ps1`).
-  - When the extension is installed locally under `~/.vscode/extensions/fs-query-studio.fs-query-studio-*`, sync the built `dist/` artifacts so the local VS Code environment never runs stale bundles.
+## Mandatory Rule: Real E2E Sample Validation on Every Delivery (EN and PT Notebooks)
+- Whenever **any change** is finalized in the backend, connectors, or VS Code extension (that is not strictly documentation-only), it is **strictly mandatory** to:
+  1. Initialize and recreate basic and advanced sample projects (`workspace/createSampleData` and `workspace/createAdvancedSamples` with `language: "all"`, `engines: ["all"]`).
+  2. Execute and validate end-to-end **100% of all cells in all notebooks** (both English and Portuguese) with zero errors:
+     - Standard Notebooks: `sample_demo.fsqnb` and `sample_demo_pt.fsqnb` (SQLite, CSV, Excel, XML, JSON, REST).
+     - Database Engine Notebooks: `sample_mysql.fsqnb`, `sample_mariadb.fsqnb`, `sample_oracle.fsqnb`, `sample_postgresql.fsqnb`, `sample_sqlserver.fsqnb` (and their `*_pt.fsqnb` counterparts).
+  3. Automated validation command:
+     ```powershell
+     node editors/vscode/test_all_samples_e2e.mjs
+     # or inside editors/vscode:
+     npm run test:samples
+     ```
+  4. Backend: `dotnet test tests/FSharpQueryStudio.Worker.Tests --filter "FullyQualifiedName~sample"`
+  5. Frontend/Worker E2E: `npx vitest run src/worker/sample-notebook.integration.test.ts`
+  6. No delivery or PR may be completed if any notebook cell fails or produces errors.
+  7. When the extension is installed locally under `~/.vscode/extensions/fs-query-studio.fs-query-studio-*`, sync the built artifacts (`dist/`) and/or reinstall the built VSIX via `code --install-extension editors/vscode/fs-query-studio.vsix --force`.

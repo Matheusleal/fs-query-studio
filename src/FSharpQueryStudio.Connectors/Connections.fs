@@ -794,7 +794,7 @@ module Connections =
 
             let tables =
                 try
-                    use cts = new CancellationTokenSource(TimeSpan.FromSeconds(5.0))
+                    use cts = new CancellationTokenSource(TimeSpan.FromSeconds(20.0))
                     (connector.DiscoverSchemaAsync(cts.Token)).GetAwaiter().GetResult()
                 with ex ->
                     Log.Warning("FS Query Studio: Schema discovery timed out or failed during entity generation for '{Name}': {Error}", name, ex.Message)

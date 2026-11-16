@@ -345,11 +345,9 @@ ON DUPLICATE KEY UPDATE quantity=VALUES(quantity);
 
     let getOracleInitSql () = """
 -- Oracle Advanced Schema Initialization
-BEGIN
-   EXECUTE IMMEDIATE 'ALTER SESSION SET CONTAINER = FREEPDB1';
-EXCEPTION WHEN OTHERS THEN NULL;
-END;
-/
+ALTER SESSION SET CONTAINER = FREEPDB1;
+ALTER SESSION SET CURRENT_SCHEMA = SYSTEM;
+
 BEGIN
    EXECUTE IMMEDIATE 'DROP TABLE ORDER_ITEMS CASCADE CONSTRAINTS';
 EXCEPTION WHEN OTHERS THEN NULL;
@@ -2302,12 +2300,15 @@ printfn "%%s" diag.PlanText
 
     let generateAdvancedSamplesWithLanguage (targetDir: string) (selectedEngines: string list) (language: string option) : AdvancedSampleResult =
         let normalizedEngines =
-            selectedEngines
-            |> List.map (fun e -> e.ToLowerInvariant().Trim())
-            |> List.filter (fun e ->
-                e = "postgresql" || e = "sqlserver" || e = "postgres" || e = "mssql" ||
-                e = "mysql" || e = "mariadb" || e = "oracle")
-            |> List.distinct
+            let raw = selectedEngines |> List.map (fun e -> e.ToLowerInvariant().Trim())
+            if raw |> List.exists (fun e -> e = "all") then
+                [ "postgresql"; "sqlserver"; "mysql"; "mariadb"; "oracle" ]
+            else
+                raw
+                |> List.filter (fun e ->
+                    e = "postgresql" || e = "sqlserver" || e = "postgres" || e = "mssql" ||
+                    e = "mysql" || e = "mariadb" || e = "oracle")
+                |> List.distinct
 
         let hasPostgres = normalizedEngines |> List.exists (fun e -> e = "postgresql" || e = "postgres")
         let hasSqlServer = normalizedEngines |> List.exists (fun e -> e = "sqlserver" || e = "mssql")
