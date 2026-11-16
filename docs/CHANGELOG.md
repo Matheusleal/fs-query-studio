@@ -8,6 +8,8 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-11-16
+
 ### Added
 
 - **New Relational Database Connectors: MySQL, MariaDB, and Oracle** — Full first-class support for enterprise and open-source SQL databases:
