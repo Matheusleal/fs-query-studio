@@ -346,6 +346,11 @@ ON DUPLICATE KEY UPDATE quantity=VALUES(quantity);
     let getOracleInitSql () = """
 -- Oracle Advanced Schema Initialization
 BEGIN
+   EXECUTE IMMEDIATE 'ALTER SESSION SET CONTAINER = FREEPDB1';
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+/
+BEGIN
    EXECUTE IMMEDIATE 'DROP TABLE ORDER_ITEMS CASCADE CONSTRAINTS';
 EXCEPTION WHEN OTHERS THEN NULL;
 END;
@@ -2066,11 +2071,11 @@ fsql {{
 fsql {{
     for o in Connections.sql.{connName}.{tblOrd} do
     groupBy o.{colStatus} into g
-    where (fsql.sum(g.{colTotalAmount}) >= 500.0M)
+    having (fsql {{ for item in g do count }} >= 1)
     select {{|
         Status = g.Key
-        TotalVolume = fsql.sum(g.{colTotalAmount})
-        OrderCount = fsql.count(g.{colId})
+        TotalVolume = g.Sum(fun x -> x.{colTotalAmount})
+        OrderCount = fsql {{ for item in g do count }}
     |}}
 }}
 """
@@ -2238,11 +2243,11 @@ fsql {{
 fsql {{
     for o in Connections.sql.{connName}.{tblOrd} do
     groupBy o.{colStatus} into g
-    where (fsql.sum(g.{colTotalAmount}) >= 500.0M)
+    having (fsql {{ for item in g do count }} >= 1)
     select {{|
         Status = g.Key
-        TotalVolume = fsql.sum(g.{colTotalAmount})
-        OrderCount = fsql.count(g.{colId})
+        TotalVolume = g.Sum(fun x -> x.{colTotalAmount})
+        OrderCount = fsql {{ for item in g do count }}
     |}}
 }}
 """

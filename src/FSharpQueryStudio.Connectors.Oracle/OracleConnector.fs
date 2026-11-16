@@ -112,13 +112,21 @@ type OracleConnector(connectionString: string) =
             use command = connection.CreateCommand()
 
             command.CommandText <-
-                "select t.owner, t.table_name, c.column_name, c.data_type \
+                "select t.owner, t.table_name, c.column_name, \
+                        case \
+                          when c.data_type = 'NUMBER' and nvl(c.data_scale, 0) = 0 and nvl(c.data_precision, 38) <= 9 then 'int' \
+                          when c.data_type = 'NUMBER' and nvl(c.data_scale, 0) = 0 and nvl(c.data_precision, 38) <= 18 then 'bigint' \
+                          when c.data_type = 'NUMBER' and nvl(c.data_scale, 0) = 0 then 'bigint' \
+                          when c.data_type = 'NUMBER' then 'decimal' \
+                          else c.data_type \
+                        end as resolved_type \
                  from ( \
-                     select owner, table_name from all_tables where owner = USER \
+                     select owner, table_name from all_tables where owner = USER and table_name not like '%$%' and table_name not like 'BIN$%' and table_name not like 'MVIEW$%' \
                      union all \
-                     select owner, view_name as table_name from all_views where owner = USER \
+                     select owner, view_name as table_name from all_views where owner = USER and view_name not like '%$%' and view_name not like 'BIN$%' and view_name not like 'MVIEW$%' \
                  ) t \
                  join all_tab_columns c on c.table_name = t.table_name and c.owner = t.owner \
+                 where c.column_name not like '%$%' and c.column_name not like '%#%' \
                  order by t.table_name, c.column_id"
 
             use! reader = command.ExecuteReaderAsync(ct)

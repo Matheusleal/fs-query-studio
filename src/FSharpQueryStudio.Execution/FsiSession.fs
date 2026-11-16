@@ -67,7 +67,7 @@ module FsiSession =
                     session.Errors.GetStringBuilder().Clear() |> ignore
                     match choice with
                     | Choice2Of2 ex ->
-                        let diag = errs |> Seq.map (fun (e: FSharp.Compiler.Diagnostics.FSharpDiagnostic) -> e.Message) |> String.concat "; "
+                        let diag = errs |> Seq.map (fun (e: FSharp.Compiler.Diagnostics.FSharpDiagnostic) -> sprintf "[L%d:C%d: %s]" e.StartLine e.StartColumn e.Message) |> String.concat "; "
                         failwithf "#load of '%s' failed: %s (Diagnostics: %s)" generatedFile ex.Message diag
                     | Choice1Of2 _ ->
                         session.GeneratedContent <- currentContent

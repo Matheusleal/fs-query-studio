@@ -759,25 +759,33 @@ module Connections =
                       "method"; "mixin"; "object"; "parallel"; "process"; "protected"; "pure"; "sealed";
                       "tailcall"; "trait"; "virtual"; "volatile" ]
 
+            let cleanIdent (s: string) =
+                let cleaned = System.Text.RegularExpressions.Regex.Replace(s, @"[^\p{L}0-9_]", "_")
+                if System.Text.RegularExpressions.Regex.IsMatch(cleaned, @"^[0-9]") then $"_{cleaned}"
+                elif String.IsNullOrWhiteSpace cleaned then "Item"
+                else cleaned
+
             let escapeIdent (s: string) =
-                if System.Text.RegularExpressions.Regex.IsMatch(s, @"^[a-zA-Z][a-zA-Z0-9_]*$") && not (Set.contains s keywords) then
-                    s
+                let cleaned = cleanIdent s
+                if System.Text.RegularExpressions.Regex.IsMatch(cleaned, @"^[a-zA-Z_\p{L}][a-zA-Z0-9_\p{L}]*$") && not (Set.contains cleaned keywords) then
+                    cleaned
                 else
-                    $"``{s}``"
+                    $"``{cleaned}``"
 
             let mapType (t: string) =
                 let lower = t.ToLowerInvariant()
                 if lower.Contains("bigint") || lower.Contains("int8") || lower.Contains("bigserial") then "int64"
-                elif lower.Contains("integer") || lower.Contains("int4") || lower.Contains("serial") || lower = "int" then "int"
+                elif lower.Contains("integer") || lower.Contains("int4") || lower.Contains("serial") || lower = "int" || lower.Contains("mediumint") then "int"
                 elif lower.Contains("smallint") || lower.Contains("int2") then "int16"
-                elif lower.Contains("bool") || lower.Contains("bit") then "bool"
+                elif lower.Contains("tinyint(1)") || lower = "bool" || lower = "boolean" || lower.Contains("bit") then "bool"
+                elif lower.Contains("tinyint") then "byte"
                 elif lower.Contains("uuid") || lower.Contains("uniqueidentifier") then "System.Guid"
                 elif lower.Contains("time") || lower.Contains("date") then "System.DateTime"
-                elif lower.Contains("decimal") || lower.Contains("numeric") || lower.Contains("money") then "decimal"
+                elif lower.Contains("decimal") || lower.Contains("numeric") || lower.Contains("money") || lower.Contains("number") then "decimal"
                 elif lower.Contains("double") || lower.Contains("float8") || lower = "float" then "double"
                 elif lower.Contains("real") || lower.Contains("float4") then "single"
-                elif lower.Contains("bytea") || lower.Contains("blob") || lower.Contains("binary") then "byte[]"
-                elif lower.Contains("char") || lower.Contains("text") || lower.Contains("json") then "string"
+                elif lower.Contains("bytea") || lower.Contains("blob") || lower.Contains("binary") || lower.Contains("raw") || lower.Contains("image") then "byte[]"
+                elif lower.Contains("char") || lower.Contains("text") || lower.Contains("json") || lower.Contains("clob") || lower.Contains("xml") then "string"
                 else "obj"
 
             let sb = System.Text.StringBuilder()
