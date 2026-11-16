@@ -83,7 +83,7 @@ module Connections =
         | true, v -> Some v
         | false, _ -> None
 
-    let rec private convertValue (raw: obj) (targetType: Type) : obj =
+    let rec internal convertValue (raw: obj) (targetType: Type) : obj =
         if isNull raw || Convert.IsDBNull(raw) then
             null
         elif targetType.IsInstanceOfType(raw) then

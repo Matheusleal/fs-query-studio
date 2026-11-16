@@ -1233,8 +1233,8 @@ module ExpressionPushdownTranslator =
                 Some $"NTILE({tiles}) {safeOverClause}"
             | "lag" | "Lag" ->
                 let col = if mc.Arguments.Count > 0 then defaultArg (translateScalarExpr dialect plan mc.Arguments.[0]) (extractColumnNameWithAlias plan mc.Arguments.[0]) else "*"
+                let pList = mc.Method.GetParameters()
                 let offsetArg =
-                    let pList = mc.Method.GetParameters()
                     let oIdx = pList |> Array.tryFindIndex (fun p -> p.Name = "offset")
                     match oIdx with
                     | Some idx when idx < mc.Arguments.Count -> tryUnwrapOptionArg mc.Arguments.[idx]
@@ -1243,11 +1243,33 @@ module ExpressionPushdownTranslator =
                     match offsetArg with
                     | Some e -> string (evaluateClientValue e)
                     | None -> "1"
-                Some $"LAG({col}, {offsetStr}) {safeOverClause}"
+                let defaultArgOpt =
+                    let dIdx = pList |> Array.tryFindIndex (fun p -> p.Name = "defaultValue")
+                    match dIdx with
+                    | Some idx when idx < mc.Arguments.Count -> tryUnwrapOptionArg mc.Arguments.[idx]
+                    | _ -> None
+                let defaultValStrOpt =
+                    match defaultArgOpt with
+                    | Some e ->
+                        match translateScalarExpr dialect plan e with
+                        | Some s -> Some s
+                        | None ->
+                            let v = evaluateClientValue e
+                            match v with
+                            | :? decimal as d -> Some (d.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                            | :? float as f -> Some (f.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                            | :? int as i -> Some (string i)
+                            | :? string as s -> Some $"'{s}'"
+                            | null -> Some "NULL"
+                            | other -> Some (string other)
+                    | None -> None
+                match defaultValStrOpt with
+                | Some defVal -> Some $"LAG({col}, {offsetStr}, {defVal}) {safeOverClause}"
+                | None -> Some $"LAG({col}, {offsetStr}) {safeOverClause}"
             | "lead" | "Lead" ->
                 let col = if mc.Arguments.Count > 0 then defaultArg (translateScalarExpr dialect plan mc.Arguments.[0]) (extractColumnNameWithAlias plan mc.Arguments.[0]) else "*"
+                let pList = mc.Method.GetParameters()
                 let offsetArg =
-                    let pList = mc.Method.GetParameters()
                     let oIdx = pList |> Array.tryFindIndex (fun p -> p.Name = "offset")
                     match oIdx with
                     | Some idx when idx < mc.Arguments.Count -> tryUnwrapOptionArg mc.Arguments.[idx]
@@ -1256,7 +1278,29 @@ module ExpressionPushdownTranslator =
                     match offsetArg with
                     | Some e -> string (evaluateClientValue e)
                     | None -> "1"
-                Some $"LEAD({col}, {offsetStr}) {safeOverClause}"
+                let defaultArgOpt =
+                    let dIdx = pList |> Array.tryFindIndex (fun p -> p.Name = "defaultValue")
+                    match dIdx with
+                    | Some idx when idx < mc.Arguments.Count -> tryUnwrapOptionArg mc.Arguments.[idx]
+                    | _ -> None
+                let defaultValStrOpt =
+                    match defaultArgOpt with
+                    | Some e ->
+                        match translateScalarExpr dialect plan e with
+                        | Some s -> Some s
+                        | None ->
+                            let v = evaluateClientValue e
+                            match v with
+                            | :? decimal as d -> Some (d.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                            | :? float as f -> Some (f.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                            | :? int as i -> Some (string i)
+                            | :? string as s -> Some $"'{s}'"
+                            | null -> Some "NULL"
+                            | other -> Some (string other)
+                    | None -> None
+                match defaultValStrOpt with
+                | Some defVal -> Some $"LEAD({col}, {offsetStr}, {defVal}) {safeOverClause}"
+                | None -> Some $"LEAD({col}, {offsetStr}) {safeOverClause}"
             | "firstValue" | "FirstValue" ->
                 let col = if mc.Arguments.Count > 0 then defaultArg (translateScalarExpr dialect plan mc.Arguments.[0]) (extractColumnNameWithAlias plan mc.Arguments.[0]) else "*"
                 Some $"FIRST_VALUE({col}) {safeOverClause}"
@@ -1605,6 +1649,13 @@ module ExpressionPushdownTranslator =
                 let dPrefix = if plan.IsDistinct then "DISTINCT " else ""
                 Some $"COUNT({dPrefix}*)"
             elif mc.Method.Name = "Sum" then
+                let isDistinct =
+                    let isD (e: Expression) =
+                        match unwrapQuote e with
+                        | :? MethodCallExpression as innerMc -> innerMc.Method.Name = "Distinct"
+                        | _ -> false
+                    (mc.Arguments.Count > 0 && isD mc.Arguments.[0]) || (not (isNull mc.Object) && isD mc.Object) || plan.IsDistinct
+                let dPrefix = if isDistinct then "DISTINCT " else ""
                 let colOpt =
                     if mc.Arguments.Count >= 2 then
                         match unwrapQuote mc.Arguments.[1] with
@@ -1616,7 +1667,7 @@ module ExpressionPushdownTranslator =
                         translateScalarExpr dialect plan mc.Arguments.[0]
                     else None
                 match colOpt with
-                | Some col -> Some $"SUM({col})"
+                | Some col -> Some $"SUM({dPrefix}{col})"
                 | None | _ -> None
             elif mc.Method.Name = "Min" then
                 let colOpt =
@@ -1987,10 +2038,16 @@ module ExpressionPushdownTranslator =
                     let isFullOuter =
                         plan.FullOuterJoinTables.Contains("*")
                         || (plan.FullOuterJoinTables |> Seq.exists (fun tbl -> String.Equals(tbl, innerTable, StringComparison.OrdinalIgnoreCase)))
+                    let isRightOuter =
+                        plan.RightOuterJoinTables.Contains("*")
+                        || (plan.RightOuterJoinTables |> Seq.exists (fun tbl -> String.Equals(tbl, innerTable, StringComparison.OrdinalIgnoreCase)))
                     let joinType =
                         match mName with
                         | "FullOuterJoin" -> "FULL OUTER JOIN"
                         | "RightOuterJoin" -> "RIGHT OUTER JOIN"
+                        | "Join" when isRightOuter -> "RIGHT OUTER JOIN"
+                        | "Join" when isFullOuter -> "FULL OUTER JOIN"
+                        | "GroupJoin" when isRightOuter -> "RIGHT OUTER JOIN"
                         | "GroupJoin" when isFullOuter -> "FULL OUTER JOIN"
                         | "GroupJoin" -> "LEFT JOIN"
                         | _ -> "INNER JOIN"
@@ -3514,8 +3571,12 @@ module SqlComputationExtensions =
         member inline _.FullOuterJoin(source: QuerySource<'T, 'Q>, provider: QuerySource<'U, 'Q>, outerKey: 'T -> 'Key, innerKey: 'U -> 'Key, resultSelector: 'T -> seq<'U> -> 'Result) : QuerySource<'Result, 'Q> =
             failwith "fullOuterJoin marker"
 
-        [<CustomOperation("rightOuterJoin", IsLikeGroupJoin = true)>]
-        member inline _.RightOuterJoin(source: QuerySource<'T, 'Q>, provider: QuerySource<'U, 'Q>, outerKey: 'T -> 'Key, innerKey: 'U -> 'Key, resultSelector: 'T -> seq<'U> -> 'Result) : QuerySource<'Result, 'Q> =
+        [<CustomOperation("rightOuterJoin", IsLikeJoin = true)>]
+        member inline _.RightOuterJoin(source: QuerySource<'T, 'Q>, provider: QuerySource<'U, 'Q>, outerKey: 'T -> 'Key, innerKey: 'U -> 'Key, resultSelector: 'T -> 'U -> 'Result) : QuerySource<'Result, 'Q> =
+            failwith "rightOuterJoin marker"
+
+        [<CustomOperation("rightOuterJoinGroup", IsLikeGroupJoin = true)>]
+        member inline _.RightOuterJoinGroup(source: QuerySource<'T, 'Q>, provider: QuerySource<'U, 'Q>, outerKey: 'T -> 'Key, innerKey: 'U -> 'Key, resultSelector: 'T -> seq<'U> -> 'Result) : QuerySource<'Result, 'Q> =
             failwith "rightOuterJoin marker"
 
         [<CustomOperation("fullOuterJoinRaw", MaintainsVariableSpace = true)>]
@@ -3605,6 +3666,9 @@ module SqlComputationExtensions =
             let leftOuterJoinMethod =
                 typeof<QueryBuilder>.GetMethods()
                 |> Seq.find (fun m -> m.Name = "LeftOuterJoin" && m.GetParameters().Length = 5)
+            let joinMethod =
+                typeof<QueryBuilder>.GetMethods()
+                |> Seq.find (fun m -> m.Name = "Join" && m.GetParameters().Length = 5)
             let queryBuilderRunMethod =
                 typeof<QueryBuilder>.GetMethods()
                 |> Seq.find (fun m ->
@@ -3615,6 +3679,7 @@ module SqlComputationExtensions =
             let ctes = ResizeArray<string * obj * bool>()
             let explicitJoins = ResizeArray<string * string * string * string>()
             let fullOuterJoinTables = ResizeArray<string>()
+            let rightOuterJoinTables = ResizeArray<string>()
             let mutable fromCteName: string option = None
 
             let rec tryFindRootSource (e: Expr) : obj option =
@@ -3707,9 +3772,10 @@ module SqlComputationExtensions =
                     match instanceOpt with
                     | Some inst -> Expr.Call(inst, genericRun, [ newInner ])
                     | None -> Expr.Call(genericRun, [ newInner ])
-                | Call(instanceOpt, mi, [ source; provider; outerKey; innerKey; resultSelector ]) when (mi.Name = "FullOuterJoin" || mi.Name = "RightOuterJoin") && mi.GetGenericArguments().Length = 5 ->
+                | Call(instanceOpt, mi, [ source; provider; outerKey; innerKey; resultSelector ]) when (mi.Name = "FullOuterJoin" || mi.Name = "RightOuterJoin" || mi.Name = "RightOuterJoinGroup") && mi.GetGenericArguments().Length = 5 ->
+                    let isRight = mi.Name = "RightOuterJoin" || mi.Name = "RightOuterJoinGroup"
+                    let targetList = if isRight then rightOuterJoinTables else fullOuterJoinTables
                     let genArgs = mi.GetGenericArguments()
-                    let genericLeftOuterJoin = leftOuterJoinMethod.MakeGenericMethod(genArgs)
                     let provObj =
                         try
                             let v = LeafExpressionConverter.EvaluateQuotation(provider)
@@ -3721,13 +3787,13 @@ module SqlComputationExtensions =
                         match provObj with
                         | :? IQueryable as iq ->
                             match SqlPushdownQuery.tryFindPushdownSource iq.Expression with
-                            | Some (_, Some p) -> fullOuterJoinTables.Add(p.BaseSql)
+                            | Some (_, Some p) -> targetList.Add(p.BaseSql)
                             | Some (sIq, None) ->
                                 try
                                     let pProp = sIq.GetType().GetProperty("Plan")
                                     if not (isNull pProp) then
                                         let p = pProp.GetValue(sIq) :?> PushdownQueryPlan
-                                        fullOuterJoinTables.Add(p.BaseSql)
+                                        targetList.Add(p.BaseSql)
                                 with _ -> ()
                             | None -> ()
                         | _ -> ()
@@ -3738,15 +3804,20 @@ module SqlComputationExtensions =
                         | Coerce(inner, _) -> tryFindTable inner
                         | _ -> None
                     match tryFindTable provider with
-                    | Some tbl -> fullOuterJoinTables.Add(tbl)
+                    | Some tbl -> targetList.Add(tbl)
                     | None -> ()
-                    if fullOuterJoinTables.Count = 0 then fullOuterJoinTables.Add("*")
+                    if targetList.Count = 0 then targetList.Add("*")
                     let newSource = rewrite source
                     let newProvider = rewrite provider
                     let newResultSelector = rewrite resultSelector
+                    let targetMethod =
+                        if mi.Name = "RightOuterJoin" then
+                            joinMethod.MakeGenericMethod(genArgs)
+                        else
+                            leftOuterJoinMethod.MakeGenericMethod(genArgs)
                     match instanceOpt with
-                    | Some inst -> Expr.Call(inst, genericLeftOuterJoin, [ newSource; newProvider; outerKey; innerKey; newResultSelector ])
-                    | None -> Expr.Call(genericLeftOuterJoin, [ newSource; newProvider; outerKey; innerKey; newResultSelector ])
+                    | Some inst -> Expr.Call(inst, targetMethod, [ newSource; newProvider; outerKey; innerKey; newResultSelector ])
+                    | None -> Expr.Call(targetMethod, [ newSource; newProvider; outerKey; innerKey; newResultSelector ])
                 | Call(Some instance, mi, [ source; Lambda(var, body) ]) when mi.Name = "WhereExists" ->
                     let srcType = mi.GetGenericArguments().[0]
                     let qType = mi.GetGenericArguments().[1]
@@ -3818,6 +3889,11 @@ module SqlComputationExtensions =
                     for j in plan.Joins do
                         if fullOuterJoinTables.Contains("*") || (fullOuterJoinTables |> Seq.exists (fun tbl -> String.Equals(tbl, j.SourceTable, StringComparison.OrdinalIgnoreCase))) then
                             j.JoinType <- "FULL OUTER JOIN"
+                plan.RightOuterJoinTables.AddRange(rightOuterJoinTables)
+                if rightOuterJoinTables.Count > 0 then
+                    for j in plan.Joins do
+                        if rightOuterJoinTables.Contains("*") || (rightOuterJoinTables |> Seq.exists (fun tbl -> String.Equals(tbl, j.SourceTable, StringComparison.OrdinalIgnoreCase))) then
+                            j.JoinType <- "RIGHT OUTER JOIN"
                 match fromCteName with
                 | Some cName ->
                     plan.BaseSql <- cName

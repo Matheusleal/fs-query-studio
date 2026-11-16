@@ -127,6 +127,7 @@ type PushdownQueryPlan = {
     Ctes: ResizeArray<CtePlan>
     SetOperations: ResizeArray<SetOperationPlan>
     FullOuterJoinTables: ResizeArray<string>
+    RightOuterJoinTables: ResizeArray<string>
     mutable IsDistinct: bool
     mutable BaseRowType: Type option
     mutable Skip: int option
@@ -150,6 +151,7 @@ type PushdownQueryPlan = {
             Ctes = ResizeArray<CtePlan>()
             SetOperations = ResizeArray<SetOperationPlan>()
             FullOuterJoinTables = ResizeArray<string>()
+            RightOuterJoinTables = ResizeArray<string>()
             IsDistinct = false
             BaseRowType = baseRowType
             Skip = None
@@ -171,6 +173,7 @@ type PushdownQueryPlan = {
         p.Ctes.AddRange(this.Ctes)
         p.SetOperations.AddRange(this.SetOperations)
         p.FullOuterJoinTables.AddRange(this.FullOuterJoinTables)
+        p.RightOuterJoinTables.AddRange(this.RightOuterJoinTables)
         p.IsDistinct <- this.IsDistinct
         p.Skip <- this.Skip
         p.Take <- this.Take

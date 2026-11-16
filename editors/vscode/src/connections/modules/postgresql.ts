@@ -9,6 +9,7 @@ const descriptor = {
   displayName: "PostgreSQL",
   category: "sql",
   icon: "database",
+  defaultPort: 5432,
   formFields: [
     {
       name: "connectionString",
@@ -30,6 +31,7 @@ const descriptor = {
 
 export const postgreSqlFrontendModule: FrontendConnectorModule = {
   descriptor,
+  defaultPort: 5432,
   autocompleteCategory: "Database",
   completionTriggerMembers: ["sql", "connect", "get", "query", "getConnectionString"],
 

@@ -9,6 +9,7 @@ const descriptor = {
   displayName: "SQL Server",
   category: "sql",
   icon: "database",
+  defaultPort: 1433,
   formFields: [
     {
       name: "connectionString",
@@ -33,6 +34,7 @@ const WINDOWS_AUTH_REGEX =
 
 export const sqlServerFrontendModule: FrontendConnectorModule = {
   descriptor,
+  defaultPort: 1433,
   autocompleteCategory: "Database",
   completionTriggerMembers: ["sql", "connect", "get", "query", "getConnectionString"],
   defaultWindowsAuthConnectionString:

@@ -22,6 +22,9 @@
     <Compile Include="WorkspaceConnectionResolverTests.fs" />
     <Compile Include="EntityBackgroundGeneratorTests.fs" />
     <Compile Include="SampleDataGeneratorTests.fs" />
+    <Compile Include="RecordReadersTests.fs" />
+    <Compile Include="SqlPushdownAdvancedTests.fs" />
+    <Compile Include="OfflineSqlConnectorsTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

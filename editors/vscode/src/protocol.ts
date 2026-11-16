@@ -259,6 +259,7 @@ export interface ConnectorDescriptorDto {
   category: string;
   icon: string;
   formFields: ConnectorFormFieldDto[];
+  defaultPort?: number;
 }
 
 export interface ConnectorListResult {
