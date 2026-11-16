@@ -446,3 +446,63 @@ let ``OracleConnector PrepareSql leaves SQL without at-sign unaltered`` () =
 let ``OracleConnector PrepareSql handles empty or null strings safely`` () =
     Assert.Equal("", OracleConnector.PrepareSql(""))
     Assert.Null(OracleConnector.PrepareSql(null))
+
+// -----------------------------------------------------------------------------
+// 6. Relational Descriptors and Factories Tests
+// -----------------------------------------------------------------------------
+
+let private testSqlDescriptor
+    (descriptor: IConnectorDescriptor)
+    (expectedKind: string)
+    (expectedName: string)
+    (validConnStr: string) =
+    Assert.Equal(expectedKind, descriptor.KindId)
+    Assert.Equal(expectedName, descriptor.DisplayName)
+    Assert.Equal(ConnectorCategory.Sql, descriptor.Category)
+    Assert.Equal("database", descriptor.Icon)
+    Assert.NotEmpty(descriptor.FormFields)
+    Assert.True(descriptor.EntityGenerator.IsNone)
+
+    let validJson = System.Text.Json.JsonDocument.Parse($$"""{"connectionString": "{{validConnStr}}"}""").RootElement
+    Assert.True(descriptor.ValidateConfiguration(validJson).IsOk)
+
+    let invalidJson = System.Text.Json.JsonDocument.Parse("""{}""").RootElement
+    Assert.True(descriptor.ValidateConfiguration(invalidJson).IsError)
+
+    let dummyStore = { new FSharpQueryStudio.Security.ISecretStore with
+        member _.TryRead(_) = Some "resolvedPass"
+        member _.Save _ _ = ()
+        member _.Delete _ = ()
+    }
+
+    // Factory from string
+    let strDoc = System.Text.Json.JsonDocument.Parse($"\"{validConnStr}\"")
+    let conn1 = descriptor.Factory.Create(strDoc.RootElement, dummyStore, None)
+    Assert.Equal(expectedKind, conn1.Kind.Id)
+
+    // Factory from object with secret reference
+    let secretConnStr = validConnStr.Replace("secret", "{password}")
+    let objDoc = System.Text.Json.JsonDocument.Parse($$"""{"connectionString": "{{secretConnStr}}"}""")
+    let conn2 = descriptor.Factory.Create(objDoc.RootElement, dummyStore, Some "ref1")
+    Assert.Equal(expectedKind, conn2.Kind.Id)
+
+[<Fact>]
+let ``SqlServerDescriptor and SqlServerConnectorFactory coverage`` () =
+    testSqlDescriptor SqlServerDescriptor.Instance "SqlServer" "SQL Server" "Server=127.0.0.1;Database=db;Password=secret;"
+
+[<Fact>]
+let ``PostgreSqlDescriptor and PostgreSqlConnectorFactory coverage`` () =
+    testSqlDescriptor PostgreSqlDescriptor.Instance "PostgreSql" "PostgreSQL" "Host=127.0.0.1;Database=db;Password=secret;"
+
+[<Fact>]
+let ``MySqlDescriptor and MySqlConnectorFactory coverage`` () =
+    testSqlDescriptor MySqlDescriptor.Instance "MySql" "MySQL" "Server=127.0.0.1;Database=db;Password=secret;"
+
+[<Fact>]
+let ``MariaDbDescriptor and MariaDbConnectorFactory coverage`` () =
+    testSqlDescriptor MariaDbDescriptor.Instance "MariaDb" "MariaDB" "Server=127.0.0.1;Database=db;Password=secret;"
+
+[<Fact>]
+let ``OracleDescriptor and OracleConnectorFactory coverage`` () =
+    testSqlDescriptor OracleDescriptor.Instance "Oracle" "Oracle" "Data Source=127.0.0.1:1521/XE;Password=secret;"
+

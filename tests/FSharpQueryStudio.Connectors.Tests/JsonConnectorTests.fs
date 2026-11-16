@@ -90,3 +90,79 @@ let ``JsonConnector reports its Kind as Json`` () =
     let connector = JsonConnector(f.Path) :> IConnector
     Assert.Equal(ConnectorKind.Json, connector.Kind)
 
+[<Fact>]
+let ``ReadRows respects maxRows limit`` () =
+    let json = """[ { "Id": 1 }, { "Id": 2 }, { "Id": 3 } ]"""
+    use f = new TempJsonFile(json)
+    let connector = JsonConnector(f.Path)
+    let result = connector.ReadRows(maxRows = 2)
+    Assert.Equal(2, result.Rows |> Seq.length)
+
+[<Fact>]
+let ``ReadRows projects primitive array into Value column`` () =
+    let json = """[ "alpha", "beta", "gamma" ]"""
+    use f = new TempJsonFile(json)
+    let connector = JsonConnector(f.Path)
+    let result = connector.ReadRows()
+    Assert.Equal<string list>([ "Value" ], result.Columns)
+    let rows = result.Rows |> Seq.toList
+    Assert.Equal(3, rows.Length)
+    Assert.Equal(box "alpha", rows.[0].[0])
+
+[<Fact>]
+let ``ReadRows returns empty columns and rows for empty array`` () =
+    let json = "[]"
+    use f = new TempJsonFile(json)
+    let connector = JsonConnector(f.Path)
+    let result = connector.ReadRows()
+    Assert.Empty(result.Columns)
+    Assert.Empty(result.Rows)
+
+[<Fact>]
+let ``ReadRows discovers nested container holding array`` () =
+    let json = """{
+  "wrapper": {
+    "records": [
+      { "Key": "k1", "Val": 100 },
+      { "Key": "k2", "Val": 200 }
+    ]
+  }
+}"""
+    use f = new TempJsonFile(json)
+    let connector = JsonConnector(f.Path)
+    let result = connector.ReadRows()
+    Assert.Equal<string list>([ "Key"; "Val" ], result.Columns)
+    Assert.Equal(2, result.Rows |> Seq.length)
+
+[<Fact>]
+let ``ReadRows applies column transforms`` () =
+    let json = """[ { "Name": "apple" }, { "Name": "banana" } ]"""
+    let opts = { JsonOptions.Default with ColumnTransforms = Map.ofList [ "Name", "replace('apple', 'pear')" ] }
+    use f = new TempJsonFile(json)
+    let connector = JsonConnector(f.Path, opts)
+    let result = connector.ReadRows()
+    let rows = result.Rows |> Seq.toList
+    Assert.Equal(box "pear", rows.[0].[0])
+
+[<Fact>]
+let ``TestConnectionAsync returns true when file exists and false when missing`` () =
+    task {
+        use f = new TempJsonFile("[]")
+        let connector = JsonConnector(f.Path) :> IConnector
+        let! ok = connector.TestConnectionAsync(CancellationToken.None)
+        Assert.True(ok)
+
+        let missing = JsonConnector("C:/non_existent_folder/missing.json") :> IConnector
+        let! notOk = missing.TestConnectionAsync(CancellationToken.None)
+        Assert.False(notOk)
+    }
+
+[<Fact>]
+let ``GetColumnNames returns columns for discovered table`` () =
+    let json = """[ { "ColA": 1, "ColB": "text" } ]"""
+    use f = new TempJsonFile(json)
+    let connector = JsonConnector(f.Path)
+    let cols = connector.ReadRows().Columns
+    Assert.Equal<string list>([ "ColA"; "ColB" ], cols)
+
+

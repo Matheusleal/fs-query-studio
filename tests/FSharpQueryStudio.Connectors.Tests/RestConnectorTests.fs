@@ -36,16 +36,15 @@ type private HttpStub(handle: HttpListenerContext -> Task) =
                     do! handle context
                     context.Response.Close()
                 with
-                | :? ObjectDisposedException
-                | :? HttpListenerException -> keepGoing <- false
+                | _ -> keepGoing <- false
         }
 
     member _.BaseUrl = $"http://127.0.0.1:{port}"
 
     interface IDisposable with
         member _.Dispose() =
-            listener.Stop()
-            listener.Close()
+            try listener.Stop() with _ -> ()
+            try listener.Close() with _ -> ()
             ignore acceptTask
 
 let private writeJson (context: HttpListenerContext) (json: string) : Task =
@@ -153,3 +152,41 @@ let ``RestConnector reports its Kind as RestJson`` () =
     let connector = RestConnector(RestRequestOptions.Get("http://127.0.0.1/x")) :> IConnector
 
     Assert.Equal(ConnectorKind.RestJson, connector.Kind)
+
+[<Fact>]
+let ``RestDescriptor and RestConnectorFactory coverage`` () =
+    let descriptor = RestDescriptor.Instance :> IConnectorDescriptor
+    Assert.Equal("RestJson", descriptor.KindId)
+    Assert.Equal("REST (JSON)", descriptor.DisplayName)
+    Assert.Equal("cloud", descriptor.Icon)
+    Assert.Equal(ConnectorCategory.Rest, descriptor.Category)
+    Assert.Equal(1, descriptor.FormFields.Length)
+    Assert.True(descriptor.EntityGenerator.IsNone)
+
+    let validJson = System.Text.Json.JsonDocument.Parse("""{"url": "https://api.test.com"}""").RootElement
+    Assert.True(descriptor.ValidateConfiguration(validJson).IsOk)
+    let invalidJson = System.Text.Json.JsonDocument.Parse("""{}""").RootElement
+    Assert.True(descriptor.ValidateConfiguration(invalidJson).IsError)
+
+    let factory = descriptor.Factory
+    let dummyStore = { new FSharpQueryStudio.Security.ISecretStore with
+        member _.TryRead(_) = None
+        member _.Save _ _ = ()
+        member _.Delete _ = ()
+    }
+
+    // String config
+    let strDoc = System.Text.Json.JsonDocument.Parse("\"https://api.test.com/items\"")
+    let conn1 = factory.Create(strDoc.RootElement, dummyStore, None) :?> RestConnector
+    Assert.Equal("https://api.test.com/items", conn1.BaseOptions.Url)
+
+    // Object config with url
+    let objDoc1 = System.Text.Json.JsonDocument.Parse("""{"url": "https://api.test.com/v2"}""")
+    let conn2 = factory.Create(objDoc1.RootElement, dummyStore, None) :?> RestConnector
+    Assert.Equal("https://api.test.com/v2", conn2.BaseOptions.Url)
+
+    // Object config without url
+    let objDoc2 = System.Text.Json.JsonDocument.Parse("""{"other": 123}""")
+    let conn3 = factory.Create(objDoc2.RootElement, dummyStore, None) :?> RestConnector
+    Assert.NotNull(conn3)
+

@@ -1023,3 +1023,640 @@ module CompiledRecordMapperTests =
         Assert.Equal(box 1, arr.[0])
         Assert.Equal(box "text", arr.[1])
 
+// =========================================================================
+// 6. Comprehensive RecordReaders.ConvertValue & CompiledRecordMapper tests
+// =========================================================================
+
+type NumericAndIdTypesRecord = {
+    SmallInt: int16
+    ByteVal: byte
+    FloatVal: single
+    IdVal: Guid
+}
+
+module ConvertValueDeepTests =
+
+    [<Fact>]
+    let ``ConvertValue converts string to Boolean with affirmative and negative tokens`` () =
+        Assert.Equal(box true, RecordReaders.ConvertValue (box "yes") typeof<bool>)
+        Assert.Equal(box true, RecordReaders.ConvertValue (box "y") typeof<bool>)
+        Assert.Equal(box true, RecordReaders.ConvertValue (box "sim") typeof<bool>)
+        Assert.Equal(box true, RecordReaders.ConvertValue (box "1") typeof<bool>)
+        Assert.Equal(box true, RecordReaders.ConvertValue (box "true") typeof<bool>)
+        Assert.Equal(box false, RecordReaders.ConvertValue (box "no") typeof<bool>)
+        Assert.Equal(box false, RecordReaders.ConvertValue (box "0") typeof<bool>)
+        Assert.Equal(box false, RecordReaders.ConvertValue (box "random_token") typeof<bool>)
+
+    [<Fact>]
+    let ``ConvertValue converts string to DateTime, DateOnly, and TimeOnly`` () =
+        let dtExpected = DateTime(2026, 11, 16, 15, 30, 45)
+        let dt = RecordReaders.ConvertValue (box "2026-11-16T15:30:45") typeof<DateTime>
+        Assert.Equal(box dtExpected, dt)
+
+        let dExpected = DateOnly(2026, 11, 16)
+        let d = RecordReaders.ConvertValue (box "2026-11-16") typeof<DateOnly>
+        Assert.Equal(box dExpected, d)
+
+        let tExpected = TimeOnly(15, 30, 45)
+        let t = RecordReaders.ConvertValue (box "15:30:45") typeof<TimeOnly>
+        Assert.Equal(box tExpected, t)
+
+    [<Fact>]
+    let ``ConvertValue converts string to Guid`` () =
+        let g = Guid.NewGuid()
+        let converted = RecordReaders.ConvertValue (box (string g)) typeof<Guid>
+        Assert.Equal(box g, converted)
+
+        let invalidG = RecordReaders.ConvertValue (box "not-a-guid") typeof<Guid>
+        Assert.Equal(box Guid.Empty, invalidG)
+
+    [<Fact>]
+    let ``ConvertValue converts raw objects to DateTime, DateOnly, and TimeOnly`` () =
+        let d = DateOnly(2026, 11, 16)
+        let dto = DateTimeOffset(2026, 11, 16, 10, 0, 0, TimeSpan.Zero)
+        let oaDate = DateTime(2026, 11, 16).ToOADate()
+
+        // raw -> DateTime
+        Assert.Equal(box (DateTime(2026, 11, 16, 0, 0, 0)), RecordReaders.ConvertValue (box d) typeof<DateTime>)
+        Assert.Equal(box dto.DateTime, RecordReaders.ConvertValue (box dto) typeof<DateTime>)
+        Assert.Equal(box (DateTime(2026, 11, 16)), RecordReaders.ConvertValue (box oaDate) typeof<DateTime>)
+
+        // raw -> DateOnly
+        Assert.Equal(box d, RecordReaders.ConvertValue (box (DateTime(2026, 11, 16))) typeof<DateOnly>)
+        Assert.Equal(box d, RecordReaders.ConvertValue (box dto) typeof<DateOnly>)
+        Assert.Equal(box d, RecordReaders.ConvertValue (box oaDate) typeof<DateOnly>)
+
+        // raw -> TimeOnly
+        let ts = TimeSpan(14, 20, 10)
+        let t = TimeOnly(14, 20, 10)
+        Assert.Equal(box t, RecordReaders.ConvertValue (box ts) typeof<TimeOnly>)
+        Assert.Equal(box t, RecordReaders.ConvertValue (box (DateTime(2026, 11, 16, 14, 20, 10))) typeof<TimeOnly>)
+        Assert.Equal(box t, RecordReaders.ConvertValue (box (DateTimeOffset(2026, 11, 16, 14, 20, 10, TimeSpan.Zero))) typeof<TimeOnly>)
+
+    [<Fact>]
+    let ``ConvertValue converts raw objects to byte array`` () =
+        let bytes = [| 10uy; 20uy; 30uy |]
+        Assert.Equal(box bytes, RecordReaders.ConvertValue (box bytes) typeof<byte[]>)
+
+        let base64 = Convert.ToBase64String(bytes)
+        let fromBase64 = RecordReaders.ConvertValue (box base64) typeof<byte[]>
+        Assert.Equal<byte seq>(bytes, unbox<byte[]> fromBase64)
+
+        let plain = "Hello"
+        let fromPlain = RecordReaders.ConvertValue (box plain) typeof<byte[]>
+        Assert.Equal<byte seq>(System.Text.Encoding.UTF8.GetBytes(plain), unbox<byte[]> fromPlain)
+
+    [<Fact>]
+    let ``ReadDateTime handles integer ticks directly from IDataRecord`` () =
+        let dt = DateTime(2026, 11, 16, 12, 0, 0)
+        let record = MockDataRecord([| box dt.Ticks |])
+        let readDt = RecordReaders.ReadDateTime(record, 0)
+        Assert.Equal(dt, readDt)
+
+    [<Fact>]
+    let ``ConvertValue returns DefaultForType when type is non-convertible or causes exception`` () =
+        let defInt = RecordReaders.ConvertValue (box "not-a-number") typeof<int>
+        Assert.Equal(box 0, defInt)
+
+        let defDecimal = RecordReaders.ConvertValue (box "not-decimal") typeof<decimal>
+        Assert.Equal(box 0M, defDecimal)
+
+        let defDate = RecordReaders.ConvertValue (box "invalid-date") typeof<DateTime>
+        Assert.Equal(box DateTime.MinValue, defDate)
+
+        // Target type that cannot be constructed from raw object
+        let defCustom = RecordReaders.ConvertValue (box (DateTime.UtcNow)) typeof<Uri>
+        Assert.Null(defCustom)
+
+    [<Fact>]
+    let ``CompiledRecordMapper maps record with int16, byte, single, and Guid fields`` () =
+        let mapper = CompiledRecordMapper.getCompiledRecordMapper<NumericAndIdTypesRecord> [
+            "SmallInt"; "ByteVal"; "FloatVal"; "IdVal"
+        ]
+
+        let g = Guid.NewGuid()
+        let record: IDataRecord = MockDataRecord([|
+            "SmallInt", box "32000"
+            "ByteVal", box "255"
+            "FloatVal", box "42.5"
+            "IdVal", box (string g)
+        |])
+
+        let result = mapper record
+        Assert.Equal(32000s, result.SmallInt)
+        Assert.Equal(255uy, result.ByteVal)
+        Assert.Equal(42.5f, result.FloatVal)
+        Assert.Equal(g, result.IdVal)
+
+    [<Fact>]
+    let ``RecordReaders reader methods handle null, DBNull, out-of-bounds, and typed-get exceptions`` () =
+        let throwingRecord: IDataRecord = MockDataRecord([|
+            box null
+            DBNull.Value
+            box "bad_val"
+            box (Guid.NewGuid())
+            box (DateTime(2026, 11, 16))
+            box (TimeSpan(10, 0, 0))
+            box (DateOnly(2026, 11, 16))
+        |], throwOnTypedGet = true)
+
+        // Out of bounds (< 0 and >= FieldCount)
+        Assert.Equal(0, RecordReaders.ReadInt32(throwingRecord, -1))
+        Assert.Equal(0, RecordReaders.ReadInt32(throwingRecord, 100))
+        Assert.Equal(0L, RecordReaders.ReadInt64(throwingRecord, -1))
+        Assert.Equal(0s, RecordReaders.ReadInt16(throwingRecord, -1))
+        Assert.Equal(0M, RecordReaders.ReadDecimal(throwingRecord, -1))
+        Assert.Equal(0.0, RecordReaders.ReadDouble(throwingRecord, -1))
+        Assert.Equal(0.0f, RecordReaders.ReadSingle(throwingRecord, -1))
+        Assert.False(RecordReaders.ReadBool(throwingRecord, -1))
+        Assert.Null(RecordReaders.ReadString(throwingRecord, -1))
+        Assert.Equal(Guid.Empty, RecordReaders.ReadGuid(throwingRecord, -1))
+        Assert.Equal(DateTime.MinValue, RecordReaders.ReadDateTime(throwingRecord, -1))
+        Assert.Equal(DateOnly.MinValue, RecordReaders.ReadDateOnly(throwingRecord, -1))
+        Assert.Equal(TimeOnly.MinValue, RecordReaders.ReadTimeOnly(throwingRecord, -1))
+        Assert.Empty(RecordReaders.ReadByteArray(throwingRecord, -1))
+
+        // Null and DBNull values
+        Assert.Equal(0, RecordReaders.ReadInt32(throwingRecord, 0))
+        Assert.Equal(0, RecordReaders.ReadInt32(throwingRecord, 1))
+        Assert.Equal(0L, RecordReaders.ReadInt64(throwingRecord, 0))
+        Assert.Equal(0L, RecordReaders.ReadInt64(throwingRecord, 1))
+        Assert.Equal(0s, RecordReaders.ReadInt16(throwingRecord, 0))
+        Assert.Equal(0M, RecordReaders.ReadDecimal(throwingRecord, 0))
+        Assert.Equal(0.0, RecordReaders.ReadDouble(throwingRecord, 0))
+        Assert.Equal(0.0f, RecordReaders.ReadSingle(throwingRecord, 0))
+        Assert.False(RecordReaders.ReadBool(throwingRecord, 0))
+        Assert.Null(RecordReaders.ReadString(throwingRecord, 0))
+        Assert.Equal(Guid.Empty, RecordReaders.ReadGuid(throwingRecord, 0))
+        Assert.Equal(DateTime.MinValue, RecordReaders.ReadDateTime(throwingRecord, 0))
+        Assert.Equal(DateOnly.MinValue, RecordReaders.ReadDateOnly(throwingRecord, 0))
+        Assert.Equal(TimeOnly.MinValue, RecordReaders.ReadTimeOnly(throwingRecord, 0))
+        Assert.Empty(RecordReaders.ReadByteArray(throwingRecord, 0))
+
+        // Typed get throwing -> fallback to GetValue
+        let gRecord: IDataRecord = MockDataRecord([| box (Guid.NewGuid()) |], throwOnTypedGet = true)
+        Assert.NotEqual(Guid.Empty, RecordReaders.ReadGuid(gRecord, 0))
+
+        let dtRecord: IDataRecord = MockDataRecord([| box (DateTime(2026, 11, 16)) |], throwOnTypedGet = true)
+        Assert.Equal(DateTime(2026, 11, 16), RecordReaders.ReadDateTime(dtRecord, 0))
+
+        let strRecord: IDataRecord = MockDataRecord([| box "ValidString" |], throwOnTypedGet = true)
+        Assert.Equal("ValidString", RecordReaders.ReadString(strRecord, 0))
+
+    [<Fact>]
+    let ``RecordReaders ConvertValue handles all object and primitive fallback branches`` () =
+        // Target obj
+        let anyObj = obj()
+        Assert.Same(anyObj, RecordReaders.ConvertValue anyObj typeof<obj>)
+
+        // Nullable with null and sentinel
+        Assert.Null(RecordReaders.ConvertValue null typeof<Nullable<int>>)
+        Assert.Null(RecordReaders.ConvertValue DBNull.Value typeof<Nullable<int>>)
+        Assert.Null(RecordReaders.ConvertValue (box "N/A") typeof<Nullable<int>>)
+
+        // Non-string decimal
+        Assert.Equal(box 0M, RecordReaders.ConvertValue (box Single.NaN) typeof<decimal>)
+        Assert.Equal(box 123M, RecordReaders.ConvertValue (box "123") typeof<decimal>)
+
+        // Non-string int
+        Assert.Equal(box 0, RecordReaders.ConvertValue (box Double.NaN) typeof<int>)
+        Assert.Equal(box 100, RecordReaders.ConvertValue (box 99.8M) typeof<int>)
+        Assert.Equal(box 50, RecordReaders.ConvertValue (box 50L) typeof<int>)
+
+        // Non-string int64
+        Assert.Equal(box 0L, RecordReaders.ConvertValue (box Double.PositiveInfinity) typeof<int64>)
+        Assert.Equal(box 200L, RecordReaders.ConvertValue (box 199.9M) typeof<int64>)
+        Assert.Equal(box 75L, RecordReaders.ConvertValue (box 75) typeof<int64>)
+
+        // Non-string DateTime & DateOnly
+        let dto = DateTimeOffset(2026, 11, 16, 8, 0, 0, TimeSpan.Zero)
+        Assert.Equal(box (DateTime(2026, 11, 16, 8, 0, 0)), RecordReaders.ConvertValue (box dto) typeof<DateTime>)
+        Assert.Equal(box (DateOnly(2026, 11, 16)), RecordReaders.ConvertValue (box dto) typeof<DateOnly>)
+
+        // Non-string TimeOnly
+        let tVal = TimeOnly(8, 30, 0)
+        Assert.Equal(box tVal, RecordReaders.ConvertValue (box tVal) typeof<TimeOnly>)
+        Assert.Equal(box tVal, RecordReaders.ConvertValue (box (TimeSpan(8, 30, 0))) typeof<TimeOnly>)
+        Assert.Equal(box tVal, RecordReaders.ConvertValue (box (DateTime(2026, 11, 16, 8, 30, 0))) typeof<TimeOnly>)
+        Assert.Equal(box (TimeOnly(8, 0, 0)), RecordReaders.ConvertValue (box dto) typeof<TimeOnly>)
+        Assert.Equal(box TimeOnly.MinValue, RecordReaders.ConvertValue (box (obj())) typeof<TimeOnly>)
+
+        // Non-string byte[]
+        Assert.Equal(box (Array.empty<byte>), RecordReaders.ConvertValue (box (obj())) typeof<byte[]>)
+
+        // String DateTime and TimeOnly fallbacks
+        let dtFromTimeStr = RecordReaders.ConvertValue (box "2026-11-16T12:00:00") typeof<DateTime>
+        Assert.Equal(box (DateTime(2026, 11, 16, 12, 0, 0)), dtFromTimeStr)
+
+        let dFromDtStr = RecordReaders.ConvertValue (box "2026-11-16T12:00:00") typeof<DateOnly>
+        Assert.Equal(box (DateOnly(2026, 11, 16)), dFromDtStr)
+
+        let tFromDtStr = RecordReaders.ConvertValue (box "2026-11-16T12:00:00") typeof<TimeOnly>
+        Assert.Equal(box (TimeOnly(12, 0, 0)), tFromDtStr)
+
+        // String double fallback failing -> 0.0
+        Assert.Equal(box 0.0, RecordReaders.ConvertValue (box "not_double") typeof<double>)
+
+        // CompiledRecordMapper for scalar null
+        let scalarMapper = CompiledRecordMapper.getCompiledRecordMapper<string> [ "Col" ]
+        let nullRec: IDataRecord = MockDataRecord([| box null |])
+        Assert.Null(scalarMapper nullRec)
+
+    [<Fact>]
+    let ``RecordReaders TryParseNormalizedDecimal and Double cover all format branches`` () =
+        // Comma only
+        let okDec1, dec1 = RecordReaders.TryParseNormalizedDecimal "123,45"
+        Assert.True(okDec1)
+        Assert.Equal(123.45M, dec1)
+
+        let okDecBad1, _ = RecordReaders.TryParseNormalizedDecimal "abc,def"
+        Assert.False(okDecBad1)
+
+        // Dot only
+        let okDec2, dec2 = RecordReaders.TryParseNormalizedDecimal "123.45"
+        Assert.True(okDec2)
+        Assert.Equal(123.45M, dec2)
+
+        let okDecBad2, _ = RecordReaders.TryParseNormalizedDecimal "abc.def"
+        Assert.False(okDecBad2)
+
+        // Comma and Dot: lastDot > lastComma
+        let okDec3, dec3 = RecordReaders.TryParseNormalizedDecimal "1,234.56"
+        Assert.True(okDec3)
+        Assert.Equal(1234.56M, dec3)
+
+        // Comma and Dot: lastComma > lastDot
+        let okDec4, dec4 = RecordReaders.TryParseNormalizedDecimal "1.234,56"
+        Assert.True(okDec4)
+        Assert.Equal(1234.56M, dec4)
+
+        let okDecBad3, _ = RecordReaders.TryParseNormalizedDecimal "1,2.a"
+        Assert.False(okDecBad3)
+
+        // Neither
+        let okDec5, dec5 = RecordReaders.TryParseNormalizedDecimal "1234"
+        Assert.True(okDec5)
+        Assert.Equal(1234M, dec5)
+
+        let okDecBad4, _ = RecordReaders.TryParseNormalizedDecimal "invalid"
+        Assert.False(okDecBad4)
+
+        // TryParseNormalizedDouble - comma only
+        let okDbl1, dbl1 = RecordReaders.TryParseNormalizedDouble "123,45"
+        Assert.True(okDbl1)
+        Assert.Equal(123.45, dbl1)
+
+        let okDblBad1, _ = RecordReaders.TryParseNormalizedDouble "abc,def"
+        Assert.False(okDblBad1)
+
+        // TryParseNormalizedDouble - dot only
+        let okDbl2, dbl2 = RecordReaders.TryParseNormalizedDouble "123.45"
+        Assert.True(okDbl2)
+        Assert.Equal(123.45, dbl2)
+
+        let okDblBad2, _ = RecordReaders.TryParseNormalizedDouble "abc.def"
+        Assert.False(okDblBad2)
+
+        // TryParseNormalizedDouble - comma and dot
+        let okDbl3, dbl3 = RecordReaders.TryParseNormalizedDouble "1,234.56"
+        Assert.True(okDbl3)
+        Assert.Equal(1234.56, dbl3)
+
+        let okDbl4, dbl4 = RecordReaders.TryParseNormalizedDouble "1.234,56"
+        Assert.True(okDbl4)
+        Assert.Equal(1234.56, dbl4)
+
+        let okDblBad3, _ = RecordReaders.TryParseNormalizedDouble "1,2.a"
+        Assert.False(okDblBad3)
+
+        // TryParseNormalizedDouble - neither
+        let okDbl5, dbl5 = RecordReaders.TryParseNormalizedDouble "1234"
+        Assert.True(okDbl5)
+        Assert.Equal(1234.0, dbl5)
+
+        let okDblBad4, _ = RecordReaders.TryParseNormalizedDouble "invalid"
+        Assert.False(okDblBad4)
+
+    [<Fact>]
+    let ``RecordReaders Read primitives cover all type conversions, sentinels, and fallbacks`` () =
+        let vals: obj array = [|
+            box 12s                     // 0: int16
+            box 5uy                     // 1: byte
+            box 50.2M                   // 2: decimal
+            box 123.0                   // 3: double
+            box Double.NaN              // 4: non-finite double
+            box 45.0f                   // 5: single
+            box Single.PositiveInfinity // 6: non-finite single
+            box true                    // 7: bool true
+            box false                   // 8: bool false
+            box "-"                     // 9: sentinel
+            box "123"                   // 10: numeric string
+            box "45.6"                  // 11: float string
+            box "invalid"               // 12: invalid string
+            box null                    // 13: null
+            DBNull.Value                // 14: DBNull
+            box 1000L                   // 15: int64
+            box "yes"                   // 16: string bool yes
+            box "1"                     // 17: string bool 1
+            box "sim"                   // 18: string bool sim
+            box (Guid.NewGuid())        // 19: guid
+            box (DateTime(2026, 11, 16, 10, 30, 0)) // 20: datetime
+            box (DateOnly(2026, 11, 16))            // 21: dateonly
+            box (TimeOnly(10, 30, 0))               // 22: timeonly
+            box (TimeSpan(10, 30, 0))               // 23: timespan
+            box [| 1uy; 2uy; 3uy |]     // 24: byte array
+            box "SGVsbG8="              // 25: base64 string
+        |]
+        let mockRec: IDataRecord = MockDataRecord(vals)
+
+        // ReadInt32
+        Assert.Equal(12, RecordReaders.ReadInt32(mockRec, 0))
+        Assert.Equal(5, RecordReaders.ReadInt32(mockRec, 1))
+        Assert.Equal(50, RecordReaders.ReadInt32(mockRec, 2))
+        Assert.Equal(123, RecordReaders.ReadInt32(mockRec, 3))
+        Assert.Equal(0, RecordReaders.ReadInt32(mockRec, 4))
+        Assert.Equal(45, RecordReaders.ReadInt32(mockRec, 5))
+        Assert.Equal(0, RecordReaders.ReadInt32(mockRec, 6))
+        Assert.Equal(1, RecordReaders.ReadInt32(mockRec, 7))
+        Assert.Equal(0, RecordReaders.ReadInt32(mockRec, 8))
+        Assert.Equal(0, RecordReaders.ReadInt32(mockRec, 9))
+        Assert.Equal(123, RecordReaders.ReadInt32(mockRec, 10))
+        Assert.Equal(46, RecordReaders.ReadInt32(mockRec, 11))
+        Assert.Equal(0, RecordReaders.ReadInt32(mockRec, 12))
+        Assert.Equal(0, RecordReaders.ReadInt32(mockRec, 13))
+        Assert.Equal(0, RecordReaders.ReadInt32(mockRec, 14))
+        Assert.Equal(0, RecordReaders.ReadInt32(mockRec, -1))
+
+        // ReadInt64
+        Assert.Equal(12L, RecordReaders.ReadInt64(mockRec, 0))
+        Assert.Equal(5L, RecordReaders.ReadInt64(mockRec, 1))
+        Assert.Equal(50L, RecordReaders.ReadInt64(mockRec, 2))
+        Assert.Equal(123L, RecordReaders.ReadInt64(mockRec, 3))
+        Assert.Equal(0L, RecordReaders.ReadInt64(mockRec, 4))
+        Assert.Equal(45L, RecordReaders.ReadInt64(mockRec, 5))
+        Assert.Equal(0L, RecordReaders.ReadInt64(mockRec, 6))
+        Assert.Equal(1L, RecordReaders.ReadInt64(mockRec, 7))
+        Assert.Equal(0L, RecordReaders.ReadInt64(mockRec, 8))
+        Assert.Equal(0L, RecordReaders.ReadInt64(mockRec, 9))
+        Assert.Equal(123L, RecordReaders.ReadInt64(mockRec, 10))
+        Assert.Equal(46L, RecordReaders.ReadInt64(mockRec, 11))
+        Assert.Equal(0L, RecordReaders.ReadInt64(mockRec, 12))
+        Assert.Equal(1000L, RecordReaders.ReadInt64(mockRec, 15))
+        Assert.Equal(0L, RecordReaders.ReadInt64(mockRec, -1))
+
+        // ReadInt16
+        Assert.Equal(12s, RecordReaders.ReadInt16(mockRec, 0))
+        Assert.Equal(5s, RecordReaders.ReadInt16(mockRec, 1))
+        Assert.Equal(123s, RecordReaders.ReadInt16(mockRec, 10))
+        Assert.Equal(46s, RecordReaders.ReadInt16(mockRec, 11))
+        Assert.Equal(0s, RecordReaders.ReadInt16(mockRec, 9))
+        Assert.Equal(0s, RecordReaders.ReadInt16(mockRec, 12))
+        Assert.Equal(0s, RecordReaders.ReadInt16(mockRec, -1))
+
+        // ReadByte
+        Assert.Equal(5uy, RecordReaders.ReadByte(mockRec, 1))
+        Assert.Equal(123uy, RecordReaders.ReadByte(mockRec, 10))
+        Assert.Equal(0uy, RecordReaders.ReadByte(mockRec, 12))
+        Assert.Equal(0uy, RecordReaders.ReadByte(mockRec, -1))
+
+        // ReadDecimal
+        Assert.Equal(50.2M, RecordReaders.ReadDecimal(mockRec, 2))
+        Assert.Equal(123M, RecordReaders.ReadDecimal(mockRec, 3))
+        Assert.Equal(0M, RecordReaders.ReadDecimal(mockRec, 4))
+        Assert.Equal(45M, RecordReaders.ReadDecimal(mockRec, 5))
+        Assert.Equal(0M, RecordReaders.ReadDecimal(mockRec, 6))
+        Assert.Equal(0M, RecordReaders.ReadDecimal(mockRec, 9))
+        Assert.Equal(123M, RecordReaders.ReadDecimal(mockRec, 10))
+        Assert.Equal(0M, RecordReaders.ReadDecimal(mockRec, 12))
+        Assert.Equal(0M, RecordReaders.ReadDecimal(mockRec, -1))
+
+        // ReadDouble
+        Assert.Equal(123.0, RecordReaders.ReadDouble(mockRec, 3))
+        Assert.Equal(0.0, RecordReaders.ReadDouble(mockRec, 4))
+        Assert.Equal(45.0, RecordReaders.ReadDouble(mockRec, 5))
+        Assert.Equal(0.0, RecordReaders.ReadDouble(mockRec, 6))
+        Assert.Equal(50.2, Math.Round(RecordReaders.ReadDouble(mockRec, 2), 1))
+        Assert.Equal(0.0, RecordReaders.ReadDouble(mockRec, 9))
+        Assert.Equal(123.0, RecordReaders.ReadDouble(mockRec, 10))
+        Assert.Equal(45.6, RecordReaders.ReadDouble(mockRec, 11))
+        Assert.Equal(0.0, RecordReaders.ReadDouble(mockRec, 12))
+        Assert.Equal(0.0, RecordReaders.ReadDouble(mockRec, -1))
+
+        // ReadSingle
+        Assert.Equal(45.0f, RecordReaders.ReadSingle(mockRec, 5))
+        Assert.Equal(123.0f, RecordReaders.ReadSingle(mockRec, 3))
+        Assert.Equal(0.0f, RecordReaders.ReadSingle(mockRec, -1))
+
+        // ReadBool & ReadBoolean
+        Assert.True(RecordReaders.ReadBool(mockRec, 7))
+        Assert.False(RecordReaders.ReadBool(mockRec, 8))
+        Assert.False(RecordReaders.ReadBool(mockRec, 9))
+        Assert.False(RecordReaders.ReadBool(mockRec, 10))
+        Assert.False(RecordReaders.ReadBool(mockRec, 12))
+        Assert.True(RecordReaders.ReadBool(mockRec, 16))
+        Assert.True(RecordReaders.ReadBool(mockRec, 17))
+        Assert.True(RecordReaders.ReadBool(mockRec, 18))
+        Assert.True(RecordReaders.ReadBoolean(mockRec, 7))
+        Assert.False(RecordReaders.ReadBool(mockRec, -1))
+
+        // ReadString
+        Assert.Equal("123", RecordReaders.ReadString(mockRec, 10))
+        Assert.Null(RecordReaders.ReadString(mockRec, 13))
+        Assert.Null(RecordReaders.ReadString(mockRec, 14))
+        Assert.Null(RecordReaders.ReadString(mockRec, -1))
+
+        // ReadGuid
+        let guidVal = unbox<Guid> vals.[19]
+        Assert.Equal(guidVal, RecordReaders.ReadGuid(mockRec, 19))
+        Assert.Equal(Guid.Empty, RecordReaders.ReadGuid(mockRec, 12))
+        Assert.Equal(Guid.Empty, RecordReaders.ReadGuid(mockRec, -1))
+
+        // ReadDateTime
+        Assert.Equal(DateTime(2026, 11, 16, 10, 30, 0), RecordReaders.ReadDateTime(mockRec, 20))
+        Assert.Equal(DateTime(2026, 11, 16), RecordReaders.ReadDateTime(mockRec, 21))
+        Assert.Equal(DateTime.MinValue, RecordReaders.ReadDateTime(mockRec, 9))
+        Assert.Equal(DateTime.MinValue, RecordReaders.ReadDateTime(mockRec, 12))
+        Assert.Equal(DateTime.MinValue, RecordReaders.ReadDateTime(mockRec, -1))
+
+        // ReadDateOnly
+        Assert.Equal(DateOnly(2026, 11, 16), RecordReaders.ReadDateOnly(mockRec, 21))
+        Assert.Equal(DateOnly(2026, 11, 16), RecordReaders.ReadDateOnly(mockRec, 20))
+        Assert.Equal(DateOnly.MinValue, RecordReaders.ReadDateOnly(mockRec, 9))
+        Assert.Equal(DateOnly.MinValue, RecordReaders.ReadDateOnly(mockRec, 12))
+        Assert.Equal(DateOnly.MinValue, RecordReaders.ReadDateOnly(mockRec, -1))
+
+        // ReadTimeOnly
+        Assert.Equal(TimeOnly(10, 30, 0), RecordReaders.ReadTimeOnly(mockRec, 22))
+        Assert.Equal(TimeOnly(10, 30, 0), RecordReaders.ReadTimeOnly(mockRec, 23))
+        Assert.Equal(TimeOnly(10, 30, 0), RecordReaders.ReadTimeOnly(mockRec, 20))
+        Assert.Equal(TimeOnly.MinValue, RecordReaders.ReadTimeOnly(mockRec, 9))
+        Assert.Equal(TimeOnly.MinValue, RecordReaders.ReadTimeOnly(mockRec, 12))
+        Assert.Equal(TimeOnly.MinValue, RecordReaders.ReadTimeOnly(mockRec, -1))
+
+        // ReadByteArray
+        Assert.Equal<byte>([| 1uy; 2uy; 3uy |], RecordReaders.ReadByteArray(mockRec, 24))
+        Assert.Equal<byte>(System.Text.Encoding.UTF8.GetBytes("Hello"), RecordReaders.ReadByteArray(mockRec, 25))
+        Assert.Empty(RecordReaders.ReadByteArray(mockRec, 9))
+        Assert.Empty(RecordReaders.ReadByteArray(mockRec, -1))
+
+        // ReadNullable*
+        Assert.Equal(Nullable(12), RecordReaders.ReadNullableInt32(mockRec, 0))
+        Assert.False((RecordReaders.ReadNullableInt32(mockRec, 9)).HasValue)
+        Assert.False((RecordReaders.ReadNullableInt32(mockRec, 13)).HasValue)
+        Assert.False((RecordReaders.ReadNullableInt32(mockRec, -1)).HasValue)
+
+        Assert.Equal(Nullable(1000L), RecordReaders.ReadNullableInt64(mockRec, 15))
+        Assert.False((RecordReaders.ReadNullableInt64(mockRec, 9)).HasValue)
+
+        Assert.Equal(Nullable(50.2M), RecordReaders.ReadNullableDecimal(mockRec, 2))
+        Assert.False((RecordReaders.ReadNullableDecimal(mockRec, 9)).HasValue)
+
+        Assert.Equal(Nullable(123.0), RecordReaders.ReadNullableDouble(mockRec, 3))
+        Assert.False((RecordReaders.ReadNullableDouble(mockRec, 9)).HasValue)
+
+        Assert.Equal(Nullable(DateTime(2026, 11, 16, 10, 30, 0)), RecordReaders.ReadNullableDateTime(mockRec, 20))
+        Assert.False((RecordReaders.ReadNullableDateTime(mockRec, 9)).HasValue)
+
+        // DefaultForType
+        Assert.Equal(box "", RecordReaders.DefaultForType typeof<string>)
+        Assert.Equal(box DateTime.MinValue, RecordReaders.DefaultForType typeof<DateTime>)
+        Assert.Equal(box DateOnly.MinValue, RecordReaders.DefaultForType typeof<DateOnly>)
+        Assert.Equal(box TimeOnly.MinValue, RecordReaders.DefaultForType typeof<TimeOnly>)
+        Assert.Equal(box Guid.Empty, RecordReaders.DefaultForType typeof<Guid>)
+        Assert.Equal(box (Array.empty<byte>), RecordReaders.DefaultForType typeof<byte[]>)
+        Assert.Equal(box 0, RecordReaders.DefaultForType typeof<int>)
+        Assert.Null(RecordReaders.DefaultForType typeof<Nullable<int>>)
+        Assert.Null(RecordReaders.DefaultForType typeof<obj>)
+
+        // ReadOption
+        Assert.Equal(Some 123, RecordReaders.ReadOption<int>(mockRec, 10))
+        Assert.Equal(None, RecordReaders.ReadOption<int>(mockRec, 9))
+        Assert.Equal(None, RecordReaders.ReadOption<int>(mockRec, 13))
+        Assert.Equal(None, RecordReaders.ReadOption<int>(mockRec, -1))
+
+        // ReadObject
+        Assert.Equal(box 123, RecordReaders.ReadObject(mockRec, 10, typeof<int>))
+        Assert.Equal(box 0, RecordReaders.ReadObject(mockRec, -1, typeof<int>))
+
+    [<Fact>]
+    let ``CompiledRecordMapper handles obj array, tuples, option, and scalar types`` () =
+        let vals: obj array = [| box 42; box "Hello" |]
+        let mockRec: IDataRecord = MockDataRecord(vals)
+
+        // 1. obj array
+        let arrayMapper = CompiledRecordMapper.getCompiledRecordMapper<obj array> [ "Col0"; "Col1" ]
+        let arr = arrayMapper mockRec
+        Assert.Equal(2, arr.Length)
+        Assert.Equal(box 42, arr.[0])
+        Assert.Equal(box "Hello", arr.[1])
+
+        // 2. tuple (int * string)
+        let tupleMapper = CompiledRecordMapper.getCompiledRecordMapper<int * string> [ "Col0"; "Col1" ]
+        let (num, text) = tupleMapper mockRec
+        Assert.Equal(42, num)
+        Assert.Equal("Hello", text)
+
+        // 3. option (int option)
+        let optMapper = CompiledRecordMapper.getCompiledRecordMapper<int option> [ "Col0" ]
+        let optVal = optMapper mockRec
+        Assert.Equal(Some 42, optVal)
+
+        // 4. scalar (int)
+        let intMapper = CompiledRecordMapper.getCompiledRecordMapper<int> [ "Col0" ]
+        let intVal = intMapper mockRec
+        Assert.Equal(42, intVal)
+
+    [<Fact>]
+    let ``RecordReaders ConvertValue additional edge cases and fallbacks`` () =
+        // String into int16 via ChangeType
+        Assert.Equal(box 123s, RecordReaders.ConvertValue (box "123") typeof<int16>)
+
+        // String into invalid DateTime / DateOnly / TimeOnly / Guid
+        Assert.Equal(box DateTime.MinValue, RecordReaders.ConvertValue (box "not_a_date") typeof<DateTime>)
+        Assert.Equal(box DateOnly.MinValue, RecordReaders.ConvertValue (box "not_a_date") typeof<DateOnly>)
+        Assert.Equal(box TimeOnly.MinValue, RecordReaders.ConvertValue (box "not_a_time") typeof<TimeOnly>)
+        Assert.Equal(box Guid.Empty, RecordReaders.ConvertValue (box "not_a_guid") typeof<Guid>)
+
+        // String into invalid base64 (falls back to UTF8 bytes)
+        let utf8Res = RecordReaders.ConvertValue (box "hello_world!?") typeof<byte[]>
+        Assert.Equal<byte>(System.Text.Encoding.UTF8.GetBytes("hello_world!?"), unbox<byte[]> utf8Res)
+
+        // Non-string into decimal
+        Assert.Equal(box 123M, RecordReaders.ConvertValue (box 123L) typeof<decimal>)
+        Assert.Equal(box 123M, RecordReaders.ConvertValue (box 123s) typeof<decimal>)
+
+        // Non-string into int
+        Assert.Equal(box 123, RecordReaders.ConvertValue (box 123s) typeof<int>)
+
+        // Non-string into int64
+        Assert.Equal(box 123L, RecordReaders.ConvertValue (box 123s) typeof<int64>)
+
+        // Non-string into DateTime fallback
+        Assert.Equal(box DateTime.MinValue, RecordReaders.ConvertValue (box (obj())) typeof<DateTime>)
+
+        // DateOnly conversions
+        let dVal = DateOnly(2026, 11, 16)
+        Assert.Equal(box dVal, RecordReaders.ConvertValue (box dVal) typeof<DateOnly>)
+
+        // Non-string into TimeOnly fallback
+        Assert.Equal(box TimeOnly.MinValue, RecordReaders.ConvertValue (box (obj())) typeof<TimeOnly>)
+
+        // Non-string into byte[] fallback
+        Assert.Equal(box (Array.empty<byte>), RecordReaders.ConvertValue (box (obj())) typeof<byte[]>)
+
+        // Non-convertible type fallback
+        Assert.Null(RecordReaders.ConvertValue (box (obj())) typeof<Uri>)
+        Assert.Null(RecordReaders.ConvertValue (box "http://localhost") typeof<Uri>)
+
+        // ReadOption with invalid conversion returning None
+        let recWithBadStr: IDataRecord = MockDataRecord([| box "invalid_uri" |])
+        let optRes = RecordReaders.ReadOption<Uri>(recWithBadStr, 0)
+        Assert.Equal(None, optRes)
+
+        let recWithSentinel: IDataRecord = MockDataRecord([| box "N/A" |])
+        let optSentinel = RecordReaders.ReadOption<int>(recWithSentinel, 0)
+        Assert.Equal(None, optSentinel)
+
+type CustomGuidContainer(g: Guid) =
+    override _.ToString() = g.ToString()
+
+type RecordWithOtherField = {
+    Id: int
+    Other: Uri
+}
+
+[<Fact>]
+let ``RecordReaders Read primitives unexpected object and fallback branches`` () =
+    // 1. Unexpected obj() causing Convert.* to throw and return fallback defaults
+    let unconvertible = obj()
+    let recThrowing: IDataRecord = MockDataRecord([| unconvertible |])
+
+    Assert.Equal(0, RecordReaders.ReadInt32(recThrowing, 0))
+    Assert.Equal(0L, RecordReaders.ReadInt64(recThrowing, 0))
+    Assert.Equal(0s, RecordReaders.ReadInt16(recThrowing, 0))
+    Assert.Equal(0M, RecordReaders.ReadDecimal(recThrowing, 0))
+    Assert.Equal(0.0, RecordReaders.ReadDouble(recThrowing, 0))
+    Assert.False(RecordReaders.ReadBool(recThrowing, 0))
+    Assert.Equal(DateTime.MinValue, RecordReaders.ReadDateTime(recThrowing, 0))
+    Assert.Equal(DateOnly.MinValue, RecordReaders.ReadDateOnly(recThrowing, 0))
+    Assert.Equal(TimeOnly.MinValue, RecordReaders.ReadTimeOnly(recThrowing, 0))
+    Assert.Empty(RecordReaders.ReadByteArray(recThrowing, 0))
+
+    // 2. Custom object with Guid string representation
+    let g = Guid.NewGuid()
+    let customG = CustomGuidContainer(g)
+    let recGuid: IDataRecord = MockDataRecord([| box customG |])
+    Assert.Equal(g, RecordReaders.ReadGuid(recGuid, 0))
+
+    // 3. CompiledRecordMapper with non-primitive field (hits lines 712-714) and column count mismatch (hits line 670)
+    let mapper = CompiledRecordMapper.getCompiledRecordMapper<RecordWithOtherField> [ "NonExistent" ]
+    let recObj: IDataRecord = MockDataRecord([| box 10 |])
+    let mapped = mapper recObj
+    Assert.Equal(10, mapped.Id)
+    Assert.Null(mapped.Other)
+
+
+
+
+
+

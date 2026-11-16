@@ -50,3 +50,38 @@ let ``repeated TakePage calls drain a long source exactly once per item, in orde
         hasMore <- more
 
     Assert.Equal<obj list>([ 1..11 ] |> List.map box, collected |> List.ofSeq)
+
+type private NonDisposableEnum() =
+    let mutable i = 0
+    interface IEnumerator with
+        member _.MoveNext() = i <- i + 1; i <= 2
+        member _.Current = box 10
+        member _.Reset() = ()
+
+type private ThrowingDisposableEnum() =
+    interface IEnumerator with
+        member _.MoveNext() = false
+        member _.Current = null
+        member _.Reset() = ()
+    interface System.IDisposable with
+        member _.Dispose() = failwith "boom"
+
+[<Fact>]
+let ``TakePage returns empty and false when disposed and handles non-disposable and throwing enumerator`` () =
+    let cursor = cursorOver [ 1; 2; 3 ]
+    cursor.Dispose()
+    let page, hasMore = cursor.TakePage(2)
+    Assert.Empty(page)
+    Assert.False(hasMore)
+
+    // Non-disposable enumerator
+    use c2 = new PagingCursor(NonDisposableEnum() :> IEnumerator)
+    let p2, m2 = c2.TakePage(1)
+    Assert.True(m2)
+    c2.Dispose()
+
+    // Throwing dispose
+    let c3 = new PagingCursor(new ThrowingDisposableEnum() :> IEnumerator)
+    (c3 :> System.IDisposable).Dispose() // Shouldn't throw
+
+

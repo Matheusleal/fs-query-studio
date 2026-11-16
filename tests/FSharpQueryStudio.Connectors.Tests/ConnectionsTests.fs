@@ -646,3 +646,1037 @@ let ``Excel connection teste with calendar, names and courses stages only prefix
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
             try Directory.Delete(tmp, true) with _ -> ()
     }
+
+// =========================================================================
+// Comprehensive tests for Connections, typed wrappers, errors, and pivot
+// =========================================================================
+
+type private DummyTestConnector(kind: ConnectorKind) =
+    interface IConnector with
+        member _.Kind = kind
+        member _.TestConnectionAsync(_ct) = System.Threading.Tasks.Task.FromResult true
+        member _.DiscoverSchemaAsync(_ct) = System.Threading.Tasks.Task.FromResult []
+
+[<Fact>]
+let ``Connections throws unsupported exception when connector does not match operation`` () =
+    let dummyRest = DummyTestConnector(ConnectorKind.RestJson) :> IConnector
+    let dummySql = DummyTestConnector(ConnectorKind.Sqlite) :> IConnector
+
+    let resolver = FakeResolver(Map.ofList [
+        "RestOnly", dummyRest
+        "SqlOnly", dummySql
+    ])
+    Connections.configure resolver
+
+    // getConnectionString requires IQueryableConnector
+    let ex1 = Assert.Throws<Exception>(fun () -> Connections.getConnectionString "RestOnly" |> ignore)
+    Assert.Contains("does not support Connections.getConnectionString", ex1.Message)
+
+    // executeSqlRaw / getDatabaseConnection requires IQueryableConnector
+    let ex2 = Assert.Throws<Exception>(fun () -> Connections.executeSqlRaw "RestOnly" "SELECT 1" [] |> ignore)
+    Assert.Contains("does not support Connections.sql", ex2.Message)
+
+    let ex3 = Assert.Throws<Exception>(fun () -> Connections.getDatabaseConnection "RestOnly" |> ignore)
+    Assert.Contains("does not support Connections.sql", ex3.Message)
+
+    // readCsvRaw / getCsvConnection requires CsvConnector
+    let ex4 = Assert.Throws<Exception>(fun () -> Connections.readCsvRaw "SqlOnly" |> ignore)
+    Assert.Contains("does not support Connections.csv", ex4.Message)
+
+    let ex5 = Assert.Throws<Exception>(fun () -> Connections.getCsvConnection "SqlOnly" |> ignore)
+    Assert.Contains("does not support Connections.csv", ex5.Message)
+
+    // readExcelRaw / getExcelConnection / queryExcelSheet requires ExcelConnector
+    let ex6 = Assert.Throws<Exception>(fun () -> Connections.readExcelRaw "SqlOnly" None |> ignore)
+    Assert.Contains("does not support Connections.excel", ex6.Message)
+
+    let ex7 = Assert.Throws<Exception>(fun () -> Connections.getExcelConnection "SqlOnly" |> ignore)
+    Assert.Contains("does not support Connections.excel", ex7.Message)
+
+    let ex8 = Assert.Throws<Exception>(fun () -> Connections.queryExcelSheet<CalendarRow> "SqlOnly" None None |> Seq.toList |> ignore)
+    Assert.Contains("does not support Connections.queryExcelSheet", ex8.Message)
+
+    // readJsonFileRaw / getJsonConnection / queryJsonFileTable requires JsonConnector
+    let ex9 = Assert.Throws<Exception>(fun () -> Connections.readJsonFileRaw "SqlOnly" None |> ignore)
+    Assert.Contains("does not support Connections.json", ex9.Message)
+
+    let ex10 = Assert.Throws<Exception>(fun () -> Connections.getJsonConnection "SqlOnly" |> ignore)
+    Assert.Contains("does not support Connections.json", ex10.Message)
+
+    let ex11 = Assert.Throws<Exception>(fun () -> Connections.queryJsonFileTable<CalendarRow> "SqlOnly" None None |> Seq.toList |> ignore)
+    Assert.Contains("does not support Connections.queryJsonFileTable", ex11.Message)
+
+    // readXmlRaw / getXmlConnection / queryXmlTable requires XmlConnector
+    let ex12 = Assert.Throws<Exception>(fun () -> Connections.readXmlRaw "SqlOnly" None |> ignore)
+    Assert.Contains("does not support Connections.xml", ex12.Message)
+
+    let ex13 = Assert.Throws<Exception>(fun () -> Connections.getXmlConnection "SqlOnly" |> ignore)
+    Assert.Contains("does not support Connections.xml", ex13.Message)
+
+    let ex14 = Assert.Throws<Exception>(fun () -> Connections.queryXmlTable<CalendarRow> "SqlOnly" None None |> Seq.toList |> ignore)
+    Assert.Contains("does not support Connections.queryXmlTable", ex14.Message)
+
+    // sendRestAsync / getRestConnection / queryJsonWithOptions requires RestConnector
+    let ex15 = Assert.Throws<Exception>(fun () -> Connections.sendRestAsync "SqlOnly" (RestRequestOptions.Get "http://localhost") CancellationToken.None |> ignore)
+    Assert.Contains("does not support Connections.rest", ex15.Message)
+
+    let ex16 = Assert.Throws<Exception>(fun () -> Connections.getRestConnection "SqlOnly" |> ignore)
+    Assert.Contains("does not support Connections.rest", ex16.Message)
+
+    let ex17 = Assert.Throws<Exception>(fun () -> Connections.queryJsonWithOptions<CalendarRow> "SqlOnly" None |> Seq.toList |> ignore)
+    Assert.Contains("does not support Connections.queryJson", ex17.Message)
+
+type JsonUserItem = { Id: int; Name: string }
+type JsonLogItem = { Code: string; Message: string }
+
+[<Fact>]
+let ``Connections queryJsonFileTable and queryXmlTable query specific collections successfully`` () =
+    let tmpDir = Path.Combine(Path.GetTempPath(), "fqs-file-tables-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory tmpDir |> ignore
+    try
+        let jsonPath = Path.Combine(tmpDir, "data.json")
+        File.WriteAllText(jsonPath, """
+        {
+            "Users": [
+                { "Id": 1, "Name": "Alice" },
+                { "Id": 2, "Name": "Bob" }
+            ],
+            "Logs": [
+                { "Code": "E01", "Message": "Init" },
+                { "Code": "E02", "Message": "Done" }
+            ]
+        }
+        """)
+
+        let xmlPath = Path.Combine(tmpDir, "data.xml")
+        File.WriteAllText(xmlPath, """
+        <Root>
+            <Users>
+                <User><Id>1</Id><Name>Alice</Name></User>
+                <User><Id>2</Id><Name>Bob</Name></User>
+            </Users>
+        </Root>
+        """)
+
+        let jsonConnector = JsonConnector(jsonPath)
+        let xmlConnector = XmlConnector(xmlPath)
+
+        Connections.configure(FakeResolver(Map.ofList [
+            "LocalJson", jsonConnector :> IConnector
+            "LocalXml", xmlConnector :> IConnector
+        ]))
+
+        // Test queryJsonFileTable with specific tables
+        let users = Connections.queryJsonFileTable<JsonUserItem> "LocalJson" (Some "Users") None |> Seq.toList
+        Assert.Equal(2, users.Length)
+        Assert.Equal(1, users.[0].Id)
+        Assert.Equal("Alice", users.[0].Name)
+
+        let logs = Connections.queryJsonFileTable<JsonLogItem> "LocalJson" (Some "Logs") (Some 1) |> Seq.toList
+        Assert.Equal(1, logs.Length)
+        Assert.Equal("E01", logs.[0].Code)
+
+        // Test queryXmlTable
+        let xmlUsers = Connections.queryXmlTable<JsonUserItem> "LocalXml" (Some "User") None |> Seq.toList
+        Assert.Equal(2, xmlUsers.Length)
+        Assert.Equal("Bob", xmlUsers.[1].Name)
+    finally
+        try Directory.Delete(tmpDir, true) with _ -> ()
+
+type SimpleItem = { Id: int; Title: string }
+
+[<Fact>]
+let ``Typed connections expose all expected metadata and querying properties`` () =
+    let tmpDir = Path.Combine(Path.GetTempPath(), "fqs-typed-conns-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory tmpDir |> ignore
+    let cacheDb = Path.Combine(tmpDir, "engine.db")
+    let engine = FileSqliteEngine(cacheDb)
+    Connections.setEngine engine
+
+    try
+        // CSV
+        let csvPath = Path.Combine(tmpDir, "items.csv")
+        File.WriteAllLines(csvPath, [| "Id,Title"; "1,Alpha"; "2,Beta" |])
+        let csv = CsvConnector(csvPath)
+
+        // Excel
+        let xlsxPath = Path.Combine(tmpDir, "items.xlsx")
+        do
+            use wb = new ClosedXML.Excel.XLWorkbook()
+            let ws = wb.Worksheets.Add("Sheet1")
+            ws.Cell(1, 1).Value <- "Id"
+            ws.Cell(1, 2).Value <- "Title"
+            ws.Cell(2, 1).Value <- 10
+            ws.Cell(2, 2).Value <- "Gamma"
+            wb.SaveAs(xlsxPath)
+        let excel = ExcelConnector(xlsxPath)
+
+        // JSON
+        let jsonPath = Path.Combine(tmpDir, "items.json")
+        File.WriteAllText(jsonPath, """[ { "Id": 100, "Title": "Delta" } ]""")
+        let json = JsonConnector(jsonPath)
+
+        // XML
+        let xmlPath = Path.Combine(tmpDir, "items.xml")
+        File.WriteAllText(xmlPath, """<Items><Item><Id>200</Id><Title>Epsilon</Title></Item></Items>""")
+        let xml = XmlConnector(xmlPath)
+
+        // SQLite
+        let dbPath = Path.Combine(tmpDir, "data.db")
+        let sqlite = SqliteConnector(dbPath)
+        sqlite.ExecuteQuery "CREATE TABLE Items (Id INTEGER PRIMARY KEY, Title TEXT);" [] |> ignore
+        sqlite.ExecuteQuery "INSERT INTO Items VALUES (300, 'Zeta');" [] |> ignore
+
+        Connections.configure(FakeResolver(Map.ofList [
+            "MyCsv", csv :> IConnector
+            "MyExcel", excel :> IConnector
+            "MyJson", json :> IConnector
+            "MyXml", xml :> IConnector
+            "MySqlite", sqlite :> IConnector
+        ]))
+
+        // 1. CsvConnection
+        let csvConn = Connections.getCsvConnection "MyCsv"
+        Assert.Equal("MyCsv", csvConn.Name)
+        Assert.Same(csv, csvConn.Connector)
+        Assert.Equal(csvPath, csvConn.FilePath)
+        let csvRows = csvConn.Rows<SimpleItem>() |> Seq.toList
+        Assert.Equal(2, csvRows.Length)
+        let csvQ = csvConn.AsQueryable<SimpleItem>()
+        Assert.NotNull(csvQ)
+        let csvRaw = csvConn.Raw()
+        Assert.Equal(2, csvRaw.Rows |> Seq.length)
+
+        // 2. ExcelConnection
+        let excelConn = Connections.getExcelConnection "MyExcel"
+        Assert.Equal("MyExcel", excelConn.Name)
+        Assert.Same(excel, excelConn.Connector)
+        Assert.Equal(xlsxPath, excelConn.FilePath)
+        let excelSheetRows = excelConn.Sheet<SimpleItem>("Sheet1") |> Seq.toList
+        Assert.Equal(1, excelSheetRows.Length)
+        let excelTableRows = excelConn.Table<SimpleItem>("Sheet1") |> Seq.toList
+        Assert.Equal(1, excelTableRows.Length)
+        let excelQ = excelConn.AsQueryable<SimpleItem>()
+        Assert.NotNull(excelQ)
+        let excelRaw = excelConn.Raw()
+        Assert.Equal(1, excelRaw.Rows |> Seq.length)
+
+        // 3. JsonConnection
+        let jsonConn = Connections.getJsonConnection "MyJson"
+        Assert.Equal("MyJson", jsonConn.Name)
+        Assert.Same(json, jsonConn.Connector)
+        Assert.Equal(jsonPath, jsonConn.FilePath)
+        let jsonRows = jsonConn.Rows<SimpleItem>() |> Seq.toList
+        Assert.Equal(1, jsonRows.Length)
+        let jsonTableRows = jsonConn.Table<SimpleItem>("Items") |> Seq.toList
+        Assert.Equal(1, jsonTableRows.Length)
+        let jsonQ = jsonConn.AsQueryable<SimpleItem>()
+        Assert.NotNull(jsonQ)
+        let jsonRaw = jsonConn.Raw()
+        Assert.Equal(1, jsonRaw.Rows |> Seq.length)
+
+        // 4. XmlConnection
+        let xmlConn = Connections.getXmlConnection "MyXml"
+        Assert.Equal("MyXml", xmlConn.Name)
+        Assert.Same(xml, xmlConn.Connector)
+        Assert.Equal(xmlPath, xmlConn.FilePath)
+        let xmlRows = xmlConn.Rows<SimpleItem>() |> Seq.toList
+        Assert.Equal(1, xmlRows.Length)
+        let xmlTableRows = xmlConn.Table<SimpleItem>("Item") |> Seq.toList
+        Assert.Equal(1, xmlTableRows.Length)
+        let xmlQ = xmlConn.AsQueryable<SimpleItem>()
+        Assert.NotNull(xmlQ)
+        let xmlRaw = xmlConn.Raw()
+        Assert.Equal(1, xmlRaw.Rows |> Seq.length)
+
+        // 5. DatabaseConnection
+        let dbConn = Connections.getDatabaseConnection "MySqlite"
+        Assert.Equal("MySqlite", dbConn.Name)
+        Assert.Contains(dbPath, dbConn.ConnectionString)
+        let execRes = dbConn.Execute("SELECT * FROM Items;")
+        Assert.Equal(1, execRes.Rows |> Seq.length)
+        let dbRows = dbConn.Query<SimpleItem>("SELECT * FROM Items;") |> Seq.toList
+        Assert.Equal(1, dbRows.Length)
+        Assert.Equal(300, dbRows.[0].Id)
+        let dbQ = dbConn.AsQueryable<SimpleItem>("SELECT * FROM Items;")
+        Assert.NotNull(dbQ)
+        let dbQAll = dbConn.AsQueryable<SimpleItem>()
+        Assert.NotNull(dbQAll)
+        let rawRes = dbConn.rawQuery("SELECT * FROM Items;")
+        Assert.Equal(1, rawRes.Rows |> Seq.length)
+        Assert.Contains("Items", dbConn.Tables)
+        Assert.True(dbConn.Schema.Length > 0)
+        let entities = dbConn.GenerateEntities()
+        Assert.Contains("module MySqliteDb", entities)
+        let sqlProvider = dbConn.GenerateSqlProvider()
+        Assert.Contains("SqlDataProvider", sqlProvider)
+
+        // Test toRawSql, toRawQuery, and toRawSqlWithParameters
+        let pushdownQ = dbConn.Table<SimpleItem>("Items")
+        let rawSql = Connections.toRawSql pushdownQ
+        Assert.Equal("SELECT * FROM Items", rawSql)
+
+        let formattedQuery = Connections.toRawQuery pushdownQ
+        Assert.Contains("SELECT", formattedQuery)
+
+        let (sqlWithParams, pList) = Connections.toRawSqlWithParameters pushdownQ
+        Assert.Equal("SELECT * FROM Items", sqlWithParams)
+        Assert.Empty(pList)
+    finally
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+        try Directory.Delete(tmpDir, true) with _ -> ()
+
+[<Fact>]
+let ``Connections sql category buildPivotSql and pivot execute cross-tabulation on staged SQLite engine`` () =
+    let tmpDbPath = Path.Combine(Path.GetTempPath(), "fqs-pivot-test-" + Guid.NewGuid().ToString("N") + ".db")
+    try
+        let engine = FileSqliteEngine(tmpDbPath)
+        Connections.setEngine engine
+
+        // 1. Test buildPivotSql statically and via instance
+        let sql1 = Connections.sql.buildPivotSql("Sales", [ "Region" ], "Quarter", "Revenue", [ "Q1"; "Q2" ])
+        Assert.Contains("SUM(CASE WHEN Quarter = 'Q1' THEN Revenue END) AS \"Q1\"", sql1)
+        Assert.Contains("SUM(CASE WHEN Quarter = 'Q2' THEN Revenue END) AS \"Q2\"", sql1)
+        Assert.Contains("GROUP BY Region", sql1)
+
+        // With empty pivotVals
+        let sqlEmpty = Connections.sql.buildPivotSql("Sales", [ "Region" ], "Quarter", "Revenue", [])
+        Assert.Equal("SELECT Region FROM Sales GROUP BY Region;", sqlEmpty)
+
+        // With custom aggFunc
+        let sqlAvg = Connections.sql.buildPivotSql("Sales", [ "Region" ], "Quarter", "Revenue", [ "Q1" ], aggFunc = "AVG")
+        Assert.Contains("AVG(CASE WHEN Quarter = 'Q1' THEN Revenue END) AS \"Q1\"", sqlAvg)
+
+        // 2. Test pivot directly against staged data in engine
+        engine.ExecuteQuery("""
+            CREATE TABLE RegionalSales (
+                Region TEXT,
+                Quarter TEXT,
+                Amount REAL
+            );
+        """) |> ignore
+
+        engine.ExecuteQuery("""
+            INSERT INTO RegionalSales VALUES
+                ('North', 'Q1', 100.0),
+                ('North', 'Q2', 150.0),
+                ('South', 'Q1', 200.0),
+                ('South', 'Q2', 250.0);
+        """) |> ignore
+
+        let pivotResult = Connections.sql.pivot("RegionalSales", [ "Region" ], "Quarter", "Amount")
+        Assert.Contains("Region", pivotResult.Columns)
+        Assert.Contains("Q1", pivotResult.Columns)
+        Assert.Contains("Q2", pivotResult.Columns)
+
+        let rows = pivotResult.Rows |> Seq.toList
+        Assert.Equal(2, rows.Length)
+    finally
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+        try File.Delete tmpDbPath with _ -> ()
+
+type JsonRecordPayload = { Id: int; Name: string }
+
+[<Fact>]
+let ``Connections queryJson handles root array, nested array object, and single object payloads`` () =
+    let testWithServer (jsonBody: string) (action: RestConnector -> unit) =
+        let tcp = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0)
+        tcp.Start()
+        let port = (tcp.LocalEndpoint :?> System.Net.IPEndPoint).Port
+        tcp.Stop()
+
+        let listener = new System.Net.HttpListener()
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/")
+        listener.Start()
+
+        let serverTask =
+            System.Threading.Tasks.Task.Run(fun () ->
+                try
+                    let ctx = listener.GetContext()
+                    let bytes = Encoding.UTF8.GetBytes(jsonBody)
+                    ctx.Response.ContentType <- "application/json"
+                    ctx.Response.ContentLength64 <- int64 bytes.Length
+                    ctx.Response.OutputStream.Write(bytes, 0, bytes.Length)
+                    ctx.Response.OutputStream.Flush()
+                    ctx.Response.Close()
+                finally
+                    listener.Stop()
+            )
+
+        let connector = RestConnector(RestRequestOptions.Get($"http://127.0.0.1:{port}/test"))
+        try
+            action connector
+            serverTask.Wait()
+        with _ ->
+            listener.Stop()
+            reraise ()
+
+    // 1. Root array of objects mapped to F# records
+    testWithServer """[ { "Id": 1, "Name": "First" }, { "Id": 2, "Name": "Second" } ]""" (fun rest ->
+        Connections.configure(FakeResolver(Map.ofList [ "Api", rest :> IConnector ]))
+        let items = Connections.queryJson<JsonRecordPayload> "Api" |> Seq.toList
+        Assert.Equal(2, items.Length)
+        Assert.Equal(1, items.[0].Id)
+        Assert.Equal("First", items.[0].Name)
+    )
+
+    // 2. Root object containing a nested array of objects
+    testWithServer """{ "status": "ok", "items": [ { "Id": 10, "Name": "Nested" } ] }""" (fun rest ->
+        Connections.configure(FakeResolver(Map.ofList [ "Api", rest :> IConnector ]))
+        let items = Connections.queryJson<JsonRecordPayload> "Api" |> Seq.toList
+        Assert.Equal(1, items.Length)
+        Assert.Equal(10, items.[0].Id)
+        Assert.Equal("Nested", items.[0].Name)
+    )
+
+    // 3. Single root object mapped to F# record
+    testWithServer """{ "Id": 99, "Name": "Solo" }""" (fun rest ->
+        Connections.configure(FakeResolver(Map.ofList [ "Api", rest :> IConnector ]))
+        let items = Connections.queryJson<JsonRecordPayload> "Api" |> Seq.toList
+        Assert.Equal(1, items.Length)
+        Assert.Equal(99, items.[0].Id)
+        Assert.Equal("Solo", items.[0].Name)
+    )
+
+[<Fact>]
+let ``Connections convertValue converts numeric, boolean, date, and sentinel types across all branches`` () =
+    // 1. Null, DBNull, and Sentinel checks
+    Assert.Null(Connections.convertValue null typeof<int>)
+    Assert.Null(Connections.convertValue DBNull.Value typeof<string>)
+    Assert.Null(Connections.convertValue (box "N/A") typeof<int>)
+    Assert.Null(Connections.convertValue (box "-") typeof<decimal>)
+    Assert.Null(Connections.convertValue (box "null") typeof<double>)
+
+    // 2. Non-finite floating point checks
+    Assert.Null(Connections.convertValue (box Double.NaN) typeof<double>)
+    Assert.Null(Connections.convertValue (box Double.PositiveInfinity) typeof<double>)
+    Assert.Null(Connections.convertValue (box Single.NaN) typeof<single>)
+    Assert.Null(Connections.convertValue (box Single.NegativeInfinity) typeof<single>)
+
+    // 3. Option type conversions
+    let optSome = Connections.convertValue (box "42") typeof<int option>
+    Assert.Equal(box (Some 42), optSome)
+    let optSentinel = Connections.convertValue (box "none") typeof<int option>
+    Assert.Null(optSentinel)
+
+    // 4. String to Boolean variations
+    Assert.Equal(box true, Connections.convertValue (box "yes") typeof<bool>)
+    Assert.Equal(box true, Connections.convertValue (box "y") typeof<bool>)
+    Assert.Equal(box true, Connections.convertValue (box "sim") typeof<bool>)
+    Assert.Equal(box true, Connections.convertValue (box "s") typeof<bool>)
+    Assert.Equal(box true, Connections.convertValue (box "1") typeof<bool>)
+    Assert.Equal(box false, Connections.convertValue (box "no") typeof<bool>)
+    Assert.Equal(box false, Connections.convertValue (box "n") typeof<bool>)
+    Assert.Equal(box false, Connections.convertValue (box "nao") typeof<bool>)
+    Assert.Equal(box false, Connections.convertValue (box "não") typeof<bool>)
+    Assert.Equal(box false, Connections.convertValue (box "0") typeof<bool>)
+
+    // 5. String to int16, int64, single
+    Assert.Equal(box 123s, Connections.convertValue (box "123") typeof<int16>)
+    Assert.Equal(box 9876543210L, Connections.convertValue (box "9876543210") typeof<int64>)
+    Assert.Equal(box 12.5f, Connections.convertValue (box "12.5") typeof<single>)
+
+    // 6. String to DateTime and DateOnly (including OADate)
+    let dtStr = Connections.convertValue (box "2026-11-16 14:30:00") typeof<DateTime>
+    Assert.Equal(box (DateTime(2026, 11, 16, 14, 30, 0)), dtStr)
+    let dOnlyStr = Connections.convertValue (box "2026-11-16") typeof<DateOnly>
+    Assert.Equal(box (DateOnly(2026, 11, 16)), dOnlyStr)
+    let oaDate = DateTime(2026, 11, 16).ToOADate()
+    let dtFromOa = Connections.convertValue (box (string oaDate)) typeof<DateTime>
+    Assert.Equal(box (DateTime(2026, 11, 16)), dtFromOa)
+
+    // 7. String to Guid
+    let g = Guid.NewGuid()
+    let gParsed = Connections.convertValue (box (string g)) typeof<Guid>
+    Assert.Equal(box g, gParsed)
+
+    // 8. Non-string conversions: DateOnly, DateTimeOffset, OADate to DateTime and DateOnly
+    let dto = DateTimeOffset(2026, 11, 16, 12, 0, 0, TimeSpan.Zero)
+    let dtFromDto = Connections.convertValue (box dto) typeof<DateTime>
+    Assert.Equal(box dto.DateTime, dtFromDto)
+    let dOnlyFromDto = Connections.convertValue (box dto) typeof<DateOnly>
+    Assert.Equal(box (DateOnly(2026, 11, 16)), dOnlyFromDto)
+
+    let dOnly = DateOnly(2026, 11, 16)
+    let dtFromDOnly = Connections.convertValue (box dOnly) typeof<DateTime>
+    Assert.Equal(box (DateTime(2026, 11, 16, 0, 0, 0)), dtFromDOnly)
+    let dOnlyFromDt = Connections.convertValue (box (DateTime(2026, 11, 16))) typeof<DateOnly>
+    Assert.Equal(box dOnly, dOnlyFromDt)
+
+    // 9. Numeric conversions (decimal, double, int, int64, int16)
+    Assert.Equal(box 42.0M, Connections.convertValue (box 42) typeof<decimal>)
+    Assert.Equal(box 42.0M, Connections.convertValue (box 42L) typeof<decimal>)
+    Assert.Equal(box 42.0M, Connections.convertValue (box 42s) typeof<decimal>)
+    Assert.Equal(box 42.5M, Connections.convertValue (box 42.5) typeof<decimal>)
+    Assert.Equal(box 42.5M, Connections.convertValue (box 42.5f) typeof<decimal>)
+    Assert.Equal(box 100.0, Connections.convertValue (box 100M) typeof<double>)
+    Assert.Equal(box 100.0, Connections.convertValue (box 100f) typeof<double>)
+    Assert.Equal(box 100.0, Connections.convertValue (box 100L) typeof<double>)
+    Assert.Equal(box 100, Connections.convertValue (box 99.9) typeof<int>)
+    Assert.Equal(box 100L, Connections.convertValue (box 99.9) typeof<int64>)
+
+    // 10. String numeric fallbacks and clamping
+    Assert.Equal(box 1000M, Connections.convertValue (box "1e3") typeof<decimal>)
+    Assert.Null(Connections.convertValue (box "invalid_double") typeof<double>)
+    Assert.Null(Connections.convertValue (box "1e40") typeof<single>)
+    Assert.Equal(box Int32.MaxValue, Connections.convertValue (box "99999999999999") typeof<int>)
+    Assert.Equal(box Int32.MinValue, Connections.convertValue (box "-99999999999999") typeof<int>)
+    Assert.Equal(box Int64.MaxValue, Connections.convertValue (box "99999999999999999999") typeof<int64>)
+    Assert.Equal(box Int64.MinValue, Connections.convertValue (box "-99999999999999999999") typeof<int64>)
+    Assert.Equal(box Int16.MaxValue, Connections.convertValue (box "999999999") typeof<int16>)
+    Assert.Equal(box Int16.MinValue, Connections.convertValue (box "-999999999") typeof<int16>)
+
+    // 11. String parsing failure fallbacks
+    Assert.Null(Connections.convertValue (box "maybe") typeof<bool>)
+    Assert.Null(Connections.convertValue (box "bad_date") typeof<DateTime>)
+    Assert.Null(Connections.convertValue (box "bad_date") typeof<DateOnly>)
+    Assert.Null(Connections.convertValue (box "bad_guid") typeof<Guid>)
+    Assert.Null(Connections.convertValue (box "not_convertible") typeof<Uri>)
+
+    // 12. Non-string conversions across types and clamps
+    Assert.Equal(box "123", Connections.convertValue (box 123) typeof<string>)
+    Assert.Equal(box 50M, Connections.convertValue (box "50") typeof<decimal>)
+    Assert.Null(Connections.convertValue (box Single.PositiveInfinity) typeof<double>)
+    Assert.Null(Connections.convertValue (box Double.PositiveInfinity) typeof<int>)
+    Assert.Equal(box 123, Connections.convertValue (box 123.4M) typeof<int>)
+    Assert.Null(Connections.convertValue (box Double.NegativeInfinity) typeof<int64>)
+    Assert.Equal(box 457L, Connections.convertValue (box 456.7M) typeof<int64>)
+    Assert.Equal(box (DateTime(2026, 11, 16)), Connections.convertValue (box oaDate) typeof<DateTime>)
+    Assert.Equal(box (DateOnly(2026, 11, 16)), Connections.convertValue (box oaDate) typeof<DateOnly>)
+    Assert.Equal(box (DateOnly(2026, 11, 16)), Connections.convertValue (box "2026-11-16") typeof<DateOnly>)
+
+[<Fact>]
+let ``Connections queryEngine, queryEngineWith, and queryExcel operate as expected`` () =
+    let tmpDir = Path.Combine(Path.GetTempPath(), "fqs-eng-excel-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory tmpDir |> ignore
+    let dbPath = Path.Combine(tmpDir, "engine.db")
+    let engine = FileSqliteEngine(dbPath)
+    Connections.setEngine engine
+
+    try
+        let resEngine = Connections.queryEngine "SELECT 1 AS Num;"
+        Assert.Equal(1, resEngine.Rows |> Seq.length)
+
+        let resEngineWith = Connections.queryEngineWith "SELECT @x AS Val;" [ "@x", box 42 ]
+        Assert.Equal(box 42L, (resEngineWith.Rows |> Seq.head).[0])
+
+        // queryExcel
+        let xlsxPath = Path.Combine(tmpDir, "simple.xlsx")
+        do
+            use wb = new ClosedXML.Excel.XLWorkbook()
+            let ws = wb.Worksheets.Add("Sheet1")
+            ws.Cell(1, 1).Value <- "Id"
+            ws.Cell(1, 2).Value <- "Title"
+            ws.Cell(2, 1).Value <- 5
+            ws.Cell(2, 2).Value <- "Item 5"
+            wb.SaveAs(xlsxPath)
+
+        let excelConn = ExcelConnector(xlsxPath)
+        Connections.configure(FakeResolver(Map.ofList [ "ExcelConn", excelConn :> IConnector ]))
+
+        let items = Connections.queryExcel<SimpleItem> "ExcelConn" None |> Seq.toList
+        Assert.Equal(1, items.Length)
+        Assert.Equal(5, items.[0].Id)
+        Assert.Equal("Item 5", items.[0].Title)
+    finally
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+        try Directory.Delete(tmpDir, true) with _ -> ()
+
+type NonStreamingMockConnector(kind: ConnectorKind, connStr: string, queryResult: ConnectorQueryResult) =
+    interface IQueryableConnector with
+        member _.Kind = kind
+        member _.ConnectionString = connStr
+        member _.TestConnectionAsync(_ct) = System.Threading.Tasks.Task.FromResult true
+        member _.DiscoverSchemaAsync(_ct) = System.Threading.Tasks.Task.FromResult []
+        member _.ExecuteQuery (sql: string) (parameters: (string * obj) list) = queryResult
+
+[<Fact>]
+let ``Connections query and DatabaseConnection fall back when connector is non-streaming or resolver is absent`` () =
+    let qRes = {
+        Columns = [ "Id"; "Title" ]
+        Rows = [| [| box 10; box "NonStreamingItem" |] |]
+    }
+    let mockSql = NonStreamingMockConnector(ConnectorKind.Sqlite, "Data Source=:memory:", qRes)
+
+    // With resolver: query falls back to executeSqlRaw + getMapper
+    Connections.configure(FakeResolver(Map.ofList [ "MockSql", mockSql :> IConnector ]))
+    let rows = Connections.query<SimpleItem> "MockSql" "SELECT * FROM Table" [] |> Seq.toList
+    Assert.Equal(1, rows.Length)
+    Assert.Equal(10, rows.[0].Id)
+    Assert.Equal("NonStreamingItem", rows.[0].Title)
+
+    // DatabaseConnection with resolver = None
+    let dbConn = Connections.DatabaseConnection("DirectConn", mockSql)
+    // Clear resolver
+    Connections.reset()
+    let execRes = dbConn.Execute("SELECT 1;")
+    Assert.Equal(1, execRes.Rows |> Seq.length)
+
+    let rawRes = dbConn.rawQuery("SELECT 1;")
+    Assert.Equal(1, rawRes.Rows |> Seq.length)
+
+    let directRows = dbConn.Query<SimpleItem>("SELECT * FROM Table;") |> Seq.toList
+    Assert.Equal(1, directRows.Length)
+    Assert.Equal(10, directRows.[0].Id)
+
+[<Fact>]
+let ``Connections syncDataSourcesAsyncWithProgress stages Json and Xml files and background sync completes`` () =
+    task {
+        BuiltinConnectors.registerDefaults ()
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-json-xml-sync-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory tmp |> ignore
+        try
+            let jsonPath = Path.Combine(tmp, "catalog.json")
+            File.WriteAllText(jsonPath, """{ "Products": [ { "Id": 1, "Name": "Apples" } ] }""")
+
+            let xmlPath = Path.Combine(tmp, "inventory.xml")
+            File.WriteAllText(xmlPath, """<Inventory><Stock><Id>10</Id><Qty>100</Qty></Stock></Inventory>""")
+
+            let jsonDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "CatalogJson"
+                  Kind = ConnectorKind.Json
+                  Configuration = System.Text.Json.JsonDocument.Parse($"""{{"filePath": "{jsonPath.Replace("\\", "/")}"}}""").RootElement
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let xmlDef: ConnectionDefinition =
+                { Id = Guid.NewGuid()
+                  Name = "InventoryXml"
+                  Kind = ConnectorKind.Xml
+                  Configuration = System.Text.Json.JsonDocument.Parse($"""{{"filePath": "{xmlPath.Replace("\\", "/")}"}}""").RootElement
+                  SecretReference = None
+                  IsTrusted = true }
+
+            let secretStore = FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
+            let events = System.Collections.Concurrent.ConcurrentBag<StagingProgressEvent>()
+
+            // 1. Initial sync with progress
+            let! summary = Connections.syncDataSourcesAsyncWithProgress tmp [ jsonDef; xmlDef ] secretStore (Some events.Add)
+            Assert.True(summary.StagedCount >= 2)
+            Assert.Contains(events, fun e -> e.Phase = "Completed")
+
+            // 2. Second sync - tables are skipped
+            let skipEvents = System.Collections.Concurrent.ConcurrentBag<StagingProgressEvent>()
+            let! summarySkip = Connections.syncDataSourcesAsyncWithProgress tmp [ jsonDef; xmlDef ] secretStore (Some skipEvents.Add)
+            Assert.Equal(0, summarySkip.StagedCount)
+            Assert.True(summarySkip.SkippedCount >= 2)
+            Assert.Contains(skipEvents, fun e -> e.Phase = "Skipped")
+
+            // 3. triggerBackgroundSync and waitForPendingSync
+            Connections.triggerBackgroundSync tmp [ jsonDef; xmlDef ] secretStore
+            Connections.waitForPendingSync ()
+        finally
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+            try Directory.Delete(tmp, true) with _ -> ()
+    }
+
+[<Fact>]
+let ``SequencePivotExtensions Seq pivot performs in-memory grouping and cross-tabulation`` () =
+    let sales = [
+        ("North", "Q1", 100)
+        ("North", "Q2", 150)
+        ("South", "Q1", 200)
+        ("South", "Q2", 300)
+    ]
+
+    let pivoted =
+        sales
+        |> Seq.pivot (fun (region, _, _) -> region) (fun (_, quarter, _) -> quarter) (fun (_, _, amount) -> amount) Seq.sum
+        |> Map.ofSeq
+
+    Assert.Equal(100, pivoted.["North"].["Q1"])
+    Assert.Equal(150, pivoted.["North"].["Q2"])
+    Assert.Equal(200, pivoted.["South"].["Q1"])
+    Assert.Equal(300, pivoted.["South"].["Q2"])
+
+[<Fact>]
+let ``Connections queryJsonWithOptions deserializes non-record types across various JSON payloads`` () =
+    let testWithServer (jsonBody: string) (action: RestConnector -> unit) =
+        let tcp = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0)
+        tcp.Start()
+        let port = (tcp.LocalEndpoint :?> System.Net.IPEndPoint).Port
+        tcp.Stop()
+
+        let listener = new System.Net.HttpListener()
+        listener.Prefixes.Add($"http://127.0.0.1:{port}/")
+        listener.Start()
+
+        let serverTask =
+            System.Threading.Tasks.Task.Run(fun () ->
+                try
+                    let ctx = listener.GetContext()
+                    let bytes = Encoding.UTF8.GetBytes(jsonBody)
+                    ctx.Response.ContentType <- "application/json"
+                    ctx.Response.ContentLength64 <- int64 bytes.Length
+                    ctx.Response.OutputStream.Write(bytes, 0, bytes.Length)
+                    ctx.Response.OutputStream.Flush()
+                    ctx.Response.Close()
+                finally
+                    listener.Stop()
+            )
+
+        let connector = RestConnector(RestRequestOptions.Get($"http://127.0.0.1:{port}/test"))
+        try
+            action connector
+            serverTask.Wait()
+        with _ ->
+            listener.Stop()
+            reraise ()
+
+    // 1. Array of primitives into int seq
+    testWithServer "[ 10, 20, 30 ]" (fun rest ->
+        Connections.configure(FakeResolver(Map.ofList [ "Api", rest :> IConnector ]))
+        let items = Connections.queryJsonWithOptions<int> "Api" None |> Seq.toList
+        Assert.Equal<int list>([ 10; 20; 30 ], items)
+    )
+
+    // 2. Object with nested array of primitives into int seq
+    testWithServer """{ "values": [ 1, 2, 3 ] }""" (fun rest ->
+        Connections.configure(FakeResolver(Map.ofList [ "Api", rest :> IConnector ]))
+        let items = Connections.queryJsonWithOptions<int> "Api" None |> Seq.toList
+        Assert.Equal<int list>([ 1; 2; 3 ], items)
+    )
+
+    // 3. Single object into non-record dictionary
+    testWithServer """{ "key": "value" }""" (fun rest ->
+        Connections.configure(FakeResolver(Map.ofList [ "Api", rest :> IConnector ]))
+        let items = Connections.queryJsonWithOptions<System.Collections.Generic.Dictionary<string, string>> "Api" None |> Seq.toList
+        Assert.Equal(1, items.Length)
+        Assert.Equal("value", items.[0].["key"])
+    )
+
+    // 4. Primitive scalar response into int seq
+    testWithServer "42" (fun rest ->
+        Connections.configure(FakeResolver(Map.ofList [ "Api", rest :> IConnector ]))
+        let items = Connections.queryJsonWithOptions<int> "Api" None |> Seq.toList
+        Assert.Empty(items)
+    )
+
+    Assert.Equal(box 100.0, Connections.convertValue (box 100M) typeof<double>)
+    Assert.Equal(box 100.0, Connections.convertValue (box 100f) typeof<double>)
+    Assert.Equal(box 100.0, Connections.convertValue (box 100L) typeof<double>)
+    Assert.Equal(box 100, Connections.convertValue (box 99.9) typeof<int>)
+    Assert.Equal(box 100L, Connections.convertValue (box 99.9) typeof<int64>)
+
+type private TestWorkspaceResolver(baseDir: string option, connections: Map<string, IConnector>) =
+    interface IConnectionResolver with
+        member _.Resolve(name: string) =
+            match connections.TryFind name with
+            | Some c -> c
+            | None -> failwith $"No connection named '{name}' is configured."
+    interface IWorkspaceAwareResolver with
+        member _.BaseDirectory = baseDir
+
+type ComplexJsonRecord = {
+    StrVal: string
+    IntVal: int
+    LongVal: int64
+    DecVal: decimal
+    DblVal: double
+    BoolTrue: bool
+    BoolFalse: bool
+    NullVal: string
+    RawArr: string
+}
+
+[<Fact>]
+let ``Connections workspace resolver and reset behaviour works as expected`` () =
+    let tmpDir = Path.Combine(Path.GetTempPath(), "fqs-ws-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory tmpDir |> ignore
+    try
+        // 1. Configure with IWorkspaceAwareResolver
+        let wsResolver = TestWorkspaceResolver(Some tmpDir, Map.empty)
+        Connections.configure wsResolver
+        let engWs = Connections.getEngine ()
+        Assert.Contains(tmpDir, engWs.DatabasePath)
+
+        // 2. Reset clears resolver and engine
+        Connections.reset ()
+        let exUnconf = Assert.Throws<Exception>(fun () -> Connections.getDatabaseConnection "Any" |> ignore)
+        Assert.Contains("Connections has not been configured for this session.", exUnconf.Message)
+
+        // 3. getEngine with resolver = None defaults to temp path
+        let engDefault = Connections.getEngine ()
+        Assert.Contains("fsqs_cache", engDefault.DatabasePath)
+    finally
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+        try Directory.Delete(tmpDir, true) with _ -> ()
+
+[<Fact>]
+let ``DatabaseConnection GenerateEntities and GenerateSqlProvider output valid F# source snippets`` () =
+    withTempSqlite (fun sqlite _ ->
+        let dbConn = Connections.DatabaseConnection("Sales", sqlite)
+        let entities = dbConn.GenerateEntities()
+        Assert.Contains("module SalesDb =", entities)
+        Assert.Contains("type Orders =", entities)
+        Assert.Contains("type Database", entities)
+
+        let sqlProvider = dbConn.GenerateSqlProvider("SalesDb")
+        Assert.Contains("type SalesDb = SqlDataProvider<", sqlProvider)
+        Assert.Contains("Common.DatabaseProviderTypes.SQLITE", sqlProvider)
+    )
+
+[<Fact>]
+let ``Typed connections pushdown and table queryables stage and execute queries`` () =
+    let tmpDir = Path.Combine(Path.GetTempPath(), "fqs-pushdown-test-" + Guid.NewGuid().ToString("N"))
+    Directory.CreateDirectory tmpDir |> ignore
+    let dbPath = Path.Combine(tmpDir, "engine.db")
+    let engine = FileSqliteEngine(dbPath)
+    Connections.setEngine engine
+
+    try
+        // 1. Prepare files
+        let csvPath = Path.Combine(tmpDir, "items.csv")
+        File.WriteAllLines(csvPath, [| "Id,Title"; "1,Apple"; "2,Banana" |])
+        let csvConn = CsvConnector(csvPath)
+
+        let xlsxPath = Path.Combine(tmpDir, "items.xlsx")
+        do
+            use wb = new ClosedXML.Excel.XLWorkbook()
+            let ws = wb.Worksheets.Add("Products")
+            ws.Cell(1, 1).Value <- "Id"
+            ws.Cell(1, 2).Value <- "Title"
+            ws.Cell(2, 1).Value <- 10
+            ws.Cell(2, 2).Value <- "Peach"
+            wb.SaveAs(xlsxPath)
+        let excelConn = ExcelConnector(xlsxPath)
+
+        let jsonPath = Path.Combine(tmpDir, "data.json")
+        File.WriteAllText(jsonPath, """{ "Items": [ { "Id": 100, "Title": "Grape" } ] }""")
+        let jsonConn = JsonConnector(jsonPath)
+
+        let xmlPath = Path.Combine(tmpDir, "data.xml")
+        File.WriteAllText(xmlPath, """<Catalog><Items><Id>200</Id><Title>Melon</Title></Items></Catalog>""")
+        let xmlConn = XmlConnector(xmlPath)
+
+        Connections.configure(FakeResolver(Map.ofList [
+            "LocalCsv", csvConn :> IConnector
+            "LocalExcel", excelConn :> IConnector
+            "LocalJson", jsonConn :> IConnector
+            "LocalXml", xmlConn :> IConnector
+        ]))
+
+        // CSV
+        let typedCsv = Connections.getCsvConnection "LocalCsv"
+        let csvPush = typedCsv.PushdownQueryable<SimpleItem>()
+        Assert.Equal(2, csvPush |> Seq.length)
+        let csvRows = typedCsv.Rows<SimpleItem>() |> Seq.toList
+        Assert.Equal(2, csvRows.Length)
+
+        // Excel
+        let typedExcel = Connections.getExcelConnection "LocalExcel"
+        let excelPush = typedExcel.PushdownQueryable<SimpleItem>()
+        Assert.Equal(1, excelPush |> Seq.length)
+        let excelSheetQ = typedExcel.SheetQueryable<SimpleItem>("Products")
+        Assert.Equal(1, excelSheetQ |> Seq.length)
+        let excelTableQ = typedExcel.TableQueryable<SimpleItem>("Products")
+        Assert.Equal(1, excelTableQ |> Seq.length)
+        let excelTablePush = typedExcel.TablePushdownQueryable<SimpleItem>("Products")
+        Assert.Equal(1, excelTablePush |> Seq.length)
+        let excelRows = typedExcel.Rows<SimpleItem>() |> Seq.toList
+        Assert.Equal(1, excelRows.Length)
+
+        // JSON
+        let typedJson = Connections.getJsonConnection "LocalJson"
+        let jsonPush = typedJson.PushdownQueryable<SimpleItem>()
+        Assert.Equal(1, jsonPush |> Seq.length)
+        let jsonTableQ = typedJson.TableQueryable<SimpleItem>("Items")
+        Assert.Equal(1, jsonTableQ |> Seq.length)
+        let jsonTablePush = typedJson.TablePushdownQueryable<SimpleItem>("Items")
+        Assert.Equal(1, jsonTablePush |> Seq.length)
+        let jsonRows = typedJson.Rows<SimpleItem>() |> Seq.toList
+        Assert.Equal(1, jsonRows.Length)
+
+        // XML
+        let typedXml = Connections.getXmlConnection "LocalXml"
+        let xmlPush = typedXml.PushdownQueryable<SimpleItem>()
+        Assert.Equal(1, xmlPush |> Seq.length)
+        let xmlTableQ = typedXml.TableQueryable<SimpleItem>("Items")
+        Assert.Equal(1, xmlTableQ |> Seq.length)
+        let xmlTablePush = typedXml.TablePushdownQueryable<SimpleItem>("Items")
+        Assert.Equal(1, xmlTablePush |> Seq.length)
+        let xmlRows = typedXml.Rows<SimpleItem>() |> Seq.toList
+        Assert.Equal(1, xmlRows.Length)
+
+        // 5. ConnectorQueryResult extensions As<'T> and AsQueryable<'T>
+        let rawRes = typedCsv.Raw()
+        let itemsAs = rawRes.As<SimpleItem>() |> Seq.toList
+        Assert.Equal(2, itemsAs.Length)
+        let itemsAsQ = rawRes.AsQueryable<SimpleItem>()
+        Assert.Equal(2, itemsAsQ |> Seq.length)
+
+        // 6. syncDataSources non-progress alias
+        let secretStore = FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
+        let summary = (Connections.syncDataSources tmpDir [] secretStore).GetAwaiter().GetResult()
+        Assert.Equal(0, summary.StagedCount)
+    finally
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+        try Directory.Delete(tmpDir, true) with _ -> ()
+
+[<Fact>]
+let ``Connections queryJsonWithOptions deserializes complex JSON records covering all JsonValueKinds`` () =
+    let jsonPayload = """
+    [
+        {
+            "StrVal": "Hello",
+            "IntVal": 42,
+            "LongVal": 9999999999,
+            "DecVal": 123.456,
+            "DblVal": 1e20,
+            "BoolTrue": true,
+            "BoolFalse": false,
+            "NullVal": null,
+            "RawArr": [ 1, 2, 3 ]
+        }
+    ]
+    """
+    let tcp = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0)
+    tcp.Start()
+    let port = (tcp.LocalEndpoint :?> System.Net.IPEndPoint).Port
+    tcp.Stop()
+
+    let listener = new System.Net.HttpListener()
+    listener.Prefixes.Add($"http://127.0.0.1:{port}/")
+    listener.Start()
+
+    let serverTask =
+        System.Threading.Tasks.Task.Run(fun () ->
+            try
+                let ctx = listener.GetContext()
+                let bytes = Encoding.UTF8.GetBytes(jsonPayload)
+                ctx.Response.ContentType <- "application/json"
+                ctx.Response.ContentLength64 <- int64 bytes.Length
+                ctx.Response.OutputStream.Write(bytes, 0, bytes.Length)
+                ctx.Response.OutputStream.Flush()
+                ctx.Response.Close()
+            finally
+                listener.Stop()
+        )
+
+    let connector = RestConnector(RestRequestOptions.Get($"http://127.0.0.1:{port}/complex"))
+    try
+        Connections.configure(FakeResolver(Map.ofList [ "ComplexRest", connector :> IConnector ]))
+        let typedRest = Connections.getRestConnection "ComplexRest"
+        let queryable = typedRest.Queryable<ComplexJsonRecord>()
+        let items = queryable |> Seq.toList
+        serverTask.Wait()
+
+        Assert.Equal(1, items.Length)
+        let item = items.[0]
+        Assert.Equal("Hello", item.StrVal)
+        Assert.Equal(42, item.IntVal)
+        Assert.Equal(9999999999L, item.LongVal)
+        Assert.Equal(123.456M, item.DecVal)
+        Assert.True(item.BoolTrue)
+        Assert.False(item.BoolFalse)
+        Assert.Equal("", item.NullVal)
+        Assert.Equal("[ 1, 2, 3 ]", item.RawArr)
+    with _ ->
+        listener.Stop()
+        reraise ()
+
+[<Fact>]
+let ``Connections syncDataSourcesAsyncWithProgress stages and skips Csv and Excel connections`` () =
+    task {
+        BuiltinConnectors.registerDefaults ()
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-csv-excel-sync-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory tmp |> ignore
+        try
+            let csvPath = Path.Combine(tmp, "orders.csv")
+            File.WriteAllLines(csvPath, [| "Id,Title"; "1,Alpha"; "2,Beta" |])
+
+            let xlsxPath = Path.Combine(tmp, "orders.xlsx")
+            do
+                use wb = new ClosedXML.Excel.XLWorkbook()
+                let ws = wb.Worksheets.Add("Orders")
+                ws.Cell(1, 1).Value <- "Id"
+                ws.Cell(1, 2).Value <- "Title"
+                ws.Cell(2, 1).Value <- 100
+                ws.Cell(2, 2).Value <- "Widget"
+                wb.SaveAs(xlsxPath)
+
+            let csvDef: ConnectionDefinition = {
+                Id = Guid.NewGuid()
+                Name = "OrdersCsv"
+                Kind = ConnectorKind.Csv
+                Configuration = System.Text.Json.JsonDocument.Parse($"""{{"filePath": "{csvPath.Replace("\\", "/")}"}}""").RootElement
+                SecretReference = None
+                IsTrusted = true
+            }
+
+            let excelDef: ConnectionDefinition = {
+                Id = Guid.NewGuid()
+                Name = "OrdersExcel"
+                Kind = ConnectorKind.Excel
+                Configuration = System.Text.Json.JsonDocument.Parse($"""{{"filePath": "{xlsxPath.Replace("\\", "/")}"}}""").RootElement
+                SecretReference = None
+                IsTrusted = true
+            }
+
+            let secretStore = FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
+            let events = System.Collections.Concurrent.ConcurrentBag<StagingProgressEvent>()
+
+            // 1. Initial sync with progress
+            let! summary = Connections.syncDataSourcesAsyncWithProgress tmp [ csvDef; excelDef ] secretStore (Some events.Add)
+            Assert.True(summary.StagedCount >= 2)
+            Assert.Contains(events, fun e -> e.Phase = "Completed")
+
+            // 2. Second sync - tables are skipped
+            let skipEvents = System.Collections.Concurrent.ConcurrentBag<StagingProgressEvent>()
+            let! summarySkip = Connections.syncDataSourcesAsyncWithProgress tmp [ csvDef; excelDef ] secretStore (Some skipEvents.Add)
+            Assert.Equal(0, summarySkip.StagedCount)
+            Assert.True(summarySkip.SkippedCount >= 2)
+            Assert.Contains(skipEvents, fun e -> e.Phase = "Skipped")
+        finally
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+            try Directory.Delete(tmp, true) with _ -> ()
+    }
+
+[<Fact>]
+let ``Connections getMapper and sql category coverage helpers`` () =
+    // 1. getMapper with obj array
+    let arrMapper = Connections.getMapper<obj array> [ "Col1"; "Col2" ]
+    let inputArr = [| box 1; box "text" |]
+    Assert.Same(inputArr, arrMapper inputArr)
+
+    // 2. getMapper with scalar int and string
+    let intMapper = Connections.getMapper<int> [ "Col" ]
+    Assert.Equal(42, intMapper [| box 42 |])
+    Assert.Equal(0, intMapper [||])
+    Assert.Equal(0, intMapper [| null |])
+
+    let strMapper = Connections.getMapper<string> [ "Col" ]
+    Assert.Equal("val", strMapper [| box "val" |])
+    Assert.Equal("", strMapper [||])
+    Assert.Equal("", strMapper [| null |])
+
+    // 3. sql.rawQuery
+    let rawQ = Connections.sql.rawQuery("SELECT 1 AS X;")
+    Assert.Equal(1, rawQ.Rows |> Seq.length)
+
+    // 4. QueryInspectionExtensions
+    let mockSql = NonStreamingMockConnector(ConnectorKind.Sqlite, "Data Source=:memory:", { Columns = [ "Id" ]; Rows = [||] })
+    let qObj = SqlPushdownQueryable<SimpleItem>(mockSql, "SimpleItem")
+    let sqlVal = QueryInspectionExtensions.toRawSql qObj
+    Assert.NotNull(sqlVal)
+    let qVal = QueryInspectionExtensions.toRawQuery qObj
+    Assert.NotNull(qVal)
+    let (s, p) = QueryInspectionExtensions.toRawSqlWithParameters qObj
+    Assert.NotNull(s)
+
+    // 5. GenerateSqlProvider dialects
+    let pgMock = NonStreamingMockConnector(ConnectorKind.PostgreSql, "Host=localhost", { Columns = []; Rows = [||] })
+    let pgConn = Connections.DatabaseConnection("PgDb", pgMock)
+    Assert.Contains("POSTGRESQL", pgConn.GenerateSqlProvider())
+
+    let msMock = NonStreamingMockConnector(ConnectorKind.SqlServer, "Server=localhost", { Columns = []; Rows = [||] })
+    let msConn = Connections.DatabaseConnection("MsDb", msMock)
+    Assert.Contains("MSSQLSERVER", msConn.GenerateSqlProvider())
+
+    let myMock = NonStreamingMockConnector(ConnectorKind.MySql, "Server=localhost", { Columns = []; Rows = [||] })
+    let myConn = Connections.DatabaseConnection("MyDb", myMock)
+    Assert.Contains("POSTGRESQL", myConn.GenerateSqlProvider())
+
+
+

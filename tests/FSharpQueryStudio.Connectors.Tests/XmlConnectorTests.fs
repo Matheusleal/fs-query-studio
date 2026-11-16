@@ -74,3 +74,62 @@ let ``XmlConnector reports its Kind as Xml`` () =
     let connector = XmlConnector(f.Path) :> IConnector
     Assert.Equal(ConnectorKind.Xml, connector.Kind)
 
+[<Fact>]
+let ``ReadRows respects maxRows limit in XML`` () =
+    let xml = """<Catalog><Item Id="1"/><Item Id="2"/><Item Id="3"/></Catalog>"""
+    use f = new TempXmlFile(xml)
+    let connector = XmlConnector(f.Path)
+    let result = connector.ReadRows(maxRows = 2)
+    Assert.Equal(2, result.Rows |> Seq.length)
+
+[<Fact>]
+let ``ReadRows respects RowElement option path`` () =
+    let xml = """<Store><Inventory><Gadget Name="Drone" Price="500"/><Gadget Name="Cam" Price="300"/></Inventory></Store>"""
+    use f = new TempXmlFile(xml)
+    let opts = { XmlOptions.Default with RowElement = Some "Gadget" }
+    let connector = XmlConnector(f.Path, opts)
+    let result = connector.ReadRows()
+    Assert.Equal<string list>([ "Name"; "Price" ], result.Columns)
+    Assert.Equal(2, result.Rows |> Seq.length)
+
+[<Fact>]
+let ``ReadRows flattens nested elements with underscore`` () =
+    let xml = """<Catalog><Item><Id>1</Id><Details><Origin>BR</Origin></Details></Item></Catalog>"""
+    use f = new TempXmlFile(xml)
+    let opts = { XmlOptions.Default with FlattenNested = true }
+    let connector = XmlConnector(f.Path, opts)
+    let result = connector.ReadRows()
+    Assert.Contains("Details_Origin", result.Columns)
+
+[<Fact>]
+let ``ReadRows applies column transforms on XML columns`` () =
+    let xml = """<Catalog><Item><Name>banana</Name></Item></Catalog>"""
+    use f = new TempXmlFile(xml)
+    let opts = { XmlOptions.Default with ColumnTransforms = Map.ofList [ "Name", "replace('banana', 'fruit')" ] }
+    let connector = XmlConnector(f.Path, opts)
+    let result = connector.ReadRows()
+    let rows = result.Rows |> Seq.toList
+    Assert.Equal(box "fruit", rows.[0].[0])
+
+[<Fact>]
+let ``TestConnectionAsync returns true when XML exists and false when missing`` () =
+    task {
+        use f = new TempXmlFile("<Root><Item/></Root>")
+        let connector = XmlConnector(f.Path) :> IConnector
+        let! ok = connector.TestConnectionAsync(CancellationToken.None)
+        Assert.True(ok)
+
+        let missing = XmlConnector("C:/non_existent_folder/missing.xml") :> IConnector
+        let! notOk = missing.TestConnectionAsync(CancellationToken.None)
+        Assert.False(notOk)
+    }
+
+[<Fact>]
+let ``GetColumnNames returns columns for discovered XML table`` () =
+    let xml = """<Root><Record Id="10" Description="Widget"/></Root>"""
+    use f = new TempXmlFile(xml)
+    let connector = XmlConnector(f.Path)
+    let cols = connector.ReadRows().Columns
+    Assert.Equal<string list>([ "Id"; "Description" ], cols)
+
+

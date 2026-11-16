@@ -91,3 +91,54 @@ let ``leaves ordinary properties untouched`` () =
 
     let evt = Assert.Single(events)
     Assert.Equal(box 42, scalarValue evt "RowCount")
+
+[<Fact>]
+let ``isSecretShaped returns false for non-scalar or non-string values with arbitrary property names`` () =
+    let seqVal = SequenceValue([])
+    Assert.False(Redaction.isSecretShaped "CustomProp" seqVal)
+
+    let intScalar = ScalarValue(12345)
+    Assert.False(Redaction.isSecretShaped "CustomProp" intScalar)
+
+[<Fact>]
+let ``containsLeakedSecret detects plain-text and JSON secrets and ignores redacted markers`` () =
+    Assert.True(Redaction.containsLeakedSecret "Server=db;Password=secret123;")
+    Assert.True(Redaction.containsLeakedSecret "token: my-secret-token")
+    Assert.True(Redaction.containsLeakedSecret "authorization = bearer-xyz")
+    Assert.True(Redaction.containsLeakedSecret """{"password": "plain-text-pwd"}""")
+    Assert.True(Redaction.containsLeakedSecret """{"token": "secret-jwt-token"}""")
+
+    Assert.False(Redaction.containsLeakedSecret "Password: ***REDACTED***")
+    Assert.False(Redaction.containsLeakedSecret """{"password": "***REDACTED***"}""")
+    Assert.False(Redaction.containsLeakedSecret "Normal log message with no secrets")
+
+[<Fact>]
+let ``LoggerSetup defaultLogsDirectory returns non-empty path`` () =
+    let path = LoggerSetup.defaultLogsDirectory ()
+    Assert.False(System.String.IsNullOrWhiteSpace(path))
+    Assert.Contains("FSharpQueryStudio", path)
+
+[<Fact>]
+let ``LoggerSetup build worker role builds functional logger routing to stderr and file`` () =
+    let tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString("N"))
+    System.IO.Directory.CreateDirectory(tempDir) |> ignore
+    try
+        let logger = LoggerSetup.build "worker" "worker" tempDir
+        logger.Information("Test worker log message with {Count}", 42)
+        (logger :?> System.IDisposable).Dispose()
+    finally
+        if System.IO.Directory.Exists(tempDir) then
+            try System.IO.Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+let ``LoggerSetup build host role builds functional logger with standard console`` () =
+    let tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString("N"))
+    System.IO.Directory.CreateDirectory(tempDir) |> ignore
+    try
+        let logger = LoggerSetup.build "host" "host" tempDir
+        logger.Information("Test host log message with {Count}", 100)
+        (logger :?> System.IDisposable).Dispose()
+    finally
+        if System.IO.Directory.Exists(tempDir) then
+            try System.IO.Directory.Delete(tempDir, true) with _ -> ()
+
