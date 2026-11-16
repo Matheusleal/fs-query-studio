@@ -6,6 +6,8 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ## [Não Lançado]
 
+## [0.6.5] — 2026-11-16
+
 ### Adicionado
 
 - **Novos Conectores de Bancos de Dados Relacionais: MySQL, MariaDB e Oracle** — Suporte de primeira classe para bancos de dados SQL corporativos e open-source:
