@@ -723,7 +723,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
       const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
 
       interface DemoOption extends vscode.QuickPickItem {
-        id: "standard" | "postgresql" | "sqlserver";
+        id: "standard" | "postgresql" | "sqlserver" | "mysql" | "mariadb" | "oracle";
       }
 
       const demoOptions: DemoOption[] = [
