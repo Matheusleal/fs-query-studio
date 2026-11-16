@@ -8,7 +8,7 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
-## [0.6.5] — 2026-11-16
+## [0.7.0] — 2026-11-16
 
 ### Added
 

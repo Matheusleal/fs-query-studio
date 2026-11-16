@@ -6,7 +6,7 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ## [Não Lançado]
 
-## [0.6.5] — 2026-11-16
+## [0.7.0] — 2026-11-16
 
 ### Adicionado
 
