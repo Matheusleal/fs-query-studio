@@ -255,8 +255,10 @@ module CodeGenerationHelpers =
     open System.Text.RegularExpressions
 
     let cleanIdentifier (name: string) : string =
-        let cleaned = Regex.Replace(name, @"[^a-zA-Z0-9_]", "_")
-        if Regex.IsMatch(cleaned, @"^[0-9]") then $"_{cleaned}" else cleaned
+        let cleaned = Regex.Replace(name, @"[^\p{L}0-9_]", "_")
+        if Regex.IsMatch(cleaned, @"^[0-9]") then $"_{cleaned}"
+        elif String.IsNullOrWhiteSpace cleaned then "Item"
+        else cleaned
 
     let private keywords =
         set [ "abstract"; "and"; "as"; "assert"; "base"; "begin"; "class"; "default"; "delegate";
@@ -272,10 +274,11 @@ module CodeGenerationHelpers =
               "tailcall"; "trait"; "virtual"; "volatile" ]
 
     let escapeIdent (s: string) : string =
-        if Regex.IsMatch(s, @"^[a-zA-Z][a-zA-Z0-9_]*$") && not (Set.contains s keywords) then
-            s
+        let cleaned = cleanIdentifier s
+        if Regex.IsMatch(cleaned, @"^[a-zA-Z_\p{L}][a-zA-Z0-9_\p{L}]*$") && not (Set.contains cleaned keywords) then
+            cleaned
         else
-            $"``{s}``"
+            $"``{cleaned}``"
 
     let sanitizeColumns (cols: string list) : string list =
         let seen = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)

@@ -17,6 +17,9 @@ module BuiltinConnectors =
         [ CustomDescriptorWithGenerator(SqliteDescriptor.Instance, sqlGen) :> IConnectorDescriptor
           CustomDescriptorWithGenerator(SqlServerDescriptor.Instance, sqlGen) :> IConnectorDescriptor
           CustomDescriptorWithGenerator(PostgreSqlDescriptor.Instance, sqlGen) :> IConnectorDescriptor
+          CustomDescriptorWithGenerator(MySqlDescriptor.Instance, sqlGen) :> IConnectorDescriptor
+          CustomDescriptorWithGenerator(MariaDbDescriptor.Instance, sqlGen) :> IConnectorDescriptor
+          CustomDescriptorWithGenerator(OracleDescriptor.Instance, sqlGen) :> IConnectorDescriptor
           CustomDescriptorWithGenerator(CsvDescriptor.Instance, csvGen) :> IConnectorDescriptor
           CustomDescriptorWithGenerator(ExcelDescriptor.Instance, excelGen) :> IConnectorDescriptor
           CustomDescriptorWithGenerator(JsonDescriptor.Instance, jsonGen) :> IConnectorDescriptor

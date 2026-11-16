@@ -10,11 +10,17 @@ type SqlDialect =
     | Sqlite
     | PostgreSql
     | SqlServer
+    | MySql
+    | MariaDb
+    | Oracle
 
 module SqlDialect =
     let fromConnectorKind (kind: ConnectorKind) =
         if kind = ConnectorKind("PostgreSql") then SqlDialect.PostgreSql
         elif kind = ConnectorKind("SqlServer") then SqlDialect.SqlServer
+        elif kind = ConnectorKind("MySql") then SqlDialect.MySql
+        elif kind = ConnectorKind("MariaDb") then SqlDialect.MariaDb
+        elif kind = ConnectorKind("Oracle") then SqlDialect.Oracle
         else SqlDialect.Sqlite
 
     let private reservedKeywords =
@@ -35,10 +41,11 @@ module SqlDialect =
     /// Safely quotes an identifier according to the dialect rules if it contains special characters, spaces, or keywords.
     let quoteIdentifier (dialect: SqlDialect) (name: string) =
         if String.IsNullOrEmpty name then name
-        elif name.StartsWith("\"") || name.StartsWith("[") then name
+        elif name.StartsWith("\"") || name.StartsWith("[") || name.StartsWith("`") then name
         elif reservedKeywords.Contains name || name.Contains(" ") || not (Char.IsLetter(name.[0]) || name.[0] = '_') then
             match dialect with
             | SqlDialect.SqlServer -> $"[{name}]"
+            | SqlDialect.MySql | SqlDialect.MariaDb -> $"`{name}`"
             | _ -> $"\"{name}\""
         else
             name

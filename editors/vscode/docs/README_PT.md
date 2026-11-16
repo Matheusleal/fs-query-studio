@@ -45,7 +45,7 @@ open FSharpQueryStudio.Connectors   // API Connections.*
 
 | Categoria | Tipos | Uso |
 |---|---|---|
-| `Connections.sql.<Conn>` | SQLite, SQL Server, PostgreSQL, MySQL | Tabelas tipadas (`.Users`) e queries parametrizadas `.rawQuery "..." [ ... ]` |
+| `Connections.sql.<Conn>` | SQLite, SQL Server, PostgreSQL, MySQL, MariaDB, Oracle | Tabelas tipadas (`.Users`) e queries parametrizadas `.rawQuery "..." [ ... ]` |
 | `Connections.csv.<Conn>` | CSV | Linhas tipadas via `fsql { for r in Connections.csv.<Conn> do ... }` ou `.Rows` |
 | `Connections.excel.<Conn>` | Excel (XLSX, XLS) | Planilhas tipadas (`.<NomePlanilha>`) e `.Raw()` |
 | `Connections.json.<Conn>` | JSON | Acesso tipado a nós e arrays JSON estruturados |
@@ -54,7 +54,7 @@ open FSharpQueryStudio.Connectors   // API Connections.*
 
 ### Pushdown Universal de Consultas para SQL (Estilo EF)
 
-O F# Query Studio traduz expressões de consulta `fsql` diretamente em SQL nativo otimizado no SQLite, PostgreSQL e SQL Server. Apenas as colunas projetadas e as linhas filtradas trafegam do banco para a memória do cliente:
+O F# Query Studio traduz expressões de consulta `fsql` diretamente em SQL nativo otimizado no SQLite, PostgreSQL, SQL Server, MySQL, MariaDB e Oracle. Apenas as colunas projetadas e as linhas filtradas trafegam do banco para a memória do cliente:
 
 ```fsharp
 fsql {

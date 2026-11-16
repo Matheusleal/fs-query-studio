@@ -3,10 +3,10 @@ import { ConnectorFrontRegistry } from "./connector-registry";
 import type { FrontendConnectorModule } from "./connector-shared";
 
 describe("ConnectorFrontRegistry & Per-Connector Frontend Modules", () => {
-  it("exposes default descriptors for all 8 built-in connectors", () => {
+  it("exposes default descriptors for all 11 built-in connectors", () => {
     const descriptors = ConnectorFrontRegistry.defaultDescriptors;
     const kindIds = descriptors.map((d) => d.kindId);
-    expect(kindIds).toEqual(["SqlServer", "PostgreSql", "Sqlite", "Csv", "Excel", "Json", "Xml", "RestJson"]);
+    expect(kindIds).toEqual(["SqlServer", "PostgreSql", "MySql", "MariaDb", "Oracle", "Sqlite", "Csv", "Excel", "Json", "Xml", "RestJson"]);
   });
 
   describe("SQL Server module rules", () => {
@@ -78,6 +78,48 @@ describe("ConnectorFrontRegistry & Per-Connector Frontend Modules", () => {
       expect(
         ConnectorFrontRegistry.validateConfiguration("PostgreSql", {
           connectionString: "Host=localhost;Database=mydb",
+        }),
+      ).toBeUndefined();
+    });
+  });
+
+  describe("MySQL, MariaDB and Oracle module rules", () => {
+    it("sanitizes and validates MySQL configuration", () => {
+      const res = ConnectorFrontRegistry.sanitizeConnectionStringAndPassword(
+        "MySql",
+        "Server=localhost;Port=3306;Database=mydb;User ID=root;Password=MySecret123;",
+      );
+      expect(res.password).toBe("MySecret123");
+      expect(res.connectionString).toBe("Server=localhost;Port=3306;Database=mydb;User ID=root;Password={password};");
+      expect(ConnectorFrontRegistry.validateConfiguration("MySql", {})).toContain("connectionString");
+      expect(
+        ConnectorFrontRegistry.validateConfiguration("MySql", {
+          connectionString: res.connectionString,
+        }),
+      ).toBeUndefined();
+    });
+
+    it("sanitizes and validates MariaDB configuration", () => {
+      const res = ConnectorFrontRegistry.sanitizeConnectionStringAndPassword(
+        "MariaDb",
+        "Server=localhost;Port=3307;Database=mydb;User ID=root;Password=MariaSecret;",
+      );
+      expect(res.password).toBe("MariaSecret");
+      expect(res.connectionString).toBe("Server=localhost;Port=3307;Database=mydb;User ID=root;Password={password};");
+      expect(ConnectorFrontRegistry.validateConfiguration("MariaDb", {})).toContain("connectionString");
+    });
+
+    it("sanitizes and validates Oracle configuration", () => {
+      const res = ConnectorFrontRegistry.sanitizeConnectionStringAndPassword(
+        "Oracle",
+        "Data Source=localhost:1521/FREEPDB1;User Id=system;Password=OraPass;",
+      );
+      expect(res.password).toBe("OraPass");
+      expect(res.connectionString).toBe("Data Source=localhost:1521/FREEPDB1;User Id=system;Password={password};");
+      expect(ConnectorFrontRegistry.validateConfiguration("Oracle", {})).toContain("connectionString");
+      expect(
+        ConnectorFrontRegistry.validateConfiguration("Oracle", {
+          connectionString: res.connectionString,
         }),
       ).toBeUndefined();
     });

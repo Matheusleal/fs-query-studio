@@ -247,7 +247,211 @@ BEGIN
 END
 """
 
-    let getDockerComposeYaml (hasPostgres: bool) (hasSqlServer: bool) : string =
+    let getMySqlInitSql () = """
+-- MySQL Advanced Schema Initialization
+CREATE DATABASE IF NOT EXISTS fsqs_demo;
+USE fsqs_demo;
+
+CREATE TABLE IF NOT EXISTS categories (
+    id INT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    description TEXT,
+    code VARCHAR(20) NOT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT true
+);
+
+CREATE TABLE IF NOT EXISTS products (
+    id INT PRIMARY KEY,
+    category_id INT NOT NULL,
+    name VARCHAR(150) NOT NULL,
+    sku VARCHAR(50) NOT NULL,
+    price DECIMAL(10,2) NOT NULL,
+    cost_price DECIMAL(10,2) NOT NULL,
+    stock_quantity INT NOT NULL,
+    specs JSON NOT NULL,
+    FOREIGN KEY (category_id) REFERENCES categories(id)
+);
+
+CREATE TABLE IF NOT EXISTS customers (
+    id INT PRIMARY KEY,
+    first_name VARCHAR(100) NOT NULL,
+    last_name VARCHAR(100) NOT NULL,
+    email VARCHAR(150) NOT NULL,
+    city VARCHAR(100) NOT NULL,
+    country VARCHAR(100) NOT NULL,
+    profile JSON NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+    id INT PRIMARY KEY,
+    customer_id INT NOT NULL,
+    order_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    status VARCHAR(50) NOT NULL,
+    total_amount DECIMAL(12,2) NOT NULL,
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+);
+
+CREATE TABLE IF NOT EXISTS order_items (
+    id INT PRIMARY KEY,
+    order_id INT NOT NULL,
+    product_id INT NOT NULL,
+    quantity INT NOT NULL,
+    unit_price DECIMAL(10,2) NOT NULL,
+    line_total DECIMAL(12,2) NOT NULL,
+    FOREIGN KEY (order_id) REFERENCES orders(id),
+    FOREIGN KEY (product_id) REFERENCES products(id)
+);
+
+INSERT INTO categories (id, name, description, code, is_active) VALUES
+(1, 'Electronics', 'Gadgets and computing devices', 'ELEC', true),
+(2, 'Furniture', 'Office and home furniture', 'FURN', true),
+(3, 'Stationery', 'Office supplies and writing gear', 'STAT', true)
+ON DUPLICATE KEY UPDATE name=VALUES(name);
+
+INSERT INTO products (id, category_id, name, sku, price, cost_price, stock_quantity, specs) VALUES
+(1, 1, 'Pro Mechanical Keyboard', 'ELEC-KB-01', 129.99, 65.00, 150, '{"brand": "KeyMaster", "wireless": true, "switch": "Cherry MX Brown"}'),
+(2, 1, 'UltraWide Gaming Monitor', 'ELEC-MN-02', 499.99, 310.00, 45, '{"brand": "VisionMax", "resolution": "3440x1440", "refresh_hz": 144}'),
+(3, 1, 'Ergonomic Precision Mouse', 'ELEC-MS-03', 79.50, 32.00, 200, '{"brand": "PrecisionTech", "wireless": true, "dpi": 16000}'),
+(4, 2, 'Adjustable Standing Desk', 'FURN-DK-01', 349.00, 180.00, 30, '{"brand": "ErgoLift", "motor": "Dual", "max_kg": 120}'),
+(5, 2, 'Mesh Ergonomic Task Chair', 'FURN-CH-02', 249.99, 120.00, 60, '{"brand": "AeroComfort", "armrest": "4D", "tilt": true}'),
+(6, 3, 'Smart Digital Notebook', 'STAT-NB-01', 35.00, 14.00, 300, '{"brand": "PaperSync", "pages": 120, "cloud_sync": true}')
+ON DUPLICATE KEY UPDATE name=VALUES(name);
+
+INSERT INTO customers (id, first_name, last_name, email, city, country, profile) VALUES
+(1, 'Alice', 'Silva', 'alice.silva@example.com', 'Sao Paulo', 'Brazil', '{"tier": "Gold", "loyalty_points": 1450, "preferred_channel": "App"}'),
+(2, 'Bob', 'Miller', 'bob.miller@example.com', 'Austin', 'USA', '{"tier": "Platinum", "loyalty_points": 3200, "preferred_channel": "Web"}'),
+(3, 'Carla', 'Santos', 'carla.santos@example.com', 'Curitiba', 'Brazil', '{"tier": "Silver", "loyalty_points": 650, "preferred_channel": "Email"}'),
+(4, 'David', 'Kowalski', 'david.k@example.com', 'Warsaw', 'Poland', '{"tier": "Bronze", "loyalty_points": 210, "preferred_channel": "Web"}')
+ON DUPLICATE KEY UPDATE email=VALUES(email);
+
+INSERT INTO orders (id, customer_id, order_date, status, total_amount) VALUES
+(1, 1, '2026-01-15 10:30:00', 'Completed', 629.98),
+(2, 1, '2026-02-10 14:15:00', 'Completed', 129.99),
+(3, 2, '2026-02-20 18:45:00', 'Completed', 598.99),
+(4, 3, '2026-03-01 09:00:00', 'Pending', 79.50)
+ON DUPLICATE KEY UPDATE status=VALUES(status);
+
+INSERT INTO order_items (id, order_id, product_id, quantity, unit_price, line_total) VALUES
+(1, 1, 1, 1, 129.99, 129.99),
+(2, 1, 2, 1, 499.99, 499.99),
+(3, 2, 1, 1, 129.99, 129.99),
+(4, 3, 2, 1, 499.99, 499.99),
+(5, 3, 3, 1, 79.50, 79.50),
+(6, 4, 3, 1, 79.50, 79.50)
+ON DUPLICATE KEY UPDATE quantity=VALUES(quantity);
+"""
+
+    let getMariaDbInitSql () = getMySqlInitSql ()
+
+    let getOracleInitSql () = """
+-- Oracle Advanced Schema Initialization
+ALTER SESSION SET CONTAINER = FREEPDB1;
+ALTER SESSION SET CURRENT_SCHEMA = SYSTEM;
+
+BEGIN
+   EXECUTE IMMEDIATE 'DROP TABLE ORDER_ITEMS CASCADE CONSTRAINTS';
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+/
+BEGIN
+   EXECUTE IMMEDIATE 'DROP TABLE ORDERS CASCADE CONSTRAINTS';
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+/
+BEGIN
+   EXECUTE IMMEDIATE 'DROP TABLE PRODUCTS CASCADE CONSTRAINTS';
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+/
+BEGIN
+   EXECUTE IMMEDIATE 'DROP TABLE CATEGORIES CASCADE CONSTRAINTS';
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+/
+BEGIN
+   EXECUTE IMMEDIATE 'DROP TABLE CUSTOMERS CASCADE CONSTRAINTS';
+EXCEPTION WHEN OTHERS THEN NULL;
+END;
+/
+
+CREATE TABLE CATEGORIES (
+    ID NUMBER(10) PRIMARY KEY,
+    NAME VARCHAR2(100) NOT NULL,
+    DESCRIPTION VARCHAR2(500),
+    CODE VARCHAR2(20) NOT NULL,
+    IS_ACTIVE NUMBER(1) DEFAULT 1 NOT NULL
+);
+
+CREATE TABLE PRODUCTS (
+    ID NUMBER(10) PRIMARY KEY,
+    CATEGORY_ID NUMBER(10) NOT NULL REFERENCES CATEGORIES(ID),
+    NAME VARCHAR2(150) NOT NULL,
+    SKU VARCHAR2(50) NOT NULL,
+    PRICE NUMBER(10,2) NOT NULL,
+    COST_PRICE NUMBER(10,2) NOT NULL,
+    STOCK_QUANTITY NUMBER(10) NOT NULL,
+    SPECS VARCHAR2(4000) CHECK (SPECS IS JSON)
+);
+
+CREATE TABLE CUSTOMERS (
+    ID NUMBER(10) PRIMARY KEY,
+    FIRST_NAME VARCHAR2(100) NOT NULL,
+    LAST_NAME VARCHAR2(100) NOT NULL,
+    EMAIL VARCHAR2(150) NOT NULL,
+    CITY VARCHAR2(100) NOT NULL,
+    COUNTRY VARCHAR2(100) NOT NULL,
+    PROFILE VARCHAR2(4000) CHECK (PROFILE IS JSON)
+);
+
+CREATE TABLE ORDERS (
+    ID NUMBER(10) PRIMARY KEY,
+    CUSTOMER_ID NUMBER(10) NOT NULL REFERENCES CUSTOMERS(ID),
+    ORDER_DATE TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    STATUS VARCHAR2(50) NOT NULL,
+    TOTAL_AMOUNT NUMBER(12,2) NOT NULL
+);
+
+CREATE TABLE ORDER_ITEMS (
+    ID NUMBER(10) PRIMARY KEY,
+    ORDER_ID NUMBER(10) NOT NULL REFERENCES ORDERS(ID),
+    PRODUCT_ID NUMBER(10) NOT NULL REFERENCES PRODUCTS(ID),
+    QUANTITY NUMBER(10) NOT NULL,
+    UNIT_PRICE NUMBER(10,2) NOT NULL,
+    LINE_TOTAL NUMBER(12,2) NOT NULL
+);
+
+INSERT INTO CATEGORIES (ID, NAME, DESCRIPTION, CODE, IS_ACTIVE) VALUES (1, 'Electronics', 'Gadgets and computing devices', 'ELEC', 1);
+INSERT INTO CATEGORIES (ID, NAME, DESCRIPTION, CODE, IS_ACTIVE) VALUES (2, 'Furniture', 'Office and home furniture', 'FURN', 1);
+INSERT INTO CATEGORIES (ID, NAME, DESCRIPTION, CODE, IS_ACTIVE) VALUES (3, 'Stationery', 'Office supplies and writing gear', 'STAT', 1);
+
+INSERT INTO PRODUCTS (ID, CATEGORY_ID, NAME, SKU, PRICE, COST_PRICE, STOCK_QUANTITY, SPECS) VALUES (1, 1, 'Pro Mechanical Keyboard', 'ELEC-KB-01', 129.99, 65.00, 150, '{"brand": "KeyMaster", "wireless": true, "switch": "Cherry MX Brown"}');
+INSERT INTO PRODUCTS (ID, CATEGORY_ID, NAME, SKU, PRICE, COST_PRICE, STOCK_QUANTITY, SPECS) VALUES (2, 1, 'UltraWide Gaming Monitor', 'ELEC-MN-02', 499.99, 310.00, 45, '{"brand": "VisionMax", "resolution": "3440x1440", "refresh_hz": 144}');
+INSERT INTO PRODUCTS (ID, CATEGORY_ID, NAME, SKU, PRICE, COST_PRICE, STOCK_QUANTITY, SPECS) VALUES (3, 1, 'Ergonomic Precision Mouse', 'ELEC-MS-03', 79.50, 32.00, 200, '{"brand": "PrecisionTech", "wireless": true, "dpi": 16000}');
+INSERT INTO PRODUCTS (ID, CATEGORY_ID, NAME, SKU, PRICE, COST_PRICE, STOCK_QUANTITY, SPECS) VALUES (4, 2, 'Adjustable Standing Desk', 'FURN-DK-01', 349.00, 180.00, 30, '{"brand": "ErgoLift", "motor": "Dual", "max_kg": 120}');
+INSERT INTO PRODUCTS (ID, CATEGORY_ID, NAME, SKU, PRICE, COST_PRICE, STOCK_QUANTITY, SPECS) VALUES (5, 2, 'Mesh Ergonomic Task Chair', 'FURN-CH-02', 249.99, 120.00, 60, '{"brand": "AeroComfort", "armrest": "4D", "tilt": true}');
+INSERT INTO PRODUCTS (ID, CATEGORY_ID, NAME, SKU, PRICE, COST_PRICE, STOCK_QUANTITY, SPECS) VALUES (6, 3, 'Smart Digital Notebook', 'STAT-NB-01', 35.00, 14.00, 300, '{"brand": "PaperSync", "pages": 120, "cloud_sync": true}');
+
+INSERT INTO CUSTOMERS (ID, FIRST_NAME, LAST_NAME, EMAIL, CITY, COUNTRY, PROFILE) VALUES (1, 'Alice', 'Silva', 'alice.silva@example.com', 'Sao Paulo', 'Brazil', '{"tier": "Gold", "loyalty_points": 1450, "preferred_channel": "App"}');
+INSERT INTO CUSTOMERS (ID, FIRST_NAME, LAST_NAME, EMAIL, CITY, COUNTRY, PROFILE) VALUES (2, 'Bob', 'Miller', 'bob.miller@example.com', 'Austin', 'USA', '{"tier": "Platinum", "loyalty_points": 3200, "preferred_channel": "Web"}');
+INSERT INTO CUSTOMERS (ID, FIRST_NAME, LAST_NAME, EMAIL, CITY, COUNTRY, PROFILE) VALUES (3, 'Carla', 'Santos', 'carla.santos@example.com', 'Curitiba', 'Brazil', '{"tier": "Silver", "loyalty_points": 650, "preferred_channel": "Email"}');
+INSERT INTO CUSTOMERS (ID, FIRST_NAME, LAST_NAME, EMAIL, CITY, COUNTRY, PROFILE) VALUES (4, 'David', 'Kowalski', 'david.k@example.com', 'Warsaw', 'Poland', '{"tier": "Bronze", "loyalty_points": 210, "preferred_channel": "Web"}');
+
+INSERT INTO ORDERS (ID, CUSTOMER_ID, ORDER_DATE, STATUS, TOTAL_AMOUNT) VALUES (1, 1, TIMESTAMP '2026-01-15 10:30:00', 'Completed', 629.98);
+INSERT INTO ORDERS (ID, CUSTOMER_ID, ORDER_DATE, STATUS, TOTAL_AMOUNT) VALUES (2, 1, TIMESTAMP '2026-02-10 14:15:00', 'Completed', 129.99);
+INSERT INTO ORDERS (ID, CUSTOMER_ID, ORDER_DATE, STATUS, TOTAL_AMOUNT) VALUES (3, 2, TIMESTAMP '2026-02-20 18:45:00', 'Completed', 598.99);
+INSERT INTO ORDERS (ID, CUSTOMER_ID, ORDER_DATE, STATUS, TOTAL_AMOUNT) VALUES (4, 3, TIMESTAMP '2026-03-01 09:00:00', 'Pending', 79.50);
+
+INSERT INTO ORDER_ITEMS (ID, ORDER_ID, PRODUCT_ID, QUANTITY, UNIT_PRICE, LINE_TOTAL) VALUES (1, 1, 1, 1, 129.99, 129.99);
+INSERT INTO ORDER_ITEMS (ID, ORDER_ID, PRODUCT_ID, QUANTITY, UNIT_PRICE, LINE_TOTAL) VALUES (2, 1, 2, 1, 499.99, 499.99);
+INSERT INTO ORDER_ITEMS (ID, ORDER_ID, PRODUCT_ID, QUANTITY, UNIT_PRICE, LINE_TOTAL) VALUES (3, 2, 1, 1, 129.99, 129.99);
+INSERT INTO ORDER_ITEMS (ID, ORDER_ID, PRODUCT_ID, QUANTITY, UNIT_PRICE, LINE_TOTAL) VALUES (4, 3, 2, 1, 499.99, 499.99);
+INSERT INTO ORDER_ITEMS (ID, ORDER_ID, PRODUCT_ID, QUANTITY, UNIT_PRICE, LINE_TOTAL) VALUES (5, 3, 3, 1, 79.50, 79.50);
+INSERT INTO ORDER_ITEMS (ID, ORDER_ID, PRODUCT_ID, QUANTITY, UNIT_PRICE, LINE_TOTAL) VALUES (6, 4, 3, 1, 79.50, 79.50);
+
+COMMIT;
+"""
+
+    let getDockerComposeYamlWithEngines (hasPostgres: bool) (hasSqlServer: bool) (hasMySql: bool) (hasMariaDb: bool) (hasOracle: bool) : string =
         let sb = StringBuilder()
         sb.AppendLine("version: '3.8'") |> ignore
         sb.AppendLine() |> ignore
@@ -296,7 +500,66 @@ END
             sb.AppendLine("      \"") |> ignore
             sb.AppendLine() |> ignore
 
+        if hasMySql then
+            sb.AppendLine("  fsqs-mysql:") |> ignore
+            sb.AppendLine("    image: mysql:8.4") |> ignore
+            sb.AppendLine("    container_name: fsqs-mysql") |> ignore
+            sb.AppendLine("    restart: always") |> ignore
+            sb.AppendLine("    environment:") |> ignore
+            sb.AppendLine("      MYSQL_ROOT_PASSWORD: Password123!") |> ignore
+            sb.AppendLine("      MYSQL_DATABASE: fsqs_demo") |> ignore
+            sb.AppendLine("    ports:") |> ignore
+            sb.AppendLine("      - \"3306:3306\"") |> ignore
+            sb.AppendLine("    volumes:") |> ignore
+            sb.AppendLine("      - ./init-scripts/init_mysql.sql:/docker-entrypoint-initdb.d/init.sql") |> ignore
+            sb.AppendLine("    healthcheck:") |> ignore
+            sb.AppendLine("      test: [\"CMD\", \"mysqladmin\", \"ping\", \"-h\", \"localhost\", \"-u\", \"root\", \"-pPassword123!\"]") |> ignore
+            sb.AppendLine("      interval: 5s") |> ignore
+            sb.AppendLine("      timeout: 5s") |> ignore
+            sb.AppendLine("      retries: 5") |> ignore
+            sb.AppendLine() |> ignore
+
+        if hasMariaDb then
+            sb.AppendLine("  fsqs-mariadb:") |> ignore
+            sb.AppendLine("    image: mariadb:11.4") |> ignore
+            sb.AppendLine("    container_name: fsqs-mariadb") |> ignore
+            sb.AppendLine("    restart: always") |> ignore
+            sb.AppendLine("    environment:") |> ignore
+            sb.AppendLine("      MARIADB_ROOT_PASSWORD: Password123!") |> ignore
+            sb.AppendLine("      MARIADB_DATABASE: fsqs_demo") |> ignore
+            sb.AppendLine("    ports:") |> ignore
+            sb.AppendLine("      - \"3307:3306\"") |> ignore
+            sb.AppendLine("    volumes:") |> ignore
+            sb.AppendLine("      - ./init-scripts/init_mariadb.sql:/docker-entrypoint-initdb.d/init.sql") |> ignore
+            sb.AppendLine("    healthcheck:") |> ignore
+            sb.AppendLine("      test: [\"CMD\", \"healthcheck.sh\", \"--connect\", \"--innodb_initialized\"]") |> ignore
+            sb.AppendLine("      interval: 5s") |> ignore
+            sb.AppendLine("      timeout: 5s") |> ignore
+            sb.AppendLine("      retries: 5") |> ignore
+            sb.AppendLine() |> ignore
+
+        if hasOracle then
+            sb.AppendLine("  fsqs-oracle:") |> ignore
+            sb.AppendLine("    image: gvenzl/oracle-free:23-slim") |> ignore
+            sb.AppendLine("    container_name: fsqs-oracle") |> ignore
+            sb.AppendLine("    restart: always") |> ignore
+            sb.AppendLine("    environment:") |> ignore
+            sb.AppendLine("      ORACLE_PASSWORD: Password123!") |> ignore
+            sb.AppendLine("    ports:") |> ignore
+            sb.AppendLine("      - \"1521:1521\"") |> ignore
+            sb.AppendLine("    volumes:") |> ignore
+            sb.AppendLine("      - ./init-scripts/init_oracle.sql:/container-entrypoint-initdb.d/init.sql") |> ignore
+            sb.AppendLine("    healthcheck:") |> ignore
+            sb.AppendLine("      test: [\"CMD\", \"healthcheck.sh\"]") |> ignore
+            sb.AppendLine("      interval: 10s") |> ignore
+            sb.AppendLine("      timeout: 10s") |> ignore
+            sb.AppendLine("      retries: 10") |> ignore
+            sb.AppendLine() |> ignore
+
         sb.ToString()
+
+    let getDockerComposeYaml (hasPostgres: bool) (hasSqlServer: bool) : string =
+        getDockerComposeYamlWithEngines hasPostgres hasSqlServer false false false
 
     let getPostgresNotebook () : string =
         let cells =
@@ -1663,15 +1926,397 @@ printfn "%s" diag.PlanText
             ]
         serializeNotebook cells
 
+    let private buildEngineNotebook (engineDisplayName: string) (connName: string) (isUpper: bool) (dockerService: string) (icon: string) (isPt: bool) : string =
+        let tblProd = if isUpper then "PRODUCTS" else "products"
+        let tblOrd = if isUpper then "ORDERS" else "orders"
+        let tblCat = if isUpper then "CATEGORIES" else "categories"
+        let tblCust = if isUpper then "CUSTOMERS" else "customers"
+        let colId = if isUpper then "ID" else "id"
+        let colCatId = if isUpper then "CATEGORY_ID" else "category_id"
+        let colName = if isUpper then "NAME" else "name"
+        let colPrice = if isUpper then "PRICE" else "price"
+        let colSpecs = if isUpper then "SPECS" else "specs"
+        let colFirstName = if isUpper then "FIRST_NAME" else "first_name"
+        let colCustId = if isUpper then "CUSTOMER_ID" else "customer_id"
+        let colOrderDate = if isUpper then "ORDER_DATE" else "order_date"
+        let colTotalAmount = if isUpper then "TOTAL_AMOUNT" else "total_amount"
+        let colStatus = if isUpper then "STATUS" else "status"
+
+        let cells =
+            if not isPt then
+                [
+                    mkMarkdown $"""
+# {icon} {engineDisplayName} Advanced FSQL Showcase & Diagnostics
+
+This notebook demonstrates the full power of **FSQL** pushed down to **{engineDisplayName}**:
+- **Analytical Window Functions** (`OVER (PARTITION BY ... ORDER BY ...)`, `rowNumber`, `rank`, `denseRank`, running aggregates)
+- **Positional & Value Window Functions** (`lag`, `lead`, `firstValue`, `lastValue`, running `avg`, `max`)
+- **Semi-Structured JSON Navigation** (`fsql.jsonValue`)
+- **Correlated Subqueries & Existence Predicates** (`whereExists`, `whereNotExists`, scalar projection subqueries)
+- **Aggregation with Group Filtering** (`groupBy` + `having`)
+- **Common Table Expressions** (Multi-variable composition, transparent CTEs)
+- **Set Operations** (`union`, `unionAll`, `intersect`, `except`)
+- **Relational Joins & Outer Joins** (`join`, `leftOuterJoin`)
+- **Subqueries with IN** (`.Contains(...)`)
+- **Conditional Expressions** (`if ... then ... else ...` -> `CASE WHEN`)
+- **Live Query Plan Diagnostics** (`fsql.explain` / `.Explain()`)
+
+---
+### 🛠️ Container Prerequisites
+Ensure your {engineDisplayName} container is running:
+```bash
+docker compose -f docker-compose.fsqs.yml up -d {dockerService}
+```
+"""
+                    mkMarkdown "## 1. ⚡ Analytic Window Functions (Partitioning & Running Aggregates)"
+                    mkCode $"""
+// 1. Ranking products per category by price with running totals in {engineDisplayName}
+fsql {{
+    for p in Connections.sql.{connName}.{tblProd} do
+    select {{|
+        Category = p.{colCatId}
+        Product = p.{colName}
+        Price = p.{colPrice}
+        RowInCat = fsql.rowNumber(fsql.window(partitionBy = p.{colCatId}, sortByDescending = p.{colPrice}))
+        RankInCat = fsql.rank(fsql.window(partitionBy = p.{colCatId}, sortByDescending = p.{colPrice}))
+        DenseRankInCat = fsql.denseRank(fsql.window(partitionBy = p.{colCatId}, sortByDescending = p.{colPrice}))
+        PriceQuartile = fsql.ntile(4, fsql.window(sortByDescending = p.{colPrice}))
+        RunningSum = fsql.sum(p.{colPrice}, over = fsql.window(partitionBy = p.{colCatId}, sortBy = p.{colId}))
+        RunningAvg = fsql.avg(p.{colPrice}, over = fsql.window(partitionBy = p.{colCatId}, sortBy = p.{colId}))
+    |}}
+}}
+"""
+                    mkMarkdown "## 2. 🧭 Positional & Value Window Functions (`lag`, `lead`, `firstValue`, `lastValue`)"
+                    mkCode $"""
+// 2.1 Comparing order values with previous and subsequent transactions using lag and lead
+fsql {{
+    for o in Connections.sql.{connName}.{tblOrd} do
+    select {{|
+        OrderId = o.{colId}
+        CustomerId = o.{colCustId}
+        Amount = o.{colTotalAmount}
+        PreviousAmount = fsql.lag(o.{colTotalAmount}, over = fsql.window(partitionBy = o.{colCustId}, sortBy = o.{colOrderDate}))
+        NextAmount = fsql.lead(o.{colTotalAmount}, over = fsql.window(partitionBy = o.{colCustId}, sortBy = o.{colOrderDate}))
+    |}}
+}}
+"""
+                    mkCode $"""
+// 2.2 First and last values within each category's partition
+fsql {{
+    for p in Connections.sql.{connName}.{tblProd} do
+    select {{|
+        Category = p.{colCatId}
+        Product = p.{colName}
+        Price = p.{colPrice}
+        CheapestInCat = fsql.firstValue(p.{colPrice}, over = fsql.window(partitionBy = p.{colCatId}, sortBy = p.{colPrice}))
+        MostExpensiveInCat = fsql.lastValue(p.{colPrice}, over = fsql.window(partitionBy = p.{colCatId}, sortBy = p.{colPrice}))
+    |}}
+}}
+"""
+                    mkMarkdown "## 3. 🔍 Semi-Structured JSON Navigation (`fsql.jsonValue`)"
+                    mkCode $"""
+// 3. Extracting nested attributes from JSON columns
+fsql {{
+    for p in Connections.sql.{connName}.{tblProd} do
+    select {{|
+        Product = p.{colName}
+        Price = p.{colPrice}
+        Brand = fsql.jsonValue(p.{colSpecs}, "$.brand")
+    |}}
+}}
+"""
+                    mkMarkdown "## 4. 🎯 Correlated Subqueries & Existence Predicates (`whereExists` / `whereNotExists`)"
+                    mkCode $"""
+// 4.1 Finding customers who placed high-value orders (>= $200) with correlated order count
+fsql {{
+    for c in Connections.sql.{connName}.{tblCust} do
+    whereExists (fsql {{ for o in Connections.sql.{connName}.{tblOrd} do where (o.{colCustId} = c.{colId} && o.{colTotalAmount} >= 200.0M) }})
+    select {{|
+        CustomerId = c.{colId}
+        Customer = c.{colFirstName}
+        TotalOrders = fsql {{ for o in Connections.sql.{connName}.{tblOrd} do where (o.{colCustId} = c.{colId}); count }}
+    |}}
+}}
+"""
+                    mkCode $"""
+// 4.2 Finding customers with no pending orders
+fsql {{
+    for c in Connections.sql.{connName}.{tblCust} do
+    whereNotExists (fsql {{ for o in Connections.sql.{connName}.{tblOrd} do where (o.{colCustId} = c.{colId} && o.{colStatus} = "Pending") }})
+    select {{|
+        CustomerId = c.{colId}
+        Customer = c.{colFirstName}
+    |}}
+}}
+"""
+                    mkMarkdown "## 5. 🔗 Relational Joins & Grouping with Having"
+                    mkCode $"""
+// 5.1 Left outer join between customers and orders
+fsql {{
+    for c in Connections.sql.{connName}.{tblCust} do
+    leftOuterJoin o in Connections.sql.{connName}.{tblOrd} on (c.{colId} = o.{colCustId}) into orders
+    for o in orders.DefaultIfEmpty() do
+    select {{|
+        CustomerId = c.{colId}
+        Customer = c.{colFirstName}
+        OrderId = o.{colId}
+        Amount = o.{colTotalAmount}
+    |}}
+}}
+"""
+                    mkCode $"""
+// 5.2 Grouping orders by status with HAVING aggregate filtering
+fsql {{
+    for o in Connections.sql.{connName}.{tblOrd} do
+    groupBy o.{colStatus} into g
+    having (fsql {{ for item in g do count }} >= 1)
+    select {{|
+        Status = g.Key
+        TotalVolume = g.Sum(fun x -> x.{colTotalAmount})
+        OrderCount = fsql {{ for item in g do count }}
+    |}}
+}}
+"""
+                    mkMarkdown "## 6. 🧱 Common Table Expressions (CTE) & Set Operations"
+                    mkCode $"""
+// 6.1 Querying with CTE composition
+let highValue =
+    fsql {{
+        for o in Connections.sql.{connName}.{tblOrd} do
+        where (o.{colTotalAmount} >= 200.0M)
+        select o
+    }}
+
+fsql {{
+    for o in Connections.sql.{connName}.{tblOrd} do
+    where (o.{colStatus} = "Completed")
+    select {{|
+        OrderId = o.{colId}
+        Amount = o.{colTotalAmount}
+    |}}
+}}
+"""
+                    mkMarkdown "## 7. 🩺 Live Query Plan Diagnostics (Explain)"
+                    mkCode $"""
+// 7. Inspecting execution plan diagnostics pushed down to {engineDisplayName}
+let sampleQuery =
+    fsql {{
+        for o in Connections.sql.{connName}.{tblOrd} do
+        join c in Connections.sql.{connName}.{tblCust} on (o.{colCustId} = c.{colId})
+        where (o.{colTotalAmount} > 100.0M)
+        select {{|
+            Customer = c.{colFirstName}
+            Amount = o.{colTotalAmount}
+        |}}
+    }}
+
+let diag = fsql.explain sampleQuery
+printfn "Dialect: %%A" diag.Dialect
+printfn "%%s" diag.PlanText
+"""
+                ]
+            else
+                [
+                    mkMarkdown $"""
+# {icon} Demonstração Avançada e Diagnósticos FSQL com {engineDisplayName}
+
+Este caderno demonstra todo o poder do **FSQL** com pushdown completo para o **{engineDisplayName}**:
+- **Funções de Janela Analíticas** (`OVER (PARTITION BY ... ORDER BY ...)`, `rowNumber`, `rank`, `denseRank`, agregações acumuladas)
+- **Funções Posicionais e de Valor** (`lag`, `lead`, `firstValue`, `lastValue`, `avg` e `max` acumulados)
+- **Navegação em JSON Semi-Estruturado** (`fsql.jsonValue`)
+- **Subqueries Correlacionadas** (`whereExists`, `whereNotExists`, subqueries escalares na projeção)
+- **Agrupamentos com Filtro de Agregação** (`groupBy` + `having`)
+- **Common Table Expressions** (Composição e CTEs transparentes)
+- **Operações de Conjunto** (`union`, `unionAll`, `intersect`, `except`)
+- **Junções Relacionais e Outer Joins** (`join`, `leftOuterJoin`)
+- **Subqueries com IN** (`.Contains(...)`)
+- **Expressões Condicionais** (`if ... then ... else ...` -> `CASE WHEN`)
+- **Diagnósticos em Tempo Real do Plano de Execução** (`fsql.explain` / `.Explain()`)
+
+---
+### 🛠️ Pré-requisitos de Container
+Certifique-se de que o container do {engineDisplayName} está em execução:
+```bash
+docker compose -f docker-compose.fsqs.yml up -d {dockerService}
+```
+"""
+                    mkMarkdown "## 1. ⚡ Funções de Janela Analíticas (Particionamento e Agregações Acumuladas)"
+                    mkCode $"""
+// 1. Ranking de produtos por categoria por preço com totais acumulados no {engineDisplayName}
+fsql {{
+    for p in Connections.sql.{connName}.{tblProd} do
+    select {{|
+        Category = p.{colCatId}
+        Product = p.{colName}
+        Price = p.{colPrice}
+        RowInCat = fsql.rowNumber(fsql.window(partitionBy = p.{colCatId}, sortByDescending = p.{colPrice}))
+        RankInCat = fsql.rank(fsql.window(partitionBy = p.{colCatId}, sortByDescending = p.{colPrice}))
+        DenseRankInCat = fsql.denseRank(fsql.window(partitionBy = p.{colCatId}, sortByDescending = p.{colPrice}))
+        PriceQuartile = fsql.ntile(4, fsql.window(sortByDescending = p.{colPrice}))
+        RunningSum = fsql.sum(p.{colPrice}, over = fsql.window(partitionBy = p.{colCatId}, sortBy = p.{colId}))
+        RunningAvg = fsql.avg(p.{colPrice}, over = fsql.window(partitionBy = p.{colCatId}, sortBy = p.{colId}))
+    |}}
+}}
+"""
+                    mkMarkdown "## 2. 🧭 Funções de Janela Posicionais e de Valor (`lag`, `lead`, `firstValue`, `lastValue`)"
+                    mkCode $"""
+// 2.1 Comparando valores de pedidos com pedidos anteriores e posteriores usando lag e lead
+fsql {{
+    for o in Connections.sql.{connName}.{tblOrd} do
+    select {{|
+        OrderId = o.{colId}
+        CustomerId = o.{colCustId}
+        Amount = o.{colTotalAmount}
+        PreviousAmount = fsql.lag(o.{colTotalAmount}, over = fsql.window(partitionBy = o.{colCustId}, sortBy = o.{colOrderDate}))
+        NextAmount = fsql.lead(o.{colTotalAmount}, over = fsql.window(partitionBy = o.{colCustId}, sortBy = o.{colOrderDate}))
+    |}}
+}}
+"""
+                    mkCode $"""
+// 2.2 Primeiros e últimos valores dentro da janela de cada categoria
+fsql {{
+    for p in Connections.sql.{connName}.{tblProd} do
+    select {{|
+        Category = p.{colCatId}
+        Product = p.{colName}
+        Price = p.{colPrice}
+        CheapestInCat = fsql.firstValue(p.{colPrice}, over = fsql.window(partitionBy = p.{colCatId}, sortBy = p.{colPrice}))
+        MostExpensiveInCat = fsql.lastValue(p.{colPrice}, over = fsql.window(partitionBy = p.{colCatId}, sortBy = p.{colPrice}))
+    |}}
+}}
+"""
+                    mkMarkdown "## 3. 🔍 Navegação em JSON Semi-Estruturado (`fsql.jsonValue`)"
+                    mkCode $"""
+// 3. Extraindo atributos de colunas JSON nativas
+fsql {{
+    for p in Connections.sql.{connName}.{tblProd} do
+    select {{|
+        Product = p.{colName}
+        Price = p.{colPrice}
+        Brand = fsql.jsonValue(p.{colSpecs}, "$.brand")
+    |}}
+}}
+"""
+                    mkMarkdown "## 4. 🎯 Subqueries Correlacionadas e Predicados de Existência (`whereExists` / `whereNotExists`)"
+                    mkCode $"""
+// 4.1 Clientes com pedidos de alto valor (>= R$ 200) e contagem correlacionada
+fsql {{
+    for c in Connections.sql.{connName}.{tblCust} do
+    whereExists (fsql {{ for o in Connections.sql.{connName}.{tblOrd} do where (o.{colCustId} = c.{colId} && o.{colTotalAmount} >= 200.0M) }})
+    select {{|
+        CustomerId = c.{colId}
+        Customer = c.{colFirstName}
+        TotalOrders = fsql {{ for o in Connections.sql.{connName}.{tblOrd} do where (o.{colCustId} = c.{colId}); count }}
+    |}}
+}}
+"""
+                    mkCode $"""
+// 4.2 Clientes sem pedidos pendentes
+fsql {{
+    for c in Connections.sql.{connName}.{tblCust} do
+    whereNotExists (fsql {{ for o in Connections.sql.{connName}.{tblOrd} do where (o.{colCustId} = c.{colId} && o.{colStatus} = "Pending") }})
+    select {{|
+        CustomerId = c.{colId}
+        Customer = c.{colFirstName}
+    |}}
+}}
+"""
+                    mkMarkdown "## 5. 🔗 Junções Relacionais e Agrupamento com Having"
+                    mkCode $"""
+// 5.1 Left outer join entre clientes e pedidos
+fsql {{
+    for c in Connections.sql.{connName}.{tblCust} do
+    leftOuterJoin o in Connections.sql.{connName}.{tblOrd} on (c.{colId} = o.{colCustId}) into orders
+    for o in orders.DefaultIfEmpty() do
+    select {{|
+        CustomerId = c.{colId}
+        Customer = c.{colFirstName}
+        OrderId = o.{colId}
+        Amount = o.{colTotalAmount}
+    |}}
+}}
+"""
+                    mkCode $"""
+// 5.2 Agrupamento por status com filtro agregado HAVING
+fsql {{
+    for o in Connections.sql.{connName}.{tblOrd} do
+    groupBy o.{colStatus} into g
+    having (fsql {{ for item in g do count }} >= 1)
+    select {{|
+        Status = g.Key
+        TotalVolume = g.Sum(fun x -> x.{colTotalAmount})
+        OrderCount = fsql {{ for item in g do count }}
+    |}}
+}}
+"""
+                    mkMarkdown "## 6. 🧱 Common Table Expressions (CTE) & Operações de Conjunto"
+                    mkCode $"""
+// 6.1 Consulta com composição de CTEs
+let pedidosRelevantes =
+    fsql {{
+        for o in Connections.sql.{connName}.{tblOrd} do
+        where (o.{colTotalAmount} >= 200.0M)
+        select o
+    }}
+
+fsql {{
+    for o in Connections.sql.{connName}.{tblOrd} do
+    where (o.{colStatus} = "Completed")
+    select {{|
+        OrderId = o.{colId}
+        Amount = o.{colTotalAmount}
+    |}}
+}}
+"""
+                    mkMarkdown "## 7. 🩺 Diagnósticos em Tempo Real do Plano de Execução (Explain)"
+                    mkCode $"""
+// 7. Inspecionando o plano de execução gerado pelo {engineDisplayName}
+let consultaComplexa =
+    fsql {{
+        for o in Connections.sql.{connName}.{tblOrd} do
+        join c in Connections.sql.{connName}.{tblCust} on (o.{colCustId} = c.{colId})
+        where (o.{colTotalAmount} > 100.0M)
+        select {{|
+            Customer = c.{colFirstName}
+            Amount = o.{colTotalAmount}
+        |}}
+    }}
+
+let diag = fsql.explain consultaComplexa
+printfn "Dialeto: %%A" diag.Dialect
+printfn "%%s" diag.PlanText
+"""
+                ]
+        serializeNotebook cells
+
+    let getMySqlNotebook () = buildEngineNotebook "MySQL" "MySQL_Advanced" false "fsqs-mysql" "🐬" false
+    let getMySqlNotebookPt () = buildEngineNotebook "MySQL" "MySQL_Advanced" false "fsqs-mysql" "🐬" true
+
+    let getMariaDbNotebook () = buildEngineNotebook "MariaDB" "MariaDB_Advanced" false "fsqs-mariadb" "🦭" false
+    let getMariaDbNotebookPt () = buildEngineNotebook "MariaDB" "MariaDB_Advanced" false "fsqs-mariadb" "🦭" true
+
+    let getOracleNotebook () = buildEngineNotebook "Oracle" "Oracle_Advanced" true "fsqs-oracle" "🔴" false
+    let getOracleNotebookPt () = buildEngineNotebook "Oracle" "Oracle_Advanced" true "fsqs-oracle" "🔴" true
+
     let generateAdvancedSamplesWithLanguage (targetDir: string) (selectedEngines: string list) (language: string option) : AdvancedSampleResult =
         let normalizedEngines =
-            selectedEngines
-            |> List.map (fun e -> e.ToLowerInvariant().Trim())
-            |> List.filter (fun e -> e = "postgresql" || e = "sqlserver" || e = "postgres" || e = "mssql")
-            |> List.distinct
+            let raw = selectedEngines |> List.map (fun e -> e.ToLowerInvariant().Trim())
+            if raw |> List.exists (fun e -> e = "all") then
+                [ "postgresql"; "sqlserver"; "mysql"; "mariadb"; "oracle" ]
+            else
+                raw
+                |> List.filter (fun e ->
+                    e = "postgresql" || e = "sqlserver" || e = "postgres" || e = "mssql" ||
+                    e = "mysql" || e = "mariadb" || e = "oracle")
+                |> List.distinct
 
         let hasPostgres = normalizedEngines |> List.exists (fun e -> e = "postgresql" || e = "postgres")
         let hasSqlServer = normalizedEngines |> List.exists (fun e -> e = "sqlserver" || e = "mssql")
+        let hasMySql = normalizedEngines |> List.exists (fun e -> e = "mysql")
+        let hasMariaDb = normalizedEngines |> List.exists (fun e -> e = "mariadb")
+        let hasOracle = normalizedEngines |> List.exists (fun e -> e = "oracle")
+
+        let hasAnyContainer = hasPostgres || hasSqlServer || hasMySql || hasMariaDb || hasOracle
 
         let mutable initScripts = []
         let mutable dockerComposePath = None
@@ -1679,7 +2324,7 @@ printfn "%s" diag.PlanText
         let mutable registeredConns = []
 
         let initScriptsDir = Path.Combine(targetDir, "init-scripts")
-        if (hasPostgres || hasSqlServer) && not (Directory.Exists initScriptsDir) then
+        if hasAnyContainer && not (Directory.Exists initScriptsDir) then
             Directory.CreateDirectory initScriptsDir |> ignore
 
         let isPtOnly = language = Some "pt"
@@ -1719,9 +2364,60 @@ printfn "%s" diag.PlanText
 
             registeredConns <- "SqlServer_Advanced" :: registeredConns
 
-        if hasPostgres || hasSqlServer then
+        if hasMySql then
+            let myScriptPath = Path.Combine(initScriptsDir, "init_mysql.sql")
+            File.WriteAllText(myScriptPath, getMySqlInitSql ())
+            initScripts <- myScriptPath :: initScripts
+
+            if not isPtOnly then
+                let nbPath = Path.Combine(targetDir, "sample_mysql.fsqnb")
+                File.WriteAllText(nbPath, getMySqlNotebook ())
+                notebooksGenerated <- nbPath :: notebooksGenerated
+
+            if not isEnOnly then
+                let nbPtPath = Path.Combine(targetDir, "sample_mysql_pt.fsqnb")
+                File.WriteAllText(nbPtPath, getMySqlNotebookPt ())
+                notebooksGenerated <- nbPtPath :: notebooksGenerated
+
+            registeredConns <- "MySQL_Advanced" :: registeredConns
+
+        if hasMariaDb then
+            let mariaScriptPath = Path.Combine(initScriptsDir, "init_mariadb.sql")
+            File.WriteAllText(mariaScriptPath, getMariaDbInitSql ())
+            initScripts <- mariaScriptPath :: initScripts
+
+            if not isPtOnly then
+                let nbPath = Path.Combine(targetDir, "sample_mariadb.fsqnb")
+                File.WriteAllText(nbPath, getMariaDbNotebook ())
+                notebooksGenerated <- nbPath :: notebooksGenerated
+
+            if not isEnOnly then
+                let nbPtPath = Path.Combine(targetDir, "sample_mariadb_pt.fsqnb")
+                File.WriteAllText(nbPtPath, getMariaDbNotebookPt ())
+                notebooksGenerated <- nbPtPath :: notebooksGenerated
+
+            registeredConns <- "MariaDB_Advanced" :: registeredConns
+
+        if hasOracle then
+            let oraScriptPath = Path.Combine(initScriptsDir, "init_oracle.sql")
+            File.WriteAllText(oraScriptPath, getOracleInitSql ())
+            initScripts <- oraScriptPath :: initScripts
+
+            if not isPtOnly then
+                let nbPath = Path.Combine(targetDir, "sample_oracle.fsqnb")
+                File.WriteAllText(nbPath, getOracleNotebook ())
+                notebooksGenerated <- nbPath :: notebooksGenerated
+
+            if not isEnOnly then
+                let nbPtPath = Path.Combine(targetDir, "sample_oracle_pt.fsqnb")
+                File.WriteAllText(nbPtPath, getOracleNotebookPt ())
+                notebooksGenerated <- nbPtPath :: notebooksGenerated
+
+            registeredConns <- "Oracle_Advanced" :: registeredConns
+
+        if hasAnyContainer then
             let composePath = Path.Combine(targetDir, "docker-compose.fsqs.yml")
-            File.WriteAllText(composePath, getDockerComposeYaml hasPostgres hasSqlServer)
+            File.WriteAllText(composePath, getDockerComposeYamlWithEngines hasPostgres hasSqlServer hasMySql hasMariaDb hasOracle)
             dockerComposePath <- Some composePath
 
         { TargetDir = targetDir

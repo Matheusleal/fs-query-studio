@@ -6,6 +6,29 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ## [Não Lançado]
 
+### Adicionado
+
+- **Novos Conectores de Bancos de Dados Relacionais: MySQL, MariaDB e Oracle** — Suporte de primeira classe para bancos de dados SQL corporativos e open-source:
+  - **Conectores MySQL e MariaDB (`FSharpQueryStudio.Connectors.MySql` & `FSharpQueryStudio.Connectors.MariaDb`)**: Conectividade ADO.NET de alto desempenho com `MySqlConnector`, introspecção de schemas, delimitadores em backticks, paginação com `LIMIT`/`OFFSET` e pushdown SQL completo.
+  - **Conector Oracle Database (`FSharpQueryStudio.Connectors.Oracle`)**: Suporte nativo ao Oracle 19c, 21c e 23c (incluindo Oracle Database Free / 23ai) via `Oracle.ManagedDataAccess.Core`. Suporte a schemas multi-tenant PDB (`FREEPDB1`), escape de identificadores em aspas duplas, paginação `OFFSET n ROWS FETCH NEXT m ROWS ONLY` e filtragem automática de tabelas de sistema internas (`$`, `#`, `BIN$`, `MVIEW$`).
+- **Gerador Multi-Engine de Demonstrações & Ambiente Docker Compose** — Criação instantânea de ambiente de testes em um clique:
+  - Comando `createAdvancedSamples` expandido com seleção granular de banco ou `"all"` engines (`PostgreSQL`, `SQL Server`, `MySQL`, `MariaDB`, `Oracle`).
+  - Geração automática de `docker-compose.fsqs.yml` com configurações prontas para produção (`postgres:16-alpine`, `mcr.microsoft.com/mssql/server:2022-latest`, `mysql:8.4`, `mariadb:11.4`, `gvenzl/oracle-free:23-slim`).
+  - Scripts SQL de inicialização específicos por motor (`init_postgres.sql`, `init_sqlserver.sql`, `init_mysql.sql`, `init_mariadb.sql`, `init_oracle.sql`) criando tabelas e dados de exemplo.
+  - 12 notebooks completos de demonstração (6 em inglês: `sample_demo.fsqnb`, `sample_postgresql.fsqnb`, `sample_sqlserver.fsqnb`, `sample_mysql.fsqnb`, `sample_mariadb.fsqnb`, `sample_oracle.fsqnb`, e 6 equivalentes em português: `*_pt.fsqnb`).
+- **Suíte Automatizada de Testes de Amostras de Ponta a Ponta (`npm run test:samples`)** — Runner E2E completo (`editors/vscode/test_all_samples_e2e.mjs`):
+  - Execução em diretório temporário isolado com ciclo de vida completo de containers Docker.
+  - Health checks automáticos nos bancos, criação e inicialização de schemas, e validação de 100% das células (190+ células) em todos os 12 cadernos (em inglês e português).
+  - Limpeza compulsória com `docker compose down -v` e remoção do diretório temporário ao final.
+- **Validação Obrigatória de Samples no CI e Diretrizes de IA** — Regras de entrega canônicas registradas no `AGENTS.md` exigindo build Release validado (`dotnet fsi .\build.fsx release`) e 100% de sucesso nos testes E2E antes da abertura de qualquer Pull Request.
+
+### Corrigido
+
+- **Higienização de Identificadores para Entidades F# Geradas** — Sanitização Unicode (`[^\p{L}0-9_]`) no gerador de código, evitando nomes inválidos de módulos e tipos ao encontrar caracteres especiais em colunas ou tabelas.
+- **Redução de Ruído de Catálogos Internos no Oracle** — Filtragem automática de tabelas de sistema e flashback contendo `$`, `#`, `BIN$` e `MVIEW$` durante a inspeção de esquema.
+- **Resiliência no Timeout de Descoberta de Esquema** — Aumento do timeout de introspecção de 5.0s para 20.0s para suportar inicializações concorrentes de containers sob carga.
+
+
 ## [0.6.0] — 2026-11-15
 
 ### Adicionado

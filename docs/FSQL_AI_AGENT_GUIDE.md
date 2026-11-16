@@ -16,7 +16,7 @@ In F# Query Studio, **`fsql`** (**F# Query Language**) is the unified, first-cla
 - **Dedicated Correlated Operations**: Native keywords for `whereExists`, `whereNotExists`, `having`, `crossApply`, and `lateral`.
 - **Seamless Subquery Nesting**: The exact same `fsql { ... }` keyword works for both top-level queries and deeply nested subqueries (scalar sub-selects, `EXISTS`, `IN`).
 - **Zero Raw SQL String Concatenation**: AI agents should **never** emit SQL string templates (`"SELECT * FROM..."`); write 100% pure F# DSL.
-- **Smart Dialect Translation**: Automatically emits optimized T-SQL (SQL Server 2016+ / 2022), PL/pgSQL (PostgreSQL 10+ / 17), and SQLite 3.
+- **Smart Dialect Translation**: Automatically emits optimized T-SQL (SQL Server 2016+ / 2022), PL/pgSQL (PostgreSQL 10+ / 17), SQLite 3, MySQL (8.0+), MariaDB (10.x/11.x), and Oracle Database (19c/21c/23c).
 
 ---
 
@@ -432,19 +432,19 @@ printfn "Plan text:\n%s" diag.PlanText
 
 ## 5. Dialect Pushdown Rules for AI Agents
 
-| Feature | SQL Server | PostgreSQL | SQLite |
-| :--- | :--- | :--- | :--- |
-| **Limiting / Paging** | `OFFSET n ROWS FETCH NEXT m ROWS ONLY` | `LIMIT m OFFSET n` | `LIMIT m OFFSET n` |
-| **Cross Apply** | Native `CROSS APPLY (...)` | Emitted as `CROSS JOIN LATERAL` | Transparent memory fallback |
-| **Lateral Join** | Emitted as `CROSS APPLY` | Native `CROSS JOIN LATERAL (...)` | Transparent memory fallback |
-| **Scalar Count without GroupBy** | Omit `ORDER BY` (prevents T-SQL 412 error) | Native pushdown | Native pushdown |
-| **Window Functions OVER** | Native (Auto `ORDER BY (SELECT NULL)` for ranking) | Native `OVER (...)` | Native `OVER (...)` (SQLite 3.25+) |
-| **JSON Extraction** | `JSON_VALUE(col, '$.path')` | `col ->> 'path'` / `col #>> '{path}'` | `json_extract(col, '$.path')` |
-| **Common Table Expressions** | `WITH [name] AS (...)` | `WITH [RECURSIVE] "name" AS (...)` | `WITH [RECURSIVE] [name] AS (...)` |
-| **Set Operations** | `UNION [ALL]`, `INTERSECT`, `EXCEPT` | `UNION [ALL]`, `INTERSECT`, `EXCEPT` | `UNION [ALL]`, `INTERSECT`, `EXCEPT` |
-| **Outer Joins** | `FULL OUTER JOIN`, `RIGHT OUTER JOIN` | `FULL OUTER JOIN`, `RIGHT OUTER JOIN` | `FULL OUTER JOIN`, `RIGHT OUTER JOIN` |
-| **String Parameters** | `N'value'` / `@pN` | `'value'` / `@pN` | `'value'` / `@pN` |
-| **Boolean Types** | Transpiled to `1 / 0` (bit) | Native `true / false` | `1 / 0` |
+| Feature | SQL Server | PostgreSQL | SQLite | MySQL / MariaDB | Oracle |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Limiting / Paging** | `OFFSET n ROWS FETCH NEXT m ROWS ONLY` | `LIMIT m OFFSET n` | `LIMIT m OFFSET n` | `LIMIT m OFFSET n` | `OFFSET n ROWS FETCH NEXT m ROWS ONLY` |
+| **Cross Apply** | Native `CROSS APPLY (...)` | Emitted as `CROSS JOIN LATERAL` | Transparent memory fallback | Emitted as `LATERAL` | Native `CROSS APPLY (...)` |
+| **Lateral Join** | Emitted as `CROSS APPLY` | Native `CROSS JOIN LATERAL (...)` | Transparent memory fallback | Native `LATERAL (...)` | Native `LATERAL (...)` |
+| **Scalar Count without GroupBy** | Omit `ORDER BY` (prevents T-SQL 412 error) | Native pushdown | Native pushdown | Native pushdown | Native pushdown |
+| **Window Functions OVER** | Native (Auto `ORDER BY (SELECT NULL)` for ranking) | Native `OVER (...)` | Native `OVER (...)` (SQLite 3.25+) | Native `OVER (...)` (MySQL 8.0+ / MariaDB 10.2+) | Native `OVER (...)` |
+| **JSON Extraction** | `JSON_VALUE(col, '$.path')` | `col ->> 'path'` / `col #>> '{path}'` | `json_extract(col, '$.path')` | `JSON_UNQUOTE(JSON_EXTRACT(col, '$.path'))` | `JSON_VALUE(col, '$.path')` |
+| **Common Table Expressions** | `WITH [name] AS (...)` | `WITH [RECURSIVE] "name" AS (...)` | `WITH [RECURSIVE] [name] AS (...)` | `WITH [RECURSIVE] `name` AS (...)` | `WITH "name" AS (...)` |
+| **Set Operations** | `UNION [ALL]`, `INTERSECT`, `EXCEPT` | `UNION [ALL]`, `INTERSECT`, `EXCEPT` | `UNION [ALL]`, `INTERSECT`, `EXCEPT` | `UNION [ALL]`, `INTERSECT`, `EXCEPT` | `UNION [ALL]`, `INTERSECT`, `MINUS` |
+| **Outer Joins** | `FULL OUTER JOIN`, `RIGHT OUTER JOIN` | `FULL OUTER JOIN`, `RIGHT OUTER JOIN` | `FULL OUTER JOIN`, `RIGHT OUTER JOIN` | `RIGHT OUTER JOIN` (emulated FULL) | `FULL OUTER JOIN`, `RIGHT OUTER JOIN` |
+| **String Parameters** | `N'value'` / `@pN` | `'value'` / `@pN` | `'value'` / `@pN` | `'value'` / `@pN` | `'value'` / `:pN` |
+| **Boolean Types** | Transpiled to `1 / 0` (bit) | Native `true / false` | `1 / 0` | `1 / 0` (tinyint) | `1 / 0` (number(1)) |
 
 ---
 

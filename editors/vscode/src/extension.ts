@@ -723,7 +723,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
       const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
 
       interface DemoOption extends vscode.QuickPickItem {
-        id: "standard" | "postgresql" | "sqlserver";
+        id: "standard" | "postgresql" | "sqlserver" | "mysql" | "mariadb" | "oracle";
       }
 
       const demoOptions: DemoOption[] = [
@@ -749,6 +749,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
             ? "Container Docker MSSQL 2022 (T-SQL, SHOWPLAN, CROSS APPLY, CTEs e sample_sqlserver.fsqnb)"
             : "Docker container MSSQL 2022 (T-SQL, SHOWPLAN, CROSS APPLY, CTEs and sample_sqlserver.fsqnb)",
           id: "sqlserver",
+          picked: false,
+        },
+        {
+          label: "$(database) MySQL Advanced Demo (Docker & FSQL)",
+          description: isPt
+            ? "Container Docker mysql:8.4 (JSON, CTEs, LATERAL e sample_mysql.fsqnb)"
+            : "Docker container mysql:8.4 (JSON, CTEs, LATERAL and sample_mysql.fsqnb)",
+          id: "mysql",
+          picked: false,
+        },
+        {
+          label: "$(database) MariaDB Advanced Demo (Docker & FSQL)",
+          description: isPt
+            ? "Container Docker mariadb:11.4 (JSON, CTEs, LATERAL e sample_mariadb.fsqnb)"
+            : "Docker container mariadb:11.4 (JSON, CTEs, LATERAL and sample_mariadb.fsqnb)",
+          id: "mariadb",
+          picked: false,
+        },
+        {
+          label: "$(database) Oracle Advanced Demo (Docker & FSQL)",
+          description: isPt
+            ? "Container Docker Oracle Free 23 (JSON_VALUE, CROSS APPLY, CTEs e sample_oracle.fsqnb)"
+            : "Docker container Oracle Free 23 (JSON_VALUE, CROSS APPLY, CTEs and sample_oracle.fsqnb)",
+          id: "oracle",
           picked: false,
         },
       ];
@@ -810,7 +834,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
 
       const hasStandard = selected.some((s) => s.id === "standard");
       const advancedEngines = selected
-        .filter((s) => s.id === "postgresql" || s.id === "sqlserver")
+        .filter((s) => s.id === "postgresql" || s.id === "sqlserver" || s.id === "mysql" || s.id === "mariadb" || s.id === "oracle")
         .map((s) => s.id);
 
       log(`[Workspace] Creating demos (standard=${hasStandard}, advanced=[${advancedEngines.join(", ")}], lang=${chosenLang}) in directory: ${targetDir}`);

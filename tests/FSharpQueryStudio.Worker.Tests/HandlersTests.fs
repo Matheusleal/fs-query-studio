@@ -1702,6 +1702,56 @@ let ``workspace/createAdvancedSamples generates docker-compose, init scripts, da
     }
 
 [<Fact>]
+let ``workspace/createAdvancedSamples generates mysql, mariadb and oracle configurations, init scripts and notebooks`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-adv-my-ora-{Guid.NewGuid():N}")
+        Directory.CreateDirectory(tmp) |> ignore
+        try
+            Handlers.setWorkspaceDirForTests (Some tmp)
+            let escapedTmp = tmp.Replace("\\", "\\\\")
+            let req: WorkerRequestFrame =
+                { Id = "adv-2"
+                  Method = "workspace/createAdvancedSamples"
+                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}", "engines": ["mysql", "mariadb", "oracle"]}}""").RootElement }
+            let! res = Handlers.dispatch req
+            Assert.True(res.Error.IsNone, (match res.Error with Some e -> e.Message | None -> ""))
+            Assert.True(res.Result.IsSome)
+
+            let composePath = Path.Combine(tmp, "docker-compose.fsqs.yml")
+            let myScript = Path.Combine(tmp, "init-scripts", "init_mysql.sql")
+            let mariaScript = Path.Combine(tmp, "init-scripts", "init_mariadb.sql")
+            let oraScript = Path.Combine(tmp, "init-scripts", "init_oracle.sql")
+            let myNb = Path.Combine(tmp, "sample_mysql.fsqnb")
+            let mariaNb = Path.Combine(tmp, "sample_mariadb.fsqnb")
+            let oraNb = Path.Combine(tmp, "sample_oracle.fsqnb")
+
+            Assert.True(File.Exists composePath, $"docker-compose should exist: {composePath}")
+            Assert.True(File.Exists myScript, $"MySQL init script should exist: {myScript}")
+            Assert.True(File.Exists mariaScript, $"MariaDB init script should exist: {mariaScript}")
+            Assert.True(File.Exists oraScript, $"Oracle init script should exist: {oraScript}")
+            Assert.True(File.Exists myNb, $"MySQL notebook should exist: {myNb}")
+            Assert.True(File.Exists mariaNb, $"MariaDB notebook should exist: {mariaNb}")
+            Assert.True(File.Exists oraNb, $"Oracle notebook should exist: {oraNb}")
+
+            let composeContent = File.ReadAllText composePath
+            Assert.Contains("fsqs-mysql", composeContent)
+            Assert.Contains("fsqs-mariadb", composeContent)
+            Assert.Contains("fsqs-oracle", composeContent)
+
+            // Verify connections written to workspace
+            let conns = Workspace.readConnections tmp
+            Assert.Contains(conns, fun c -> c.Name = "MySQL_Advanced" && c.Kind = ConnectorKind.MySql)
+            Assert.Contains(conns, fun c -> c.Name = "MariaDB_Advanced" && c.Kind = ConnectorKind.MariaDb)
+            Assert.Contains(conns, fun c -> c.Name = "Oracle_Advanced" && c.Kind = ConnectorKind.Oracle)
+        finally
+            Handlers.setWorkspaceDirForTests None
+            Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+            try
+                if Directory.Exists tmp then Directory.Delete(tmp, true)
+            with _ -> ()
+    }
+
+[<Fact>]
 let ``workspace/createAdvancedSamples updates user download demo workspace if present`` () =
     task {
         let downloadPath = @"C:\Users\theus\Downloads\fs-qs"
@@ -1735,11 +1785,14 @@ let ``connector/list returns all registered connector descriptors with form sche
         let listResult =
             JsonSerializer.Deserialize<ConnectorListResult>(res.Result.Value.GetRawText(), Serialization.options)
 
-        Assert.True(listResult.Connectors.Length >= 8)
+        Assert.True(listResult.Connectors.Length >= 11)
         let kindIds = listResult.Connectors |> List.map (fun c -> c.KindId) |> Set.ofList
         Assert.True(Set.contains "Sqlite" kindIds)
         Assert.True(Set.contains "SqlServer" kindIds)
         Assert.True(Set.contains "PostgreSql" kindIds)
+        Assert.True(Set.contains "MySql" kindIds)
+        Assert.True(Set.contains "MariaDb" kindIds)
+        Assert.True(Set.contains "Oracle" kindIds)
         Assert.True(Set.contains "Csv" kindIds)
         Assert.True(Set.contains "Excel" kindIds)
         Assert.True(Set.contains "Json" kindIds)

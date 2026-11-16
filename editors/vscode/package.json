@@ -327,6 +327,7 @@
     "compile": "tsc --noEmit && node esbuild.mjs",
     "watch": "node esbuild.mjs --watch",
     "test": "vitest run",
+    "test:samples": "node test_all_samples_e2e.mjs",
     "pretest:vscode": "tsc -p tsconfig.integration.json && node esbuild.mjs",
     "test:vscode": "vscode-test",
     "test:all": "npm test && npm run test:vscode",
