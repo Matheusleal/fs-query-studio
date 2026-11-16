@@ -1,6 +1,9 @@
 import type { FrontendConnectorModule } from "../connector-shared";
 import { sqlServerFrontendModule } from "./sqlserver";
 import { postgreSqlFrontendModule } from "./postgresql";
+import { mySqlFrontendModule } from "./mysql";
+import { mariaDbFrontendModule } from "./mariadb";
+import { oracleFrontendModule } from "./oracle";
 import { sqliteFrontendModule } from "./sqlite";
 import { csvFrontendModule } from "./csv";
 import { excelFrontendModule } from "./excel";
@@ -15,6 +18,9 @@ import { restFrontendModule } from "./rest";
 export const BUILTIN_FRONTEND_CONNECTORS: readonly FrontendConnectorModule[] = [
   sqlServerFrontendModule,
   postgreSqlFrontendModule,
+  mySqlFrontendModule,
+  mariaDbFrontendModule,
+  oracleFrontendModule,
   sqliteFrontendModule,
   csvFrontendModule,
   excelFrontendModule,

@@ -214,13 +214,13 @@ type PushdownQueryPlan = {
                 match j.JoinType.Trim().ToUpperInvariant() with
                 | "CROSS APPLY" ->
                     match dialect with
-                    | SqlDialect.SqlServer -> $"CROSS APPLY {tbl}"
-                    | SqlDialect.PostgreSql -> $"CROSS JOIN LATERAL {tbl}"
+                    | SqlDialect.SqlServer | SqlDialect.Oracle -> $"CROSS APPLY {tbl}"
+                    | SqlDialect.PostgreSql | SqlDialect.MySql | SqlDialect.MariaDb -> $"CROSS JOIN LATERAL {tbl}"
                     | SqlDialect.Sqlite -> $"CROSS JOIN {tbl}"
                 | "OUTER APPLY" ->
                     match dialect with
-                    | SqlDialect.SqlServer -> $"OUTER APPLY {tbl}"
-                    | SqlDialect.PostgreSql -> $"LEFT JOIN LATERAL {tbl} ON true"
+                    | SqlDialect.SqlServer | SqlDialect.Oracle -> $"OUTER APPLY {tbl}"
+                    | SqlDialect.PostgreSql | SqlDialect.MySql | SqlDialect.MariaDb -> $"LEFT JOIN LATERAL {tbl} ON true"
                     | SqlDialect.Sqlite ->
                         let onPart = if String.IsNullOrWhiteSpace j.OnClause then "1=1" else j.OnClause
                         $"LEFT JOIN {tbl} ON {onPart}"
@@ -329,6 +329,19 @@ type PushdownQueryPlan = {
                         $"SELECT {distinctKeyword}TOP ({take}) {selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}"
                 | None, None ->
                     $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{orderSql}"
+            | SqlDialect.Oracle ->
+                match this.Skip, this.Take with
+                | Some skip, Some take ->
+                    let ord = if orderSql = "" then "" else orderSql
+                    $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{ord} OFFSET {skip} ROWS FETCH NEXT {take} ROWS ONLY"
+                | Some skip, None ->
+                    let ord = if orderSql = "" then "" else orderSql
+                    $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{ord} OFFSET {skip} ROWS"
+                | None, Some take ->
+                    let ord = if orderSql = "" then "" else orderSql
+                    $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{ord} OFFSET 0 ROWS FETCH NEXT {take} ROWS ONLY"
+                | None, None ->
+                    $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{orderSql}"
             | _ ->
                 let limitSql =
                     match this.Take, this.Skip with
@@ -357,7 +370,7 @@ type PushdownQueryPlan = {
         if this.Ctes.Count > 0 then
             let cteParts = this.Ctes |> Seq.map (fun c -> $"{c.Name} AS ({c.SubquerySql})") |> String.concat ", "
             let hasRecursive = this.Ctes |> Seq.exists (fun c -> c.IsRecursive)
-            let withKw = if hasRecursive && dialect <> SqlDialect.SqlServer then "WITH RECURSIVE " else "WITH "
+            let withKw = if hasRecursive && dialect <> SqlDialect.SqlServer && dialect <> SqlDialect.Oracle then "WITH RECURSIVE " else "WITH "
             $"{withKw}{cteParts} {withSetOps}"
         else
             withSetOps

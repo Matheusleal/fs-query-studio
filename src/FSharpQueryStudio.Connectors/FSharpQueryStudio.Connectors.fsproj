@@ -37,6 +37,9 @@
     <ProjectReference Include="..\FSharpQueryStudio.Connectors.Sqlite\FSharpQueryStudio.Connectors.Sqlite.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Connectors.SqlServer\FSharpQueryStudio.Connectors.SqlServer.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Connectors.PostgreSql\FSharpQueryStudio.Connectors.PostgreSql.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Connectors.MySql\FSharpQueryStudio.Connectors.MySql.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Connectors.MariaDb\FSharpQueryStudio.Connectors.MariaDb.fsproj" />
+    <ProjectReference Include="..\FSharpQueryStudio.Connectors.Oracle\FSharpQueryStudio.Connectors.Oracle.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Connectors.Csv\FSharpQueryStudio.Connectors.Csv.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Connectors.Excel\FSharpQueryStudio.Connectors.Excel.fsproj" />
     <ProjectReference Include="..\FSharpQueryStudio.Connectors.Json\FSharpQueryStudio.Connectors.Json.fsproj" />

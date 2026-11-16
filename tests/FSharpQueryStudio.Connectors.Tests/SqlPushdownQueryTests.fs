@@ -2076,6 +2076,68 @@ let ``fsql CE supports withRecursiveCteSql and withRecursiveCte with raw subquer
     Assert.Contains("WITH RECURSIVE Series2 AS", sql2)
     Assert.Contains("FROM Series2", sql2)
 
+[<Fact>]
+let ``SqlPushdownPlan generates dialect-specific SQL for MySql, MariaDb and Oracle`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
+
+    let q =
+        fsql {
+            for p in products do
+            where (p.Price > 10.0M)
+            sortBy p.Price
+            skip 5
+            take 10
+            select p
+        }
+
+    let expr = (q :> IQueryable).Expression
+
+    let mysqlSql = (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.MySql).BuildSql(SqlDialect.MySql)
+    Assert.Contains("LIMIT 10 OFFSET 5", mysqlSql)
+
+    let mariaSql = (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.MariaDb).BuildSql(SqlDialect.MariaDb)
+    Assert.Contains("LIMIT 10 OFFSET 5", mariaSql)
+
+    let oracleSql = (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.Oracle).BuildSql(SqlDialect.Oracle)
+    Assert.Contains("OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY", oracleSql)
+
+[<Fact>]
+let ``SqlDialect quoteIdentifier quotes correctly for all dialects`` () =
+    Assert.Equal("`table`", SqlDialect.quoteIdentifier SqlDialect.MySql "table")
+    Assert.Equal("`order`", SqlDialect.quoteIdentifier SqlDialect.MariaDb "order")
+    Assert.Equal("[order]", SqlDialect.quoteIdentifier SqlDialect.SqlServer "order")
+    Assert.Equal("\"order\"", SqlDialect.quoteIdentifier SqlDialect.Oracle "order")
+    Assert.Equal("\"order\"", SqlDialect.quoteIdentifier SqlDialect.PostgreSql "order")
+    Assert.Equal("\"order\"", SqlDialect.quoteIdentifier SqlDialect.Sqlite "order")
+
+[<Fact>]
+let ``SqlPushdownQuery translates JSON extraction according to target dialect`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
+
+    let q =
+        fsql {
+            for p in products do
+            select {|
+                Name = p.Name
+                Brand = fsql.jsonValue(p.Name, "$.brand")
+            |}
+        }
+
+    let expr = (q :> IQueryable).Expression
+
+    let mysqlSql = (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.MySql).BuildSql(SqlDialect.MySql)
+    Assert.Contains("JSON_UNQUOTE(JSON_EXTRACT(", mysqlSql)
+
+    let oracleSql = (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.Oracle).BuildSql(SqlDialect.Oracle)
+    Assert.Contains("JSON_VALUE(", oracleSql)
+
+    let pgSql = (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.PostgreSql).BuildSql(SqlDialect.PostgreSql)
+    Assert.Contains("->>", pgSql)
+
 
 
 

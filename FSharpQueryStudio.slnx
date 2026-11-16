@@ -27,6 +27,9 @@
     <Project Path="src/FSharpQueryStudio.Connectors.Sqlite/FSharpQueryStudio.Connectors.Sqlite.fsproj" />
     <Project Path="src/FSharpQueryStudio.Connectors.SqlServer/FSharpQueryStudio.Connectors.SqlServer.fsproj" />
     <Project Path="src/FSharpQueryStudio.Connectors.PostgreSql/FSharpQueryStudio.Connectors.PostgreSql.fsproj" />
+    <Project Path="src/FSharpQueryStudio.Connectors.MySql/FSharpQueryStudio.Connectors.MySql.fsproj" />
+    <Project Path="src/FSharpQueryStudio.Connectors.MariaDb/FSharpQueryStudio.Connectors.MariaDb.fsproj" />
+    <Project Path="src/FSharpQueryStudio.Connectors.Oracle/FSharpQueryStudio.Connectors.Oracle.fsproj" />
     <Project Path="src/FSharpQueryStudio.Connectors.Csv/FSharpQueryStudio.Connectors.Csv.fsproj" />
     <Project Path="src/FSharpQueryStudio.Connectors.Excel/FSharpQueryStudio.Connectors.Excel.fsproj" />
     <Project Path="src/FSharpQueryStudio.Connectors.Json/FSharpQueryStudio.Connectors.Json.fsproj" />

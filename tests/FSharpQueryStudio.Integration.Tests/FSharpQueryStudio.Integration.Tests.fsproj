@@ -13,6 +13,9 @@
     <Compile Include="Tests.fs" />
     <Compile Include="SqlServerConnectorTests.fs" />
     <Compile Include="PostgreSqlConnectorTests.fs" />
+    <Compile Include="MySqlConnectorTests.fs" />
+    <Compile Include="MariaDbConnectorTests.fs" />
+    <Compile Include="OracleConnectorTests.fs" />
     <Compile Include="DatabasePerformanceIntegrationTests.fs" />
     <Compile Include="LocalDatabaseIntegrationTests.fs" />
     <Compile Include="ConnectionsRegressionTests.fs" />
@@ -33,6 +36,9 @@
     </PackageReference>
     <PackageReference Include="Testcontainers.MsSql" />
     <PackageReference Include="Testcontainers.PostgreSql" />
+    <PackageReference Include="Testcontainers.MySql" />
+    <PackageReference Include="Testcontainers.MariaDb" />
+    <PackageReference Include="Testcontainers.Oracle" />
     <PackageReference Include="ClosedXML" />
   </ItemGroup>
 
@@ -44,6 +50,9 @@
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.Sqlite\FSharpQueryStudio.Connectors.Sqlite.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.SqlServer\FSharpQueryStudio.Connectors.SqlServer.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.PostgreSql\FSharpQueryStudio.Connectors.PostgreSql.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.MySql\FSharpQueryStudio.Connectors.MySql.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.MariaDb\FSharpQueryStudio.Connectors.MariaDb.fsproj" />
+    <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.Oracle\FSharpQueryStudio.Connectors.Oracle.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.Csv\FSharpQueryStudio.Connectors.Csv.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.Excel\FSharpQueryStudio.Connectors.Excel.fsproj" />
     <ProjectReference Include="..\..\src\FSharpQueryStudio.Connectors.Rest\FSharpQueryStudio.Connectors.Rest.fsproj" />

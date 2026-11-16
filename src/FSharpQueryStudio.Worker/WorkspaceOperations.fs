@@ -364,6 +364,45 @@ module WorkspaceOperations =
                           SecretReference = None
                           IsTrusted = true }
                     newConns <- newConns @ [ sqlDef ]
+                | "MySQL_Advanced" ->
+                    let myDef: ConnectionDefinition =
+                        { Id = Guid.NewGuid()
+                          Name = "MySQL_Advanced"
+                          Kind = ConnectorKind.MySql
+                          Configuration =
+                              JsonSerializer.SerializeToElement(
+                                  {| connectionString = "Server=localhost;Port=3306;Database=fsqs_demo;User ID=root;Password=Password123!;" |},
+                                  Serialization.options
+                              )
+                          SecretReference = None
+                          IsTrusted = true }
+                    newConns <- newConns @ [ myDef ]
+                | "MariaDB_Advanced" ->
+                    let mariaDef: ConnectionDefinition =
+                        { Id = Guid.NewGuid()
+                          Name = "MariaDB_Advanced"
+                          Kind = ConnectorKind.MariaDb
+                          Configuration =
+                              JsonSerializer.SerializeToElement(
+                                  {| connectionString = "Server=localhost;Port=3307;Database=fsqs_demo;User ID=root;Password=Password123!;" |},
+                                  Serialization.options
+                              )
+                          SecretReference = None
+                          IsTrusted = true }
+                    newConns <- newConns @ [ mariaDef ]
+                | "Oracle_Advanced" ->
+                    let oraDef: ConnectionDefinition =
+                        { Id = Guid.NewGuid()
+                          Name = "Oracle_Advanced"
+                          Kind = ConnectorKind.Oracle
+                          Configuration =
+                              JsonSerializer.SerializeToElement(
+                                  {| connectionString = "Data Source=localhost:1521/FREEPDB1;User Id=system;Password=Password123!;" |},
+                                  Serialization.options
+                              )
+                          SecretReference = None
+                          IsTrusted = true }
+                    newConns <- newConns @ [ oraDef ]
                 | _ -> ()
 
         if newConns <> currentConns then
