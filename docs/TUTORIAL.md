@@ -366,19 +366,34 @@ When importing messy CSVs or Excel spreadsheets with localized currency (`R$ 1.2
 
 ---
 
-## 9. SQL Server and PostgreSQL connections
+## 9. Relational database connections (SQL Server, PostgreSQL, MySQL, MariaDB, Oracle)
 
-Choose kind `SqlServer` or `PostgreSql`. You are asked for:
+Choose kind `SqlServer`, `PostgreSql`, `MySql`, `MariaDb`, or `Oracle`. You are asked for:
 
-1. **Connection string** — write it with `{password}` where the secret belongs,
-   e.g. `Server=localhost;Database=Sales;User Id=app;Password={password};`.
+1. **Connection string** — write it with `{password}` where the secret belongs:
+   - **PostgreSQL**: `Host=localhost;Database=mydb;Username=postgres;Password={password}`
+   - **SQL Server**: `Server=localhost;Database=master;User Id=sa;Password={password};TrustServerCertificate=True`
+   - **MySQL**: `Server=localhost;Database=fsqs_demo;Uid=root;Pwd={password};`
+   - **MariaDB**: `Server=localhost;Port=3307;Database=fsqs_demo;Uid=root;Pwd={password};`
+   - **Oracle**: `Data Source=localhost:1521/FREEPDB1;User Id=system;Password={password}`
 2. **Password (optional)** — typed masked. It is stored in the **OS keychain**
    via VS Code `SecretStorage`.
 
 Only the connection string with the literal `{password}` placeholder is saved to
 `workspace.json`. The real secret is fetched from the keychain at query time and
-never written to the workspace file or the notebook. Query them exactly like
-SQLite:
+never written to the workspace file or the notebook.
+
+Query them strongly typed with `fsql { ... }`:
+
+```fsharp
+fsql {
+    for o in Connections.sql.Sales.Orders do
+    where (o.TotalAmount >= 100.0f)
+    select {| OrderId = o.Id; Total = o.TotalAmount |}
+}
+```
+
+Or query them using raw SQL with parameters:
 
 ```fsharp
 Connections.sql "Sales" "select top 100 * from Orders" []

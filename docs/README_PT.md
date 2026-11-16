@@ -10,7 +10,7 @@ Bem-vindo ao índice central de documentação do **F# Query Studio**. Este dire
 
 | Documento | Idioma | Descrição |
 |---|---|---|
-| [`USER_GUIDE_PT.md`](USER_GUIDE_PT.md) | 🇧🇷 Português | **Guia Completo do Usuário** — Manual detalhado de uso: cadernos `.fsqnb`, todos os conectores de dados (Postgres, SQL Server, MySQL, SQLite, CSV, Excel, JSON, REST), consultas LINQ com pushdown SQL, fórmulas de higienização de dados, atalhos e interface. |
+| [`USER_GUIDE_PT.md`](USER_GUIDE_PT.md) | 🇧🇷 Português | **Guia Completo do Usuário** — Manual detalhado de uso: cadernos `.fsqnb`, todos os conectores de dados (Postgres, SQL Server, MySQL, MariaDB, Oracle, SQLite, CSV, Excel, JSON, XML, REST), consultas LINQ com pushdown SQL, fórmulas de higienização de dados, atalhos e interface. |
 | [`USER_GUIDE.md`](USER_GUIDE.md) | 🇺🇸 English | **Comprehensive User Guide** — Manual completo de uso em inglês. |
 | [`TUTORIAL_PT.md`](TUTORIAL_PT.md) | 🇧🇷 Português | **Tutorial Prático Passo a Passo** — Do zero ao primeiro notebook: criação de conexões, consultas LINQ pushdown e exportação para CSV. |
 | [`TUTORIAL.md`](TUTORIAL.md) | 🇺🇸 English | **Hands-On Tutorial** — Tutorial prático passo a passo em inglês. |

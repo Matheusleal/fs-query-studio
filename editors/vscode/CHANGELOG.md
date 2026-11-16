@@ -8,6 +8,29 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+### Added
+
+- **New Relational Database Connectors: MySQL, MariaDB, and Oracle** — Full first-class support for enterprise and open-source SQL databases:
+  - **MySQL & MariaDB Connectors (`FSharpQueryStudio.Connectors.MySql` & `FSharpQueryStudio.Connectors.MariaDb`)**: High-performance ADO.NET connectivity powered by `MySqlConnector`, with schema introspection, backtick identifier quoting, `LIMIT`/`OFFSET` pagination, and full SQL pushdown.
+  - **Oracle Database Connector (`FSharpQueryStudio.Connectors.Oracle`)**: Native support for Oracle 19c, 21c, and 23c (including Oracle Database Free / 23ai) using `Oracle.ManagedDataAccess.Core`. Supports multi-tenant PDB schemas (`FREEPDB1`), double-quoted identifier escaping, `OFFSET n ROWS FETCH NEXT m ROWS ONLY` pagination, and automatic filtering of internal system catalogs (`$`, `#`, `BIN$`, `MVIEW$`).
+- **Multi-Engine Sample Generator & Docker Compose Environment** — Instant sandbox generation with one-click setup:
+  - Expanded `createAdvancedSamples` command with granular engine selection or `"all"` engines (`PostgreSQL`, `SQL Server`, `MySQL`, `MariaDB`, `Oracle`).
+  - Automated `docker-compose.fsqs.yml` generation with production-ready container configurations (`postgres:16-alpine`, `mcr.microsoft.com/mssql/server:2022-latest`, `mysql:8.4`, `mariadb:11.4`, `gvenzl/oracle-free:23-slim`).
+  - Engine-specific initialization SQL scripts (`init_postgres.sql`, `init_sqlserver.sql`, `init_mysql.sql`, `init_mariadb.sql`, `init_oracle.sql`) pre-creating schemas and tables with sample data.
+  - 12 comprehensive sample notebooks (6 in English: `sample_demo.fsqnb`, `sample_postgresql.fsqnb`, `sample_sqlserver.fsqnb`, `sample_mysql.fsqnb`, `sample_mariadb.fsqnb`, `sample_oracle.fsqnb`, and 6 in Portuguese: `*_pt.fsqnb`).
+- **Automated End-to-End Sample Test Suite (`npm run test:samples`)** — Robust E2E test runner (`editors/vscode/test_all_samples_e2e.mjs`):
+  - Runs in an isolated temporary directory with dynamic Docker container orchestration.
+  - Automatically manages container health checks, initializes database schemas, and executes 100% of cells (190+ cells) across all 12 notebooks in both English and Portuguese.
+  - Guarantees container teardown (`docker compose down -v`) and temporary directory removal upon test completion.
+- **Mandatory E2E Sample Validation in CI & AI Agent Guidelines** — Formal delivery rules documented in `AGENTS.md` requiring clean builds (`dotnet fsi .\build.fsx release`) and 100% passing E2E sample notebooks prior to opening Pull Requests.
+
+### Fixed
+
+- **Identifier Sanitization for Generated F# Entities** — Added Unicode-aware sanitization (`[^\p{L}0-9_]`) in descriptor and connection codegen, preventing invalid F# type and module names when encountering special characters in column or table names.
+- **Oracle Internal Catalog Noise Reduction** — Filtered out Oracle system and flashback tables matching `$`, `#`, `BIN$`, and `MVIEW$` during schema introspection.
+- **Schema Discovery Timeout Resiliency** — Increased schema introspection timeout from 5.0s to 20.0s to handle heavy container startup and complex multi-catalog introspection.
+
+
 ## [0.6.0] — 2026-11-15
 
 ### Added

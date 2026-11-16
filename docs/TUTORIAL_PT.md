@@ -336,15 +336,31 @@ Ao importar arquivos CSV ou planilhas Excel com moedas (`R$ 1.234,56`), separado
 
 ---
 
-## 9. Conexões SQL Server e PostgreSQL
+## 9. Conexões com Bancos Relacionais (SQL Server, PostgreSQL, MySQL, MariaDB, Oracle)
 
-Escolha o tipo `SqlServer` ou `PostgreSql`. As seguintes informações serão solicitadas:
+Escolha o tipo `SqlServer`, `PostgreSql`, `MySql`, `MariaDb` ou `Oracle`. As seguintes informações serão solicitadas:
 
-1. **Connection string** — informe-a com `{password}` onde a credencial deve entrar,
-   ex: `Server=localhost;Database=Sales;User Id=app;Password={password};`.
+1. **Connection string** — informe-a com `{password}` onde a credencial deve entrar:
+   - **PostgreSQL**: `Host=localhost;Database=mydb;Username=postgres;Password={password}`
+   - **SQL Server**: `Server=localhost;Database=master;User Id=sa;Password={password};TrustServerCertificate=True`
+   - **MySQL**: `Server=localhost;Database=fsqs_demo;Uid=root;Pwd={password};`
+   - **MariaDB**: `Server=localhost;Port=3307;Database=fsqs_demo;Uid=root;Pwd={password};`
+   - **Oracle**: `Data Source=localhost:1521/FREEPDB1;User Id=system;Password={password}`
 2. **Senha (opcional)** — digitada de forma mascarada. Ela é armazenada no **chaveiro do sistema operacional** através da API `SecretStorage` do VS Code.
 
-Apenas a connection string com o marcador literal `{password}` é salva no `workspace.json`. O segredo real é recuperado do chaveiro em tempo de execução da consulta e nunca é gravado no arquivo do workspace nem no notebook. Consulte-os exatamente como no SQLite:
+Apenas a connection string com o marcador literal `{password}` é salva no `workspace.json`. O segredo real é recuperado do chaveiro em tempo de execução da consulta e nunca é gravado no arquivo do workspace nem no notebook.
+
+Consulte-os de forma fortemente tipada com `fsql { ... }`:
+
+```fsharp
+fsql {
+    for o in Connections.sql.Sales.Orders do
+    where (o.TotalAmount >= 100.0f)
+    select {| OrderId = o.Id; Total = o.TotalAmount |}
+}
+```
+
+Ou consulte-os utilizando SQL parametrizado bruto:
 
 ```fsharp
 Connections.sql "Sales" "select top 100 * from Orders" []

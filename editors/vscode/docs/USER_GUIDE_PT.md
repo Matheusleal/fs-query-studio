@@ -4,7 +4,7 @@
 
 O **F# Query Studio** é uma extensão profissional para o Visual Studio Code que transforma o seu editor em um estúdio completo e interativo para análise, consulta e engenharia de dados utilizando a linguagem **F#**.
 
-Escreva consultas com segurança de tipos em tempo de compilação, alta expressividade e performance através de **F# Query Notebooks (`.fsqnb`)**, integrando bancos de dados relacionais (**PostgreSQL, SQL Server, MySQL, SQLite**), arquivos locais (**CSV, Excel/XLSX, JSON**) e **APIs REST**.
+Escreva consultas com segurança de tipos em tempo de compilação, alta expressividade e performance através de **F# Query Notebooks (`.fsqnb`)**, integrando bancos de dados relacionais (**PostgreSQL, SQL Server, MySQL, MariaDB, Oracle, SQLite**), arquivos locais (**CSV, Excel/XLSX, JSON, XML**) e **APIs REST**.
 
 ---
 
@@ -89,11 +89,22 @@ Clique no botão **`Create Sample Data & Demo Notebooks`** (`$(database)`) no ca
    - **`Original (All data sources: SQLite, CSV, Excel, REST)`**: Workspace demonstrativo completo com 5 tabelas no SQLite (`sample_store.db`), vendas em CSV (`sales_feed.csv`), planilha Excel com abas (`inventory_report.xlsx`), taxas de câmbio JSON (`market_rates.json`), hierarquia XML (`company_hierarchy.xml`) e endpoint REST simulado.
    - **`PostgreSQL`**: Conexão com sua instância PostgreSQL (ou container Docker pré-configurado) gerando o notebook avançado `sample_postgresql.fsqnb` ou `sample_postgresql_pt.fsqnb` com 13 seções de consultas e analytics.
    - **`SQL Server`**: Conexão com SQL Server (ou container Docker) gerando `sample_sqlserver.fsqnb` ou `sample_sqlserver_pt.fsqnb` com 13 seções incluindo `CROSS APPLY`, funções analíticas e CTEs recursivas.
+   - **`MySQL`**: Conexão com sua instância MySQL (ou container Docker) gerando `sample_mysql.fsqnb` ou `sample_mysql_pt.fsqnb` com 13 seções de consultas relacionais, delimitadores de identificadores em backticks e pushdown.
+   - **`MariaDB`**: Conexão com sua instância MariaDB (porta 3307 ou container Docker) gerando `sample_mariadb.fsqnb` ou `sample_mariadb_pt.fsqnb`.
+   - **`Oracle`**: Conexão com banco Oracle (ex: Oracle Free 23ai / PDB `FREEPDB1`) gerando `sample_oracle.fsqnb` ou `sample_oracle_pt.fsqnb` com convenções em maiúsculas e queries analíticas Oracle.
+   - **`All Database Engines (Docker Compose)`**: Gera um ambiente orquestrado unificado via `docker-compose.fsqs.yml` para todos os 5 bancos de dados (`fsqs-postgres`, `fsqs-sqlserver`, `fsqs-mysql`, `fsqs-mariadb`, `fsqs-oracle`), com scripts de inicialização dedicados (`init_postgres.sql`, `init_sqlserver.sql`, `init_mysql.sql`, `init_mariadb.sql`, `init_oracle.sql`) e todos os cadernos de exemplo.
 2. **Passo 2 — Seleção de Idioma (Opcional)**:
-   - **`English`**: Gera exclusivamente os notebooks em inglês (`sample_demo.fsqnb`, `sample_postgresql.fsqnb`, `sample_sqlserver.fsqnb`).
-   - **`Português (Brasil)`**: Gera exclusivamente os notebooks em português (`sample_demo_pt.fsqnb`, `sample_postgresql_pt.fsqnb`, `sample_sqlserver_pt.fsqnb`).
-   - **`Both / Ambos`**: Gera ambos os idiomas lado a lado.
-3. **O Que É Criado Automaticamente**:
+   - **`English`**: Gera exclusivamente os notebooks em inglês (`sample_demo.fsqnb`, `sample_postgresql.fsqnb`, `sample_sqlserver.fsqnb`, `sample_mysql.fsqnb`, `sample_mariadb.fsqnb`, `sample_oracle.fsqnb`).
+   - **`Português (Brasil)`**: Gera exclusivamente os notebooks em português (`sample_demo_pt.fsqnb`, `sample_postgresql_pt.fsqnb`, `sample_sqlserver_pt.fsqnb`, `sample_mysql_pt.fsqnb`, `sample_mariadb_pt.fsqnb`, `sample_oracle_pt.fsqnb`).
+   - **`Both / Ambos`**: Gera ambos os idiomas lado a lado (12 notebooks no total).
+3. **Validação Automatizada E2E**:
+   - Execute a suíte de testes de ponta a ponta dos exemplos com:
+     ```bash
+     npm run test:samples
+     # ou: node editors/vscode/test_all_samples_e2e.mjs
+     ```
+     O script orquestra os containers em um diretório temporário isolado, valida 100% das células de todos os 12 cadernos (tanto em inglês quanto em português) sem nenhum erro, e no final destrói os containers e apaga o diretório temporário compulsoriamente.
+4. **O Que É Criado Automaticamente**:
    - Tabelas de bancos relacionais (`Categories`, `Products`, `Customers`, `Orders`, `OrderItems`).
    - Arquivos planos em cache no SQLite persistente (`.fsqs/cache/engine.db`).
    - Notebooks de até 27 seções cobrindo desde projeções básicas até CTEs anônimas, joins externos e diagnósticos.
@@ -110,7 +121,9 @@ Clique no botão **`Create Sample Data & Demo Notebooks`** (`$(database)`) no ca
 | **SQLite** | Banco local em arquivo | Caminho: `sample_store.db` ou `C:\dados\app.db` |
 | **PostgreSQL** | Suporte completo a múltiplos esquemas (`public`, schemas customizados, views) | `Host=localhost;Database=mydb;Username=postgres;Password={password}` |
 | **SQL Server** | Suporte corporativo a schemas (`dbo`, schemas customizados, views) | `Server=localhost;Database=master;User Id=sa;Password={password};TrustServerCertificate=True` |
-| **MySQL** | Banco relacional (catálogos, tabelas e views) | `Server=localhost;Database=loja;Uid=root;Pwd={password};` |
+| **MySQL** | Banco relacional (catálogos, tabelas e views) | `Server=localhost;Database=fsqs_demo;Uid=root;Pwd={password};` |
+| **MariaDB** | Banco relacional (catálogos, tabelas e views) | `Server=localhost;Port=3307;Database=fsqs_demo;Uid=root;Pwd={password};` |
+| **Oracle** | Banco corporativo (schemas, tabelas, views e PDBs) | `Data Source=localhost:1521/FREEPDB1;User Id=system;Password={password}` |
 | **CSV** | Arquivos delimitados (vírgula, ponto-e-vírgula, tabulação) | Caminho: `sales_feed.csv` |
 | **Excel (XLSX)** | Planilhas Excel com múltiplas abas | Caminho: `financas.xlsx` |
 | **JSON** | Arquivos JSON locais (objeto ou lista de objetos) | Caminho: `catalogo.json` |
@@ -127,9 +140,11 @@ As senhas **nunca são armazenadas em texto puro**. Ao cadastrar uma conexão co
 
 Quando você edita células do notebook, o F# Query Studio oferece **IntelliSense contextual organizado de forma clara por categoria de conexão**:
 
-- `Connections.sql.<NomeConexao>` ➔ Acesso direto às tabelas relacionais (SQLite, PostgreSQL, SQL Server, MySQL) e `.rawQuery` isolado.
+- `Connections.sql.<NomeConexao>` ➔ Acesso direto às tabelas relacionais (SQLite, PostgreSQL, SQL Server, MySQL, MariaDB, Oracle) e `.rawQuery` isolado.
 - `Connections.csv.<NomeConexao>` ➔ Acesso direto a linhas tipadas de CSV e `.Raw()`.
 - `Connections.excel.<NomeConexao>` ➔ Acesso direto a planilhas tipadas de Excel e `.Raw()`.
+- `Connections.json.<NomeConexao>` ➔ Acesso direto a objetos JSON ou arrays na raiz.
+- `Connections.xml.<NomeConexao>` ➔ Acesso direto à hierarquia de nós e elementos XML.
 - `Connections.rest.<NomeConexao>` ➔ Acesso direto a endpoints de API REST e `.SendAsync()`.
 
 ### Badges de Tipo Alinhados à Direita no Autocomplete
@@ -687,6 +702,10 @@ O F# Query Studio executa inteligência de código e realce de sintaxe completo 
 
 - **Conectando no PostgreSQL?**
   Você pode informar tanto o formato chave-valor (`Host=localhost;Database=mydb;Username=postgres`) quanto o formato URI (`postgresql://postgres@localhost:5432/mydb`). Caso a senha seja informada na connection string ou na caixa de diálogo de senha, a extensão extrai a senha automaticamente, armazena no cofre criptografado do sistema (`SecretStorage` do VS Code) e a substitui por `{password}`, garantindo total segurança e funcionamento transparente.
+- **Conectando no MySQL ou MariaDB?**
+  Utilize `Server=localhost;Database=fsqs_demo;Uid=root;Pwd={password};`. Caso execute o MariaDB via Docker em paralelo ao MySQL, certifique-se de conectar na porta mapeada (ex: `Port=3307`). O F# Query Studio trata automaticamente as aspas de identificadores (backticks) e especificidades de dialeto.
+- **Conectando no Oracle Database?**
+  Utilize `Data Source=localhost:1521/FREEPDB1;User Id=system;Password={password}`. Observe o nome do pluggable database (`FREEPDB1` no Oracle Free / 23ai). O F# Query Studio consulta schemas de usuários em maiúsculas, filtra catálogos de sistema internos (`$`, `#`, `BIN$`, `MVIEW$`) e trata identificadores com aspas duplas.
 - **O worker não inicializa?**
   Execute `F# Query Studio: Check Worker` no Command Palette (`Ctrl+Shift+P`). Ele verifica se o .NET 10 SDK está presente e emite mensagens claras de correção.
 - **Novas tabelas não aparecem no autocomplete?**
