@@ -50,6 +50,7 @@
      # ou no diretório editors/vscode:
      npm run test:samples
      ```
+     O script executa os testes em um diretório temporário isolado e, no fim da execução, remove compulsoriamente os containers Docker dos bancos de dados e o diretório temporário.
   4. Backend: `dotnet test tests/FSharpQueryStudio.Worker.Tests --filter "FullyQualifiedName~sample"`
   5. Frontend/Worker E2E: `npx vitest run src/worker/sample-notebook.integration.test.ts`
   6. Nenhuma entrega ou PR pode ser concluído se houver qualquer célula falhando ou quebrando.
@@ -99,6 +100,7 @@
      # or inside editors/vscode:
      npm run test:samples
      ```
+     The script executes all tests in an isolated temporary directory and unconditionally removes all database Docker containers and the temporary directory upon completion.
   4. Backend: `dotnet test tests/FSharpQueryStudio.Worker.Tests --filter "FullyQualifiedName~sample"`
   5. Frontend/Worker E2E: `npx vitest run src/worker/sample-notebook.integration.test.ts`
   6. No delivery or PR may be completed if any notebook cell fails or produces errors.
