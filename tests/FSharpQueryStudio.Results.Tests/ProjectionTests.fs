@@ -361,3 +361,193 @@ let myQuery =
     let env, _, _ = Projection.projectWithCursorDetailed (box item) 0L None None
     Assert.Equal<string list>([ "Zed"; "Alpha"; "Middle" ], env.Schema |> List.map (fun c -> c.Name))
     Assert.Equal<obj array>([| box 10; box 20; box 30 |], env.Rows.[0])
+
+type private ComplexRecord =
+    { DVal: double
+      SVal: single
+      OptInt: int option
+      OptDouble: double option
+      OptNull: string option
+      ObjVal: obj }
+
+[<Fact>]
+let ``sanitizeCell handles non-finite floats, DBNull, and options in records`` () =
+    let recVal =
+        { DVal = System.Double.NaN
+          SVal = System.Single.PositiveInfinity
+          OptInt = Some 42
+          OptDouble = Some System.Double.NegativeInfinity
+          OptNull = None
+          ObjVal = box System.DBNull.Value }
+    let env, _, _ = Projection.projectWithCursor (box [ recVal ]) 0L
+    Assert.Equal(ResultKind.Table, env.Kind)
+    let row = env.Rows.[0]
+    Assert.Null(row.[0]) // NaN -> null
+    Assert.Null(row.[1]) // +Infinity -> null
+    Assert.Equal(box 42, row.[2]) // Some 42 -> 42
+    Assert.Null(row.[3]) // Some -Infinity -> null
+    Assert.Null(row.[4]) // None -> null
+    Assert.Null(row.[5]) // DBNull -> null
+
+[<Fact>]
+let ``tuple sequence with 3 elements maps to Item1, Item2, Item3`` () =
+    let triples: (int * string * bool) seq = seq { yield (1, "A", true); yield (2, "B", false) }
+    let env = envOf (box triples)
+    Assert.Equal(ResultKind.Table, env.Kind)
+    Assert.Equal<string list>([ "Item1"; "Item2"; "Item3" ], env.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal<obj array>([| box 1; box "A"; box true |], env.Rows.[0])
+    Assert.Equal<obj array>([| box 2; box "B"; box false |], env.Rows.[1])
+
+[<Fact>]
+let ``tuple sequence with mixed types falls back to Text envelope`` () =
+    let mixed: obj seq = seq { yield box (1, "A"); yield box (2, "B", true) }
+    let env, _, _ = Projection.projectWithCursor (box mixed) 0L
+    Assert.Equal(ResultKind.Text, env.Kind)
+
+[<Fact>]
+let ``IDictionary sequence such as Hashtable projects to Table`` () =
+    let ht1 = System.Collections.Hashtable()
+    ht1.["Id"] <- box 1
+    ht1.["Name"] <- box "Alice"
+    let ht2 = System.Collections.Hashtable()
+    ht2.["Id"] <- box 2
+    ht2.["Role"] <- box "Admin"
+    let env = envOf (box [ ht1; ht2 ])
+    Assert.Equal(ResultKind.Table, env.Kind)
+    Assert.Equal(2, env.Rows.Length)
+    Assert.Contains(env.Schema, fun c -> c.Name = "Id")
+
+[<Fact>]
+let ``sequence of sequences consumes first row as headers and data rows as content`` () =
+    let rawSeq: obj seq seq =
+        seq {
+            yield seq { yield box "ColA"; yield box "ColB" }
+            yield seq { yield box 10; yield box 20 }
+            yield seq { yield box 30; yield box 40 }
+        }
+    let env = envOf (box rawSeq)
+    Assert.Equal(ResultKind.Table, env.Kind)
+    Assert.Equal<string list>([ "ColA"; "ColB" ], env.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal(2, env.Rows.Length)
+    Assert.Equal<obj array>([| box 10; box 20 |], env.Rows.[0])
+    Assert.Equal<obj array>([| box 30; box 40 |], env.Rows.[1])
+
+[<Fact>]
+let ``sequence of ConnectorQueryResult falls back to Text envelope with expected failure message`` () =
+    let q1: ConnectorQueryResult = { Columns = [ "x" ]; Rows = seq { yield [| box 1 |] } }
+    let q2: ConnectorQueryResult = { Columns = [ "y" ]; Rows = seq { yield [| box 2 |] } }
+    let env, _, _ = Projection.projectWithCursor (box [ q1; q2 ]) 0L
+    Assert.Equal(ResultKind.Text, env.Kind)
+    Assert.True(env.DisplayText.IsSome)
+
+[<Fact>]
+let ``record sequence with mixed types falls back to Text envelope`` () =
+    let mixedRecords: obj seq = seq { yield box { Id = 1; Name = "A" }; yield box {| Extra = 42 |} }
+    let env, _, _ = Projection.projectWithCursor (box mixedRecords) 0L
+    Assert.Equal(ResultKind.Text, env.Kind)
+
+[<Fact>]
+let ``record sequence containing null elements ignores null and continues reading`` () =
+    let records: Person seq = seq { yield { Id = 1; Name = "A" }; yield Unchecked.defaultof<Person>; yield { Id = 2; Name = "B" } }
+    let env = envOf (box records)
+    Assert.Equal(ResultKind.Table, env.Kind)
+    Assert.Equal(2, env.Rows.Length)
+    Assert.Equal<obj array>([| box 1; box "A" |], env.Rows.[0])
+    Assert.Equal<obj array>([| box 2; box "B" |], env.Rows.[1])
+
+[<Fact>]
+let ``unwrapException and projectError unwrap TargetInvocationException and AggregateException with causes`` () =
+    let baseEx = System.InvalidOperationException("Root failure")
+    let tie = System.Reflection.TargetInvocationException("Invocation error", baseEx)
+    let agg = System.AggregateException("Aggregate error", tie)
+    let unwrapped = Projection.unwrapException agg
+    Assert.Same(baseEx :> obj, unwrapped :> obj)
+
+    let innerEx = System.ArgumentException("Invalid argument")
+    let outerEx = System.InvalidOperationException("Outer message", innerEx)
+    let errEnv = Projection.projectError outerEx 15L
+    Assert.Equal(ResultKind.Error, errEnv.Kind)
+    Assert.Equal(15L, errEnv.ElapsedMs)
+    Assert.Contains("Outer message", errEnv.DisplayText.Value)
+    Assert.Contains("Cause: Invalid argument", errEnv.DisplayText.Value)
+
+[<Fact>]
+let ``projectErrorWithDetails handles Operation could not be completed and details`` () =
+    let exBlocked = System.Exception("Operation could not be completed")
+    let envBlocked = Projection.projectErrorWithDetails exBlocked (Some "Compiler error details") 10L
+    Assert.Equal("Compiler error details", envBlocked.DisplayText.Value)
+
+    let exOther = System.Exception("Other error")
+    let envOther = Projection.projectErrorWithDetails exOther (Some "More context") 10L
+    Assert.Equal("Other error\n\nDetails:\nMore context", envOther.DisplayText.Value)
+
+    let envNoDetails = Projection.projectErrorWithDetails exOther None 10L
+    Assert.Equal("Other error", envNoDetails.DisplayText.Value)
+
+[<Fact>]
+let ``projectWorkerError creates Error envelope from WorkerErrorInfo`` () =
+    let info = { Code = "worker/crash"; Message = "Process terminated unexpectedly" }
+    let env = Projection.projectWorkerError info
+    Assert.Equal(ResultKind.Error, env.Kind)
+    Assert.Equal(Some "Process terminated unexpectedly", env.DisplayText)
+
+[<Fact>]
+let ``toOutputLines formats stdout and stderr streams correctly`` () =
+    Assert.Empty(Projection.toOutputLines "" "")
+    let lines = Projection.toOutputLines "out1\nout2\n" "err1\r\n"
+    Assert.Equal(3, lines.Length)
+    Assert.Equal(OutputStream.Stdout, lines.[0].Stream)
+    Assert.Equal("out1", lines.[0].Text)
+    Assert.Equal(OutputStream.Stdout, lines.[1].Stream)
+    Assert.Equal("out2", lines.[1].Text)
+    Assert.Equal(OutputStream.Stderr, lines.[2].Stream)
+    Assert.Equal("err1", lines.[2].Text)
+
+[<Fact>]
+let ``extractAnonymousRecordBlocks handles nested block comments, triple quoted strings, verbatim strings, and expressions`` () =
+    let code =
+        "let x = {|\n" +
+        "    (* outer (* nested block comment *) outer *)\n" +
+        "    PropA = \"\"\" triple \"quoted\" string \"\"\"\n" +
+        "    PropB = @\" verbatim \"\"quote\"\" inside \"\n" +
+        "    PropC = \" escaped \\\"string\\\" \"\n" +
+        "    PropD = (1 + 2)\n" +
+        "    PropE = [ 3; 4 ]\n" +
+        "    PropF = { Name = \"test\" }\n" +
+        "    PropG = if true then 1 else 0\n" +
+        "|}"
+    let blocks = Projection.extractAnonymousRecordBlocks code
+    Assert.Single(blocks) |> ignore
+    let expected = [ "PropA"; "PropB"; "PropC"; "PropD"; "PropE"; "PropF"; "PropG" ]
+    Assert.Equal<string list>(expected, blocks.[0])
+
+    Assert.Empty(Projection.extractAnonymousRecordBlocks "")
+    Assert.Empty(Projection.extractAnonymousRecordBlocks "   \n\t  ")
+
+[<Fact>]
+let ``tryFindMatchingPropertyOrder matches partial target fields`` () =
+    let blocks = [ [ "A"; "B"; "C"; "D" ] ]
+    let target = Set.ofList [ "C"; "A" ]
+    let matched = Projection.tryFindMatchingPropertyOrder blocks target
+    Assert.True(matched.IsSome)
+    Assert.Equal<string list>([ "A"; "C" ], matched.Value)
+
+    Assert.True(Projection.tryFindMatchingPropertyOrder [] target |> Option.isNone)
+    Assert.True(Projection.tryFindMatchingPropertyOrder blocks Set.empty |> Option.isNone)
+
+[<Fact>]
+let ``projectWithCursor handles case-insensitive preferred column reordering`` () =
+    let item = {| foo = 1; bar = 2 |}
+    let env, _, _ = Projection.projectWithCursorDetailed (box item) 0L None (Some [ "BAR"; "FOO" ])
+    Assert.Equal<string list>([ "bar"; "foo" ], env.Schema |> List.map (fun c -> c.Name))
+    Assert.Equal<obj array>([| box 2; box 1 |], env.Rows.[0])
+
+type private Unprintable() =
+    override _.ToString() = failwith "cannot stringify"
+
+[<Fact>]
+let ``unprintable value falls back to unprintable value placeholder in Text envelope`` () =
+    let env = Projection.project (Unprintable()) 0L
+    Assert.Equal(ResultKind.Text, env.Kind)
+    Assert.True(env.DisplayText.IsSome)
+

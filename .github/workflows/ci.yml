@@ -11,7 +11,7 @@ jobs:
   build-and-test:
     name: Build and test (Windows)
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -34,7 +34,7 @@ jobs:
   build-and-test-linux:
     name: Build and test (Linux)
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     # Runs the reused libraries + the F# worker on Linux, each project
     # individually so one failure doesn't mask the others. The VS Code

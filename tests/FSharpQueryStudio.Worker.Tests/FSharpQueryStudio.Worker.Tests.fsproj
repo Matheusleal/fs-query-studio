@@ -16,6 +16,7 @@
     <Compile Include="HostChannelTests.fs" />
     <Compile Include="ReverseChannelLoopTests.fs" />
     <Compile Include="BridgeSecretStoreTests.fs" />
+    <Compile Include="HandlersCoverageTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

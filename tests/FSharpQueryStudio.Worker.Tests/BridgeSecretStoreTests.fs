@@ -86,3 +86,9 @@ let ``Save and Delete are not supported`` () =
     let store = BridgeSecretStore(HostChannel(fun _ -> Task.CompletedTask)) :> ISecretStore
     Assert.Throws<NotSupportedException>(fun () -> store.Save "r" "s") |> ignore
     Assert.Throws<NotSupportedException>(fun () -> store.Delete "r") |> ignore
+
+[<Fact>]
+let ``TryRead returns None when the HostChannel write throws`` () =
+    let channel = HostChannel(fun _ -> failwith "simulated write failure")
+    let store = BridgeSecretStore(channel) :> ISecretStore
+    Assert.Equal(None, store.TryRead "ref")

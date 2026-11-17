@@ -192,3 +192,103 @@ let ``ConnectorListResult round-trips through JSON`` () =
     Assert.Equal("Sqlite", roundTripped.Connectors.[0].KindId)
     Assert.Equal("SQLite", roundTripped.Connectors.[0].DisplayName)
     Assert.Equal("file", roundTripped.Connectors.[0].FormFields.[0].Type)
+
+type QueryWithToRawSql() =
+    member _.ToRawSql() = "SELECT * FROM Users"
+
+type QueryWithFailingToRawSql() =
+    member _.ToRawSql() = failwith "error in ToRawSql"
+    override _.ToString() = "fallback sql"
+
+type QueryPlain() =
+    override _.ToString() = "SELECT 42"
+
+[<Fact>]
+let ``ResultKind toRawSql and toRawSqlWithParameters cover default extractors and edge cases`` () =
+    // null query
+    Assert.Equal("", ResultKind.toRawSql null)
+    let nullSql, nullParams = ResultKind.toRawSqlWithParameters null
+    Assert.Equal("", nullSql)
+    Assert.Empty(nullParams)
+
+    // string query
+    Assert.Equal("SELECT 1", ResultKind.toRawSql "SELECT 1")
+
+    // object with ToRawSql method
+    let q1 = QueryWithToRawSql()
+    Assert.Equal("SELECT * FROM Users", ResultKind.toRawSql q1)
+
+    // object without ToRawSql method
+    let q2 = QueryPlain()
+    Assert.Equal("SELECT 42", ResultKind.toRawSql q2)
+
+    // object whose ToRawSql throws
+    let q3 = QueryWithFailingToRawSql()
+    Assert.Equal("fallback sql", ResultKind.toRawSql q3)
+
+[<Fact>]
+let ``ResultKind RegisterRawSqlExtractor allows customizing SQL extraction`` () =
+    try
+        ResultKind.RegisterRawSqlExtractor((fun _ -> "CUSTOM_SQL"))
+        Assert.Equal("CUSTOM_SQL", ResultKind.toRawSql 123)
+
+        ResultKind.RegisterRawSqlExtractor(
+            (fun _ -> "PARAM_SQL"),
+            (fun _ -> ("PARAM_SQL", [ ("@id", box 1) ]))
+        )
+        let sql, p = ResultKind.toRawSqlWithParameters 456
+        Assert.Equal("PARAM_SQL", sql)
+        Assert.Single(p) |> ignore
+    finally
+        // restore default
+        ResultKind.RegisterRawSqlExtractor(fun q ->
+            match q with
+            | null -> ""
+            | :? string as s -> s
+            | other -> string other)
+
+[<Fact>]
+let ``ConnectorKind methods, equality, and JSON variations`` () =
+    let k = ConnectorKind "PostgreSql"
+    Assert.Equal("PostgreSql", k.ToString())
+    Assert.Equal(k.GetHashCode(), (ConnectorKind "postgresql").GetHashCode())
+    Assert.True(k.Equals(box (ConnectorKind "POSTGRESQL")))
+    Assert.False(k.Equals(box "not-a-connector-kind"))
+    Assert.False(k.Equals(null))
+
+    let nullKind = ConnectorKind(null)
+    Assert.Equal("", nullKind.Id)
+
+    // Deserialization with lowercase "case" property
+    let jsonCaseLower = """{"case": "DuckDb"}"""
+    let fromLower = JsonSerializer.Deserialize<ConnectorKind>(jsonCaseLower, Serialization.options)
+    Assert.Equal("DuckDb", fromLower.Id)
+
+    // Deserialization with object lacking case/Case property
+    let jsonNoCase = """{"other": 123}"""
+    let fromNoCase = JsonSerializer.Deserialize<ConnectorKind>(jsonNoCase, Serialization.options)
+    Assert.Contains("other", fromNoCase.Id)
+
+[<Fact>]
+let ``ResultEnvelope, Column, and OutputLine types can be constructed and accessed`` () =
+    let col: Column = { Name = "Col1"; DisplayType = "int" }
+    Assert.Equal("Col1", col.Name)
+    Assert.Equal("int", col.DisplayType)
+
+    let outLine: OutputLine = { Stream = OutputStream.Stdout; Text = "Hello" }
+    Assert.Equal(OutputStream.Stdout, outLine.Stream)
+    Assert.Equal("Hello", outLine.Text)
+
+    let env: ResultEnvelope =
+        { Kind = ResultKind.Scalar
+          DisplayText = Some "42"
+          Schema = [ col ]
+          Rows = [| [| box 42 |] |]
+          IsTruncated = false
+          ContinuationToken = None
+          ElapsedMs = 10L
+          Output = [ outLine ] }
+
+    Assert.Equal(ResultKind.Scalar, env.Kind)
+    Assert.Equal(Some "42", env.DisplayText)
+

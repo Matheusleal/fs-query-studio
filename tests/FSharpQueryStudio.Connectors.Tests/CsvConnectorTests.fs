@@ -215,3 +215,101 @@ let ``DiscoverSchemaAsync infers column types and wraps in option when N/A, -, o
             colTypes
         )
     }
+
+[<Fact>]
+let ``CsvDescriptor properties and validation work correctly`` () =
+    let descriptor = CsvDescriptor.Instance :> IConnectorDescriptor
+    Assert.Equal("Csv", descriptor.KindId)
+    Assert.Equal("CSV", descriptor.DisplayName)
+    Assert.Equal("file-text", descriptor.Icon)
+    Assert.Equal(ConnectorCategory.TabularFile, descriptor.Category)
+    Assert.True(descriptor.FormFields.Length >= 4)
+    Assert.True(descriptor.EntityGenerator.IsSome)
+
+    // Validation
+    let validJson = System.Text.Json.JsonDocument.Parse("""{"filePath": "data.csv"}""").RootElement
+    let validRes = descriptor.ValidateConfiguration(validJson)
+    Assert.True(validRes.IsOk)
+
+    let invalidJson = System.Text.Json.JsonDocument.Parse("""{}""").RootElement
+    let invalidRes = descriptor.ValidateConfiguration(invalidJson)
+    Assert.True(invalidRes.IsError)
+
+[<Fact>]
+let ``CsvConnectorFactory creates CsvConnector with various json configurations`` () =
+    let factory = CsvConnectorFactory() :> IConnectorFactory
+    let dummyStore = { new FSharpQueryStudio.Security.ISecretStore with
+        member _.TryRead(_) = None
+        member _.Save _ _ = ()
+        member _.Delete _ = ()
+    }
+
+    // String configuration
+    let strDoc = System.Text.Json.JsonDocument.Parse("\"C:/temp/test.csv\"")
+    let conn1 = factory.Create(strDoc.RootElement, dummyStore, None) :?> CsvConnector
+    Assert.Equal("C:/temp/test.csv", conn1.FilePath)
+
+    // Full object configuration
+    let jsonStr = """{"filePath":"C:/temp/data.csv","delimiter":";","hasHeader":false,"columnTypes":{"Col1":"int"},"columnTransforms":{"Col1":"trim"}}"""
+    let objDoc = System.Text.Json.JsonDocument.Parse(jsonStr)
+    let conn2 = factory.Create(objDoc.RootElement, dummyStore, None) :?> CsvConnector
+    Assert.Equal(';', conn2.Options.Delimiter)
+    Assert.False(conn2.Options.HasHeader)
+    Assert.Equal(Some "int", conn2.Options.ColumnTypes.TryFind "Col1")
+    Assert.Equal(Some "trim", conn2.Options.ColumnTransforms.TryFind "Col1")
+
+[<Fact>]
+let ``CsvEntityGenerator emits module and extension code`` () =
+    let path = tempCsvFile Encoding.UTF8 "Id,Amount,Name\n1,10.5,Item1\n2,20.0,Item2\n"
+    let connector = CsvConnector(path)
+    let descriptor = CsvDescriptor.Instance :> IConnectorDescriptor
+    let generator = descriptor.EntityGenerator.Value
+    Assert.Equal(ConnectorCategory.TabularFile, generator.Category)
+
+    let moduleCode = generator.EmitModuleCode("TestConn", connector, "TestConnModule")
+    Assert.Contains("module TestConnModule =", moduleCode)
+    Assert.Contains("type Row =", moduleCode)
+    Assert.Contains("Id: int", moduleCode)
+    Assert.Contains("Amount: decimal", moduleCode)
+    Assert.Contains("type Data(conn: FSharpQueryStudio.Connectors.Connections.CsvConnection) =", moduleCode)
+
+    let extCode = generator.EmitExtensionCode("TestConn", "TestConnModule", "TestProperty")
+    Assert.Contains("TestProperty", extCode)
+    Assert.Contains("TestConnModule.Data", extCode)
+
+    let connWithTypes = CsvConnector(path, { CsvOptions.Default with ColumnTypes = Map.ofList [ "Id", "int64" ] })
+    let moduleWithTypes = generator.EmitModuleCode("TestConnTypes", connWithTypes, "TestConnTypesMod")
+    Assert.Contains("Id: int64", moduleWithTypes)
+
+    // Also exercise ModularEntityGenerators.CsvEntityGenerator
+    let modGen = FSharpQueryStudio.Connectors.CsvEntityGenerator() :> IConnectorEntityGenerator
+    let modModule = modGen.EmitModuleCode("TestConn2", connector, "TestConn2Module")
+    Assert.Contains("module TestConn2Module =", modModule)
+    let modExt = modGen.EmitExtensionCode("TestConn2", "TestConn2Module", "TestProp2")
+    Assert.Contains("TestProp2", modExt)
+
+[<Fact>]
+let ``CsvTypeInference and CsvConnector handle empty files, comma decimals, transforms and explicit types`` () =
+    Assert.Equal("string option", CsvTypeInference.inferType [ "N/A"; "-" ])
+    Assert.Equal("decimal", CsvTypeInference.inferType [ "12,34"; "56,78" ])
+    Assert.Equal("double", CsvTypeInference.inferType [ "1e10"; "12,34" ])
+
+    let emptyPath = tempCsvFile Encoding.UTF8 ""
+    let emptyConn = CsvConnector(emptyPath)
+    Assert.Empty(emptyConn.ReadRows().Columns)
+
+    let path = tempCsvFile Encoding.UTF8 "Name,Price\nWidget,10\n"
+    let opts =
+        { CsvOptions.Default with
+            ColumnTransforms = Map.ofList [ "Price", "multiply(2)" ]
+            ColumnTypes = Map.ofList [ "Price", "decimal" ] }
+    let conn = CsvConnector(path, opts)
+    let qr = conn.ReadRows()
+    let rows = qr.Rows |> Seq.toList
+    Assert.Equal(box "20", rows.[0].[1])
+
+    let tables = (conn :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result
+    let priceCol = tables.[0].Columns |> List.find (fun c -> c.Name = "Price")
+    Assert.Equal("decimal", priceCol.DataType)
+
+

@@ -188,13 +188,15 @@ module Projection =
                 if i < len then i <- i + 1
 
             let skipVerbatimString () =
+                let mutable finished = false
                 i <- i + 2
-                while i < len do
+                while i < len && not finished do
                     if source.[i] = '"' then
                         if i + 1 < len && source.[i + 1] = '"' then
                             i <- i + 2
                         else
                             i <- i + 1
+                            finished <- true
                     else
                         i <- i + 1
 

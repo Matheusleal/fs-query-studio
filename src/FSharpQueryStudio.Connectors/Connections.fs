@@ -61,6 +61,10 @@ module Connections =
         | _ ->
             engine <- None
 
+    let internal reset () =
+        resolver <- None
+        engine <- None
+
     let private resolve (name: string) : IConnector =
         match resolver with
         | None -> failwith "Connections has not been configured for this session."
@@ -83,7 +87,7 @@ module Connections =
         | true, v -> Some v
         | false, _ -> None
 
-    let rec private convertValue (raw: obj) (targetType: Type) : obj =
+    let rec internal convertValue (raw: obj) (targetType: Type) : obj =
         if isNull raw || Convert.IsDBNull(raw) then
             null
         elif targetType.IsInstanceOfType(raw) then
@@ -722,6 +726,14 @@ module Connections =
             let p = defaultArg parameters []
             SqlPushdownQueryable<'T>(connector, sqlText, p) :> IQueryable<'T>
 
+        member this.AsQueryable<'T>(sqlText: string, ?parameters: (string * obj) list) : IQueryable<'T> =
+            this.Queryable<'T>(sqlText, ?parameters = parameters)
+
+        member this.AsQueryable<'T>() : IQueryable<'T> =
+            match this.Tables with
+            | first :: _ -> this.Table<'T>(first) :> IQueryable<'T>
+            | [] -> this.Queryable<'T>("SELECT 1 WHERE 1=0")
+
         member this.PushdownQueryable<'T>(sqlText: string, ?parameters: (string * obj) list) : SqlPushdownQueryable<'T> =
             let p = defaultArg parameters []
             SqlPushdownQueryable<'T>(connector, sqlText, p)
@@ -873,6 +885,7 @@ module Connections =
             let eng = getEngine ()
             let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows()), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName) :> IQueryable<'T>
+        member this.AsQueryable<'T>() : IQueryable<'T> = this.Queryable<'T>()
         member this.PushdownQueryable<'T>() : SqlPushdownQueryable<'T> =
             let eng = getEngine ()
             let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows()), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
@@ -897,13 +910,18 @@ module Connections =
         member _.FilePath = connector.FilePath
         member _.Rows<'T>(?maxRows: int) : 'T seq = queryExcel<'T> name maxRows
         member _.Sheet<'T>(sheetName: string, ?maxRows: int) : 'T seq = queryExcelSheet<'T> name (Some sheetName) maxRows
+        member this.Table<'T>(sheetName: string, ?maxRows: int) : 'T seq = this.Sheet<'T>(sheetName, ?maxRows = maxRows)
         member this.Queryable<'T>(?maxRows: int) : IQueryable<'T> =
             this.PushdownQueryable<'T>(?maxRows = maxRows) :> IQueryable<'T>
+        member this.AsQueryable<'T>(?maxRows: int) : IQueryable<'T> =
+            this.Queryable<'T>(?maxRows = maxRows)
         member this.PushdownQueryable<'T>(?maxRows: int) : SqlPushdownQueryable<'T> =
             let sheetName = resolveDefaultSheetName ()
             this.SheetPushdownQueryable<'T>(sheetName, ?maxRows = maxRows)
         member this.SheetQueryable<'T>(sheetName: string, ?maxRows: int) : IQueryable<'T> =
             this.SheetPushdownQueryable<'T>(sheetName, ?maxRows = maxRows) :> IQueryable<'T>
+        member this.TableQueryable<'T>(sheetName: string, ?maxRows: int) : IQueryable<'T> =
+            this.SheetQueryable<'T>(sheetName, ?maxRows = maxRows)
         member this.SheetPushdownQueryable<'T>(sheetName: string, ?maxRows: int) : SqlPushdownQueryable<'T> =
             let eng = getEngine ()
             let compoundKey = $"{name}_{sheetName}"
@@ -915,6 +933,8 @@ module Connections =
                     ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes)
                 )
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
+        member this.TablePushdownQueryable<'T>(sheetName: string, ?maxRows: int) : SqlPushdownQueryable<'T> =
+            this.SheetPushdownQueryable<'T>(sheetName, ?maxRows = maxRows)
         member _.Raw(?maxRows: int) : ConnectorQueryResult = readExcelRaw name maxRows
 
     /// Represents an active local JSON file connection with multi-collection typed queries.
@@ -937,6 +957,8 @@ module Connections =
         member _.Table<'T>(tableName: string, ?maxRows: int) : 'T seq = queryJsonFileTable<'T> name (Some tableName) maxRows
         member this.Queryable<'T>(?maxRows: int) : IQueryable<'T> =
             this.PushdownQueryable<'T>(?maxRows = maxRows) :> IQueryable<'T>
+        member this.AsQueryable<'T>(?maxRows: int) : IQueryable<'T> =
+            this.Queryable<'T>(?maxRows = maxRows)
         member this.PushdownQueryable<'T>(?maxRows: int) : SqlPushdownQueryable<'T> =
             let tableName = resolveDefaultTableName ()
             this.TablePushdownQueryable<'T>(tableName, ?maxRows = maxRows)
@@ -975,6 +997,8 @@ module Connections =
         member _.Table<'T>(tableName: string, ?maxRows: int) : 'T seq = queryXmlTable<'T> name (Some tableName) maxRows
         member this.Queryable<'T>(?maxRows: int) : IQueryable<'T> =
             this.PushdownQueryable<'T>(?maxRows = maxRows) :> IQueryable<'T>
+        member this.AsQueryable<'T>(?maxRows: int) : IQueryable<'T> =
+            this.Queryable<'T>(?maxRows = maxRows)
         member this.PushdownQueryable<'T>(?maxRows: int) : SqlPushdownQueryable<'T> =
             let tableName = resolveDefaultTableName ()
             this.TablePushdownQueryable<'T>(tableName, ?maxRows = maxRows)

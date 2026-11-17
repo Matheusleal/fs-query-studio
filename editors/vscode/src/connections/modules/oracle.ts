@@ -9,6 +9,7 @@ const descriptor = {
   displayName: "Oracle",
   category: "sql",
   icon: "database",
+  defaultPort: 1521,
   formFields: [
     {
       name: "connectionString",
@@ -30,6 +31,7 @@ const descriptor = {
 
 export const oracleFrontendModule: FrontendConnectorModule = {
   descriptor,
+  defaultPort: 1521,
   autocompleteCategory: "Database",
   completionTriggerMembers: ["sql", "connect", "get", "query", "getConnectionString"],
 

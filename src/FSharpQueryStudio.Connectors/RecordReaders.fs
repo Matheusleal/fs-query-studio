@@ -273,6 +273,9 @@ type RecordReaders =
             with _ ->
                 false
 
+    static member ReadBoolean(record: IDataRecord, idx: int) : bool =
+        RecordReaders.ReadBool(record, idx)
+
     static member ReadString(record: IDataRecord, idx: int) : string =
         if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then null
         else
@@ -358,10 +361,104 @@ type RecordReaders =
             with _ ->
                 DateOnly.MinValue
 
+    static member ReadTimeOnly(record: IDataRecord, idx: int) : TimeOnly =
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then TimeOnly.MinValue
+        else
+            try
+                let v = record.GetValue(idx)
+                match v with
+                | null -> TimeOnly.MinValue
+                | :? TimeOnly as t -> t
+                | :? TimeSpan as ts -> TimeOnly.FromTimeSpan(ts)
+                | :? DateTime as dt -> TimeOnly.FromDateTime(dt)
+                | :? DateTimeOffset as dto -> TimeOnly.FromDateTime(dto.DateTime)
+                | :? string as s ->
+                    let rawStr = s.Trim().Trim('"', '\'')
+                    if RecordReaders.IsSentinelString rawStr then TimeOnly.MinValue
+                    else
+                        match TimeOnly.TryParse(rawStr, CultureInfo.InvariantCulture) with
+                        | true, t -> t
+                        | false, _ ->
+                            match DateTime.TryParse(rawStr, CultureInfo.InvariantCulture, DateTimeStyles.None) with
+                            | true, dt -> TimeOnly.FromDateTime(dt)
+                            | false, _ -> TimeOnly.MinValue
+                | _ -> TimeOnly.MinValue
+            with _ ->
+                TimeOnly.MinValue
+
+    static member ReadByteArray(record: IDataRecord, idx: int) : byte array =
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then Array.empty<byte>
+        else
+            try
+                let v = record.GetValue(idx)
+                match v with
+                | null -> Array.empty<byte>
+                | :? (byte array) as bytes -> bytes
+                | :? string as s ->
+                    let rawStr = s.Trim().Trim('"', '\'')
+                    if RecordReaders.IsSentinelString rawStr then Array.empty<byte>
+                    else
+                        try Convert.FromBase64String(rawStr)
+                        with _ -> System.Text.Encoding.UTF8.GetBytes(rawStr)
+                | _ -> Array.empty<byte>
+            with _ ->
+                Array.empty<byte>
+
+    static member ReadNullableInt32(record: IDataRecord, idx: int) : Nullable<int> =
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then Nullable()
+        else
+            let v = record.GetValue(idx)
+            if isNull v || Convert.IsDBNull(v) then Nullable()
+            else
+                match v with
+                | :? string as s when RecordReaders.IsSentinelString s -> Nullable()
+                | _ -> Nullable(RecordReaders.ReadInt32(record, idx))
+
+    static member ReadNullableInt64(record: IDataRecord, idx: int) : Nullable<int64> =
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then Nullable()
+        else
+            let v = record.GetValue(idx)
+            if isNull v || Convert.IsDBNull(v) then Nullable()
+            else
+                match v with
+                | :? string as s when RecordReaders.IsSentinelString s -> Nullable()
+                | _ -> Nullable(RecordReaders.ReadInt64(record, idx))
+
+    static member ReadNullableDecimal(record: IDataRecord, idx: int) : Nullable<decimal> =
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then Nullable()
+        else
+            let v = record.GetValue(idx)
+            if isNull v || Convert.IsDBNull(v) then Nullable()
+            else
+                match v with
+                | :? string as s when RecordReaders.IsSentinelString s -> Nullable()
+                | _ -> Nullable(RecordReaders.ReadDecimal(record, idx))
+
+    static member ReadNullableDouble(record: IDataRecord, idx: int) : Nullable<double> =
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then Nullable()
+        else
+            let v = record.GetValue(idx)
+            if isNull v || Convert.IsDBNull(v) then Nullable()
+            else
+                match v with
+                | :? string as s when RecordReaders.IsSentinelString s -> Nullable()
+                | _ -> Nullable(RecordReaders.ReadDouble(record, idx))
+
+    static member ReadNullableDateTime(record: IDataRecord, idx: int) : Nullable<DateTime> =
+        if idx < 0 || idx >= record.FieldCount || record.IsDBNull(idx) then Nullable()
+        else
+            let v = record.GetValue(idx)
+            if isNull v || Convert.IsDBNull(v) then Nullable()
+            else
+                match v with
+                | :? string as s when RecordReaders.IsSentinelString s -> Nullable()
+                | _ -> Nullable(RecordReaders.ReadDateTime(record, idx))
+
     static member DefaultForType(targetType: Type) : obj =
         if targetType = typeof<string> then box ""
         elif targetType = typeof<DateTime> then box DateTime.MinValue
         elif targetType = typeof<DateOnly> then box DateOnly.MinValue
+        elif targetType = typeof<TimeOnly> then box TimeOnly.MinValue
         elif targetType = typeof<Guid> then box Guid.Empty
         elif targetType = typeof<byte[]> then box (Array.empty<byte>)
         elif targetType.IsValueType && Nullable.GetUnderlyingType(targetType) = null then
@@ -389,6 +486,14 @@ type RecordReaders =
                     else
                         let someMethod = typeof<RecordReaders>.GetMethod("MakeSome", BindingFlags.Static ||| BindingFlags.NonPublic).MakeGenericMethod([| innerType |])
                         someMethod.Invoke(null, [| converted |])
+            elif Nullable.GetUnderlyingType(targetType) <> null then
+                let innerType = Nullable.GetUnderlyingType(targetType)
+                if isNull raw || Convert.IsDBNull(raw) then
+                    null
+                elif (raw :? string) && RecordReaders.IsSentinelString (raw :?> string) then
+                    null
+                else
+                    RecordReaders.ConvertValue raw innerType
             elif targetType = typeof<string> then
                 box (string raw)
             elif raw :? string then
@@ -445,6 +550,16 @@ type RecordReaders =
                     match Guid.TryParse(rawStr) with
                     | true, v -> box v
                     | false, _ -> box Guid.Empty
+                elif targetType = typeof<TimeOnly> then
+                    match TimeOnly.TryParse(rawStr, CultureInfo.InvariantCulture) with
+                    | true, v -> box v
+                    | false, _ ->
+                        match DateTime.TryParse(rawStr, CultureInfo.InvariantCulture, DateTimeStyles.None) with
+                        | true, dt -> box (TimeOnly.FromDateTime(dt))
+                        | false, _ -> box TimeOnly.MinValue
+                elif targetType = typeof<byte[]> then
+                    try box (Convert.FromBase64String(rawStr))
+                    with _ -> box (System.Text.Encoding.UTF8.GetBytes(rawStr))
                 else
                     Convert.ChangeType(rawStr, targetType, CultureInfo.InvariantCulture)
             else
@@ -485,6 +600,17 @@ type RecordReaders =
                     | :? double as d when Double.IsFinite d && d > -657435.0 && d < 2958466.0 ->
                         box (DateOnly.FromDateTime(DateTime.FromOADate(d)))
                     | _ -> DateOnly.Parse(string raw, CultureInfo.InvariantCulture) |> box
+                elif targetType = typeof<TimeOnly> then
+                    match raw with
+                    | :? TimeOnly as t -> box t
+                    | :? TimeSpan as ts -> box (TimeOnly.FromTimeSpan(ts))
+                    | :? DateTime as dt -> box (TimeOnly.FromDateTime(dt))
+                    | :? DateTimeOffset as dto -> box (TimeOnly.FromDateTime(dto.DateTime))
+                    | _ -> box TimeOnly.MinValue
+                elif targetType = typeof<byte[]> then
+                    match raw with
+                    | :? (byte array) as b -> box b
+                    | _ -> box (Array.empty<byte>)
                 else
                     Convert.ChangeType(raw, targetType, CultureInfo.InvariantCulture)
         with _ ->
@@ -574,6 +700,10 @@ module CompiledRecordMapper =
                                     Expression.Call(typeof<RecordReaders>.GetMethod("ReadDateTime"), recordParam, Expression.Constant(idx)) :> Expression
                                 elif ft = typeof<DateOnly> then
                                     Expression.Call(typeof<RecordReaders>.GetMethod("ReadDateOnly"), recordParam, Expression.Constant(idx)) :> Expression
+                                elif ft = typeof<TimeOnly> then
+                                    Expression.Call(typeof<RecordReaders>.GetMethod("ReadTimeOnly"), recordParam, Expression.Constant(idx)) :> Expression
+                                elif ft = typeof<byte[]> then
+                                    Expression.Call(typeof<RecordReaders>.GetMethod("ReadByteArray"), recordParam, Expression.Constant(idx)) :> Expression
                                 elif ft.IsGenericType && ft.GetGenericTypeDefinition() = typedefof<option<_>> then
                                     let innerType = ft.GetGenericArguments().[0]
                                     let readOpt = typeof<RecordReaders>.GetMethod("ReadOption").MakeGenericMethod([| innerType |])

@@ -177,3 +177,57 @@ let ``IsAlive becomes false once the underlying stream reaches end of stream`` (
 
         Assert.False(loopback.OurClient.IsAlive)
     }
+
+[<Fact>]
+let ``SendNotification writes valid jsonrpc notification without waiting for response`` () =
+    task {
+        use loopback = makeLoopback ()
+        do! loopback.OurClient.SendNotification("workspace/didChange", {| note = "hello" |})
+        let! raw = LspTransport.readMessage loopback.ServerRead
+        Assert.True(raw.IsSome)
+        let root = JsonDocument.Parse(raw.Value).RootElement
+        Assert.Equal("workspace/didChange", root.GetProperty("method").GetString())
+        Assert.False(root.TryGetProperty("id", ref (Unchecked.defaultof<JsonElement>)))
+    }
+
+[<Fact>]
+let ``pending request fails with server process exited when pipe is closed unexpectedly`` () =
+    task {
+        use loopback = makeLoopback ()
+        let reqTask = loopback.OurClient.SendRequest("some/slowMethod", {| data = 123 |})
+        // Now close the server stream so the client's reader loop hits EOF while waiting
+        loopback.ServerWrite.Dispose()
+        let! res = reqTask
+        match res with
+        | LspFail err ->
+            Assert.Equal(-1, err.Code)
+            Assert.Contains("exited", err.Message)
+        | LspOk _ -> failwith "expected fail"
+    }
+
+[<Fact>]
+let ``unrecognized or empty message does not crash reader loop`` () =
+    task {
+        use loopback = makeLoopback ()
+        // Send a message with neither id nor method
+        do! LspTransport.writeMessage loopback.ServerWrite """{"jsonrpc":"2.0"}"""
+        // Send an unawaited response id
+        do! LspTransport.writeMessage loopback.ServerWrite """{"jsonrpc":"2.0","id":99999,"result":123}"""
+        // Send an unhandled notification
+        do! LspTransport.writeMessage loopback.ServerWrite """{"jsonrpc":"2.0","method":"unregistered/notify","params":{}}"""
+
+        // Now verify a real request still succeeds
+        let serverTask =
+            task {
+                let! raw = LspTransport.readMessage loopback.ServerRead
+                let requestId = JsonDocument.Parse(raw.Value).RootElement.GetProperty("id").GetInt32()
+                let response = $"""{{"jsonrpc":"2.0","id":{requestId},"result":{{"ok":true}}}}"""
+                do! LspTransport.writeMessage loopback.ServerWrite response
+            }
+
+        let! result = loopback.OurClient.SendRequest("test/ping", {| msg = "hi" |})
+        do! serverTask
+        match result with
+        | LspOk el -> Assert.True(el.GetProperty("ok").GetBoolean())
+        | LspFail err -> failwith err.Message
+    }

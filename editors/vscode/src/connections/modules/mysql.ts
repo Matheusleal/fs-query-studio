@@ -9,6 +9,7 @@ const descriptor = {
   displayName: "MySQL",
   category: "sql",
   icon: "database",
+  defaultPort: 3306,
   formFields: [
     {
       name: "connectionString",
@@ -30,6 +31,7 @@ const descriptor = {
 
 export const mySqlFrontendModule: FrontendConnectorModule = {
   descriptor,
+  defaultPort: 3306,
   autocompleteCategory: "Database",
   completionTriggerMembers: ["sql", "connect", "get", "query", "getConnectionString"],
 

@@ -230,3 +230,36 @@ let ``ExcelConnector reports its Kind as Excel`` () =
     let connector = ExcelConnector(workbook.Path) :> IConnector
 
     Assert.Equal(ConnectorKind.Excel, connector.Kind)
+
+[<Fact>]
+let ``ExcelDescriptor and ExcelConnectorFactory coverage`` () =
+    let descriptor = ExcelDescriptor.Instance :> IConnectorDescriptor
+    Assert.Equal("Excel", descriptor.KindId)
+    Assert.Equal("Excel", descriptor.DisplayName)
+    Assert.Equal("table", descriptor.Icon)
+    Assert.Equal(ConnectorCategory.Excel, descriptor.Category)
+    Assert.Equal(4, descriptor.FormFields.Length)
+    Assert.True(descriptor.EntityGenerator.IsNone)
+
+    let validJson = System.Text.Json.JsonDocument.Parse("""{"filePath": "test.xlsx"}""").RootElement
+    Assert.True(descriptor.ValidateConfiguration(validJson).IsOk)
+    let invalidJson = System.Text.Json.JsonDocument.Parse("""{}""").RootElement
+    Assert.True(descriptor.ValidateConfiguration(invalidJson).IsError)
+
+    let factory = descriptor.Factory
+    let dummyStore = { new FSharpQueryStudio.Security.ISecretStore with
+        member _.TryRead(_) = None
+        member _.Save _ _ = ()
+        member _.Delete _ = ()
+    }
+    let strDoc = System.Text.Json.JsonDocument.Parse("\"test.xlsx\"")
+    let conn1 = factory.Create(strDoc.RootElement, dummyStore, None) :?> ExcelConnector
+    Assert.Equal("test.xlsx", conn1.FilePath)
+
+    let objDoc = System.Text.Json.JsonDocument.Parse("""{"filePath": "data.xlsx", "sheetName": "Sheet2", "hasHeader": false, "columnTypes": {"Col1": "int"}, "columnTransforms": {"Col1": "trim"}}""")
+    let conn2 = factory.Create(objDoc.RootElement, dummyStore, None) :?> ExcelConnector
+    Assert.Equal(Some "Sheet2", conn2.Options.SheetName)
+    Assert.False(conn2.Options.HasHeader)
+    Assert.Equal(Some "int", conn2.Options.ColumnTypes.TryFind "Col1")
+    Assert.Equal(Some "trim", conn2.Options.ColumnTransforms.TryFind "Col1")
+

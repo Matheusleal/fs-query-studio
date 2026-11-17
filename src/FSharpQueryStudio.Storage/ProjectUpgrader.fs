@@ -225,9 +225,12 @@ module ProjectUpgrader =
                 else Path.Combine(trimmed, ".fsqs", "workspace.json")
 
             let rootWs = Path.Combine(trimmed, "workspace.json")
+            let rootGen = Path.Combine(trimmed, "generated")
 
             let initialVersion =
-                if File.Exists fsqsWs then
+                if not isGlobalAppData && (File.Exists rootWs || Directory.Exists rootGen) then
+                    1
+                elif File.Exists fsqsWs then
                     ProjectUpgradeConstants.detectSchemaVersion (File.ReadAllText fsqsWs)
                 elif File.Exists rootWs then
                     ProjectUpgradeConstants.detectSchemaVersion (File.ReadAllText rootWs)

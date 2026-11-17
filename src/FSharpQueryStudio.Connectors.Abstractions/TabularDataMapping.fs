@@ -63,9 +63,11 @@ module ColumnTransformation =
                         let rest = expr.Substring(closeIdx + 1).TrimStart('.')
                         evalChain rest nextStr
                     else current
+                elif expr.StartsWith("trim()", StringComparison.OrdinalIgnoreCase) then
+                    let rest = expr.Substring(6).TrimStart('.')
+                    evalChain rest (current.Trim())
                 elif expr.StartsWith("trim", StringComparison.OrdinalIgnoreCase) then
-                    let closeIdx = expr.IndexOf(')')
-                    let rest = if closeIdx > 0 then expr.Substring(closeIdx + 1).TrimStart('.') else expr.Substring(4).TrimStart('.')
+                    let rest = expr.Substring(4).TrimStart('.')
                     evalChain rest (current.Trim())
                 elif expr.StartsWith("multiply(", StringComparison.OrdinalIgnoreCase) then
                     let closeIdx = expr.IndexOf(')')

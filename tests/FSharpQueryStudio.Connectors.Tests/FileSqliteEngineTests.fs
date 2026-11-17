@@ -673,3 +673,265 @@ let ``FileSqliteEngine emits granular staging progress events for Reading, Writi
         Assert.True(completedEv.ElapsedMs.IsSome)
     finally
         try if File.Exists csvPath then File.Delete csvPath with _ -> ()
+
+[<Fact>]
+let ``FileSqliteEngine DropStaleTableIfExists drops table and cache metadata when file matches`` () =
+    use db = new TempDb()
+    use csvFile = new TempFile()
+    let csvPath = csvFile.Path + ".csv"
+    try
+        File.WriteAllLines(csvPath, [| "Id,Title"; "1,Alpha" |])
+        let engine = FileSqliteEngine(db.Path)
+        let connector = CsvConnector(csvPath)
+
+        let staged = engine.EnsureStaged("StaleTable", csvPath, (fun () -> connector.ReadRows()))
+        Assert.Equal("StaleTable", staged)
+        Assert.True(engine.IsStagedAndCurrent("StaleTable", csvPath))
+
+        // Call DropStaleTableIfExists with matching file path
+        engine.DropStaleTableIfExists("StaleTable", csvPath)
+        Assert.False(engine.IsStagedAndCurrent("StaleTable", csvPath))
+
+        // Dropping a non-existent table or with mismatched path does not throw
+        engine.DropStaleTableIfExists("StaleTable", csvPath)
+        engine.DropStaleTableIfExists("NonExistent", "/some/other/path.csv")
+    finally
+        try if File.Exists csvPath then File.Delete csvPath with _ -> ()
+
+[<Fact>]
+let ``FileSqliteEngine EnsureStaged verifies in-memory cache hit vs disk database cache hit`` () =
+    use db = new TempDb()
+    use csvFile = new TempFile()
+    let csvPath = csvFile.Path + ".csv"
+    try
+        File.WriteAllLines(csvPath, [| "Id,Val"; "1,100" |])
+        let connector = CsvConnector(csvPath)
+        let engine1 = FileSqliteEngine(db.Path)
+
+        // 1. Initial stage (cache miss)
+        let evs1 = System.Collections.Concurrent.ConcurrentBag<StagingProgressEvent>()
+        let t1 = engine1.EnsureStaged("CacheTest", csvPath, (fun () -> connector.ReadRows()), onProgress = evs1.Add)
+        Assert.Equal("CacheTest", t1)
+        Assert.Contains(evs1, fun e -> e.Phase = "Completed")
+
+        // 2. Second stage on same engine instance (in-memory hit)
+        let evs2 = System.Collections.Concurrent.ConcurrentBag<StagingProgressEvent>()
+        let t2 = engine1.EnsureStaged("CacheTest", csvPath, (fun () -> connector.ReadRows()), onProgress = evs2.Add)
+        Assert.Equal("CacheTest", t2)
+        Assert.Contains(evs2, fun e -> e.Phase = "Skipped")
+
+        // 3. Third stage on fresh engine instance (disk database cache hit, empty in-memory dictionary)
+        let engine2 = FileSqliteEngine(db.Path)
+        let evs3 = System.Collections.Concurrent.ConcurrentBag<StagingProgressEvent>()
+        let t3 = engine2.EnsureStaged("CacheTest", csvPath, (fun () -> connector.ReadRows()), onProgress = evs3.Add)
+        Assert.Equal("CacheTest", t3)
+        Assert.Contains(evs3, fun e -> e.Phase = "Skipped")
+    finally
+        try if File.Exists csvPath then File.Delete csvPath with _ -> ()
+
+[<Fact>]
+let ``FileSqliteEngine uses instance ProgressCallback and GlobalProgressCallback as fallbacks`` () =
+    use db = new TempDb()
+    use csvFile = new TempFile()
+    let csvPath = csvFile.Path + ".csv"
+    try
+        File.WriteAllLines(csvPath, [| "Id,Val"; "1,999" |])
+        let connector = CsvConnector(csvPath)
+
+        // 1. Instance ProgressCallback
+        let engine = FileSqliteEngine(db.Path)
+        let instanceEvents = System.Collections.Concurrent.ConcurrentBag<StagingProgressEvent>()
+        engine.ProgressCallback <- Some instanceEvents.Add
+
+        let t1 = engine.EnsureStaged("InstanceCallbackTest", csvPath, (fun () -> connector.ReadRows()))
+        Assert.Equal("InstanceCallbackTest", t1)
+        Assert.Contains(instanceEvents, fun e -> e.Phase = "Completed")
+
+        // 2. GlobalProgressCallback fallback
+        use db2 = new TempDb()
+        let engineGlobal = FileSqliteEngine(db2.Path)
+        let globalEvents = System.Collections.Concurrent.ConcurrentBag<StagingProgressEvent>()
+        FileSqliteEngine.GlobalProgressCallback <- Some globalEvents.Add
+        try
+            let t2 = engineGlobal.EnsureStaged("GlobalCallbackTest", csvPath, (fun () -> connector.ReadRows()))
+            Assert.Equal("GlobalCallbackTest", t2)
+            Assert.Contains(globalEvents, fun e -> e.Phase = "Completed")
+        finally
+            FileSqliteEngine.GlobalProgressCallback <- None
+
+        // 3. Callback throwing exception should be safely swallowed without failing staging
+        use db3 = new TempDb()
+        let engineFaulty = FileSqliteEngine(db3.Path)
+        let t3 =
+            engineFaulty.EnsureStaged(
+                "FaultyCallbackTest",
+                csvPath,
+                (fun () -> connector.ReadRows()),
+                onProgress = (fun _ -> failwith "Intentional callback error")
+            )
+        Assert.Equal("FaultyCallbackTest", t3)
+    finally
+        try if File.Exists csvPath then File.Delete csvPath with _ -> ()
+
+[<Fact>]
+let ``FileSqliteEngine EnsureStaged handles column type overrides and row value variations`` () =
+    use db = new TempDb()
+    let engine = FileSqliteEngine(db.Path)
+
+    let colTypes = Map.ofList [
+        "ColInt", "int"
+        "ColLong", "long"
+        "ColDec", "decimal"
+        "ColDoub", "double"
+        "ColFloat", "float"
+        "ColBool", "bool"
+        "ColDate", "datetime"
+        "ColCustom", "custom_type"
+    ]
+
+    let qResult = {
+        Columns = [ "ColInt"; "ColLong"; "ColDec"; "ColDoub"; "ColFloat"; "ColBool"; "ColDate"; "ColCustom" ]
+        Rows = [|
+            [|
+                box "true"              // string boolean into INTEGER affinity
+                box "123456789"         // string long into INTEGER affinity
+                box "12.34"             // string decimal into NUMERIC affinity
+                box Double.NaN          // non-finite double into NUMERIC
+                box Single.PositiveInfinity // non-finite single into NUMERIC
+                box 1                   // int into INTEGER
+                box "2026-11-16"        // text
+                box null                // null cell
+            |]
+            [|
+                box "42.75"             // float string into INTEGER (keeps decimal, doesn't truncate)
+                box 999L                // int64
+                box 50.0M               // decimal integer
+                box 100.5               // finite double
+                box 25.5f               // finite single
+                box false               // bool
+                box "Text"              // text
+                DBNull.Value            // DBNull cell
+            |]
+        |]
+    }
+
+    let fakePath = Path.Combine(Path.GetTempPath(), $"fake-data-{Guid.NewGuid():N}.dat")
+    try
+        File.WriteAllText(fakePath, "dummy")
+        let staged =
+            engine.EnsureStaged(
+                "TypeAffinityTest",
+                fakePath,
+                (fun () -> qResult),
+                columnTypes = colTypes
+            )
+        Assert.Equal("TypeAffinityTest", staged)
+
+        let res = engine.ExecuteQuery("SELECT * FROM TypeAffinityTest;")
+        Assert.Equal(2, res.Rows |> Seq.length)
+    finally
+        try if File.Exists fakePath then File.Delete fakePath with _ -> ()
+
+[<Fact>]
+let ``FileSqliteEngine EnsureStaged reports Failed and reraises when readRows throws exception`` () =
+    use db = new TempDb()
+    let engine = FileSqliteEngine(db.Path)
+    let fakePath = Path.Combine(Path.GetTempPath(), $"fake-fail-{Guid.NewGuid():N}.dat")
+    let events = System.Collections.Concurrent.ConcurrentBag<StagingProgressEvent>()
+
+    try
+        File.WriteAllText(fakePath, "dummy")
+        let ex =
+            Assert.Throws<Exception>(fun () ->
+                engine.EnsureStaged(
+                    "FailingStaging",
+                    fakePath,
+                    (fun () -> failwith "Staging read failed!"),
+                    onProgress = events.Add
+                ) |> ignore
+            )
+        Assert.Contains("Staging read failed!", ex.Message)
+
+        let failedEv = events |> Seq.tryFind (fun e -> e.Phase = "Failed")
+        Assert.True(failedEv.IsSome)
+    finally
+        try if File.Exists fakePath then File.Delete fakePath with _ -> ()
+
+[<Fact>]
+let ``FileSqliteEngine IsStagedAndCurrent and DropStaleTableIfExists handle edge cases`` () =
+    use db = new TempDb()
+    let engine = FileSqliteEngine(db.Path)
+
+    // 1. File does not exist
+    Assert.False(engine.IsStagedAndCurrent("NonExistentTable", @"C:\path\does\not\exist\file.csv"))
+
+    // 2. DropStaleTableIfExists when table is not in cache
+    engine.DropStaleTableIfExists("UncachedTable", @"C:\some\file.csv")
+
+    // 3. Staged file, then modify file to force mtime mismatch
+    let tmpFile = Path.Combine(Path.GetTempPath(), $"fqs-staged-{Guid.NewGuid():N}.csv")
+    try
+        File.WriteAllText(tmpFile, "Id,Name\n1,Alpha\n")
+        let stagedName = engine.EnsureStaged("StagedEdge", tmpFile, (fun () -> { Columns = [ "Id"; "Name" ]; Rows = [| [| box "1"; box "Alpha" |] |] }))
+        Assert.Equal("StagedEdge", stagedName)
+        Assert.True(engine.IsStagedAndCurrent("StagedEdge", tmpFile))
+
+        // Modify file content/mtime
+        File.AppendAllText(tmpFile, "2,Beta\n")
+        File.SetLastWriteTimeUtc(tmpFile, DateTime.UtcNow.AddMinutes(5.0))
+        Assert.False(engine.IsStagedAndCurrent("StagedEdge", tmpFile))
+
+        // Drop table when file path matches
+        engine.DropStaleTableIfExists("StagedEdge", tmpFile)
+        Assert.False(engine.IsStagedAndCurrent("StagedEdge", tmpFile))
+
+        // Drop table with tableName = "" (sanitizes to StagedFile)
+        engine.DropStaleTableIfExists("", tmpFile)
+    finally
+        try if File.Exists tmpFile then File.Delete tmpFile with _ -> ()
+
+[<Fact>]
+let ``FileSqliteEngine EnsureStaged handles empty columns, inferred affinities, and throwing progress callback`` () =
+    use db = new TempDb()
+    let engine = FileSqliteEngine(db.Path)
+    let tmpFile = Path.Combine(Path.GetTempPath(), $"fqs-inferred-{Guid.NewGuid():N}.csv")
+    try
+        File.WriteAllText(tmpFile, "dummy")
+
+        // 1. Empty columns -> defaults to [ "Value" ]
+        // 2. Empty tableName -> defaults to "StagedFile"
+        // 3. Throwing onProgress callback -> caught and logged without failure
+        let throwingCb (_: StagingProgressEvent) = failwith "Callback error"
+        let stagedEmpty =
+            engine.EnsureStaged(
+                "",
+                tmpFile,
+                (fun () -> { Columns = []; Rows = [| [| box "single_val" |] |] }),
+                onProgress = throwingCb
+            )
+        Assert.Equal("Item", stagedEmpty)
+
+        // 4. Inferred affinities: integer, bool, numeric, text, key columns
+        let qResult = {
+            Columns = [ "store_id"; "is_active"; "score"; "product_code"; "client_key"; "Region"; "Notes"; "empty_col" ]
+            Rows = [|
+                [| box "101"; box "true"; box "98.5"; box "SKU-A"; box "K1"; box "North"; box "Sample note"; null |]
+                [| box "102"; box "false"; box "72,4"; box "SKU-B"; box "K2"; box "South"; box "Another note"; DBNull.Value |]
+                [| box "103"; box "true"; box "-15.2"; box "SKU-C"; box "K3"; box "East"; box "-"; null |]
+            |]
+        }
+        let stagedInferred =
+            engine.EnsureStaged(
+                "InferredData",
+                tmpFile,
+                (fun () -> qResult)
+            )
+        Assert.Equal("InferredData", stagedInferred)
+
+        let res = engine.ExecuteQuery("SELECT * FROM InferredData;")
+        Assert.Equal(3, res.Rows |> Seq.length)
+    finally
+        try if File.Exists tmpFile then File.Delete tmpFile with _ -> ()
+
+
+
