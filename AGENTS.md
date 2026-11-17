@@ -56,12 +56,22 @@
   6. Nenhuma entrega ou PR pode ser concluído se houver qualquer célula falhando ou quebrando.
   7. Quando a extensão estiver instalada localmente em `~/.vscode/extensions/fs-query-studio.fs-query-studio-*`, sincronizar os artefatos compilados (`dist/`) e/ou reinstalar o VSIX compilado via `code --install-extension editors/vscode/fs-query-studio.vsix --force`.
 
+## Regra Obrigatória: Cobertura Mínima (>= 90%) e Mínimo de 2 Testes por Cenário
+- **Pré-requisito estrito para toda nova funcionalidade ou alteração**:
+  1. **Mínimo de 2 testes para cada cenário possível**: Para cada cenário de uso da funcionalidade (caminho feliz, variações de entrada, casos de borda/limites, entradas vazias/nulas e cenários de erro/exceção), devem ser escritos **no mínimo 2 testes automatizados distintos** validando o comportamento esperado.
+  2. **Cobertura mínima de 90% por classe/arquivo (`>= 90.00%`)**: Todas as classes e arquivos do repositório devem manter cobertura de linhas igual ou superior a **90.00%**. Nenhuma nova funcionalidade ou PR pode ser concluído se qualquer arquivo ficar abaixo de 90% de cobertura.
+
 ## Regra de Criação de Queries: Guia Canônico `fsql` para Agentes de IA
 - Todo código de consulta de dados deve seguir rigorosamente as especificações em [`docs/FSQL_AI_AGENT_GUIDE.md`](file:///docs/FSQL_AI_AGENT_GUIDE.md).
 - Use **exclusivamente** a computation expression `fsql { ... }` para queries e subqueries (`whereExists`, `whereNotExists`, `having`, `crossApply`, `lateral`, escalares na projeção).
 - **Nunca** gere templates em strings SQL crus e **nunca** misture a sintaxe antiga `query { ... }` com `fsql`.
 
 ---
+
+## Mandatory Rule: Minimum Coverage (>= 90%) & At Least 2 Tests per Scenario (English)
+- **Strict prerequisite for every new feature or behavioral change**:
+  1. **At least 2 tests for every possible scenario**: Every scenario of a new feature or change (happy path, input variations, boundary/edge cases, empty/null inputs, and error/exception paths) **must** be covered by **at least 2 distinct automated tests**.
+  2. **Minimum 90% line coverage per class/file (`>= 90.00%`)**: Every class and source file in the repository must maintain at least **90.00%** line coverage. No delivery or Pull Request may be opened if any file drops below 90% coverage or if a new class is introduced below 90% coverage.
 
 ## Strict Rule: Git & Branch Protection (English)
 - **NEVER commit or push directly to the `main` or `master` branch**.
