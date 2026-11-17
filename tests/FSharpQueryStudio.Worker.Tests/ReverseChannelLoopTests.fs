@@ -183,10 +183,7 @@ let ``loop answers execution/evaluate with a busy error while the slot is reserv
         let reserveReq: WorkerRequestFrame =
             { Id = "reserve"
               Method = "execution/evaluate"
-              Params =
-                System.Text.Json.JsonSerializer.SerializeToElement<EvaluateParams>(
-                    { Source = "1"; SessionId = None; Mode = Isolated; DocumentUri = "untitled:Busy.fsx"; IsNotebookCell = false },
-                    Serialization.options) }
+              Params = System.Text.Json.JsonDocument.Parse("123").RootElement }
 
         match Handlers.beginEvaluate reserveReq with
         | Choice2Of2 _ -> failwith "expected to reserve the evaluation slot"
@@ -199,5 +196,5 @@ let ``loop answers execution/evaluate with a busy error while the slot is reserv
                 do! Program.loop stdin stdout channel
                 Assert.Contains("execution/busy", stdout.ToString())
             finally
-                Handlers.runEvaluate reserveReq workDir |> ignore
+                try Handlers.runEvaluate reserveReq workDir |> ignore with _ -> ()
     }

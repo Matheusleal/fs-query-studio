@@ -3250,13 +3250,14 @@ let ``Deep coverage of Pushdown internals, aggregates, window functions, and FSq
     let plan = products.Plan
 
     // 1. Direct aggregates on SqlPushdownQueryable
+    let priceSel = Expression.Lambda<Func<CovProduct, decimal>>(pPrice, pParam)
     let sumCol = products.Sum<decimal>("Price")
-    let sumSel = products.Sum<decimal>(fun p -> p.Price)
+    let sumSel = products.Sum(priceSel)
     let avgCol = products.Average<decimal>("Price")
-    let avgSel = products.Average<decimal>(fun p -> p.Price)
-    let minSel = products.Min<decimal>(fun p -> p.Price)
+    let avgSel = products.Average(priceSel)
+    let minSel = products.Min(priceSel)
     let maxCol = products.Max<decimal>("Price")
-    let maxSel = products.Max<decimal>(fun p -> p.Price)
+    let maxSel = products.Max(priceSel)
     Assert.Equal(42.0M, sumCol)
     Assert.Equal(42.0M, sumSel)
     Assert.Equal(42.0M, avgCol)
@@ -3272,7 +3273,9 @@ let ``Deep coverage of Pushdown internals, aggregates, window functions, and FSq
     Assert.Equal(0.0M, emptySum)
 
     let recordConn = AdvancedMockConnector(ConnectorKind("Sqlite"), onExecute = (fun _ _ -> { Columns = ["OrderId"; "CustomerId"; "Amount"; "Status"]; Rows = [ [| box 101; box 1; box 50.0M; box "OK" |] ] }))
-    let recOrder = (SqlPushdownQueryable<CovOrder>(recordConn, "Orders")).Min<CovOrder>(fun o -> o)
+    let oParam = Expression.Parameter(typeof<CovOrder>, "o")
+    let orderIdSel = Expression.Lambda<Func<CovOrder, CovOrder>>(oParam, oParam)
+    let recOrder = (SqlPushdownQueryable<CovOrder>(recordConn, "Orders")).Min(orderIdSel)
     Assert.Equal(101, recOrder.OrderId)
 
     // 2. Queryable.Count with predicate on SqlPushdownQueryable
@@ -3732,29 +3735,32 @@ let ``Direct SqlPushdownQueryable and IQueryProvider API coverage`` () =
     Assert.Equal(5, cntExpr1)
     let cntExpr2 = qProducts.Count(fun p -> p.Price > 10.0M)
     Assert.True(cntExpr2 > 0)
+    let pParam2 = Expression.Parameter(typeof<CovProduct>, "p")
+    let cntDistExprSel = Expression.Lambda<Func<CovProduct, string>>(Expression.Property(pParam2, "Category"), pParam2)
+    let priceExprSel = Expression.Lambda<Func<CovProduct, decimal>>(Expression.Property(pParam2, "Price"), pParam2)
     let cntDist = qProducts.CountDistinct("Category")
     Assert.Equal(2, cntDist)
-    let cntDistExpr = qProducts.CountDistinct(fun p -> p.Category)
+    let cntDistExpr = qProducts.CountDistinct(cntDistExprSel)
     Assert.Equal(2, cntDistExpr)
 
     let sum1 = qProducts.Sum<decimal>("Price")
     Assert.True(sum1 > 0.0M)
-    let sum2 = qProducts.Sum<decimal>(fun p -> p.Price)
+    let sum2 = qProducts.Sum(priceExprSel)
     Assert.True(sum2 > 0.0M)
 
     let min1 = qProducts.Min<decimal>("Price")
     Assert.True(min1 > 0.0M)
-    let min2 = qProducts.Min<decimal>(fun p -> p.Price)
+    let min2 = qProducts.Min(priceExprSel)
     Assert.True(min2 > 0.0M)
 
     let max1 = qProducts.Max<decimal>("Price")
     Assert.True(max1 > 0.0M)
-    let max2 = qProducts.Max<decimal>(fun p -> p.Price)
+    let max2 = qProducts.Max(priceExprSel)
     Assert.True(max2 > 0.0M)
 
     let avg1 = qProducts.Average<decimal>("Price")
     Assert.True(avg1 > 0.0M)
-    let avg2 = qProducts.Average<decimal>(fun p -> p.Price)
+    let avg2 = qProducts.Average(priceExprSel)
     Assert.True(avg2 > 0.0M)
 
     // SQL extraction

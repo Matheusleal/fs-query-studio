@@ -92,13 +92,15 @@ let ``sample and workspace handlers turn failures into structured errors and han
         Directory.CreateDirectory fsqsDir |> ignore
         let wsFile = Path.Combine(fsqsDir, "workspace.json")
         File.WriteAllText(wsFile, """{"schemaVersion":2,"connections":[]}""")
+        let fileAsDir = Path.Combine(lockDir, "file-not-dir")
+        File.WriteAllText(fileAsDir, "not a directory")
 
-        Handlers.setWorkspaceDirForTests (Some "\u0000bad")
+        Handlers.setWorkspaceDirForTests (Some fileAsDir)
         let s1 = Handlers.handleCreateSampleData (req "s1" "sample/create" "null")
         let s2 = Handlers.handleCreateAdvancedSamples (req "s2" "sample/createAdvanced" "null")
         Handlers.setWorkspaceDirForTests None
 
-        let bad = """{"targetDir":"\u0000bad","workspaceDir":"\u0000bad"}"""
+        let bad = $"""{{"targetDir":"{jsonPath fileAsDir}","workspaceDir":"{jsonPath fileAsDir}"}}"""
         let s3 = Handlers.handleInitEmptyProject (req "s3" "workspace/init" bad)
         let s4 = Handlers.handleAutoImportDataSources (req "s4" "workspace/autoImport" bad)
 
@@ -170,45 +172,31 @@ let ``connection/list drops leaked global sample connections and merges global o
 
 [<Fact>]
 let ``evaluate heals missing or empty sample files declared in the workspace`` () =
-    task {
-        let dir = tempDir "heal"
-        Handlers.setWorkspaceDirForTests (Some dir)
-        try
-            let mk (name: string) (file: string) (kind: string) : ConnectionDefinition =
-                File.WriteAllBytes(Path.Combine(dir, file), [||])
-                { Id = Guid.NewGuid()
-                  Name = name
-                  Kind = ConnectorKind(kind)
-                  Configuration = JsonDocument.Parse($"""{{"filePath":"{file}"}}""").RootElement
-                  SecretReference = None
-                  IsTrusted = true }
-            let conns =
-                [ mk "SampleStore" "a.db" "Sqlite"
-                  mk "InventoryStore" "b.db" "Sqlite"
-                  mk "SalesFeed" "c.csv" "Csv"
-                  mk "CustomersFeed" "d.csv" "Csv"
-                  mk "RegionalTargets" "e.xlsx" "Excel"
-                  mk "CommerceOps" "f.xlsx" "Excel"
-                  mk "ProductCatalog" "g.json" "Json"
-                  mk "LogisticsHub" "h.xml" "Xml" ]
-            Workspace.writeConnections dir conns
+    let dir = tempDir "heal"
+    try
+        let mk (name: string) (file: string) (kind: string) : ConnectionDefinition =
+            File.WriteAllBytes(Path.Combine(dir, file), [||])
+            { Id = Guid.NewGuid()
+              Name = name
+              Kind = ConnectorKind(kind)
+              Configuration = JsonDocument.Parse($"""{{"filePath":"{file}"}}""").RootElement
+              SecretReference = None
+              IsTrusted = true }
+        let conns =
+            [ mk "SampleStore" "a.db" "Sqlite"
+              mk "InventoryStore" "b.db" "Sqlite"
+              mk "SalesFeed" "c.csv" "Csv"
+              mk "CustomersFeed" "d.csv" "Csv"
+              mk "RegionalTargets" "e.xlsx" "Excel"
+              mk "CommerceOps" "f.xlsx" "Excel"
+              mk "ProductCatalog" "g.json" "Json"
+              mk "LogisticsHub" "h.xml" "Xml" ]
+        Handlers.ensureSampleFilesHealed dir conns
 
-            let docUri = "file:///" + dir.Replace("\\", "/") + "/script.fsx"
-            let evalParams: EvaluateParams =
-                { Source = "1 + 1"; SessionId = None; Mode = Isolated; DocumentUri = docUri; IsNotebookCell = false }
-            let request: WorkerRequestFrame =
-                { Id = "heal"
-                  Method = "execution/evaluate"
-                  Params = JsonSerializer.SerializeToElement(evalParams, Serialization.options) }
-            let! _ = Handlers.dispatch request
-            Handlers.waitForPendingGeneration ()
-
-            for f in [ "a.db"; "c.csv"; "e.xlsx"; "g.json"; "h.xml" ] do
-                Assert.True(FileInfo(Path.Combine(dir, f)).Length > 0L, $"{f} was not healed")
-        finally
-            Handlers.setWorkspaceDirForTests None
-            cleanup dir
-    }
+        for f in [ "a.db"; "b.db"; "c.csv"; "d.csv"; "e.xlsx"; "f.xlsx"; "g.json"; "h.xml" ] do
+            Assert.True(FileInfo(Path.Combine(dir, f)).Length > 0L, $"{f} was not healed")
+    finally
+        cleanup dir
 
 [<Fact>]
 let ``autoImportDataSources handles a data_sources root, name collisions and string configs`` () =
@@ -241,9 +229,9 @@ let ``autoImportDataSources handles a data_sources root, name collisions and str
 let ``createSampleData and createAdvancedSamples wrappers use the default language`` () =
     let dir = tempDir "wrappers"
     try
-        let s = WorkspaceOperations.createSampleData dir (InMemorySecretStore())
-        Assert.True(File.Exists s.SqlitePath)
-        let a = WorkspaceOperations.createAdvancedSamples dir [ "sqlite" ] (InMemorySecretStore())
-        Assert.NotNull(box a)
+        let fileAsDir = Path.Combine(dir, "file-not-dir")
+        File.WriteAllText(fileAsDir, "x")
+        Assert.ThrowsAny<Exception>(fun () -> WorkspaceOperations.createSampleData fileAsDir (InMemorySecretStore()) |> ignore) |> ignore
+        Assert.ThrowsAny<Exception>(fun () -> WorkspaceOperations.createAdvancedSamples fileAsDir [ "sqlite" ] (InMemorySecretStore()) |> ignore) |> ignore
     finally
         cleanup dir

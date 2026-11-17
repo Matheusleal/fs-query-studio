@@ -1494,8 +1494,8 @@ module ConvertValueDeepTests =
         Assert.Equal(TimeOnly.MinValue, RecordReaders.ReadTimeOnly(mockRec, -1))
 
         // ReadByteArray
-        Assert.Equal<byte>([| 1uy; 2uy; 3uy |], RecordReaders.ReadByteArray(mockRec, 24))
-        Assert.Equal<byte>(System.Text.Encoding.UTF8.GetBytes("Hello"), RecordReaders.ReadByteArray(mockRec, 25))
+        Assert.Equal<byte[]>([| 1uy; 2uy; 3uy |], RecordReaders.ReadByteArray(mockRec, 24))
+        Assert.Equal<byte[]>(System.Text.Encoding.UTF8.GetBytes("Hello"), RecordReaders.ReadByteArray(mockRec, 25))
         Assert.Empty(RecordReaders.ReadByteArray(mockRec, 9))
         Assert.Empty(RecordReaders.ReadByteArray(mockRec, -1))
 
@@ -1579,7 +1579,7 @@ module ConvertValueDeepTests =
 
         // String into invalid base64 (falls back to UTF8 bytes)
         let utf8Res = RecordReaders.ConvertValue (box "hello_world!?") typeof<byte[]>
-        Assert.Equal<byte>(System.Text.Encoding.UTF8.GetBytes("hello_world!?"), unbox<byte[]> utf8Res)
+        Assert.Equal<byte[]>(System.Text.Encoding.UTF8.GetBytes("hello_world!?"), unbox<byte[]> utf8Res)
 
         // Non-string into decimal
         Assert.Equal(box 123M, RecordReaders.ConvertValue (box 123L) typeof<decimal>)

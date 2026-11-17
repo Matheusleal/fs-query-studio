@@ -194,7 +194,7 @@ module Handlers =
                 None)
         |> Option.defaultValue (workspaceDir ())
 
-    let private ensureSampleFilesHealed (targetWs: string) (connections: ConnectionDefinition list) : unit =
+    let ensureSampleFilesHealed (targetWs: string) (connections: ConnectionDefinition list) : unit =
         for def in connections do
             try
                 if def.Configuration.ValueKind = JsonValueKind.Object then
