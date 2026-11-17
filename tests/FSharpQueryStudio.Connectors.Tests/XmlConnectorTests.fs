@@ -132,4 +132,27 @@ let ``GetColumnNames returns columns for discovered XML table`` () =
     let cols = connector.ReadRows().Columns
     Assert.Equal<string list>([ "Id"; "Description" ], cols)
 
+[<Fact>]
+let ``XmlConnector handles missing files, FlattenNested false, IncludeAttributes false, and explicit ColumnTypes`` () =
+    let missing = XmlConnector("C:/non_existent_folder_12345/missing.xml")
+    Assert.Empty(missing.ReadRows().Columns)
+    Assert.Empty((missing :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result)
+
+    let xml = """<Root><Item Code="A1"><Nested><Child>Val1</Child></Nested><Leaf Attr="X">TextVal</Leaf></Item><Item Code="A2"><Nested><Child>Val2</Child></Nested><Leaf Attr="Y">TextVal2</Leaf></Item></Root>"""
+    use f = new TempXmlFile(xml)
+    let opts =
+        { XmlOptions.Default with
+            FlattenNested = false
+            IncludeAttributes = false
+            ColumnTypes = Map.ofList [ "Leaf", "string" ] }
+    let conn = XmlConnector(f.Path, opts)
+    let qr = conn.ReadRows()
+    Assert.Contains("Nested", qr.Columns)
+    Assert.Contains("Leaf", qr.Columns)
+
+    let tables = (conn :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result
+    let leafCol = tables.[0].Columns |> List.find (fun c -> c.Name = "Leaf")
+    Assert.Equal("string", leafCol.DataType)
+
+
 

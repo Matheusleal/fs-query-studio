@@ -165,4 +165,31 @@ let ``GetColumnNames returns columns for discovered table`` () =
     let cols = connector.ReadRows().Columns
     Assert.Equal<string list>([ "ColA"; "ColB" ], cols)
 
+[<Fact>]
+let ``JsonConnector handles missing files, primitive arrays with transforms, JsonPath edge cases and explicit ColumnTypes`` () =
+    let missing = JsonConnector("C:/non_existent_folder_12345/missing.json")
+    Assert.Empty(missing.ReadRows().Columns)
+    Assert.Empty((missing :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result)
+
+    use fPrim = new TempJsonFile("[ 10, 20, 30 ]")
+    let optsPrim =
+        { JsonOptions.Default with
+            JsonPath = Some "."
+            ColumnTransforms = Map.ofList [ "Value", "multiply(10)" ]
+            ColumnTypes = Map.ofList [ "Value", "int" ] }
+    let connPrim = JsonConnector(fPrim.Path, optsPrim)
+    let qrPrim = connPrim.ReadRows()
+    let rowsPrim = qrPrim.Rows |> Seq.toList
+    Assert.Equal(box "100", rowsPrim.[0].[0])
+    let tablesPrim = (connPrim :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result
+    Assert.Equal("int", tablesPrim.[0].Columns.[0].DataType)
+
+    let connMissingPath = JsonConnector(fPrim.Path, { JsonOptions.Default with JsonPath = Some "nonexistent.path" })
+    Assert.Empty(connMissingPath.ReadRows().Columns)
+
+    use fScalar = new TempJsonFile("42")
+    let connScalar = JsonConnector(fScalar.Path)
+    Assert.Equal(1, connScalar.ReadRows().Rows |> Seq.length)
+
+
 

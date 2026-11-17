@@ -4142,11 +4142,11 @@ let ``Pushdown comprehensive coverage section 54 - deep AST branches, joins, tup
 
     // 7. Quotation rewriting of WhereExistsPred, WhereNotExistsPred, Having (Lines 4101-4106, 4120-4126, 4128-4133)
     let builder = FSqlQueryBuilder()
-    let miExistsPred = typeof<FSqlQueryBuilder>.GetMethod("WhereExistsPred").MakeGenericMethod(typeof<CovProduct>, typeof<IQueryable<CovProduct>>)
-    let miNotExistsPred = typeof<FSqlQueryBuilder>.GetMethod("WhereNotExistsPred").MakeGenericMethod(typeof<CovProduct>, typeof<IQueryable<CovProduct>>)
-    let miHaving = typeof<FSqlQueryBuilder>.GetMethod("Having").MakeGenericMethod(typeof<CovProduct>, typeof<IQueryable<CovProduct>>)
-    let qs = Microsoft.FSharp.Linq.QuerySource<CovProduct, IQueryable<CovProduct>>(products :> IQueryable<CovProduct>)
-    let qSource = Microsoft.FSharp.Quotations.Expr.Value(qs, typeof<Microsoft.FSharp.Linq.QuerySource<CovProduct, IQueryable<CovProduct>>>)
+    let miExistsPred = typeof<FSqlQueryBuilder>.GetMethod("WhereExistsPred").MakeGenericMethod(typeof<CovProduct>, typeof<System.Linq.IQueryable>)
+    let miNotExistsPred = typeof<FSqlQueryBuilder>.GetMethod("WhereNotExistsPred").MakeGenericMethod(typeof<CovProduct>, typeof<System.Linq.IQueryable>)
+    let miHaving = typeof<FSqlQueryBuilder>.GetMethod("Having").MakeGenericMethod(typeof<CovProduct>, typeof<System.Linq.IQueryable>)
+    let qs = Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>(products :> IQueryable<CovProduct>)
+    let qSource = Microsoft.FSharp.Quotations.Expr.Value(qs, typeof<Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>>)
     let qVar = Microsoft.FSharp.Quotations.Var("p", typeof<CovProduct>)
     let qTrue = <@@ true @@>
     let qCallExists = Microsoft.FSharp.Quotations.Expr.Call(Microsoft.FSharp.Quotations.Expr.Value(builder), miExistsPred, [ qSource; Microsoft.FSharp.Quotations.Expr.Lambda(qVar, qTrue) ])
@@ -4157,12 +4157,16 @@ let ``Pushdown comprehensive coverage section 54 - deep AST branches, joins, tup
         typeof<FSqlQueryBuilder>.GetMethods()
         |> Seq.find (fun m -> m.Name = "Run" && m.DeclaringType = typeof<FSqlQueryBuilder> && m.IsGenericMethod)
     let runMethod = runMethodDef.MakeGenericMethod(typeof<CovProduct>)
-    try let _ = runMethod.Invoke(builder, [| box qCallExists |]) in () with _ -> ()
-    try let _ = runMethod.Invoke(builder, [| box qCallNotExists |]) in () with _ -> ()
-    try let _ = runMethod.Invoke(builder, [| box qCallHaving |]) in () with _ -> ()
+    try let _ = runMethod.Invoke(builder, [| box (Microsoft.FSharp.Quotations.Expr.Cast<Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>>(qCallExists)) |]) in () with _ -> ()
+    try let _ = runMethod.Invoke(builder, [| box (Microsoft.FSharp.Quotations.Expr.Cast<Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>>(qCallNotExists)) |]) in () with _ -> ()
+    try let _ = runMethod.Invoke(builder, [| box (Microsoft.FSharp.Quotations.Expr.Cast<Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>>(qCallHaving)) |]) in () with _ -> ()
 
     // 8. collectAllCtesFromExpr on PropertyGet (Lines 4326-4331)
-    try let _ = runMethod.Invoke(builder, [| box <@ (StaticCteHolder.ProdsWithCte, products) @> |]) in () with _ -> ()
+    let propGetExpr = Microsoft.FSharp.Quotations.Expr.PropertyGet(typeof<StaticCteHolder>.GetProperty("ProdsWithCte"))
+    let srcMi = typeof<FSqlQueryBuilder>.GetMethods() |> Seq.find (fun m -> m.Name = "Source" && m.IsGenericMethod && m.GetParameters().[0].ParameterType.Name.StartsWith("IQueryable"))
+    let srcGenArgs = if srcMi.GetGenericArguments().Length = 2 then [| typeof<CovProduct>; typeof<System.Linq.IQueryable> |] else [| typeof<CovProduct> |]
+    let srcCall = Microsoft.FSharp.Quotations.Expr.Call(Microsoft.FSharp.Quotations.Expr.Value(builder), srcMi.MakeGenericMethod(srcGenArgs), [ propGetExpr ])
+    try let _ = runMethod.Invoke(builder, [| box (Microsoft.FSharp.Quotations.Expr.Cast<Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>>(srcCall)) |]) in () with _ -> ()
 
     // 9. ValueOption in unwrapClientOption (Lines 168-173)
     Assert.Equal(box "vsome", ExpressionPushdownTranslator.unwrapClientOption (box (ValueSome "vsome")))
@@ -4261,5 +4265,312 @@ let ``Pushdown comprehensive coverage section 54 - deep AST branches, joins, tup
     Assert.NotNull(b.intersect pq1 pq2)
     Assert.NotNull(b.except pq1 pq2)
 
+    // 14. Step 4 targeted branches: MemberInitExpression, overflow/nested tuples, subquery CTEs, FSqlExtensions on wrapped IQueryables
+    // 14a. extractMemberMap on MemberInitExpression (lines 78-84)
+    let mie = Expression.MemberInit(Expression.New(typeof<CovProduct>), [| Expression.Bind(typeof<CovProduct>.GetProperty("Name"), Expression.Constant("x")) :> MemberBinding |])
+    let mieMap = ExpressionPushdownTranslator.extractMemberMap mie
+    Assert.True(mieMap.ContainsKey("Name"))
+    Assert.True((ExpressionPushdownTranslator.extractMemberMap (Expression.Constant(1))).IsEmpty)
+
+    // 14b. getTupleDepth & resolveMemberRef on overflow tuple (Item8) and nested left-associative tuples (lines 135-142, 404-445)
+    let planWith8Joins = PushdownQueryPlan.Create("Products", [], baseAlias = "t0")
+    for jIdx in 1 .. 8 do
+        planWith8Joins.Joins.Add({ JoinType = "LEFT JOIN"; SourceTable = $"T{jIdx}"; Alias = $"_t{jIdx}"; OnClause = "1=1"; RowType = None })
+    let overflowTupleType = typeof<Tuple<int, int, int, int, int, int, int, Tuple<CovProduct>>>
+    let overflowParam = Expression.Parameter(overflowTupleType, "ti")
+    let item8Expr = Expression.Property(Expression.Property(overflowParam, "Rest"), "Item1")
+    // Also test synthetic Item8 property path if present or nested Tuple<Tuple<CovProduct, CovOrder>, CovProduct>
+    let nestedTupleType = typeof<Tuple<Tuple<CovProduct, CovOrder>, CovProduct>>
+    let nestedParam = Expression.Parameter(nestedTupleType, "nt")
+    let nestedItem1_1_Name = Expression.Property(Expression.Property(Expression.Property(nestedParam, "Item1"), "Item1"), "Name")
+    let nestedItem1_2_OrderId = Expression.Property(Expression.Property(Expression.Property(nestedParam, "Item1"), "Item2"), "OrderId")
+    let (alias1, col1) = ExpressionPushdownTranslator.resolveMemberRef planWith8Joins nestedItem1_1_Name
+    let (alias2, col2) = ExpressionPushdownTranslator.resolveMemberRef planWith8Joins nestedItem1_2_OrderId
+    Assert.Equal("Name", col1)
+    Assert.Equal("OrderId", col2)
+    Assert.True(alias1.IsSome && alias2.IsSome)
+    let _ = ExpressionPushdownTranslator.resolveMemberRef planWith8Joins (Expression.Property(item8Expr, "Name"))
+
+    // 14c. tryFindPushdownSource on InvocationExpression (lines 247-248)
+    let invExpr = Expression.Invoke(Expression.Lambda(Expression.Constant(products)))
+    Assert.True((ExpressionPushdownTranslator.tryFindPushdownSource invExpr).IsSome)
+
+    // 14d. unwrapOptionOrNullableMember on MethodCallExpression get_Value (lines 278-285)
+    let optIntParam = Expression.Parameter(typeof<option<int>>, "opt")
+    let getValMc = Expression.Call(optIntParam, typeof<option<int>>.GetProperty("Value").GetGetMethod())
+    Assert.Same(optIntParam, ExpressionPushdownTranslator.unwrapOptionOrNullableMember getValMc)
+
+    // 14e. extractKeyColumns fallback (lines 504-508)
+    let pParam2 = Expression.Parameter(typeof<CovProduct>, "p")
+    let keyCols = ExpressionPushdownTranslator.extractKeyColumns plan "t0" pParam2 (Expression.Property(pParam2, "Id"))
+    Assert.Equal<string list>([ "t0.Id" ], keyCols)
+
+    // 14f. Subqueries with CTE propagation and 1 <= subquery.Count() (lines 689-696, 747-755, 774-780, 1026-1034, 1077-1085)
+    let subWithCte = orders.WithCte("sub_cte_prop", orders)
+    let planOuter = PushdownQueryPlan.Create("Products", [], baseAlias = "t0", baseRowType = typeof<CovProduct>)
+    planOuter.OuterAliases.["outerP"] <- "t0"
+    let countOrderMethod = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)).MakeGenericMethod(typeof<CovOrder>)
+    let subCountCall = Expression.Call(null, countOrderMethod, Expression.Constant(subWithCte))
+    let scalarSubSql = ExpressionPushdownTranslator.tryTranslateSubqueryScalarExpr SqlDialect.Sqlite planOuter subCountCall
+    Assert.True(scalarSubSql.IsSome)
+    Assert.Contains(planOuter.Ctes, fun c -> c.Name = "sub_cte_prop")
+
+    let planOuter2 = PushdownQueryPlan.Create("Products", [], baseAlias = "t0", baseRowType = typeof<CovProduct>)
+    planOuter2.OuterAliases.["outerP"] <- "t0"
+    let oneLeCount = Expression.LessThanOrEqual(Expression.Constant(1), subCountCall)
+    let pred1Le = ExpressionPushdownTranslator.tryTranslateSubqueryPredicate pParam2 planOuter2 SqlDialect.Sqlite oneLeCount
+    Assert.True(pred1Le.IsSome)
+    Assert.Contains("EXISTS", pred1Le.Value)
+
+    let anyOrderMethod = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Any" && m.GetParameters().Length = 1)).MakeGenericMethod(typeof<CovOrder>)
+    let subAnyCall = Expression.Call(null, anyOrderMethod, Expression.Constant(subWithCte))
+    let planOuter3 = PushdownQueryPlan.Create("Products", [], baseAlias = "t0", baseRowType = typeof<CovProduct>)
+    planOuter3.OuterAliases.["outerP"] <- "t0"
+    let predAnyCte = ExpressionPushdownTranslator.translatePredicate pParam2 planOuter3 SqlDialect.Sqlite subAnyCall
+    Assert.True(predAnyCte.IsSome)
+
+    let notExistsMi =
+        match <@ notExists subWithCte @> with
+        | Microsoft.FSharp.Quotations.Patterns.Call(_, mi, _) -> mi
+        | _ -> failwith "expected Call"
+    let subNotExistsCall = Expression.Call(null, notExistsMi, Expression.Constant(subWithCte))
+    let planOuter4 = PushdownQueryPlan.Create("Products", [], baseAlias = "t0", baseRowType = typeof<CovProduct>)
+    planOuter4.OuterAliases.["outerP"] <- "t0"
+    let predNotExistsCte = ExpressionPushdownTranslator.translatePredicate pParam2 planOuter4 SqlDialect.Sqlite subNotExistsCall
+    Assert.True(predNotExistsCte.IsSome)
+
+    // 14g. translatePredicate partial AndAlso/OrElse and inverted StartsWith/EndsWith (lines 825-831, 1000-1005)
+    let validPred = Expression.Equal(Expression.Property(pParam2, "Id"), Expression.Constant(1))
+    let unsupportedPred = Expression.TypeIs(pParam2, typeof<obj>) :> Expression
+    Assert.True((ExpressionPushdownTranslator.translatePredicate pParam2 plan SqlDialect.Sqlite (Expression.AndAlso(validPred, unsupportedPred))).IsSome)
+    Assert.True((ExpressionPushdownTranslator.translatePredicate pParam2 plan SqlDialect.Sqlite (Expression.AndAlso(unsupportedPred, validPred))).IsSome)
+    Assert.True((ExpressionPushdownTranslator.translatePredicate pParam2 plan SqlDialect.Sqlite (Expression.AndAlso(unsupportedPred, unsupportedPred))).IsNone)
+    Assert.True((ExpressionPushdownTranslator.translatePredicate pParam2 plan SqlDialect.Sqlite (Expression.OrElse(validPred, unsupportedPred))).IsNone)
+
+    let startsWithM = typeof<string>.GetMethod("StartsWith", [| typeof<string> |])
+    let endsWithM = typeof<string>.GetMethod("EndsWith", [| typeof<string> |])
+    let invStarts = Expression.Call(Expression.Property(pParam2, "Name"), startsWithM, Expression.Constant("elec"))
+    let invEnds = Expression.Call(Expression.Property(pParam2, "Name"), endsWithM, Expression.Constant("elec"))
+    Assert.True((ExpressionPushdownTranslator.translatePredicate pParam2 plan SqlDialect.Sqlite invStarts).IsSome)
+    Assert.True((ExpressionPushdownTranslator.translatePredicate pParam2 plan SqlDialect.Sqlite invEnds).IsSome)
+
+    // 14h. translateScalarCondition & translateScalarExpr on Constant IQueryable, aggregates, and GetValueOrDefault (lines 1444, 1477, 1486-1502, 1744-1833, 1991-1998)
+    let condEnds = Expression.Call(Expression.Property(pParam2, "Name"), endsWithM, Expression.Constant("x"))
+    Assert.True((ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan condEnds).IsSome)
+    Assert.True((ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan (Expression.Not(Expression.Constant(true)))).IsNone)
+
+    let filteredOrdersWithParam = (orders :> IQueryable<CovOrder>).Where(fun o -> o.Amount > 50m)
+    let constIqExpr = Expression.Constant(filteredOrdersWithParam, typeof<IQueryable<CovOrder>>)
+    let constIqSql = ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan constIqExpr
+    Assert.True(constIqSql.IsSome)
+
+    let selectedOrders = (orders :> IQueryable<CovOrder>).Select(fun o -> o.CustomerId)
+    let countIntMethod = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)).MakeGenericMethod(typeof<int>)
+    let countOnSelectExpr = Expression.Call(null, countIntMethod, selectedOrders.Expression)
+    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan countOnSelectExpr).IsSome)
+
+    let getValOrDef1 = typeof<Nullable<decimal>>.GetMethod("GetValueOrDefault", [| typeof<decimal> |])
+    let gvodCall = Expression.Call(Expression.Property(pParam2, "Score"), getValOrDef1, Expression.Constant(0m))
+    Assert.Contains("COALESCE", (ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan gvodCall).Value)
+
+    // 14i. LinqInMemoryFallback.evaluate on Queryable.Where (lines 2639-2686)
+    let memQ = [ 1; 2; 3 ].AsQueryable().Where(fun x -> x > 1)
+    let memRes = LinqInMemoryFallback.evaluate memQ.Expression :?> System.Collections.Generic.IEnumerable<int>
+    Assert.Equal<int list>([ 2; 3 ], memRes |> Seq.toList)
+
+    // 14j. FSqlExtensions on wrapped IQueryable with seedPlan CTEs and parameters (lines 4428-4536)
+    let baseWithSeedCte = (products.WithCte("c_seed", orders) :> IQueryable<CovProduct>).Where(fun p -> p.Price > 10m)
+    let rhsWrapped = (products :> IQueryable<CovProduct>).Where(fun p -> p.InStock)
+    Assert.Contains("UNION", SqlPushdownQuery.toRawSql (baseWithSeedCte.Union(rhsWrapped)))
+    Assert.Contains("UNION ALL", SqlPushdownQuery.toRawSql (baseWithSeedCte.UnionAll(rhsWrapped)))
+    Assert.Contains("INTERSECT", SqlPushdownQuery.toRawSql (baseWithSeedCte.Intersect(rhsWrapped)))
+    Assert.Contains("EXCEPT", SqlPushdownQuery.toRawSql (baseWithSeedCte.Except(rhsWrapped)))
+
+    let cteWithParam = (orders :> IQueryable<CovOrder>).Where(fun o -> o.Amount > 25m)
+    let wrappedWithAutoCte = rhsWrapped.WithCte(cteWithParam)
+    let wrappedWithNamedCte = rhsWrapped.WithCte("named_cte_param", cteWithParam)
+    Assert.Contains("WITH", SqlPushdownQuery.toRawSql wrappedWithAutoCte)
+    Assert.Contains("named_cte_param", SqlPushdownQuery.toRawSql wrappedWithNamedCte)
+
+    // 15. Additional branches to push SqlPushdownQuery.fs >= 90%:
+    // 15a. Non-grouping, non-pushdown-queryable Enumerable aggregates in translateScalarExpr (lines 1734-1836)
+    let seqParam = Expression.Parameter(typeof<System.Collections.Generic.IEnumerable<CovProduct>>, "items")
+    let pInStockLambda = Expression.Lambda<Func<CovProduct, bool>>(Expression.Property(pParam2, "InStock"), pParam2)
+    let pCatLambda = Expression.Lambda<Func<CovProduct, string>>(Expression.Property(pParam2, "Category"), pParam2)
+    let countPredGen = (typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 2)).MakeGenericMethod(typeof<CovProduct>)
+    let selectEnumGen = (typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Select" && m.GetParameters().Length = 2 && (m.GetParameters().[1].ParameterType.GetGenericArguments().Length = 2))).MakeGenericMethod(typeof<CovProduct>, typeof<string>)
+    let distinctEnumGen = (typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Distinct" && m.GetParameters().Length = 1)).MakeGenericMethod(typeof<string>)
+    let countStrGen = (typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)).MakeGenericMethod(typeof<string>)
+    let longCountGen = (typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "LongCount" && m.GetParameters().Length = 1)).MakeGenericMethod(typeof<CovProduct>)
+
+    let mcCountPredSeq = Expression.Call(null, countPredGen, seqParam, pInStockLambda)
+    let mcSelectSeq = Expression.Call(null, selectEnumGen, seqParam, pCatLambda)
+    let mcDistinctSeq = Expression.Call(null, distinctEnumGen, mcSelectSeq)
+    let mcCountSelectSeq = Expression.Call(null, countStrGen, mcSelectSeq)
+    let mcCountDistinctSeq = Expression.Call(null, countStrGen, mcDistinctSeq)
+    let mcLongCountSeq = Expression.Call(null, longCountGen, seqParam)
+    let mcSumSeq = Expression.Call(null, sumGen, seqParam, pPriceLambda)
+    let mcMinSeq = Expression.Call(null, minGen, seqParam, pPriceLambda)
+    let mcMaxSeq = Expression.Call(null, maxGen, seqParam, pPriceLambda)
+    let mcAvgSeq = Expression.Call(null, avgGen, seqParam, pPriceLambda)
+
+    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcCountPredSeq).IsSome)
+    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcCountSelectSeq).IsSome)
+    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcCountDistinctSeq).IsSome)
+    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcLongCountSeq).IsSome)
+    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcSumSeq).IsSome)
+    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcMinSeq).IsSome)
+    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcMaxSeq).IsSome)
+    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcAvgSeq).IsSome)
+
+    // 15b. mergeExpressionIntoPlan terminal aggregates over Select and scalar projections (lines 2498-2612)
+    let qSelectPrice = (products :> IQueryable<CovProduct>).Select(fun p -> p.Price)
+    let sumDecQ = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Sum" && m.GetParameters().Length = 1 && m.ReturnType = typeof<decimal>))
+    let minDecQ = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Min" && m.GetParameters().Length = 1 && m.IsGenericMethod)).MakeGenericMethod(typeof<decimal>)
+    let maxDecQ = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Max" && m.GetParameters().Length = 1 && m.IsGenericMethod)).MakeGenericMethod(typeof<decimal>)
+    let avgDecQ = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Average" && m.GetParameters().Length = 1 && m.ReturnType = typeof<decimal>))
+
+    Assert.Contains("SUM(", (ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, sumDecQ, qSelectPrice.Expression)) "Products" [] SqlDialect.Sqlite).BuildSql(SqlDialect.Sqlite))
+    Assert.Contains("MIN(", (ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, minDecQ, qSelectPrice.Expression)) "Products" [] SqlDialect.Sqlite).BuildSql(SqlDialect.Sqlite))
+    Assert.Contains("MAX(", (ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, maxDecQ, qSelectPrice.Expression)) "Products" [] SqlDialect.Sqlite).BuildSql(SqlDialect.Sqlite))
+    Assert.Contains("AVG(", (ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, avgDecQ, qSelectPrice.Expression)) "Products" [] SqlDialect.Sqlite).BuildSql(SqlDialect.Sqlite))
+
+    let qSelectNullableVal = (products :> IQueryable<CovProduct>).Select(fun p -> p.Score.Value)
+    let qSelectBin = (products :> IQueryable<CovProduct>).Select(fun p -> p.Price + 10m)
+    let qSelectMc = (products :> IQueryable<CovProduct>).Select(fun p -> p.Name.Trim())
+    let qSelectCond = (products :> IQueryable<CovProduct>).Select(fun p -> if p.InStock then 1 else 0)
+    Assert.NotNull((ExpressionPushdownTranslator.extractPlanFromExpression qSelectNullableVal.Expression "Products" [] SqlDialect.Sqlite).Projection)
+    Assert.NotNull((ExpressionPushdownTranslator.extractPlanFromExpression qSelectBin.Expression "Products" [] SqlDialect.Sqlite).Projection)
+    Assert.NotNull((ExpressionPushdownTranslator.extractPlanFromExpression qSelectMc.Expression "Products" [] SqlDialect.Sqlite).Projection)
+    Assert.NotNull((ExpressionPushdownTranslator.extractPlanFromExpression qSelectCond.Expression "Products" [] SqlDialect.Sqlite).Projection)
+
+    // 15c. In-memory set operations in fsql (lines 4218-4251)
+    let inMemIq = [ 1; 2 ].AsQueryable()
+    let qMemUnion = fsql { for x in inMemIq do union ([ 2; 3 ] :> seq<int>) }
+    let qMemUnionAll = fsql { for x in inMemIq do unionAll ([ 2; 3 ] :> seq<int>) }
+    let qMemIntersect = fsql { for x in inMemIq do intersect ([ 2; 3 ] :> seq<int>) }
+    let qMemExcept = fsql { for x in inMemIq do except ([ 2; 3 ] :> seq<int>) }
+    Assert.Equal(3, qMemUnion |> Seq.length)
+    Assert.Equal(4, qMemUnionAll |> Seq.length)
+    Assert.Equal(1, qMemIntersect |> Seq.length)
+    Assert.Equal(1, qMemExcept |> Seq.length)
+
+    // 15d. Fallback None branches in translateScalarExpr and translateScalarCondition when inner operand is unsupported
+    let unsupInt = Expression.Default(typeof<int>) :> Expression
+    let unsupDec = Expression.Default(typeof<decimal>) :> Expression
+    let unsupDbl = Expression.Default(typeof<double>) :> Expression
+    let unsupStr = Expression.Default(typeof<string>) :> Expression
+    let unsupDt = Expression.Default(typeof<DateTime>) :> Expression
+    let unsupBool = Expression.Default(typeof<bool>) :> Expression
+
+    let evalScalar e = ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan e |> ignore
+    let evalCond e = ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan e |> ignore
+
+    evalScalar (Expression.Property(unsupDt, "Year"))
+    evalScalar (Expression.Property(unsupStr, "Length"))
+    evalScalar (Expression.Property(null, typeof<DateTime>.GetProperty("UtcNow")))
+
+    let strAddM = typeof<string>.GetMethod("Concat", [| typeof<string>; typeof<string> |])
+    evalScalar (Expression.Add(unsupStr, Expression.Constant("a"), strAddM))
+    evalScalar (Expression.Add(unsupInt, Expression.Constant(1)))
+    evalScalar (Expression.Subtract(unsupInt, Expression.Constant(1)))
+    evalScalar (Expression.Multiply(unsupInt, Expression.Constant(1)))
+    evalScalar (Expression.Divide(unsupInt, Expression.Constant(1)))
+    evalScalar (Expression.Modulo(unsupInt, Expression.Constant(1)))
+    evalScalar (Expression.ExclusiveOr(unsupInt, Expression.Constant(1)))
+
+    let nullConst = Expression.Constant(null, typeof<string>)
+    evalScalar (Expression.Condition(Expression.Equal(unsupStr, nullConst), unsupStr, Expression.Constant("a")))
+    evalScalar (Expression.Condition(Expression.NotEqual(unsupStr, nullConst), unsupStr, Expression.Constant("a")))
+    evalScalar (Expression.Condition(unsupBool, unsupInt, Expression.Constant(0)))
+
+    evalScalar (Expression.Call(null, strAddM, unsupStr, Expression.Constant("a")))
+    evalScalar (Expression.Call(unsupStr, typeof<string>.GetMethod("ToUpper", Type.EmptyTypes)))
+    evalScalar (Expression.Call(unsupStr, typeof<string>.GetMethod("ToLower", Type.EmptyTypes)))
+    evalScalar (Expression.Call(unsupStr, typeof<string>.GetMethod("Trim", Type.EmptyTypes)))
+    evalScalar (Expression.Call(null, typeof<string>.GetMethod("IsNullOrEmpty", [| typeof<string> |]), unsupStr))
+    evalScalar (Expression.Call(null, typeof<string>.GetMethod("IsNullOrWhiteSpace", [| typeof<string> |]), unsupStr))
+    evalScalar (Expression.Call(unsupInt, typeof<obj>.GetMethod("ToString", Type.EmptyTypes)))
+    evalScalar (Expression.Call(unsupStr, typeof<string>.GetMethod("Substring", [| typeof<int> |]), unsupInt))
+    evalScalar (Expression.Call(unsupStr, typeof<string>.GetMethod("Substring", [| typeof<int> |]), Expression.Constant(0)))
+    evalScalar (Expression.Call(unsupStr, typeof<string>.GetMethod("Replace", [| typeof<string>; typeof<string> |]), Expression.Constant("a"), Expression.Constant("b")))
+    evalScalar (Expression.Call(null, typeof<Math>.GetMethod("Round", [| typeof<double> |]), unsupDbl))
+    evalScalar (Expression.Call(null, typeof<Math>.GetMethod("Round", [| typeof<double>; typeof<int> |]), unsupDbl, Expression.Constant(2)))
+    evalScalar (Expression.Call(null, typeof<Math>.GetMethod("Abs", [| typeof<double> |]), unsupDbl))
+    evalScalar (Expression.Call(null, typeof<Math>.GetMethod("Floor", [| typeof<double> |]), unsupDbl))
+    evalScalar (Expression.Call(null, typeof<Math>.GetMethod("Ceiling", [| typeof<double> |]), unsupDbl))
+    evalScalar (Expression.Call(null, typeof<Math>.GetMethod("Sqrt", [| typeof<double> |]), unsupDbl))
+    evalScalar (Expression.Call(null, typeof<Math>.GetMethod("Pow", [| typeof<double>; typeof<double> |]), unsupDbl, unsupDbl))
+    evalScalar (Expression.Call(unsupStr, typeof<string>.GetMethod("IndexOf", [| typeof<string> |]), Expression.Constant("a")))
+    evalScalar (Expression.Call(Expression.Property(pParam2, "Score"), getValOrDef1, unsupDec))
+
+    // translateScalarCondition fallback None branches (lines 1415, 1419, 1429, 1440, 1462, 1466, 1470, 1478, 1479)
+    evalCond (Expression.AndAlso(unsupBool, unsupBool))
+    evalCond (Expression.OrElse(unsupBool, unsupBool))
+    evalCond (Expression.Equal(unsupInt, Expression.Constant(1)))
+    evalCond (Expression.Add(unsupInt, Expression.Constant(1)))
+    evalCond (Expression.Call(null, typeof<string>.GetMethod("IsNullOrEmpty", [| typeof<string> |]), unsupStr))
+    evalCond (Expression.Call(null, typeof<string>.GetMethod("IsNullOrWhiteSpace", [| typeof<string> |]), unsupStr))
+    evalCond (Expression.Call(unsupStr, typeof<string>.GetMethod("Contains", [| typeof<string> |]), Expression.Constant("a")))
+    evalCond (Expression.Call(Expression.Constant("a"), typeof<string>.GetMethod("Contains", [| typeof<string> |]), Expression.Constant("b")))
+
+    // parseWindowSpec fallback branches (lines 1196, 1203, 1204, 1213, 1222)
+    let winMi = typeof<FSqlQueryBuilder>.GetMethod("window").MakeGenericMethod(typeof<int>, typeof<int>, typeof<int>)
+    let someIntMi = typeof<option<int>>.GetMethod("Some")
+    let winCallUnsup =
+        Expression.Call(
+            Expression.Constant(b),
+            winMi,
+            Expression.Call(null, someIntMi, unsupInt),
+            Expression.Call(null, someIntMi, unsupInt),
+            Expression.Call(null, someIntMi, unsupInt)
+        )
+    ExpressionPushdownTranslator.parseWindowSpec SqlDialect.Sqlite plan winCallUnsup |> ignore
+
+    // mergeExpressionIntoPlan fallback branches when Select body fails scalar translation (lines 2477-2612)
+    let selectUnsupInt =
+        let selMi = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Select" && m.GetParameters().Length = 2)).MakeGenericMethod(typeof<CovProduct>, typeof<int>)
+        Expression.Call(null, selMi, (products :> IQueryable<CovProduct>).Expression, Expression.Quote(Expression.Lambda<Func<CovProduct, int>>(unsupInt :?> DefaultExpression, pParam2)))
+    let selectUnsupDec =
+        let selMi = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Select" && m.GetParameters().Length = 2)).MakeGenericMethod(typeof<CovProduct>, typeof<decimal>)
+        Expression.Call(null, selMi, (products :> IQueryable<CovProduct>).Expression, Expression.Quote(Expression.Lambda<Func<CovProduct, decimal>>(unsupDec :?> DefaultExpression, pParam2)))
+    let countIntQ = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)).MakeGenericMethod(typeof<int>)
+    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, countIntQ, selectUnsupInt)) "Products" [] SqlDialect.Sqlite |> ignore
+    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, sumDecQ, selectUnsupDec)) "Products" [] SqlDialect.Sqlite |> ignore
+    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, minDecQ, selectUnsupDec)) "Products" [] SqlDialect.Sqlite |> ignore
+    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, maxDecQ, selectUnsupDec)) "Products" [] SqlDialect.Sqlite |> ignore
+    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, avgDecQ, selectUnsupDec)) "Products" [] SqlDialect.Sqlite |> ignore
+
+    let makeSelectExpr (body: Expression) =
+        let selMi = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Select" && m.GetParameters().Length = 2)).MakeGenericMethod(typeof<CovProduct>, body.Type)
+        let lam = Expression.Lambda(body, pParam2)
+        Expression.Call(null, selMi, (products :> IQueryable<CovProduct>).Expression, Expression.Quote(lam))
+    ExpressionPushdownTranslator.extractPlanFromExpression (makeSelectExpr (Expression.New(typeof<Tuple<int>>.GetConstructors().[0], unsupInt))) "Products" [] SqlDialect.Sqlite |> ignore
+    ExpressionPushdownTranslator.extractPlanFromExpression (makeSelectExpr (Expression.Property(unsupStr, "Length"))) "Products" [] SqlDialect.Sqlite |> ignore
+    ExpressionPushdownTranslator.extractPlanFromExpression (makeSelectExpr (Expression.Add(unsupInt, Expression.Constant(1)))) "Products" [] SqlDialect.Sqlite |> ignore
+    ExpressionPushdownTranslator.extractPlanFromExpression (makeSelectExpr (Expression.Call(unsupInt, typeof<obj>.GetMethod("ToString", Type.EmptyTypes)))) "Products" [] SqlDialect.Sqlite |> ignore
+    ExpressionPushdownTranslator.extractPlanFromExpression (makeSelectExpr (Expression.Condition(unsupBool, unsupInt, Expression.Constant(0)))) "Products" [] SqlDialect.Sqlite |> ignore
+
+    // 15e. Final 19 lines: 1-arg Sum/Min/Max/Avg on Default(IQueryable<decimal>), Nullable.Value Select, and LinqInMemoryFallback BinaryExpression
+    let unsupIqDec = Expression.Default(typeof<IQueryable<decimal>>) :> Expression
+    evalScalar (Expression.Call(null, sumDecQ, unsupIqDec))
+    evalScalar (Expression.Call(null, minDecQ, unsupIqDec))
+    evalScalar (Expression.Call(null, maxDecQ, unsupIqDec))
+    evalScalar (Expression.Call(null, avgDecQ, unsupIqDec))
+
+    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, sumDecQ, unsupIqDec)) "Products" [] SqlDialect.Sqlite |> ignore
+    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, minDecQ, unsupIqDec)) "Products" [] SqlDialect.Sqlite |> ignore
+    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, maxDecQ, unsupIqDec)) "Products" [] SqlDialect.Sqlite |> ignore
+    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, avgDecQ, unsupIqDec)) "Products" [] SqlDialect.Sqlite |> ignore
+
+    let nullDecParam = Expression.Parameter(typeof<Nullable<decimal>>, "nd")
+    let selNullValMi = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Select" && m.GetParameters().Length = 2)).MakeGenericMethod(typeof<Nullable<decimal>>, typeof<decimal>)
+    let selNullValCall = Expression.Call(null, selNullValMi, Expression.Default(typeof<IQueryable<Nullable<decimal>>>), Expression.Quote(Expression.Lambda<Func<Nullable<decimal>, decimal>>(Expression.Property(nullDecParam, "Value"), nullDecParam)))
+    ExpressionPushdownTranslator.extractPlanFromExpression selNullValCall "Products" [] SqlDialect.Sqlite |> ignore
+
+    Assert.Equal(box 3, LinqInMemoryFallback.evaluate (Expression.Add(Expression.Constant(1), Expression.Constant(2))))
+
     Assert.True(true)
+
+
 

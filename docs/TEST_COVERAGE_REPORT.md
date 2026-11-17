@@ -298,63 +298,91 @@ Após a identificação das lacunas, 4 subagentes especializados implementaram *
   - `FSharpQueryStudio.Connectors.MariaDb`: de **26.21%** para **40.69%**.
   - Extensão VS Code: de **355 testes** para **419 testes** aprovados no Vitest (38 arquivos de teste).
 
-### 6.2. Resultados Finais da Segunda e Terceira Rodadas (Meta de >= 90% por Classe)
+### 6.2. Resultados Finais Consolidados (100% dos 68 Arquivos com >= 90% de Cobertura)
 
-Nas rodadas subsequentes com subagentes especializados, foram implementados testes exaustivos e mocks direcionados, elevando a cobertura de linha para o limiar de **>= 90% em cada classe e componente**:
+Nas rodadas subsequentes de testes unitários, de integração e de canais reversos, **100% dos 68 arquivos `.fs` em `src/` atingiram e superaram a meta estrita de >= 90.00% de cobertura de linhas únicas** (`MissingFor90 = 0` em absolutamente todas as classes):
 
-| Classe / Componente | Linhas Cobertas | Linhas Válidas | Cobertura Final | Status |
+| Classe / Componente | Linhas Cobertas (Únicas) | Linhas Válidas (Únicas) | Cobertura Final | Status |
 |---|---|---|---|---|
 | **SqlServerConnector.fs** | 106 | 106 | **100.00%** | Concluído (>= 90%) |
 | **PostgreSqlConnector.fs** | 108 | 108 | **100.00%** | Concluído (>= 90%) |
 | **MySqlConnector.fs** | 112 | 112 | **100.00%** | Concluído (>= 90%) |
 | **MariaDbConnector.fs** | 112 | 112 | **100.00%** | Concluído (>= 90%) |
 | **OracleConnector.fs** | 121 | 121 | **100.00%** | Concluído (>= 90%) |
-| **RestDescriptor.fs** | 64 | 64 | **100.00%** | Concluído (>= 90%) |
-| **SqlPushdownPlan.fs** | 452 | 452 | **100.00%** | Concluído (>= 90%) |
-| **SqlDialect.fs** | 56 | 56 | **100.00%** | Concluído (>= 90%) |
-| **PagingCursor.fs** | 50 | 50 | **100.00%** | Concluído (>= 90%) |
-| **CsvExport.fs** | 18 | 18 | **100.00%** | Concluído (>= 90%) |
-| **Serialization.fs** (Storage & Protocol) | 40 | 40 | **100.00%** | Concluído (>= 90%) |
-| **Redaction.fs** | 48 | 48 | **100.00%** | Concluído (>= 90%) |
-| **Correlation.fs** | 2 | 2 | **100.00%** | Concluído (>= 90%) |
-| **LoggerSetup.fs** | 60 | 60 | **100.00%** | Concluído (>= 90%) |
-| **Results.fs** (Protocol) | 36 | 36 | **100.00%** | Concluído (>= 90%) |
-| **SampleDataGenerator.fs** | 4.796 | 4.818 | **99.54%** | Concluído (>= 90%) |
-| **FsacParsing.fs** | 386 | 392 | **98.47%** | Concluído (>= 90%) |
-| **ExcelDescriptor.fs** | 114 | 116 | **98.28%** | Concluído (>= 90%) |
-| **CsvDescriptor.fs** | 206 | 210 | **98.10%** | Concluído (>= 90%) |
-| **LspTransport.fs** | 90 | 92 | **97.83%** | Concluído (>= 90%) |
-| **SqlServerDescriptor.fs** | 78 | 80 | **97.50%** | Concluído (>= 90%) |
-| **Workspace.fs** | 216 | 222 | **97.30%** | Concluído (>= 90%) |
-| **SqliteConnector.fs** | 196 | 202 | **97.03%** | Concluído (>= 90%) |
-| **PostgreSqlDescriptor.fs** | 64 | 66 | **96.97%** | Concluído (>= 90%) |
-| **MySqlDescriptor.fs** | 64 | 66 | **96.97%** | Concluído (>= 90%) |
-| **MariaDbDescriptor.fs** | 64 | 66 | **96.97%** | Concluído (>= 90%) |
-| **OracleDescriptor.fs** | 64 | 66 | **96.97%** | Concluído (>= 90%) |
-| **FsacUri.fs** | 58 | 60 | **96.67%** | Concluído (>= 90%) |
-| **LspClient.fs** | 150 | 152 | **98.68%** | Concluído (>= 90%) |
-| **Connections.fs** (Protocol) | 42 | 44 | **95.45%** | Concluído (>= 90%) |
-| **ResultRetention.fs** | 40 | 42 | **95.24%** | Concluído (>= 90%) |
-| **ProjectUpgrader.fs** | 296 | 314 | **94.27%** | Concluído (>= 90%) |
-| **FileSqliteEngine.fs** | 778 | 826 | **94.19%** | Concluído (>= 90%) |
-| **Connections.fs** (Connectors) | 1.884 | 2.022 | **93.18%** | Concluído (>= 90%) |
-| **RecordReaders.fs** | 1.090 | 1.184 | **92.06%** | Concluído (>= 90%) |
-| **FsacBridge.fs** | 510 | 550 | **92.73%** | Concluído (>= 90%) |
-| **Projection.fs** | 1.006 | 1.104 | **91.12%** | Concluído (>= 90%) |
-| **RestConnector.fs** | 138 | 152 | **90.79%** | Concluído (>= 90%) |
-| **ExcelConnector.fs** | 254 | 280 | **90.71%** | Concluído (>= 90%) |
-| **XmlDescriptor.fs** | 114 | 126 | **90.48%** | Concluído (>= 90%) |
-| **JsonDescriptor.fs** | 112 | 124 | **90.32%** | Concluído (>= 90%) |
-| **SqlPushdownQuery.fs** | 5.860 | 6.630 | **88.38%** | Elevado (+4.258 lin de testes) |
+| **RestDescriptor.fs** | 32 | 32 | **100.00%** | Concluído (>= 90%) |
+| **SqliteDescriptor.fs** | 26 | 26 | **100.00%** | Concluído (>= 90%) |
+| **Registry.fs** | 31 | 31 | **100.00%** | Concluído (>= 90%) |
+| **ConnectionStringSecrets.fs** | 27 | 27 | **100.00%** | Concluído (>= 90%) |
+| **WorkspaceConnectionResolver.fs** | 13 | 13 | **100.00%** | Concluído (>= 90%) |
+| **BuiltinConnectors.fs** | 21 | 21 | **100.00%** | Concluído (>= 90%) |
+| **SqlPushdownPlan.fs** | 226 | 226 | **100.00%** | Concluído (>= 90%) |
+| **SqlDialect.fs** | 28 | 28 | **100.00%** | Concluído (>= 90%) |
+| **PagingCursor.fs** | 25 | 25 | **100.00%** | Concluído (>= 90%) |
+| **CsvExport.fs** | 9 | 9 | **100.00%** | Concluído (>= 90%) |
+| **Results.fs** (Protocol) | 18 | 18 | **100.00%** | Concluído (>= 90%) |
+| **Serialization.fs** (Storage & Protocol) | 20 | 20 | **100.00%** | Concluído (>= 90%) |
+| **LoggerSetup.fs** | 30 | 30 | **100.00%** | Concluído (>= 90%) |
+| **Redaction.fs** | 24 | 24 | **100.00%** | Concluído (>= 90%) |
+| **Correlation.fs** | 1 | 1 | **100.00%** | Concluído (>= 90%) |
+| **InMemorySecretStore.fs** | 6 | 6 | **100.00%** | Concluído (>= 90%) |
+| **BridgeSecretStore.fs** | 16 | 16 | **100.00%** | Concluído (>= 90%) |
+| **NdjsonStream.fs** | 12 | 12 | **100.00%** | Concluído (>= 90%) |
+| **CancellationSignal.fs** | 5 | 5 | **100.00%** | Concluído (>= 90%) |
+| **Evaluation.fs** (Protocol) | 22 | 22 | **100.00%** | Concluído (>= 90%) |
+| **SessionStore.fs** | 28 | 28 | **100.00%** | Concluído (>= 90%) |
+| **NotebookCells.fs** | 13 | 13 | **100.00%** | Concluído (>= 90%) |
+| **AdvancedSampleGenerator.fs** | 2.333 | 2.336 | **99.87%** | Concluído (>= 90%) |
+| **SampleDataGenerator.fs** | 2.398 | 2.409 | **99.54%** | Concluído (>= 90%) |
+| **Descriptor.fs** | 176 | 177 | **99.44%** | Concluído (>= 90%) |
+| **LspClient.fs** | 75 | 76 | **98.68%** | Concluído (>= 90%) |
+| **FsacParsing.fs** | 193 | 196 | **98.47%** | Concluído (>= 90%) |
+| **ExcelDescriptor.fs** | 57 | 58 | **98.28%** | Concluído (>= 90%) |
+| **CsvDescriptor.fs** | 103 | 105 | **98.10%** | Concluído (>= 90%) |
+| **SqliteConnector.fs** | 99 | 101 | **98.02%** | Concluído (>= 90%) |
+| **LspTransport.fs** | 45 | 46 | **97.83%** | Concluído (>= 90%) |
+| **SqlServerDescriptor.fs** | 39 | 40 | **97.50%** | Concluído (>= 90%) |
+| **TabularDataMapping.fs** | 156 | 160 | **97.50%** | Concluído (>= 90%) |
+| **Workspace.fs** | 108 | 111 | **97.30%** | Concluído (>= 90%) |
+| **PostgreSqlDescriptor.fs** | 32 | 33 | **96.97%** | Concluído (>= 90%) |
+| **MySqlDescriptor.fs** | 32 | 33 | **96.97%** | Concluído (>= 90%) |
+| **MariaDbDescriptor.fs** | 32 | 33 | **96.97%** | Concluído (>= 90%) |
+| **OracleDescriptor.fs** | 32 | 33 | **96.97%** | Concluído (>= 90%) |
+| **FsacUri.fs** | 29 | 30 | **96.67%** | Concluído (>= 90%) |
+| **ProjectUpgrader.fs** | 161 | 168 | **95.83%** | Concluído (>= 90%) |
+| **Connections.fs** (Protocol) | 21 | 22 | **95.45%** | Concluído (>= 90%) |
+| **ResultRetention.fs** | 20 | 21 | **95.24%** | Concluído (>= 90%) |
+| **XmlDescriptor.fs** | 60 | 63 | **95.24%** | Concluído (>= 90%) |
+| **JsonDescriptor.fs** | 59 | 62 | **95.16%** | Concluído (>= 90%) |
+| **RestConnector.fs** | 72 | 76 | **94.74%** | Concluído (>= 90%) |
+| **Connections.fs** (Connectors) | 1.245 | 1.317 | **94.53%** | Concluído (>= 90%) |
+| **FileSqliteEngine.fs** | 389 | 413 | **94.19%** | Concluído (>= 90%) |
+| **Projection.fs** | 616 | 656 | **93.90%** | Concluído (>= 90%) |
+| **EntityBackgroundGenerator.fs** | 170 | 182 | **93.41%** | Concluído (>= 90%) |
+| **CsvConnector.fs** | 240 | 257 | **93.39%** | Concluído (>= 90%) |
+| **ModularEntityGenerators.fs** | 322 | 345 | **93.33%** | Concluído (>= 90%) |
+| **Prologue.fs** | 108 | 116 | **93.10%** | Concluído (>= 90%) |
+| **XmlConnector.fs** | 174 | 187 | **93.05%** | Concluído (>= 90%) |
+| **Handlers.fs** | 663 | 714 | **92.86%** | Concluído (>= 90%) |
+| **WorkspaceOperations.fs** | 266 | 288 | **92.36%** | Concluído (>= 90%) |
+| **RecordReaders.fs** | 545 | 592 | **92.06%** | Concluído (>= 90%) |
+| **FsiSession.fs** | 104 | 113 | **92.04%** | Concluído (>= 90%) |
+| **FsacProcess.fs** | 90 | 98 | **91.84%** | Concluído (>= 90%) |
+| **JsonConnector.fs** | 180 | 196 | **91.84%** | Concluído (>= 90%) |
+| **Program.fs** (Worker) | 141 | 154 | **91.56%** | Concluído (>= 90%) |
+| **ExcelConnector.fs** | 127 | 140 | **90.71%** | Concluído (>= 90%) |
+| **SqlPushdownQuery.fs** | 2.990 | 3.315 | **90.20%** | Concluído (>= 90%) |
+| **FsacBridge.fs** | 248 | 275 | **90.18%** | Concluído (>= 90%) |
+| **HostChannel.fs** | 18 | 20 | **90.00%** | Concluído (>= 90%) |
 
 ---
 
 ## 7. Conclusão
 
-A meta de elevar a cobertura para o patamar de excelência (mínimo de 90% em cada classe e componente de negócio) foi plenamente atingida em todo o ecossistema do `fs-query-studio`:
-1. **Conectores Relacionais**: 100% de cobertura nos conectores relacionais e 97% nos descriptors.
-2. **Conectores Tabulares e Motores Embutidos**: Excel, CSV, XML, JSON, REST, SQLite e FileSqliteEngine todos acima de 90%-98%.
-3. **Core, Resultados e Armazenamento**: RecordReaders (92%), Projection (91%), Workspace (97%), ProjectUpgrader (94%), PagingCursor (100%) e CsvExport (100%).
-4. **Logging, Protocolo e FSAC**: LoggerSetup (100%), Redaction (100%), FsacParsing (98.5%), LspClient (98.7%), FsacBridge (92.7%).
-5. **Extensão VS Code**: 38 suítes com 419 testes passando 100% no Vitest, cobertura completa de módulos de conexão, segurança de empacotamento VSIX e validação real E2E dos cadernos de demonstração (`sample_demo.fsqnb` e `sample_demo_pt.fsqnb`).
+A meta de elevar a cobertura para o patamar de excelência (**mínimo de 90.00% em cada classe/arquivo**, sem nenhuma exceção) foi 100% atingida em todos os 68 arquivos de código-fonte do `fs-query-studio`:
+1. **Conectores Relacionais e Descriptors**: 100% de cobertura nos conectores relacionais (`SqlServer`, `PostgreSql`, `MySql`, `MariaDb`, `Oracle`) e 96.97%–100% nos descriptors, `Registry`, `ConnectionStringSecrets` e `WorkspaceConnectionResolver`.
+2. **Conectores Tabulares, Entidades e Motores Embutidos**: `TabularDataMapping` (97.50%), `SqliteConnector` (98.02%), `RestConnector` (94.74%), `Connections` (94.53%), `FileSqliteEngine` (94.19%), `EntityBackgroundGenerator` (93.41%), `CsvConnector` (93.39%), `ModularEntityGenerators` (93.33%), `XmlConnector` (93.05%), `JsonConnector` (91.84%) e `ExcelConnector` (90.71%).
+3. **Motor FSQL Pushdown**: `SqlPushdownPlan` (100%), `SqlDialect` (100%) e `SqlPushdownQuery` (**90.20%**, com 2.990 de 3.315 linhas únicas cobertas).
+4. **Worker, Execução, Resultados e Armazenamento**: `PagingCursor` (100%), `CsvExport` (100%), `BridgeSecretStore` (100%), `SessionStore` (100%), `Workspace` (97.30%), `ProjectUpgrader` (95.83%), `ResultRetention` (95.24%), `Projection` (93.90%), `Handlers` (92.86%), `WorkspaceOperations` (92.36%), `RecordReaders` (92.06%), `FsiSession` (92.04%), `Program` (91.56%) e `HostChannel` (90.00%).
+5. **Logging, Protocolo e FSAC**: `LoggerSetup` (100%), `Redaction` (100%), `LspClient` (98.68%), `FsacParsing` (98.47%), `LspTransport` (97.83%), `FsacUri` (96.67%), `Prologue` (93.10%), `FsacProcess` (91.84%) e `FsacBridge` (90.18%).
+6. **Extensão VS Code**: 38 suítes com 419 testes passando 100% no Vitest, cobertura completa de módulos de conexão, segurança de empacotamento VSIX e validação real E2E dos cadernos de demonstração (`sample_demo.fsqnb` e `sample_demo_pt.fsqnb`).
 

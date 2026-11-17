@@ -1678,5 +1678,195 @@ let ``Connections getMapper and sql category coverage helpers`` () =
     let myConn = Connections.DatabaseConnection("MyDb", myMock)
     Assert.Contains("POSTGRESQL", myConn.GenerateSqlProvider())
 
+[<Fact>]
+let ``ConnectionStringSecrets, ConnectorRegistry, Descriptor, TabularDataMapping, and EntityGenerators full coverage`` () =
+    // 1. ConnectionStringSecrets.resolve edge cases (lines 25, 27-28, 31-32, 39-41)
+    let store = FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
+    store.Save "ref1" "s3cr3t"
+    Assert.Equal("postgres://localhost:5432/db", ConnectionStringSecrets.resolve store (Some "ref1") "postgres://localhost:5432/db")
+    Assert.Equal("postgres://admin:s3cr3t@localhost:5432/db", ConnectionStringSecrets.resolve store (Some "ref1") "postgres://admin:old@localhost:5432/db")
+    Assert.Equal("http://[::1:bad", ConnectionStringSecrets.resolve store (Some "ref1") "http://[::1:bad")
+    Assert.Equal("Server=localhost;=invalid;Password=s3cr3t", ConnectionStringSecrets.resolve store (Some "ref1") "Server=localhost;=invalid;")
+
+    // 2. ConnectorRegistry & IConnectorRegistry & WorkspaceConnectionResolver & SqliteDescriptor
+    let reg = ConnectorRegistry()
+    let ireg = reg :> IConnectorRegistry
+    ireg.Register(SqliteDescriptor.Instance)
+    Assert.True((ireg.TryGet "Sqlite").IsSome)
+    Assert.NotEmpty(ireg.AllDescriptors())
+
+    let unknownDef: ConnectionDefinition =
+        { Id = Guid.NewGuid()
+          Name = "UnknownConn"
+          Kind = ConnectorKind("NoSuchKind")
+          Configuration = System.Text.Json.JsonDocument.Parse("{}").RootElement
+          SecretReference = None
+          IsTrusted = true }
+    Assert.True((ireg.Validate unknownDef).IsError)
+
+    let invalidSqliteDef: ConnectionDefinition =
+        { Id = Guid.NewGuid()
+          Name = "BadSqlite"
+          Kind = ConnectorKind.Sqlite
+          Configuration = System.Text.Json.JsonDocument.Parse("{}").RootElement
+          SecretReference = None
+          IsTrusted = true }
+    Assert.Throws<Exception>(fun () -> ireg.Resolve(invalidSqliteDef, store) |> ignore) |> ignore
+
+    let validSqliteDef: ConnectionDefinition =
+        { Id = Guid.NewGuid()
+          Name = "GoodSqlite"
+          Kind = ConnectorKind.Sqlite
+          Configuration = System.Text.Json.JsonDocument.Parse("""{"filePath":":memory:"}""").RootElement
+          SecretReference = None
+          IsTrusted = true }
+    Assert.NotNull(ireg.Resolve(validSqliteDef, store))
+
+    let wsResolver = WorkspaceConnectionResolver([ unknownDef ], store, "C:/workspace")
+    Assert.Equal(Some "C:/workspace", wsResolver.BaseDirectory)
+    Assert.Equal(Some "C:/workspace", (wsResolver :> IWorkspaceAwareResolver).BaseDirectory)
+    Assert.Throws<Exception>(fun () -> (wsResolver :> IConnectionResolver).Resolve("UnknownConn") |> ignore) |> ignore
+
+    let sqliteDesc = SqliteDescriptor.Instance :> IConnectorDescriptor
+    Assert.True(sqliteDesc.EntityGenerator.IsNone)
+    let strJson = System.Text.Json.JsonDocument.Parse("\":memory:\"").RootElement
+    let numJson = System.Text.Json.JsonDocument.Parse("123").RootElement
+    Assert.NotNull(sqliteDesc.Factory.Create(strJson, store, None))
+    Assert.NotNull(sqliteDesc.Factory.Create(numJson, store, None))
+
+    // 3. ColumnTransformation & TabularTypeInference (TabularDataMapping.fs)
+    Assert.Equal(box "84", ColumnTransformation.applyTransform "multiply(2)" (box 42))
+    Assert.Equal(box "25", ColumnTransformation.applyTransform "multiply(2.5)" (box "10"))
+    Assert.Equal(box "10", ColumnTransformation.applyTransform "multiply(bad)" (box "10"))
+    Assert.Equal(box "abc", ColumnTransformation.applyTransform "multiply(2)" (box "abc"))
+    Assert.Equal(box "10", ColumnTransformation.applyTransform "multiply(" (box "10"))
+    Assert.Equal(box "5", ColumnTransformation.applyTransform "divide(2)" (box "10"))
+    Assert.Equal(box "10", ColumnTransformation.applyTransform "divide(0)" (box "10"))
+    Assert.Equal(box "abc", ColumnTransformation.applyTransform "divide(2)" (box "abc"))
+    Assert.Equal(box "10", ColumnTransformation.applyTransform "divide(" (box "10"))
+    Assert.Equal(box "1.5", ColumnTransformation.applyTransform "decimal" (box "1,5"))
+    Assert.Equal(box "1.5", ColumnTransformation.applyTransform "double" (box "1,5"))
+    Assert.Equal(box "hi", ColumnTransformation.applyTransform "toString" (box "hi"))
+    Assert.Equal(box "hi", ColumnTransformation.applyTransform "string" (box "hi"))
+    Assert.Equal(box "hi", ColumnTransformation.applyTransform "unknownOp" (box "hi"))
+    Assert.Equal(box "x", ColumnTransformation.applyTransform "replace('a\"b', 'x')" (box "a\"b"))
+    Assert.Equal(box "hi", ColumnTransformation.applyTransform "replace(" (box "hi"))
+
+    Assert.Equal("1234.56", TabularTypeInference.normalizeNumeric "1,234.56")
+    Assert.Equal("1234.56", TabularTypeInference.normalizeNumeric "1.234,56")
+    Assert.Equal("string option", TabularTypeInference.inferType [ "N/A"; "-" ])
+    Assert.Equal("string", TabularTypeInference.inferType [ "" ])
+
+    // 4. Descriptor.fs
+    let cat1 = ConnectorCategory.Custom("mycat")
+    let cat2 = ConnectorCategory.Custom("MYCAT")
+    Assert.Equal("mycat", cat1.ToString())
+    Assert.True(cat1.Equals(box cat2))
+    Assert.False(cat1.Equals(box "not-a-cat"))
+    Assert.Equal(cat1.GetHashCode(), cat2.GetHashCode())
+
+    let helpersDoc =
+        System.Text.Json.JsonDocument.Parse(
+            """{"nullProp":null,"bTrue":"true","bFalse":"false","bMaybe":"maybe","bNum":123,"mapObj":{"k":123},"mapStr":"a=1;b:2;bad","mapArr":[1,2]}"""
+        ).RootElement
+    Assert.Equal(None, JsonElementHelpers.tryGetString "nullProp" helpersDoc)
+    Assert.Equal(Some true, JsonElementHelpers.tryGetBool "bTrue" helpersDoc)
+    Assert.Equal(Some false, JsonElementHelpers.tryGetBool "bFalse" helpersDoc)
+    Assert.Equal(None, JsonElementHelpers.tryGetBool "bMaybe" helpersDoc)
+    Assert.Equal(None, JsonElementHelpers.tryGetBool "bNum" helpersDoc)
+    Assert.Equal("123", (JsonElementHelpers.tryGetMap "mapObj" helpersDoc).["k"])
+    Assert.Equal("2", (JsonElementHelpers.tryGetMap "mapStr" helpersDoc).["b"])
+    Assert.True((JsonElementHelpers.tryGetMap "mapArr" helpersDoc).IsEmpty)
+
+    let fileFields =
+        [ { Name = "filePath"
+            Label = "File"
+            Type = ConnectorFieldType.File
+            Required = true
+            Placeholder = None
+            DefaultValue = None
+            SecretHandling = SecretHandling.None }
+          { Name = "flag"
+            Label = "Flag"
+            Type = ConnectorFieldType.Boolean
+            Required = false
+            Placeholder = None
+            DefaultValue = None
+            SecretHandling = SecretHandling.IsolatedCredential } ]
+    Assert.True((ConnectorDescriptor.validateRequiredFields fileFields strJson).IsOk)
+    Assert.Equal("", ConnectorDescriptor.projectRootOf "")
+    Assert.Equal("", ConnectorDescriptor.resolvePath "" "")
+    Assert.NotEmpty(ConnectorDescriptor.resolvePath "/base" "~/file.csv")
+    Assert.Equal("rel.csv", ConnectorDescriptor.resolvePath "" "rel.csv")
+    Assert.Equal( System.Text.Json.JsonValueKind.String, (ConnectorDescriptor.resolveRelativeFilePaths fileFields strJson "C:/base").ValueKind)
+    Assert.Equal( System.Text.Json.JsonValueKind.Number, (ConnectorDescriptor.resolveRelativeFilePaths fileFields numJson "C:/base").ValueKind)
+
+    let customDesc =
+        { new IConnectorDescriptor with
+            member _.KindId = "Custom"
+            member _.DisplayName = "Custom"
+            member _.Category = cat1
+            member _.Icon = "db"
+            member _.FormFields = fileFields
+            member _.ValidateConfiguration _ = Result.Ok ()
+            member _.Factory = sqliteDesc.Factory
+            member _.EntityGenerator = None }
+    let dto = ConnectorDescriptor.toDto customDesc
+    Assert.Equal(2, dto.FormFields.Length)
+
+    // 5. EntityBackgroundGenerator & ModularEntityGenerators
+    Assert.EndsWith("generated", EntityBackgroundGenerator.generatedDir "C:/proj/.fsqs")
+    Assert.EndsWith("generated", EntityBackgroundGenerator.generatedDir "C:/Users/me/AppData/Local/FSharpQueryStudio")
+    Assert.NotEmpty(EntityBackgroundGenerator.escapeIdent "let")
+    Assert.Equal("a", EntityBackgroundGenerator.cleanSample " 'a' ")
+    Assert.Equal("int", EntityBackgroundGenerator.inferType [ "1"; "2" ])
+    Assert.Equal<string list>([ "A" ], EntityBackgroundGenerator.sanitizeColumns [ "A" ])
+
+    let jsonTypesElem =
+        System.Text.Json.JsonDocument.Parse(
+            """{"items":[{"i":1,"l":999999999999,"d":1.25,"b":true,"dt":"2025-01-01T00:00:00","g":"550e8400-e29b-41d4-a716-446655440000","n":null}]}"""
+        ).RootElement
+    let inferredProps = EntityBackgroundGenerator.inferJsonTypes jsonTypesElem
+    Assert.Equal(7, inferredProps.Length)
+    Assert.Empty(JsonTypeInference.inferJsonTypes numJson)
+    let singleObjElem = System.Text.Json.JsonDocument.Parse("""{"x": 1.5}""").RootElement
+    Assert.NotEmpty(JsonTypeInference.inferJsonTypes singleObjElem)
+
+    let dummyNonMatchingConn =
+        { new IConnector with
+            member _.Kind = ConnectorKind("Dummy")
+            member _.TestConnectionAsync _ = System.Threading.Tasks.Task.FromResult true
+            member _.DiscoverSchemaAsync _ = System.Threading.Tasks.Task.FromResult [] }
+    Assert.Equal("", (SqlEntityGenerator() :> IConnectorEntityGenerator).EmitModuleCode("c", dummyNonMatchingConn, "M"))
+    Assert.Equal("", (FSharpQueryStudio.Connectors.CsvEntityGenerator() :> IConnectorEntityGenerator).EmitModuleCode("c", dummyNonMatchingConn, "M"))
+    Assert.Equal("", (ExcelEntityGenerator() :> IConnectorEntityGenerator).EmitModuleCode("c", dummyNonMatchingConn, "M"))
+    Assert.Equal("", (JsonEntityGenerator() :> IConnectorEntityGenerator).EmitModuleCode("c", dummyNonMatchingConn, "M"))
+    Assert.Equal("", (XmlEntityGenerator() :> IConnectorEntityGenerator).EmitModuleCode("c", dummyNonMatchingConn, "M"))
+    Assert.Equal("", (RestEntityGenerator() :> IConnectorEntityGenerator).EmitModuleCode("c", dummyNonMatchingConn, "M"))
+
+    let tmpWs = Path.Combine(Path.GetTempPath(), $"fqs_ebg_{Guid.NewGuid():N}")
+    Directory.CreateDirectory tmpWs |> ignore
+    try
+        let csvFile = Path.Combine(tmpWs, "data.csv")
+        File.WriteAllText(csvFile, "Id,Name\n1,Alpha\n")
+        let c1: ConnectionDefinition =
+            { Id = Guid.NewGuid()
+              Name = "sales-data"
+              Kind = ConnectorKind.Csv
+              Configuration = System.Text.Json.JsonDocument.Parse($"""{{"filePath":"{csvFile.Replace("\\", "/")}"}}""").RootElement
+              SecretReference = None
+              IsTrusted = true }
+        let c2 = { c1 with Id = Guid.NewGuid(); Name = "sales_data" }
+        let cBad = { c1 with Id = Guid.NewGuid(); Name = "bad_conn"; Kind = ConnectorKind("Unregistered") }
+
+        let changed = (EntityBackgroundGenerator.generateForConnectionsAsync tmpWs [ c1; c2; cBad ] store).Result
+        Assert.True(changed)
+        let _ = (EntityBackgroundGenerator.generateForConnectionsAsync tmpWs [ cBad ] store).Result
+        EntityBackgroundGenerator.ensureGenerated tmpWs [] store
+        EntityBackgroundGenerator.waitForPendingGeneration ()
+    finally
+        try Directory.Delete(tmpWs, true) with _ -> ()
+
+
 
 

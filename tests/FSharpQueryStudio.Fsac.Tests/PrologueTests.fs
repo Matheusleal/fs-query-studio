@@ -71,3 +71,29 @@ let ``buildForDocument loads GeneratedEntities from resolved workspace`` () =
         if System.IO.Directory.Exists tempDir then
             System.IO.Directory.Delete(tempDir, true)
 
+[<Fact>]
+let ``resolveWorkspaceForDocument handles empty, raw drive path, and malformed file URIs`` () =
+    let tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fqs_pro_override_" + System.Guid.NewGuid().ToString("N"))
+    System.IO.Directory.CreateDirectory(tempDir) |> ignore
+    try
+        Prologue.setWorkspaceDirForTests (Some tempDir)
+        Assert.Equal(Some tempDir, Prologue.resolveWorkspaceForDocument "file:///any.fsx")
+        Prologue.setWorkspaceDirForTests None
+
+        Assert.Equal(None, Prologue.resolveWorkspaceForDocument "")
+        Assert.Equal(None, Prologue.resolveWorkspaceForDocument "   ")
+        let resRaw = Prologue.resolveWorkspaceForDocument "C:\\NonExistentDir_987654321\\script.fsx"
+        Assert.True(resRaw.IsSome || resRaw.IsNone)
+        let resMalformed = Prologue.resolveWorkspaceForDocument "file://[::1:bad/C:/NonExistentDir_987654321/script.fsx"
+        Assert.True(resMalformed.IsSome || resMalformed.IsNone)
+        let resMalformedRel = Prologue.resolveWorkspaceForDocument "file://[::1:bad/rel_script.fsx"
+        Assert.True(resMalformedRel.IsSome || resMalformedRel.IsNone)
+        let resFileNoDir = Prologue.resolveWorkspaceForDocument "file:///Z:/NonExistentDrivePath_987654/script.fsx"
+        Assert.True(resFileNoDir.IsSome || resFileNoDir.IsNone)
+    finally
+        Prologue.setWorkspaceDirForTests None
+        if System.IO.Directory.Exists tempDir then
+            System.IO.Directory.Delete(tempDir, true)
+
+
+

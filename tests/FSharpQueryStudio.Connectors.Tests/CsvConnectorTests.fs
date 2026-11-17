@@ -288,3 +288,28 @@ let ``CsvEntityGenerator emits module and extension code`` () =
     let modExt = modGen.EmitExtensionCode("TestConn2", "TestConn2Module", "TestProp2")
     Assert.Contains("TestProp2", modExt)
 
+[<Fact>]
+let ``CsvTypeInference and CsvConnector handle empty files, comma decimals, transforms and explicit types`` () =
+    Assert.Equal("string option", CsvTypeInference.inferType [ "N/A"; "-" ])
+    Assert.Equal("decimal", CsvTypeInference.inferType [ "12,34"; "56,78" ])
+    Assert.Equal("double", CsvTypeInference.inferType [ "1e10"; "12,34" ])
+
+    let emptyPath = tempCsvFile Encoding.UTF8 ""
+    let emptyConn = CsvConnector(emptyPath)
+    Assert.Empty(emptyConn.ReadRows().Columns)
+
+    let path = tempCsvFile Encoding.UTF8 "Name,Price\nWidget,10\n"
+    let opts =
+        { CsvOptions.Default with
+            ColumnTransforms = Map.ofList [ "Price", "multiply(2)" ]
+            ColumnTypes = Map.ofList [ "Price", "decimal" ] }
+    let conn = CsvConnector(path, opts)
+    let qr = conn.ReadRows()
+    let rows = qr.Rows |> Seq.toList
+    Assert.Equal(box "20", rows.[0].[1])
+
+    let tables = (conn :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result
+    let priceCol = tables.[0].Columns |> List.find (fun c -> c.Name = "Price")
+    Assert.Equal("decimal", priceCol.DataType)
+
+
