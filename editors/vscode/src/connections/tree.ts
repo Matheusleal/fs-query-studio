@@ -17,7 +17,7 @@ export type WorkerLike = {
 
 export type ConnNode =
   | { t: "connection"; def: ConnectionDefinition }
-  | { t: "schema"; connId: string; schemaName: string; tables: SchemaTable[] }
+  | { t: "schema"; connId: string; schemaName: string; fullPrefix?: string; tables: SchemaTable[] }
   | { t: "table"; connId: string; table: SchemaTable; displayName?: string }
   | { t: "column"; column: SchemaColumn }
   | { t: "error"; message: string };
@@ -82,11 +82,34 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
       return this.tablesOf(node.def);
     }
     if (node.t === "schema") {
-      return node.tables.map((table) => {
-        const prefix = node.schemaName + ".";
-        const displayName = table.name.startsWith(prefix) ? table.name.slice(prefix.length) : table.name;
-        return { t: "table", connId: node.connId, table, displayName };
-      });
+      const prefix = (node.fullPrefix ?? node.schemaName) + ".";
+      const subSchemaMap = new Map<string, SchemaTable[]>();
+      const directTables: ConnNode[] = [];
+
+      for (const table of node.tables) {
+        const remainder = table.name.startsWith(prefix) ? table.name.slice(prefix.length) : table.name;
+        const dotIdx = remainder.indexOf(".");
+        if (dotIdx > 0) {
+          const subSchema = remainder.slice(0, dotIdx);
+          const list = subSchemaMap.get(subSchema) ?? [];
+          list.push(table);
+          subSchemaMap.set(subSchema, list);
+        } else {
+          directTables.push({ t: "table", connId: node.connId, table, displayName: remainder });
+        }
+      }
+
+      const subSchemaNodes: ConnNode[] = Array.from(subSchemaMap.entries())
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([subSchema, subTables]) => ({
+          t: "schema",
+          connId: node.connId,
+          schemaName: subSchema,
+          fullPrefix: `${node.fullPrefix ?? node.schemaName}.${subSchema}`,
+          tables: subTables,
+        }));
+
+      return [...subSchemaNodes, ...directTables];
     }
     if (node.t === "table") {
       return node.table.columns.map((column) => ({ t: "column", column }));

@@ -23,11 +23,18 @@ type IConnectionResolver =
 type IWorkspaceAwareResolver =
     abstract BaseDirectory: string option
 
+/// Optional interface implemented by resolvers that know their project root folder and registered connections.
+type IWorkspaceConnectionsProvider =
+    abstract BaseDirectory: string option
+    abstract Connections: ConnectionDefinition list
+
 /// Controlled surface used by .fsx scripts to reach configured connections by name.
 /// All queries use bound parameters to prevent SQL injection.
 module Connections =
     let mutable private resolver: IConnectionResolver option = None
     let mutable private engine: FileSqliteEngine option = None
+    let mutable private currentSyncTask: Task = Task.CompletedTask
+    let private syncLock = obj()
 
     let setEngine (newEngine: FileSqliteEngine) =
         engine <- Some newEngine
@@ -69,6 +76,141 @@ module Connections =
         match resolver with
         | None -> failwith "Connections has not been configured for this session."
         | Some r -> r.Resolve name
+
+    let internal stageCsvConnection (eng: FileSqliteEngine) (connName: string) (csvConn: CsvConnector) : string =
+        let colTypes = if csvConn.Options.ColumnTypes.IsEmpty then None else Some csvConn.Options.ColumnTypes
+        let cleanTableName = eng.EnsureStaged(connName, csvConn.FilePath, (fun () -> csvConn.ReadRows()), ?columnTypes = colTypes)
+        let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(csvConn.FilePath)
+        if not (String.IsNullOrWhiteSpace fileBaseName) then
+            eng.EnsureAliasView(fileBaseName, cleanTableName)
+            eng.EnsureAliasView($"{connName}_{fileBaseName}", cleanTableName)
+        cleanTableName
+
+    let internal stageExcelSheet (eng: FileSqliteEngine) (connName: string) (excelConn: ExcelConnector) (sheetName: string) (maxRows: int option) (isPrimary: bool) : string =
+        let compoundKey = $"{connName}_{sheetName}"
+        let colTypes = if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes
+        let cleanTableName =
+            eng.EnsureStaged(
+                compoundKey,
+                excelConn.FilePath,
+                (fun () -> excelConn.ReadRows(sheetName = sheetName, ?maxRows = maxRows)),
+                ?columnTypes = colTypes
+            )
+        eng.EnsureAliasView(sheetName, cleanTableName)
+        if isPrimary then
+            eng.EnsureAliasView(connName, cleanTableName)
+            let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(excelConn.FilePath)
+            if not (String.IsNullOrWhiteSpace fileBaseName) then
+                eng.EnsureAliasView(fileBaseName, cleanTableName)
+        cleanTableName
+
+    let internal stageExcelConnection (eng: FileSqliteEngine) (connName: string) (excelConn: ExcelConnector) : unit =
+        if System.IO.File.Exists excelConn.FilePath then
+            eng.DropStaleTableIfExists(connName, excelConn.FilePath)
+            let tables =
+                try
+                    (excelConn :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
+                with _ -> []
+            for i, tbl in List.indexed tables do
+                stageExcelSheet eng connName excelConn tbl.Name None (i = 0) |> ignore
+
+    let internal stageJsonTable (eng: FileSqliteEngine) (connName: string) (jsonConn: JsonConnector) (tableName: string) (maxRows: int option) (isPrimary: bool) : string =
+        let compoundKey = $"{connName}_{tableName}"
+        let colTypes = if jsonConn.Options.ColumnTypes.IsEmpty then None else Some jsonConn.Options.ColumnTypes
+        let cleanTableName =
+            eng.EnsureStaged(
+                compoundKey,
+                jsonConn.FilePath,
+                (fun () -> jsonConn.ReadRows(tableName = tableName, ?maxRows = maxRows)),
+                ?columnTypes = colTypes
+            )
+        eng.EnsureAliasView(tableName, cleanTableName)
+        if isPrimary then
+            eng.EnsureAliasView(connName, cleanTableName)
+            let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(jsonConn.FilePath)
+            if not (String.IsNullOrWhiteSpace fileBaseName) then
+                eng.EnsureAliasView(fileBaseName, cleanTableName)
+        cleanTableName
+
+    let internal stageJsonConnection (eng: FileSqliteEngine) (connName: string) (jsonConn: JsonConnector) : unit =
+        if System.IO.File.Exists jsonConn.FilePath then
+            eng.DropStaleTableIfExists(connName, jsonConn.FilePath)
+            let tables =
+                try
+                    (jsonConn :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
+                with _ -> []
+            for i, tbl in List.indexed tables do
+                stageJsonTable eng connName jsonConn tbl.Name None (i = 0) |> ignore
+
+    let internal stageXmlTable (eng: FileSqliteEngine) (connName: string) (xmlConn: XmlConnector) (tableName: string) (maxRows: int option) (isPrimary: bool) : string =
+        let compoundKey = $"{connName}_{tableName}"
+        let colTypes = if xmlConn.Options.ColumnTypes.IsEmpty then None else Some xmlConn.Options.ColumnTypes
+        let cleanTableName =
+            eng.EnsureStaged(
+                compoundKey,
+                xmlConn.FilePath,
+                (fun () -> xmlConn.ReadRows(tableName = tableName, ?maxRows = maxRows)),
+                ?columnTypes = colTypes
+            )
+        eng.EnsureAliasView(tableName, cleanTableName)
+        if isPrimary then
+            eng.EnsureAliasView(connName, cleanTableName)
+            let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(xmlConn.FilePath)
+            if not (String.IsNullOrWhiteSpace fileBaseName) then
+                eng.EnsureAliasView(fileBaseName, cleanTableName)
+        cleanTableName
+
+    let internal stageXmlConnection (eng: FileSqliteEngine) (connName: string) (xmlConn: XmlConnector) : unit =
+        if System.IO.File.Exists xmlConn.FilePath then
+            eng.DropStaleTableIfExists(connName, xmlConn.FilePath)
+            let tables =
+                try
+                    (xmlConn :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
+                with _ -> []
+            for i, tbl in List.indexed tables do
+                stageXmlTable eng connName xmlConn tbl.Name None (i = 0) |> ignore
+
+    let internal ensureWorkspaceFilesStaged () : unit =
+        try currentSyncTask.Wait() with _ -> ()
+        match resolver with
+        | Some r ->
+            match box r with
+            | :? IWorkspaceConnectionsProvider as wcp ->
+                let eng = getEngine ()
+                for connDef in wcp.Connections do
+                    try
+                        match connDef.Kind.Id.Trim().ToLowerInvariant() with
+                        | "csv" ->
+                            match r.Resolve connDef.Name with
+                            | :? CsvConnector as cc when System.IO.File.Exists cc.FilePath ->
+                                stageCsvConnection eng connDef.Name cc |> ignore
+                            | _ -> ()
+                        | "xml" ->
+                            match r.Resolve connDef.Name with
+                            | :? XmlConnector as xc when System.IO.File.Exists xc.FilePath ->
+                                stageXmlConnection eng connDef.Name xc
+                            | _ -> ()
+                        | "json" ->
+                            match r.Resolve connDef.Name with
+                            | :? JsonConnector as jc when System.IO.File.Exists jc.FilePath ->
+                                stageJsonConnection eng connDef.Name jc
+                            | _ -> ()
+                        | "excel" ->
+                            match r.Resolve connDef.Name with
+                            | :? ExcelConnector as ec when System.IO.File.Exists ec.FilePath ->
+                                stageExcelConnection eng connDef.Name ec
+                            | _ -> ()
+                        | _ -> ()
+                    with ex ->
+                        Log.Warning("FS Query Studio: On-demand staging failed for '{Name}': {Error}", connDef.Name, ex.Message)
+            | _ -> ()
+        | None -> ()
+
+    do
+        SqliteConnector.StagedEngineDatabasePathResolver <-
+            Some (fun () ->
+                ensureWorkspaceFilesStaged ()
+                Some (getEngine()).DatabasePath)
 
     let private unsupported (name: string) (operation: string) (connector: IConnector) =
         failwith $"Connection '{name}' (kind {connector.Kind}) does not support {operation}."
@@ -669,9 +811,11 @@ module Connections =
     /// returning a ConnectorQueryResult (ResultKind.Table) across all staged files.
     /// </summary>
     let queryEngine (sqlText: string) : ConnectorQueryResult =
+        ensureWorkspaceFilesStaged ()
         (getEngine()).ExecuteQuery(sqlText, [])
 
     let queryEngineWith (sqlText: string) (parameters: (string * obj) list) : ConnectorQueryResult =
+        ensureWorkspaceFilesStaged ()
         (getEngine()).ExecuteQuery(sqlText, parameters)
 
     /// Represents an active database connection with first-class query and schema discovery members for autocomplete.
@@ -811,26 +955,125 @@ module Connections =
                 with ex ->
                     Log.Warning("FS Query Studio: Schema discovery timed out or failed during entity generation for '{Name}': {Error}", name, ex.Message)
                     []
-            let schemaGroups =
+            let parsedTables =
                 tables
-                |> Seq.groupBy (fun t ->
-                    let dotIdx = t.Name.IndexOf(".")
-                    if dotIdx > 0 then t.Name.Substring(0, dotIdx) else "public")
-                |> Seq.sortBy fst
+                |> List.map (fun t ->
+                    let parts = t.Name.Split('.')
+                    if parts.Length <= 1 then
+                        ("public", None, t.Name, t)
+                    elif parts.Length = 2 then
+                        (parts.[0], None, parts.[1], t)
+                    else
+                        let subSchema = parts.[1]
+                        let rawTbl = String.concat "." parts.[2..]
+                        (parts.[0], Some subSchema, rawTbl, t))
 
-            for (schema, tbls) in schemaGroups do
+            let configuredDbOpt =
+                let connStr = if isNull connector.ConnectionString then "" else connector.ConnectionString
+                let m = System.Text.RegularExpressions.Regex.Match(connStr, @"(?i)(?:Database|Initial Catalog|User Id|UID|Username)\s*=\s*([^;\s]+)")
+                if m.Success then Some (m.Groups.[1].Value.Trim().Trim('"', '\'', '[', ']'))
+                else None
+
+            let schemaGroups =
+                parsedTables
+                |> Seq.groupBy (fun (topGroup, _, _, _) -> topGroup)
+                |> Seq.sortBy fst
+                |> Seq.toList
+
+            let defaultTopGroupOpt =
+                let allGroups = schemaGroups |> List.map fst
+                match allGroups |> List.tryFind (fun g -> g = "public" || g = "dbo" || g = "main") with
+                | Some g -> Some g
+                | None ->
+                    match configuredDbOpt with
+                    | Some cfgDb ->
+                        allGroups
+                        |> List.tryFind (fun g -> String.Equals(g, cfgDb, StringComparison.OrdinalIgnoreCase))
+                        |> Option.orElseWith (fun () ->
+                            allGroups
+                            |> List.tryFind (fun g -> not (String.Equals(g, "postgres", StringComparison.OrdinalIgnoreCase)) && not (String.Equals(g, "master", StringComparison.OrdinalIgnoreCase)))
+                            |> Option.orElse (List.tryHead allGroups))
+                    | None ->
+                        allGroups
+                        |> List.tryFind (fun g -> not (String.Equals(g, "postgres", StringComparison.OrdinalIgnoreCase)) && not (String.Equals(g, "master", StringComparison.OrdinalIgnoreCase)))
+                        |> Option.orElse (List.tryHead allGroups)
+
+            let kind = (connector :> IConnector).Kind
+            let formatTreeSqlTarget (topGroup: string) (subSchemaOpt: string option) (rawTable: string) (origName: string) : string =
+                let isDefaultGroup =
+                    match defaultTopGroupOpt with
+                    | Some dg -> String.Equals(topGroup, dg, StringComparison.OrdinalIgnoreCase)
+                    | None -> false
+                let isKnownSchemaOnly = topGroup = "public" || topGroup = "dbo" || topGroup = "main"
+                match subSchemaOpt with
+                | None ->
+                    if origName.IndexOf('.') < 0 then
+                        rawTable
+                    elif isKnownSchemaOnly then
+                        if topGroup = "public" || topGroup = "dbo" || topGroup = "main" then origName else origName
+                    elif kind = ConnectorKind.SqlServer then
+                        $"{topGroup}.dbo.{rawTable}"
+                    elif kind = ConnectorKind.PostgreSql && isDefaultGroup then
+                        rawTable
+                    else
+                        origName
+                | Some subSchema ->
+                    if kind = ConnectorKind.PostgreSql && isDefaultGroup then
+                        if subSchema = "public" then rawTable else $"{subSchema}.{rawTable}"
+                    else
+                        $"{topGroup}.{subSchema}.{rawTable}"
+
+            let formatTopLevelSqlTarget (topGroup: string) (subSchemaOpt: string option) (rawTable: string) (origName: string) : string =
+                let isKnownSchemaOnly = topGroup = "public" || topGroup = "dbo" || topGroup = "main"
+                match subSchemaOpt with
+                | None ->
+                    if origName.IndexOf('.') < 0 then rawTable
+                    elif isKnownSchemaOnly then origName
+                    else rawTable
+                | Some subSchema ->
+                    if subSchema = "public" || subSchema = "dbo" || subSchema = "main" then rawTable
+                    else $"{subSchema}.{rawTable}"
+
+            for (schema, entries) in schemaGroups do
                 sb.AppendLine($"    module {escapeIdent schema} =") |> ignore
-                for t in tbls do
-                    let rawTableName =
-                        let dotIdx = t.Name.IndexOf(".")
-                        if dotIdx > 0 then t.Name.Substring(dotIdx + 1) else t.Name
+                let directEntries = entries |> Seq.filter (fun (_, subOpt, _, _) -> subOpt.IsNone) |> Seq.toList
+                let subSchemaEntries =
+                    entries
+                    |> Seq.choose (fun (_, subOpt, rawTbl, t) -> subOpt |> Option.map (fun s -> (s, rawTbl, t)))
+                    |> Seq.groupBy (fun (s, _, _) -> s)
+                    |> Seq.sortBy fst
+                    |> Seq.toList
+
+                let emittedDirectTypes = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                for (_, _, rawTableName, t) in directEntries do
                     let typeName = escapeIdent rawTableName
-                    sb.AppendLine($"        type {typeName} =") |> ignore
-                    sb.AppendLine("            {") |> ignore
-                    for col in t.Columns do
-                        sb.AppendLine($"                {escapeIdent col.Name}: {mapType col.DataType}") |> ignore
-                    sb.AppendLine("            }") |> ignore
-                    sb.AppendLine() |> ignore
+                    if emittedDirectTypes.Add(typeName) then
+                        sb.AppendLine($"        type {typeName} =") |> ignore
+                        sb.AppendLine("            {") |> ignore
+                        for col in t.Columns do
+                            sb.AppendLine($"                {escapeIdent col.Name}: {mapType col.DataType}") |> ignore
+                        sb.AppendLine("            }") |> ignore
+                        sb.AppendLine() |> ignore
+
+                for (subSchema, subTbls) in subSchemaEntries do
+                    sb.AppendLine($"        module {escapeIdent subSchema} =") |> ignore
+                    let emittedSubTypes = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    for (_, rawTableName, t) in subTbls do
+                        let typeName = escapeIdent rawTableName
+                        if emittedSubTypes.Add(typeName) then
+                            sb.AppendLine($"            type {typeName} =") |> ignore
+                            sb.AppendLine("                {") |> ignore
+                            for col in t.Columns do
+                                sb.AppendLine($"                    {escapeIdent col.Name}: {mapType col.DataType}") |> ignore
+                            sb.AppendLine("                }") |> ignore
+                            sb.AppendLine() |> ignore
+
+                    if subSchema = "public" || subSchema = "dbo" || subSchema = "main" then
+                        for (_, rawTableName, _) in subTbls do
+                            let typeName = escapeIdent rawTableName
+                            if emittedDirectTypes.Add(typeName) then
+                                sb.AppendLine($"        type {typeName} = {escapeIdent subSchema}.{typeName}") |> ignore
+                        sb.AppendLine() |> ignore
 
             sb.AppendLine("    type Database(conn: FSharpQueryStudio.Connectors.Connections.DatabaseConnection) =") |> ignore
             sb.AppendLine($"        new(connName: string) = Database(FSharpQueryStudio.Connectors.Connections.getDatabaseConnection(connName))") |> ignore
@@ -840,24 +1083,79 @@ module Connections =
             sb.AppendLine("        member _.Execute(sqlText: string, ?parameters: (string * obj) list) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.Execute(sqlText, ?parameters = parameters)") |> ignore
             sb.AppendLine("        member _.Table<'T>(tableName: string) : FSharpQueryStudio.Connectors.SqlPushdownQueryable<'T> = conn.Table<'T>(tableName)") |> ignore
             sb.AppendLine("        member _.Connection = conn") |> ignore
-            for (schema, tbls) in schemaGroups do
-                if schema = "public" || schema = "dbo" || schema = "main" then
-                    for t in tbls do
-                        let rawTableName =
-                            let dotIdx = t.Name.IndexOf(".")
-                            if dotIdx > 0 then t.Name.Substring(dotIdx + 1) else t.Name
-                        let propName = escapeIdent rawTableName
-                        sb.AppendLine($"        member _.{propName} : FSharpQueryStudio.Connectors.SqlPushdownQueryable<{escapeIdent schema}.{propName}> = conn.Table<{escapeIdent schema}.{propName}>(\"{t.Name}\")") |> ignore
+
+            let emittedTopLevelProps = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            for (schema, _) in schemaGroups do
+                emittedTopLevelProps.Add(escapeIdent schema) |> ignore
+
+            // Emit top-level properties for the default database/schema first (backwards compatibility)
+            for (schema, entries) in schemaGroups do
+                let isPrimaryGroup =
+                    schema = "public"
+                    || schema = "dbo"
+                    || schema = "main"
+                    || (match defaultTopGroupOpt with Some dg -> String.Equals(schema, dg, StringComparison.OrdinalIgnoreCase) | None -> false)
+                if isPrimaryGroup then
+                    for (_, subOpt, rawTableName, t) in entries do
+                        let isDefaultSub =
+                            match subOpt with
+                            | None -> true
+                            | Some s -> s = "public" || s = "dbo" || s = "main"
+                        if isDefaultSub then
+                            let propName = escapeIdent rawTableName
+                            if emittedTopLevelProps.Add(propName) then
+                                let typeRef =
+                                    match subOpt with
+                                    | None -> $"{escapeIdent schema}.{propName}"
+                                    | Some s -> $"{escapeIdent schema}.{escapeIdent s}.{propName}"
+                                let sqlTarget = formatTopLevelSqlTarget schema subOpt rawTableName t.Name
+                                sb.AppendLine($"        member _.{propName} : FSharpQueryStudio.Connectors.SqlPushdownQueryable<{typeRef}> = conn.Table<{typeRef}>(\"{sqlTarget}\")") |> ignore
+
+            // Emit database / schema tree properties
+            for (schema, entries) in schemaGroups do
+                let directEntries = entries |> Seq.filter (fun (_, subOpt, _, _) -> subOpt.IsNone) |> Seq.toList
+                let subSchemaEntries =
+                    entries
+                    |> Seq.choose (fun (_, subOpt, rawTbl, t) -> subOpt |> Option.map (fun s -> (s, rawTbl, t)))
+                    |> Seq.groupBy (fun (s, _, _) -> s)
+                    |> Seq.sortBy fst
+                    |> Seq.toList
+
                 sb.AppendLine($"        member _.{escapeIdent schema} =") |> ignore
                 sb.AppendLine("            {|") |> ignore
-                for t in tbls do
-                    let rawTableName =
-                        let dotIdx = t.Name.IndexOf(".")
-                        if dotIdx > 0 then t.Name.Substring(dotIdx + 1) else t.Name
+                let emittedRecordFields = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                for (subSchema, _) in subSchemaEntries do
+                    emittedRecordFields.Add(escapeIdent subSchema) |> ignore
+
+                for (_, subOpt, rawTableName, t) in directEntries do
                     let propName = escapeIdent rawTableName
-                    sb.AppendLine($"                {propName} = conn.Table<{escapeIdent schema}.{propName}>(\"{t.Name}\")") |> ignore
+                    if emittedRecordFields.Add(propName) then
+                        let sqlTarget = formatTreeSqlTarget schema subOpt rawTableName t.Name
+                        sb.AppendLine($"                {propName} = conn.Table<{escapeIdent schema}.{propName}>(\"{sqlTarget}\")") |> ignore
+
+                for (subSchema, subTbls) in subSchemaEntries do
+                    if subSchema = "public" || subSchema = "dbo" || subSchema = "main" then
+                        for (_, rawTableName, t) in subTbls do
+                            let propName = escapeIdent rawTableName
+                            if emittedRecordFields.Add(propName) then
+                                let sqlTarget = formatTreeSqlTarget schema (Some subSchema) rawTableName t.Name
+                                sb.AppendLine($"                {propName} = conn.Table<{escapeIdent schema}.{escapeIdent subSchema}.{propName}>(\"{sqlTarget}\")") |> ignore
+
+                for (subSchema, subTbls) in subSchemaEntries do
+                    let subPropName = escapeIdent subSchema
+                    sb.AppendLine($"                {subPropName} =") |> ignore
+                    sb.AppendLine("                    {|") |> ignore
+                    let emittedSubFields = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    for (_, rawTableName, t) in subTbls do
+                        let propName = escapeIdent rawTableName
+                        if emittedSubFields.Add(propName) then
+                            let sqlTarget = formatTreeSqlTarget schema (Some subSchema) rawTableName t.Name
+                            sb.AppendLine($"                        {propName} = conn.Table<{escapeIdent schema}.{subPropName}.{propName}>(\"{sqlTarget}\")") |> ignore
+                    sb.AppendLine("                    |}") |> ignore
+
                 sb.AppendLine("            |}") |> ignore
                 sb.AppendLine() |> ignore
+
             sb.AppendLine("    let database () : Database = Database()") |> ignore
             sb.AppendLine("    let db () : Database = Database()") |> ignore
             sb.AppendLine() |> ignore
@@ -882,14 +1180,24 @@ module Connections =
         member _.FilePath = connector.FilePath
         member _.Rows<'T>() : 'T seq = queryCsv<'T> name
         member this.Queryable<'T>() : IQueryable<'T> =
-            let eng = getEngine ()
-            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows()), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
-            SqlPushdownQueryable<'T>(eng.Connector, cleanTableName) :> IQueryable<'T>
+            this.PushdownQueryable<'T>() :> IQueryable<'T>
         member this.AsQueryable<'T>() : IQueryable<'T> = this.Queryable<'T>()
         member this.PushdownQueryable<'T>() : SqlPushdownQueryable<'T> =
             let eng = getEngine ()
-            let cleanTableName = eng.EnsureStaged(name, connector.FilePath, (fun () -> connector.ReadRows()), ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes))
+            let cleanTableName = stageCsvConnection eng name connector
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
+        member _.Execute(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            let p = defaultArg parameters []
+            let eng = getEngine ()
+            stageCsvConnection eng name connector |> ignore
+            ensureWorkspaceFilesStaged ()
+            eng.ExecuteQuery(sqlText, p)
+        member this.rawQuery(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            this.Execute(sqlText, ?parameters = parameters)
+        member this.rawQuery(sqlText: string) : ConnectorQueryResult =
+            this.Execute(sqlText, [])
+        member this.query(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            this.Execute(sqlText, ?parameters = parameters)
         member _.Raw() : ConnectorQueryResult = readCsvRaw name
 
     /// Represents an active Excel workbook connection with multi-sheet typed queries.
@@ -924,17 +1232,24 @@ module Connections =
             this.SheetQueryable<'T>(sheetName, ?maxRows = maxRows)
         member this.SheetPushdownQueryable<'T>(sheetName: string, ?maxRows: int) : SqlPushdownQueryable<'T> =
             let eng = getEngine ()
-            let compoundKey = $"{name}_{sheetName}"
-            let cleanTableName =
-                eng.EnsureStaged(
-                    compoundKey,
-                    connector.FilePath,
-                    (fun () -> connector.ReadRows(sheetName = sheetName, ?maxRows = maxRows)),
-                    ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes)
-                )
+            let defaultSheet = resolveDefaultSheetName ()
+            let isPrimary = String.Equals(sheetName, defaultSheet, StringComparison.OrdinalIgnoreCase)
+            let cleanTableName = stageExcelSheet eng name connector sheetName maxRows isPrimary
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
         member this.TablePushdownQueryable<'T>(sheetName: string, ?maxRows: int) : SqlPushdownQueryable<'T> =
             this.SheetPushdownQueryable<'T>(sheetName, ?maxRows = maxRows)
+        member _.Execute(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            let p = defaultArg parameters []
+            let eng = getEngine ()
+            stageExcelConnection eng name connector
+            ensureWorkspaceFilesStaged ()
+            eng.ExecuteQuery(sqlText, p)
+        member this.rawQuery(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            this.Execute(sqlText, ?parameters = parameters)
+        member this.rawQuery(sqlText: string) : ConnectorQueryResult =
+            this.Execute(sqlText, [])
+        member this.query(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            this.Execute(sqlText, ?parameters = parameters)
         member _.Raw(?maxRows: int) : ConnectorQueryResult = readExcelRaw name maxRows
 
     /// Represents an active local JSON file connection with multi-collection typed queries.
@@ -966,15 +1281,22 @@ module Connections =
             this.TablePushdownQueryable<'T>(tableName, ?maxRows = maxRows) :> IQueryable<'T>
         member this.TablePushdownQueryable<'T>(tableName: string, ?maxRows: int) : SqlPushdownQueryable<'T> =
             let eng = getEngine ()
-            let compoundKey = $"{name}_{tableName}"
-            let cleanTableName =
-                eng.EnsureStaged(
-                    compoundKey,
-                    connector.FilePath,
-                    (fun () -> connector.ReadRows(tableName = tableName, ?maxRows = maxRows)),
-                    ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes)
-                )
+            let defaultTable = resolveDefaultTableName ()
+            let isPrimary = String.Equals(tableName, defaultTable, StringComparison.OrdinalIgnoreCase)
+            let cleanTableName = stageJsonTable eng name connector tableName maxRows isPrimary
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
+        member _.Execute(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            let p = defaultArg parameters []
+            let eng = getEngine ()
+            stageJsonConnection eng name connector
+            ensureWorkspaceFilesStaged ()
+            eng.ExecuteQuery(sqlText, p)
+        member this.rawQuery(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            this.Execute(sqlText, ?parameters = parameters)
+        member this.rawQuery(sqlText: string) : ConnectorQueryResult =
+            this.Execute(sqlText, [])
+        member this.query(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            this.Execute(sqlText, ?parameters = parameters)
         member _.Raw(?maxRows: int) : ConnectorQueryResult = readJsonFileRaw name maxRows
 
     /// Represents an active local XML file connection with multi-collection typed queries.
@@ -1006,15 +1328,22 @@ module Connections =
             this.TablePushdownQueryable<'T>(tableName, ?maxRows = maxRows) :> IQueryable<'T>
         member this.TablePushdownQueryable<'T>(tableName: string, ?maxRows: int) : SqlPushdownQueryable<'T> =
             let eng = getEngine ()
-            let compoundKey = $"{name}_{tableName}"
-            let cleanTableName =
-                eng.EnsureStaged(
-                    compoundKey,
-                    connector.FilePath,
-                    (fun () -> connector.ReadRows(tableName = tableName, ?maxRows = maxRows)),
-                    ?columnTypes = (if connector.Options.ColumnTypes.IsEmpty then None else Some connector.Options.ColumnTypes)
-                )
+            let defaultTable = resolveDefaultTableName ()
+            let isPrimary = String.Equals(tableName, defaultTable, StringComparison.OrdinalIgnoreCase)
+            let cleanTableName = stageXmlTable eng name connector tableName maxRows isPrimary
             SqlPushdownQueryable<'T>(eng.Connector, cleanTableName)
+        member _.Execute(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            let p = defaultArg parameters []
+            let eng = getEngine ()
+            stageXmlConnection eng name connector
+            ensureWorkspaceFilesStaged ()
+            eng.ExecuteQuery(sqlText, p)
+        member this.rawQuery(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            this.Execute(sqlText, ?parameters = parameters)
+        member this.rawQuery(sqlText: string) : ConnectorQueryResult =
+            this.Execute(sqlText, [])
+        member this.query(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
+            this.Execute(sqlText, ?parameters = parameters)
         member _.Raw(?maxRows: int) : ConnectorQueryResult = readXmlRaw name maxRows
 
     /// Represents an active REST/JSON connection with typed queries.
@@ -1030,9 +1359,11 @@ module Connections =
     type SqlCategory() =
         member _.query(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
             let p = defaultArg parameters []
+            ensureWorkspaceFilesStaged ()
             (getEngine()).ExecuteQuery(sqlText, p)
         member _.rawQuery(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
             let p = defaultArg parameters []
+            ensureWorkspaceFilesStaged ()
             (getEngine()).ExecuteQuery(sqlText, p)
         /// Builds dynamic SQL for cross-tabulation / pivot query given known pivot column values.
         static member buildPivotSql(tableName: string, rowKeys: string list, pivotCol: string, valCol: string, pivotVals: string list, ?aggFunc: string) : string =
@@ -1055,6 +1386,7 @@ module Connections =
         /// Performs a dynamic SQL cross-tabulation / pivot on the staging engine.
         /// Extracts distinct values of pivotCol and executes conditional aggregation grouped by rowKeys.
         member this.pivot(tableName: string, rowKeys: string list, pivotCol: string, valCol: string, ?aggFunc: string) : ConnectorQueryResult =
+            ensureWorkspaceFilesStaged ()
             let eng = getEngine ()
             let distinctSql = $"SELECT DISTINCT {pivotCol} AS val FROM {tableName} WHERE {pivotCol} IS NOT NULL ORDER BY 1;"
             let distinctRes = eng.ExecuteQuery(distinctSql, [])
@@ -1149,7 +1481,8 @@ module Connections =
         task {
             let sw = Stopwatch.StartNew()
             let baseDir = ConnectorDescriptor.projectRootOf workspaceDir
-            let cacheDir = System.IO.Path.Combine(workspaceDir, ".fsqs", "cache")
+            let effectiveBaseDir = if String.IsNullOrWhiteSpace baseDir then workspaceDir else baseDir
+            let cacheDir = System.IO.Path.Combine(effectiveBaseDir, ".fsqs", "cache")
             if not (System.IO.Directory.Exists cacheDir) then
                 System.IO.Directory.CreateDirectory cacheDir |> ignore
             let dbPath = System.IO.Path.Combine(cacheDir, "engine.db")
@@ -1166,10 +1499,8 @@ module Connections =
             let fileConns =
                 connections
                 |> List.filter (fun c ->
-                    c.Kind.Id = "Csv"
-                    || c.Kind.Id = "Excel"
-                    || c.Kind.Id = "Json"
-                    || c.Kind.Id = "Xml")
+                    let k = c.Kind.Id.Trim().ToLowerInvariant()
+                    k = "csv" || k = "excel" || k = "json" || k = "xml")
 
             let total = fileConns.Length
 
@@ -1177,43 +1508,52 @@ module Connections =
                 let connDef = fileConns.[i]
                 let currentIdx = i + 1
                 try
-                    let conn: IConnector = ConnectorRegistry.Instance.Resolve(connDef, secretStore, Some baseDir)
-                    match connDef.Kind.Id with
-                    | "Csv" ->
+                    let conn: IConnector = ConnectorRegistry.Instance.Resolve(connDef, secretStore, Some effectiveBaseDir)
+                    match connDef.Kind.Id.Trim().ToLowerInvariant() with
+                    | "csv" ->
                         let csvConn = conn :?> CsvConnector
                         let filePath = csvConn.FilePath
-                        let fullPath = if System.IO.Path.IsPathRooted filePath then filePath else System.IO.Path.Combine(workspaceDir, filePath)
+                        let fullPath = if System.IO.Path.IsPathRooted filePath then filePath else System.IO.Path.Combine(effectiveBaseDir, filePath)
                         if System.IO.File.Exists fullPath then
-                            if eng.IsStagedAndCurrent(connDef.Name, fullPath) then
-                                skippedCount <- skippedCount + 1
-                                match onProgress with
-                                | Some cb ->
-                                    cb {
-                                        TableName = connDef.Name
-                                        FilePath = fullPath
-                                        Phase = "Skipped"
-                                        RowCount = None
-                                        CurrentIndex = Some currentIdx
-                                        TotalCount = Some total
-                                        ElapsedMs = Some 0L
-                                        Message = Some $"'{connDef.Name}' is up-to-date in cache"
-                                    }
-                                | None -> ()
-                            else
-                                eng.EnsureStaged(
-                                    connDef.Name,
-                                    fullPath,
-                                    (fun () -> csvConn.ReadRows()),
-                                    ?columnTypes = (if csvConn.Options.ColumnTypes.IsEmpty then None else Some csvConn.Options.ColumnTypes),
-                                    currentIndex = currentIdx,
-                                    totalCount = total,
-                                    ?onProgress = onProgress
-                                ) |> ignore
-                                stagedCount <- stagedCount + 1
-                    | "Excel" ->
+                            let cleanTableName =
+                                if eng.IsStagedAndCurrent(connDef.Name, fullPath) then
+                                    skippedCount <- skippedCount + 1
+                                    match onProgress with
+                                    | Some cb ->
+                                        cb {
+                                            TableName = connDef.Name
+                                            FilePath = fullPath
+                                            Phase = "Skipped"
+                                            RowCount = None
+                                            CurrentIndex = Some currentIdx
+                                            TotalCount = Some total
+                                            ElapsedMs = Some 0L
+                                            Message = Some $"'{connDef.Name}' is up-to-date in cache"
+                                        }
+                                    | None -> ()
+                                    let clean = CodeGenerationHelpers.cleanIdentifier connDef.Name
+                                    if String.IsNullOrWhiteSpace clean then "StagedFile" else clean
+                                else
+                                    let staged =
+                                        eng.EnsureStaged(
+                                            connDef.Name,
+                                            fullPath,
+                                            (fun () -> csvConn.ReadRows()),
+                                            ?columnTypes = (if csvConn.Options.ColumnTypes.IsEmpty then None else Some csvConn.Options.ColumnTypes),
+                                            currentIndex = currentIdx,
+                                            totalCount = total,
+                                            ?onProgress = onProgress
+                                        )
+                                    stagedCount <- stagedCount + 1
+                                    staged
+                            let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(fullPath)
+                            if not (String.IsNullOrWhiteSpace fileBaseName) then
+                                eng.EnsureAliasView(fileBaseName, cleanTableName)
+                                eng.EnsureAliasView($"{connDef.Name}_{fileBaseName}", cleanTableName)
+                    | "excel" ->
                         let excelConn = conn :?> ExcelConnector
                         let filePath = excelConn.FilePath
-                        let fullPath = if System.IO.Path.IsPathRooted filePath then filePath else System.IO.Path.Combine(workspaceDir, filePath)
+                        let fullPath = if System.IO.Path.IsPathRooted filePath then filePath else System.IO.Path.Combine(effectiveBaseDir, filePath)
                         if System.IO.File.Exists fullPath then
                             // Remove any legacy unprefixed table staged under the workbook connection name
                             eng.DropStaleTableIfExists(connDef.Name, fullPath)
@@ -1225,40 +1565,51 @@ module Connections =
                                     Log.Warning("FS Query Studio: Could not discover worksheets for Excel connection '{Name}': {Error}", connDef.Name, ex.Message)
                                     []
 
-                            for tbl in tables do
+                            for tblIdx, tbl in List.indexed tables do
                                 let sheetName = tbl.Name
                                 let compoundKey = $"{connDef.Name}_{sheetName}"
 
-                                if eng.IsStagedAndCurrent(compoundKey, fullPath) then
-                                    skippedCount <- skippedCount + 1
-                                    match onProgress with
-                                    | Some cb ->
-                                        cb {
-                                            TableName = compoundKey
-                                            FilePath = fullPath
-                                            Phase = "Skipped"
-                                            RowCount = None
-                                            CurrentIndex = Some currentIdx
-                                            TotalCount = Some total
-                                            ElapsedMs = Some 0L
-                                            Message = Some $"'{compoundKey}' is up-to-date in cache"
-                                        }
-                                    | None -> ()
-                                else
-                                    eng.EnsureStaged(
-                                        compoundKey,
-                                        fullPath,
-                                        (fun () -> excelConn.ReadRows(sheetName = sheetName)),
-                                        ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes),
-                                        currentIndex = currentIdx,
-                                        totalCount = total,
-                                        ?onProgress = onProgress
-                                    ) |> ignore
-                                    stagedCount <- stagedCount + 1
-                    | "Json" ->
+                                let cleanTableName =
+                                    if eng.IsStagedAndCurrent(compoundKey, fullPath) then
+                                        skippedCount <- skippedCount + 1
+                                        match onProgress with
+                                        | Some cb ->
+                                            cb {
+                                                TableName = compoundKey
+                                                FilePath = fullPath
+                                                Phase = "Skipped"
+                                                RowCount = None
+                                                CurrentIndex = Some currentIdx
+                                                TotalCount = Some total
+                                                ElapsedMs = Some 0L
+                                                Message = Some $"'{compoundKey}' is up-to-date in cache"
+                                            }
+                                        | None -> ()
+                                        let clean = CodeGenerationHelpers.cleanIdentifier compoundKey
+                                        if String.IsNullOrWhiteSpace clean then "StagedFile" else clean
+                                    else
+                                        let staged =
+                                            eng.EnsureStaged(
+                                                compoundKey,
+                                                fullPath,
+                                                (fun () -> excelConn.ReadRows(sheetName = sheetName)),
+                                                ?columnTypes = (if excelConn.Options.ColumnTypes.IsEmpty then None else Some excelConn.Options.ColumnTypes),
+                                                currentIndex = currentIdx,
+                                                totalCount = total,
+                                                ?onProgress = onProgress
+                                            )
+                                        stagedCount <- stagedCount + 1
+                                        staged
+                                eng.EnsureAliasView(sheetName, cleanTableName)
+                                if tblIdx = 0 then
+                                    eng.EnsureAliasView(connDef.Name, cleanTableName)
+                                    let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(fullPath)
+                                    if not (String.IsNullOrWhiteSpace fileBaseName) then
+                                        eng.EnsureAliasView(fileBaseName, cleanTableName)
+                    | "json" ->
                         let jsonConn = conn :?> JsonConnector
                         let filePath = jsonConn.FilePath
-                        let fullPath = if System.IO.Path.IsPathRooted filePath then filePath else System.IO.Path.Combine(workspaceDir, filePath)
+                        let fullPath = if System.IO.Path.IsPathRooted filePath then filePath else System.IO.Path.Combine(effectiveBaseDir, filePath)
                         if System.IO.File.Exists fullPath then
                             eng.DropStaleTableIfExists(connDef.Name, fullPath)
 
@@ -1269,40 +1620,51 @@ module Connections =
                                     Log.Warning("FS Query Studio: Could not discover tables for JSON connection '{Name}': {Error}", connDef.Name, ex.Message)
                                     []
 
-                            for tbl in tables do
+                            for tblIdx, tbl in List.indexed tables do
                                 let tableName = tbl.Name
                                 let compoundKey = $"{connDef.Name}_{tableName}"
 
-                                if eng.IsStagedAndCurrent(compoundKey, fullPath) then
-                                    skippedCount <- skippedCount + 1
-                                    match onProgress with
-                                    | Some cb ->
-                                        cb {
-                                            TableName = compoundKey
-                                            FilePath = fullPath
-                                            Phase = "Skipped"
-                                            RowCount = None
-                                            CurrentIndex = Some currentIdx
-                                            TotalCount = Some total
-                                            ElapsedMs = Some 0L
-                                            Message = Some $"'{compoundKey}' is up-to-date in cache"
-                                        }
-                                    | None -> ()
-                                else
-                                    eng.EnsureStaged(
-                                        compoundKey,
-                                        fullPath,
-                                        (fun () -> jsonConn.ReadRows(tableName = tableName)),
-                                        ?columnTypes = (if jsonConn.Options.ColumnTypes.IsEmpty then None else Some jsonConn.Options.ColumnTypes),
-                                        currentIndex = currentIdx,
-                                        totalCount = total,
-                                        ?onProgress = onProgress
-                                    ) |> ignore
-                                    stagedCount <- stagedCount + 1
-                    | "Xml" ->
+                                let cleanTableName =
+                                    if eng.IsStagedAndCurrent(compoundKey, fullPath) then
+                                        skippedCount <- skippedCount + 1
+                                        match onProgress with
+                                        | Some cb ->
+                                            cb {
+                                                TableName = compoundKey
+                                                FilePath = fullPath
+                                                Phase = "Skipped"
+                                                RowCount = None
+                                                CurrentIndex = Some currentIdx
+                                                TotalCount = Some total
+                                                ElapsedMs = Some 0L
+                                                Message = Some $"'{compoundKey}' is up-to-date in cache"
+                                            }
+                                        | None -> ()
+                                        let clean = CodeGenerationHelpers.cleanIdentifier compoundKey
+                                        if String.IsNullOrWhiteSpace clean then "StagedFile" else clean
+                                    else
+                                        let staged =
+                                            eng.EnsureStaged(
+                                                compoundKey,
+                                                fullPath,
+                                                (fun () -> jsonConn.ReadRows(tableName = tableName)),
+                                                ?columnTypes = (if jsonConn.Options.ColumnTypes.IsEmpty then None else Some jsonConn.Options.ColumnTypes),
+                                                currentIndex = currentIdx,
+                                                totalCount = total,
+                                                ?onProgress = onProgress
+                                            )
+                                        stagedCount <- stagedCount + 1
+                                        staged
+                                eng.EnsureAliasView(tableName, cleanTableName)
+                                if tblIdx = 0 then
+                                    eng.EnsureAliasView(connDef.Name, cleanTableName)
+                                    let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(fullPath)
+                                    if not (String.IsNullOrWhiteSpace fileBaseName) then
+                                        eng.EnsureAliasView(fileBaseName, cleanTableName)
+                    | "xml" ->
                         let xmlConn = conn :?> XmlConnector
                         let filePath = xmlConn.FilePath
-                        let fullPath = if System.IO.Path.IsPathRooted filePath then filePath else System.IO.Path.Combine(workspaceDir, filePath)
+                        let fullPath = if System.IO.Path.IsPathRooted filePath then filePath else System.IO.Path.Combine(effectiveBaseDir, filePath)
                         if System.IO.File.Exists fullPath then
                             eng.DropStaleTableIfExists(connDef.Name, fullPath)
 
@@ -1313,36 +1675,47 @@ module Connections =
                                     Log.Warning("FS Query Studio: Could not discover tables for XML connection '{Name}': {Error}", connDef.Name, ex.Message)
                                     []
 
-                            for tbl in tables do
+                            for tblIdx, tbl in List.indexed tables do
                                 let tableName = tbl.Name
                                 let compoundKey = $"{connDef.Name}_{tableName}"
 
-                                if eng.IsStagedAndCurrent(compoundKey, fullPath) then
-                                    skippedCount <- skippedCount + 1
-                                    match onProgress with
-                                    | Some cb ->
-                                        cb {
-                                            TableName = compoundKey
-                                            FilePath = fullPath
-                                            Phase = "Skipped"
-                                            RowCount = None
-                                            CurrentIndex = Some currentIdx
-                                            TotalCount = Some total
-                                            ElapsedMs = Some 0L
-                                            Message = Some $"'{compoundKey}' is up-to-date in cache"
-                                        }
-                                    | None -> ()
-                                else
-                                    eng.EnsureStaged(
-                                        compoundKey,
-                                        fullPath,
-                                        (fun () -> xmlConn.ReadRows(tableName = tableName)),
-                                        ?columnTypes = (if xmlConn.Options.ColumnTypes.IsEmpty then None else Some xmlConn.Options.ColumnTypes),
-                                        currentIndex = currentIdx,
-                                        totalCount = total,
-                                        ?onProgress = onProgress
-                                    ) |> ignore
-                                    stagedCount <- stagedCount + 1
+                                let cleanTableName =
+                                    if eng.IsStagedAndCurrent(compoundKey, fullPath) then
+                                        skippedCount <- skippedCount + 1
+                                        match onProgress with
+                                        | Some cb ->
+                                            cb {
+                                                TableName = compoundKey
+                                                FilePath = fullPath
+                                                Phase = "Skipped"
+                                                RowCount = None
+                                                CurrentIndex = Some currentIdx
+                                                TotalCount = Some total
+                                                ElapsedMs = Some 0L
+                                                Message = Some $"'{compoundKey}' is up-to-date in cache"
+                                            }
+                                        | None -> ()
+                                        let clean = CodeGenerationHelpers.cleanIdentifier compoundKey
+                                        if String.IsNullOrWhiteSpace clean then "StagedFile" else clean
+                                    else
+                                        let staged =
+                                            eng.EnsureStaged(
+                                                compoundKey,
+                                                fullPath,
+                                                (fun () -> xmlConn.ReadRows(tableName = tableName)),
+                                                ?columnTypes = (if xmlConn.Options.ColumnTypes.IsEmpty then None else Some xmlConn.Options.ColumnTypes),
+                                                currentIndex = currentIdx,
+                                                totalCount = total,
+                                                ?onProgress = onProgress
+                                            )
+                                        stagedCount <- stagedCount + 1
+                                        staged
+                                eng.EnsureAliasView(tableName, cleanTableName)
+                                if tblIdx = 0 then
+                                    eng.EnsureAliasView(connDef.Name, cleanTableName)
+                                    let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(fullPath)
+                                    if not (String.IsNullOrWhiteSpace fileBaseName) then
+                                        eng.EnsureAliasView(fileBaseName, cleanTableName)
                     | _ -> ()
                 with ex ->
                     Log.Warning("FS Query Studio: Background staging failed for connection '{Name}': {Error}", connDef.Name, ex.Message)
@@ -1361,9 +1734,6 @@ module Connections =
 
     /// Synchronizes and pre-stages all CSV and Excel connections without progress callback.
     let syncDataSources = syncDataSourcesAsync
-
-    let mutable private currentSyncTask: Task = Task.CompletedTask
-    let private syncLock = obj()
 
     /// Triggers fire-and-forget background pre-staging of tabular files into the persistent disk cache.
     let triggerBackgroundSync (workspaceDir: string) (connections: ConnectionDefinition list) (secretStore: FSharpQueryStudio.Security.ISecretStore) : unit =

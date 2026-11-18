@@ -114,7 +114,7 @@ type OracleConnectorTests(fixture: OracleContainerFixture) =
 
             let! tables = asInterface.DiscoverSchemaAsync(CancellationToken.None)
 
-            let orders = tables |> List.find (fun t -> t.Name.ToUpperInvariant() = "ORDERS")
+            let orders = tables |> List.find (fun t -> t.Name.ToUpperInvariant() = "ORDERS" || t.Name.ToUpperInvariant().EndsWith(".ORDERS"))
             let columnNames = orders.Columns |> List.map (fun c -> c.Name.ToUpperInvariant()) |> List.sort
             Assert.Equal<string list>([ "CUSTOMER_ID"; "ID"; "TOTAL" ], columnNames)
         }
@@ -133,7 +133,7 @@ type OracleConnectorTests(fixture: OracleContainerFixture) =
             |> ignore
 
             let! tables = (connector :> IConnector).DiscoverSchemaAsync(CancellationToken.None)
-            let typeTable = tables |> List.find (fun t -> t.Name.ToUpperInvariant() = "TYPE_CASES")
+            let typeTable = tables |> List.find (fun t -> t.Name.ToUpperInvariant() = "TYPE_CASES" || t.Name.ToUpperInvariant().EndsWith(".TYPE_CASES"))
             let findType colName =
                 (typeTable.Columns |> List.find (fun c -> String.Equals(c.Name, colName, StringComparison.OrdinalIgnoreCase))).DataType
 

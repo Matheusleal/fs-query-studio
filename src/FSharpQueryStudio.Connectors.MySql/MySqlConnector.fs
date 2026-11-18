@@ -128,10 +128,8 @@ type MySqlConnector(connectionString: string) =
             return
                 rows
                 |> Seq.groupBy (fun (schema, tableName, _, _) ->
-                    if String.IsNullOrEmpty defaultDatabase || String.Equals(schema, defaultDatabase, StringComparison.OrdinalIgnoreCase) then
-                        tableName
-                    else
-                        $"{schema}.{tableName}")
+                    if String.IsNullOrWhiteSpace schema then tableName
+                    else $"{schema}.{tableName}")
                 |> Seq.map (fun (displayName, tableRows) ->
                     { Name = displayName
                       Columns =

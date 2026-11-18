@@ -97,44 +97,70 @@ type SqlServerConnector(connectionString: string) =
     member this.ExecuteReaderStream<'T> (sql: string) (parameters: (string * obj) list) (mapper: System.Data.IDataRecord -> 'T) : 'T seq =
         this.ExecuteReaderStreamWithColumns sql parameters (fun _ -> mapper)
 
-    /// Every base table, view and column via `INFORMATION_SCHEMA` — Section
-    /// 10's "schema discovery".
+    /// Every base table, view and column across all accessible databases on the SQL Server instance.
     member _.DiscoverSchemaAsync(ct: CancellationToken) : Task<ConnectorTable list> =
         task {
             use connection = new SqlConnection(connectionString)
             do! connection.OpenAsync(ct)
-            use command = connection.CreateCommand()
 
-            command.CommandText <-
-                "select t.TABLE_SCHEMA, t.TABLE_NAME, c.COLUMN_NAME, c.DATA_TYPE \
-                 from INFORMATION_SCHEMA.TABLES t \
-                 join INFORMATION_SCHEMA.COLUMNS c \
-                   on c.TABLE_NAME = t.TABLE_NAME and c.TABLE_SCHEMA = t.TABLE_SCHEMA \
-                 where t.TABLE_TYPE in ('BASE TABLE', 'VIEW') \
-                 order by t.TABLE_SCHEMA, t.TABLE_NAME, c.ORDINAL_POSITION"
+            let dbNames = ResizeArray<string>()
+            try
+                use dbCmd = connection.CreateCommand()
+                dbCmd.CommandText <-
+                    "SELECT name FROM sys.databases WHERE state = 0 AND name NOT IN ('tempdb', 'model', 'msdb') AND HAS_DBACCESS(name) = 1 ORDER BY name"
+                use! dbReader = dbCmd.ExecuteReaderAsync(ct)
+                let mutable moreDbs = true
+                while moreDbs do
+                    let! hasNext = dbReader.ReadAsync(ct)
+                    if hasNext then
+                        dbNames.Add(dbReader.GetString(0))
+                    else
+                        moreDbs <- false
+            with _ -> ()
 
-            use! reader = command.ExecuteReaderAsync(ct)
-            let rows = ResizeArray<string * string * string * string>()
-            let mutable hasRow = true
+            if dbNames.Count = 0 && not (String.IsNullOrWhiteSpace connection.Database) then
+                dbNames.Add(connection.Database)
 
-            while hasRow do
-                let! more = reader.ReadAsync(ct)
+            let rows = ResizeArray<string * string * string * string * string>()
 
-                if more then
-                    rows.Add(reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3))
-                else
-                    hasRow <- false
+            for dbName in dbNames do
+                try
+                    let escapedDb = "[" + dbName.Replace("]", "]]") + "]"
+                    use command = connection.CreateCommand()
+                    command.CommandText <-
+                        $"SELECT s.name AS TABLE_SCHEMA, o.name AS TABLE_NAME, c.name AS COLUMN_NAME, t.name AS DATA_TYPE \
+                          FROM {escapedDb}.sys.objects o \
+                          JOIN {escapedDb}.sys.schemas s ON o.schema_id = s.schema_id \
+                          JOIN {escapedDb}.sys.columns c ON c.object_id = o.object_id \
+                          JOIN {escapedDb}.sys.types t ON c.user_type_id = t.user_type_id \
+                          WHERE o.type IN ('U', 'V') \
+                            AND o.is_ms_shipped = 0 \
+                            AND o.name NOT IN ('sysdiagrams', 'MSreplication_options') \
+                            AND o.name NOT LIKE 'spt_%%' \
+                          ORDER BY s.name, o.name, c.column_id"
+
+                    use! reader = command.ExecuteReaderAsync(ct)
+                    let mutable hasRow = true
+                    while hasRow do
+                        let! more = reader.ReadAsync(ct)
+                        if more then
+                            rows.Add((dbName, reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3)))
+                        else
+                            hasRow <- false
+                with _ -> ()
 
             return
                 rows
-                |> Seq.groupBy (fun (schema, tableName, _, _) ->
-                    if String.Equals(schema, "dbo", StringComparison.OrdinalIgnoreCase) then tableName
-                    else $"{schema}.{tableName}")
+                |> Seq.groupBy (fun (dbName, schema, tableName, _, _) ->
+                    if String.Equals(schema, "dbo", StringComparison.OrdinalIgnoreCase) then
+                        $"{dbName}.{tableName}"
+                    else
+                        $"{dbName}.{schema}.{tableName}")
                 |> Seq.map (fun (displayName, tableRows) ->
                     { Name = displayName
                       Columns =
                         tableRows
-                        |> Seq.map (fun (_, _, columnName, dataType) -> ({ Name = columnName; DataType = dataType }: ConnectorColumn))
+                        |> Seq.map (fun (_, _, _, columnName, dataType) -> ({ Name = columnName; DataType = dataType }: ConnectorColumn))
                         |> List.ofSeq }: ConnectorTable)
                 |> List.ofSeq
         }

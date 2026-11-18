@@ -94,7 +94,7 @@ type SqlServerConnectorTests(fixture: MsSqlContainerFixture) =
 
             let! tables = asInterface.DiscoverSchemaAsync(CancellationToken.None)
 
-            let orders = tables |> List.find (fun t -> t.Name = "Orders")
+            let orders = tables |> List.find (fun t -> t.Name = "Orders" || t.Name = "master.Orders")
             let columnNames = orders.Columns |> List.map (fun c -> c.Name) |> List.sort
             Assert.Equal<string list>([ "CustomerId"; "Id"; "Total" ], columnNames)
         }
@@ -111,7 +111,7 @@ type SqlServerConnectorTests(fixture: MsSqlContainerFixture) =
             |> ignore
 
             let! tables = (connector :> IConnector).DiscoverSchemaAsync(CancellationToken.None)
-            let customItem = tables |> List.tryFind (fun t -> t.Name = "custom.Items")
+            let customItem = tables |> List.tryFind (fun t -> t.Name = "custom.Items" || t.Name = "master.custom.Items")
             Assert.True(customItem.IsSome)
             let colNames = customItem.Value.Columns |> List.map (fun c -> c.Name) |> List.sort
             Assert.Equal<string list>([ "ItemId"; "Title" ], colNames)

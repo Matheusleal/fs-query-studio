@@ -93,7 +93,7 @@ type PostgreSqlConnectorTests(fixture: PostgreSqlContainerFixture) =
 
             let! tables = asInterface.DiscoverSchemaAsync(CancellationToken.None)
 
-            let orders = tables |> List.find (fun t -> t.Name = "orders")
+            let orders = tables |> List.find (fun t -> t.Name = "orders" || t.Name = "postgres.orders")
             let columnNames = orders.Columns |> List.map (fun c -> c.Name) |> List.sort
             Assert.Equal<string list>([ "customer_id"; "id"; "total" ], columnNames)
         }
@@ -110,7 +110,7 @@ type PostgreSqlConnectorTests(fixture: PostgreSqlContainerFixture) =
             |> ignore
 
             let! tables = (connector :> IConnector).DiscoverSchemaAsync(CancellationToken.None)
-            let customItem = tables |> List.tryFind (fun t -> t.Name = "custom.items")
+            let customItem = tables |> List.tryFind (fun t -> t.Name = "custom.items" || t.Name = "postgres.custom.items")
             Assert.True(customItem.IsSome)
             let colNames = customItem.Value.Columns |> List.map (fun c -> c.Name) |> List.sort
             Assert.Equal<string list>([ "item_id"; "title" ], colNames)
@@ -200,4 +200,62 @@ type PostgreSqlConnectorTests(fixture: PostgreSqlContainerFixture) =
             let rows = result.Rows |> Seq.toList
             Assert.Single(rows) |> ignore
             Assert.Equal(100.0M, Convert.ToDecimal(rows.[0].[0]))
+        }
+
+    [<Fact>]
+    member _.``DiscoverSchemaAsync discovers tables across multiple databases on the same server`` () =
+        task {
+            use adminConn = new NpgsqlConnection(fixture.ConnectionString)
+            do! adminConn.OpenAsync()
+            try
+                use createDb = adminConn.CreateCommand()
+                createDb.CommandText <- "CREATE DATABASE extra_pg_db"
+                createDb.ExecuteNonQuery() |> ignore
+            with _ -> ()
+
+            let csb = NpgsqlConnectionStringBuilder(fixture.ConnectionString)
+            csb.Database <- "extra_pg_db"
+            let extraConnector = PostgreSqlConnector(csb.ToString())
+            extraConnector.ExecuteQuery
+                "create table if not exists branch_orders (id int primary key, customer_id int not null, total numeric(10, 2) not null); \
+                 truncate table branch_orders; \
+                 insert into branch_orders (id, customer_id, total) values (10, 99, 500.00); \
+                 create schema if not exists sales; \
+                 create table if not exists sales.invoices (id int primary key, customer_id int not null, total numeric(10, 2) not null); \
+                 truncate table sales.invoices; \
+                 insert into sales.invoices (id, customer_id, total) values (20, 88, 750.00);"
+                []
+            |> ignore
+
+            let mainConnector = PostgreSqlConnector(fixture.ConnectionString)
+            let! tables = (mainConnector :> IConnector).DiscoverSchemaAsync(CancellationToken.None)
+            Assert.Contains(tables, fun t -> t.Name = "extra_pg_db.branch_orders")
+            Assert.Contains(tables, fun t -> t.Name = "extra_pg_db.sales.invoices")
+
+            // Cross-database 2-part and 3-part query routing from main connection
+            let res2Part = mainConnector.ExecuteQuery "SELECT id, customer_id, total FROM extra_pg_db.branch_orders" []
+            let rows2 = res2Part.Rows |> Seq.toList
+            Assert.Single(rows2) |> ignore
+
+            let res3Part = mainConnector.ExecuteQuery "SELECT id, customer_id, total FROM extra_pg_db.sales.invoices" []
+            let rows3 = res3Part.Rows |> Seq.toList
+            Assert.Single(rows3) |> ignore
+
+            let streamed2 =
+                mainConnector.ExecuteReaderStreamWithColumns
+                    "SELECT id, customer_id, total FROM extra_pg_db.branch_orders"
+                    []
+                    (fun _ r -> { Id = r.GetInt32(0); CustomerId = r.GetInt32(1); Total = r.GetDecimal(2) })
+                |> Seq.toList
+            Assert.Single(streamed2) |> ignore
+            Assert.Equal(500.00M, streamed2.[0].Total)
+
+            let streamed3 =
+                mainConnector.ExecuteReaderStreamWithColumns
+                    "SELECT id, customer_id, total FROM extra_pg_db.sales.invoices"
+                    []
+                    (fun _ r -> { Id = r.GetInt32(0); CustomerId = r.GetInt32(1); Total = r.GetDecimal(2) })
+                |> Seq.toList
+            Assert.Single(streamed3) |> ignore
+            Assert.Equal(750.00M, streamed3.[0].Total)
         }

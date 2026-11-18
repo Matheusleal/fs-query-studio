@@ -31,17 +31,21 @@ open FSharpQueryStudio.Connectors
 open FSharpQueryStudio.Generated
 ```
 
-### Padrão de Resolução de Tabelas: `Connections.sql`
-Bancos configurados no workspace são tipados e expostos através de `Connections.sql.<NomeDaConexao>.<NomeDaTabela>`:
+### Padrão de Resolução de Databases e Tabelas: `Connections.sql`
+Bancos configurados no workspace descobrem automaticamente todos os databases acessíveis no servidor e os mapeiam em estrutura de árvore (`Connections.sql.<NomeDaConexao>.<NomeDoDatabase>.[<Schema>.]<NomeDaTabela>`), mantendo também o acesso direto às tabelas do database padrão no topo (`Connections.sql.<NomeDaConexao>.<NomeDaTabela>`):
 
 ```fsharp
-// SQL Server
+// Acesso direto no database padrão
 let mssqlProducts = Connections.sql.SqlServer_Demo.Products
 let mssqlOrders   = Connections.sql.SqlServer_Demo.Orders
 
+// Acesso em árvore multi-database (Conexão -> Database -> [Schema ->] Tabela)
+let analyticsEvents = Connections.sql.SqlServer_Demo.AnalyticsDb.Events
+let salesInvoices   = Connections.sql.SqlServer_Demo.EcommerceDb.sales.Invoices
+
 // PostgreSQL (respeita convenções minúsculas do Postgres)
 let pgProducts = Connections.sql.PostgreSQL_Demo.products
-let pgOrders   = Connections.sql.PostgreSQL_Demo.orders
+let pgOrders   = Connections.sql.PostgreSQL_Demo.fsqs_demo.orders
 
 // SQLite
 let sqliteProducts = Connections.sql.SQLite_Demo.Products
@@ -52,12 +56,14 @@ let sqliteOrders   = Connections.sql.SQLite_Demo.Orders
 
 ## 3. Catálogo Completo da Sintaxe `fsql`
 
-### 3.1 Consultas Básicas, Filtros, Ordenação e Paginação
+### 3.1 Consultas Básicas, Filtros, Condições Null/Empty, Ordenação e Paginação
 ```fsharp
 let paginaDeProdutos =
     fsql {
         for p in mssqlProducts do
-        where (p.Price >= 50.0M && p.InStock)
+        where (p.Price >= 50.0M && p.InStock && not (isNull p.Category) && notEmpty p.Name)
+        whereNotNull p.Category
+        whereNotEmpty p.Name
         sortByDescending p.Price
         thenBy p.Name
         skip 10
@@ -65,6 +71,10 @@ let paginaDeProdutos =
         select {| Id = p.Id; Name = p.Name; Price = p.Price |}
     } |> Seq.toList
 ```
+
+Condições dedicadas para `not null` e `not empty` suportadas no `fsql` (compiladas para SQL nativo em todos os dialetos):
+- **Predicados dentro de `where (...)`**: `not (isNull x.Col)`, `isNull x.Col`, `notNull x.Col` / `isNotNull x.Col`, `notEmpty x.Col` / `isNotEmpty x.Col` / `notNullOrEmpty x.Col` / `isNotNullOrEmpty x.Col`, `notNullOrWhiteSpace x.Col` / `isNotNullOrWhiteSpace x.Col`, `isEmpty x.Col` / `isNullOrEmpty x.Col`, `isNullOrWhiteSpace x.Col`.
+- **Operações dedicadas do `fsql`**: `whereNotNull x.Col`, `whereIsNull x.Col`, `whereNotEmpty x.Col`, `whereIsEmpty x.Col`, `whereNotNullOrEmpty x.Col`, `whereNotNullOrWhiteSpace x.Col`.
 
 ### 3.2 Agregações (Pushdown para `COUNT`, `MAX`, `MIN`, `SUM`, `AVG`)
 ```fsharp

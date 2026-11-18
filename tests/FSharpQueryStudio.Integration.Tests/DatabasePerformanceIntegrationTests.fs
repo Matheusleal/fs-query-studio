@@ -118,8 +118,8 @@ type PostgreSqlPerformanceIntegrationTests(fixture: PostgreSqlContainerFixture, 
             let asInterface = connector :> IConnector
             let! schema = asInterface.DiscoverSchemaAsync(CancellationToken.None)
             let tableNames = schema |> List.map (fun t -> t.Name)
-            Assert.Contains("perf_customers.profiles", tableNames)
-            Assert.Contains("perf_sales.orders", tableNames)
+            Assert.Contains("postgres.perf_customers.profiles", tableNames)
+            Assert.Contains("postgres.perf_sales.orders", tableNames)
 
             // Configurar Resolver para testes de query
             let dbName = "PgPerfDb"
@@ -382,8 +382,8 @@ type SqlServerPerformanceIntegrationTests(fixture: MsSqlContainerFixture, output
             let asInterface = connector :> IConnector
             let! schema = asInterface.DiscoverSchemaAsync(CancellationToken.None)
             let tableNames = schema |> List.map (fun t -> t.Name)
-            Assert.Contains("perf_customers.profiles", tableNames)
-            Assert.Contains("perf_sales.orders", tableNames)
+            Assert.Contains("master.perf_customers.profiles", tableNames)
+            Assert.Contains("master.perf_sales.orders", tableNames)
 
             // Configurar Resolver para testes de query
             let dbName = "SqlPerfDb"
