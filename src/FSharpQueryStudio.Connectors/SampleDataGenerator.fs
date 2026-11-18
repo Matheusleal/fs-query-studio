@@ -890,6 +890,90 @@ pendingAudit
 """
 
                 mkMarkdown """
+## 25. 🛡️ Null & Empty Filtering (`not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull`, `whereNotEmpty`)
+
+Filter null and empty columns using `not (isNull ...)`, `notNull`, `notEmpty`, `notNullOrEmpty`, or dedicated custom operations (`whereNotNull`, `whereNotEmpty`, `whereNotNullOrEmpty`, `whereNotNullOrWhiteSpace`) — all pushed down directly to native SQL (`IS NOT NULL` and `<> ''`).
+"""
+
+                mkCode """
+// 25. Filter non-null and non-empty fields using where (not (isNull ...)) and dedicated custom operations
+let validOrdersQuery =
+    fsql {
+        for o in Connections.sql.SampleStore.Orders do
+        where (not (isNull o.Notes) && notEmpty o.Status && o.TotalAmount >= 150.0f)
+        whereNotNull o.OrderNumber
+        whereNotEmpty o.PaymentMethod
+        whereNotNullOrEmpty o.Channel
+        sortByDescending o.TotalAmount
+        take 10
+        select {|
+            OrderId = o.Id
+            OrderNumber = o.OrderNumber
+            Status = o.Status
+            PaymentMethod = o.PaymentMethod
+            Channel = o.Channel
+            TotalAmount = o.TotalAmount
+            Notes = o.Notes
+        |}
+    }
+
+printfn "Formatted SQL (Null & Empty Pushdown):\n%s" (toRawQuery validOrdersQuery)
+validOrdersQuery
+"""
+
+                mkMarkdown """
+## 26. 🗄️ Direct SQLite Engine Queries on Mapped CSV & XML Connections (`rawQuery` & `queryEngine`)
+
+Mapped flat-file sources (`CSV`, `XML`, `JSON`, `Excel`) are automatically staged on-demand in the workspace SQLite engine (`.fsqs/cache/engine.db`) with alias views matching their connection name, file name, and table name (`SalesFeed`, `sales_feed`, `LogisticsHub`, `Shipments`, `Carriers`). You can run direct parameterized SQLite queries via `Connections.sql.rawQuery`, `Connections.csv.<Conn>.rawQuery`, or `Connections.xml.<Conn>.rawQuery`.
+"""
+
+                mkCode """
+// 26. Direct parameterized SQLite queries on mapped XML (Shipments & Carriers) and CSV (sales_feed)
+let xmlDirectRows =
+    Connections.xml.LogisticsHub.rawQuery(
+        "SELECT s.ShipmentId, s.TrackingNumber, c.Name AS Carrier, s.Destination, s.ShippingCost FROM Shipments s JOIN Carriers c ON s.CarrierId = c.CarrierId WHERE s.ShippingCost >= @minCost ORDER BY s.ShippingCost DESC LIMIT 5",
+        [ "@minCost", box 100.0 ]
+    )
+
+printfn "Direct XML SQLite query returned %d rows" (xmlDirectRows.Rows |> Seq.length)
+
+Connections.sql.rawQuery(
+    "SELECT OrderId, Customer, Product, Category, TotalAmount, Status FROM sales_feed WHERE Category = @cat AND TotalAmount >= @minTotal ORDER BY TotalAmount DESC LIMIT 10",
+    [ "@cat", box "Electronics"; "@minTotal", box 100.0 ]
+)
+"""
+
+                mkMarkdown """
+## 27. 🔗 Fluent `.WhereNotNull` / `.WhereNotEmpty` Chaining with `fsql`
+
+You can also chain `.WhereNotNull(...)`, `.WhereNotEmpty(...)`, `.WhereNotNullOrEmpty(...)`, and `.WhereNotNullOrWhiteSpace(...)` fluently on any `SqlPushdownQueryable<'T>` table before or inside an `fsql` query.
+"""
+
+                mkCode """
+// 27. Fluent WhereNotNull / WhereNotEmpty / WhereNotNullOrWhiteSpace combined with fsql
+let verifiedCustomers =
+    Connections.sql.SampleStore.Customers
+        .WhereNotNull(fun c -> c.Email)
+        .WhereNotEmpty(fun c -> c.City)
+        .WhereNotNullOrWhiteSpace(fun c -> c.FirstName)
+
+fsql {
+    for c in verifiedCustomers do
+    where (c.Country = "Brazil" || c.Country = "UK")
+    sortByDescending c.LoyaltyPoints
+    take 10
+    select {|
+        Id = c.Id
+        Customer = c.FirstName + " " + c.LastName
+        Email = c.Email
+        City = c.City
+        Country = c.Country
+        LoyaltyPoints = c.LoyaltyPoints
+    |}
+}
+"""
+
+                mkMarkdown """
 ---
 
 ### 📚 Official Documentation & References
@@ -1612,6 +1696,90 @@ let relatorioPlano = fsql.explain auditoriaPendentes
 printfn "Relatório do Plano de Execução:\n%s" relatorioPlano.PlanText
 printfn "SQL Formatado:\n%s" (toRawQuery auditoriaPendentes)
 auditoriaPendentes
+"""
+
+                mkMarkdown """
+## 25. 🛡️ Filtros `not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull` e `whereNotEmpty`
+
+Filtre colunas nulas ou vazias usando `not (isNull ...)`, `notNull`, `notEmpty`, `notNullOrEmpty` ou as custom operations dedicadas (`whereNotNull`, `whereNotEmpty`, `whereNotNullOrEmpty`, `whereNotNullOrWhiteSpace`) — todas traduzidas com pushdown direto para SQL (`IS NOT NULL` e `<> ''`).
+"""
+
+                mkCode """
+// 25. Filtra campos não nulos e não vazios usando where (not (isNull ...)) e custom operations dedicadas
+let pedidosValidosQuery =
+    fsql {
+        for o in Connections.sql.SampleStore.Orders do
+        where (not (isNull o.Notes) && notEmpty o.Status && o.TotalAmount >= 150.0f)
+        whereNotNull o.OrderNumber
+        whereNotEmpty o.PaymentMethod
+        whereNotNullOrEmpty o.Channel
+        sortByDescending o.TotalAmount
+        take 10
+        select {|
+            PedidoId = o.Id
+            NumeroPedido = o.OrderNumber
+            Status = o.Status
+            MetodoPagamento = o.PaymentMethod
+            Canal = o.Channel
+            ValorTotal = o.TotalAmount
+            Observacoes = o.Notes
+        |}
+    }
+
+printfn "SQL Formatado (Pushdown de Null e Empty):\n%s" (toRawQuery pedidosValidosQuery)
+pedidosValidosQuery
+"""
+
+                mkMarkdown """
+## 26. 🗄️ Consultas SQLite Diretas sobre Conexões CSV e XML Mapeadas (`rawQuery` & `queryEngine`)
+
+Fontes de arquivos mapeadas (`CSV`, `XML`, `JSON`, `Excel`) realizam auto-staging sob demanda no motor SQLite do workspace (`.fsqs/cache/engine.db`) com views para o nome da conexão, nome do arquivo e nome da tabela (`SalesFeed`, `sales_feed`, `LogisticsHub`, `Shipments`, `Carriers`). Você pode executar consultas SQLite diretas via `Connections.sql.rawQuery`, `Connections.csv.<Conn>.rawQuery` ou `Connections.xml.<Conn>.rawQuery`.
+"""
+
+                mkCode """
+// 26. Consultas SQLite diretas e parametrizadas sobre XML (Shipments & Carriers) e CSV (sales_feed) mapeados
+let linhasXmlDireto =
+    Connections.xml.LogisticsHub.rawQuery(
+        "SELECT s.ShipmentId, s.TrackingNumber, c.Name AS Carrier, s.Destination, s.ShippingCost FROM Shipments s JOIN Carriers c ON s.CarrierId = c.CarrierId WHERE s.ShippingCost >= @minCost ORDER BY s.ShippingCost DESC LIMIT 5",
+        [ "@minCost", box 100.0 ]
+    )
+
+printfn "Consulta SQLite direta no XML retornou %d linhas" (linhasXmlDireto.Rows |> Seq.length)
+
+Connections.sql.rawQuery(
+    "SELECT OrderId AS PedidoId, Customer AS Cliente, Product AS Produto, Category AS Categoria, TotalAmount AS ValorTotal, Status FROM sales_feed WHERE Category = @cat AND TotalAmount >= @minTotal ORDER BY TotalAmount DESC LIMIT 10",
+    [ "@cat", box "Electronics"; "@minTotal", box 100.0 ]
+)
+"""
+
+                mkMarkdown """
+## 27. 🔗 Encadeamento Fluente `.WhereNotNull` / `.WhereNotEmpty` com `fsql`
+
+Você também pode encadear `.WhereNotNull(...)`, `.WhereNotEmpty(...)`, `.WhereNotNullOrEmpty(...)` e `.WhereNotNullOrWhiteSpace(...)` diretamente em qualquer tabela `SqlPushdownQueryable<'T>` antes ou dentro de um bloco `fsql`.
+"""
+
+                mkCode """
+// 27. Encadeamento fluente WhereNotNull / WhereNotEmpty / WhereNotNullOrWhiteSpace combinado com fsql
+let clientesVerificados =
+    Connections.sql.SampleStore.Customers
+        .WhereNotNull(fun c -> c.Email)
+        .WhereNotEmpty(fun c -> c.City)
+        .WhereNotNullOrWhiteSpace(fun c -> c.FirstName)
+
+fsql {
+    for c in clientesVerificados do
+    where (c.Country = "Brazil" || c.Country = "UK")
+    sortByDescending c.LoyaltyPoints
+    take 10
+    select {|
+        Id = c.Id
+        Cliente = c.FirstName + " " + c.LastName
+        Email = c.Email
+        Cidade = c.City
+        Pais = c.Country
+        PontosFidelidade = c.LoyaltyPoints
+    |}
+}
 """
 
                 mkMarkdown """

@@ -53,7 +53,9 @@ of building locally.
    // Pure functional DQL with fsql
    fsql {
        for u in Connections.sql.MyConn.Users do
-       where (u.IsActive && u.Age >= 21)
+       where (u.IsActive && u.Age >= 21 && not (isNull u.Email) && notEmpty u.City)
+       whereNotNull u.FirstName
+       whereNotEmpty u.LastName
        whereExists (fsql { for o in Connections.sql.MyConn.Orders do where (o.UserId = u.Id) })
        sortBy u.LastName
        select {|
@@ -90,7 +92,7 @@ Comprehensive User Guide: **[`docs/USER_GUIDE.md`](docs/USER_GUIDE.md)** (or cli
 - **Unified `Connections` API** — `Connections.sql` / `csv` / `excel` / `json` / `xml` / `rest` access data connections directly with background-generated types and connection-scoped `rawQuery` execution. The value of the last expression renders automatically — collections produce the grid, connectors include **Export CSV**, and scalar values display as formatted text.
 - **Results grid** — virtualized table, schema view, CSV export, paged loading for large results.
 - **In-cell F# intelligence** — completion, hover, signature help, diagnostics, semantic tokens syntax highlighting, and **Go to Definition (`F12`)** across cells and generated entity types.
-- **Connection management** — an Activity Bar tree of connections → schemas → tables → columns, lazily loaded; add / edit / remove via guided pickers.
+- **Connection management** — an Activity Bar tree of connections → databases → schemas → tables → columns, lazily loaded; add / edit / remove via guided pickers.
 - **Built-in Documentation** — click the `$(book)` icon in the Connections view toolbar or the Notebook editor title bar to open the User Guide directly in VS Code.
 
 Detail and limits: **[`editors/vscode/README.md`](editors/vscode/README.md)**.

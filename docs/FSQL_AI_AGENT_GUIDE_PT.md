@@ -50,6 +50,22 @@ let pgOrders   = Connections.sql.PostgreSQL_Demo.fsqs_demo.orders
 // SQLite
 let sqliteProducts = Connections.sql.SQLite_Demo.Products
 let sqliteOrders   = Connections.sql.SQLite_Demo.Orders
+
+// Conexões de Arquivos Mapeadas (CSV, XML, JSON, Excel) com auto-staging SQLite (.fsqs/cache/engine.db)
+let csvSales     = Connections.csv.SalesFeed
+let xmlShipments = Connections.xml.LogisticsHub.Shipments
+
+// Consultas SQLite diretas e parametrizadas sobre fontes CSV/XML/JSON/Excel mapeadas
+let directCsvRows =
+    Connections.csv.SalesFeed.rawQuery(
+        "SELECT OrderId, Customer, TotalAmount FROM sales_feed WHERE TotalAmount >= @min",
+        [ "@min", box 100.0 ]
+    )
+let directXmlRows =
+    Connections.xml.LogisticsHub.rawQuery(
+        "SELECT ShipmentId, Destination, ShippingCost FROM Shipments WHERE ShippingCost >= @min",
+        [ "@min", box 50.0 ]
+    )
 ```
 
 ---

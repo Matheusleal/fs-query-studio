@@ -20,8 +20,9 @@ Cada pacote de mudança (seja em `changes/` ou `archive/`) é estruturado em tr�
 
 | Mudança | Status | Escopo / Descrição |
 |---|---|---|
+| [`where-not-null-empty-sqlite-and-multi-db-tree`](changes/where-not-null-empty-sqlite-and-multi-db-tree/) | **Concluído (100% Testado)** | Correção de `not`/`isNull` no `where`, condições dedicadas para `notNull` e `notEmpty` (`whereNotNull`, `whereNotEmpty`, `.WhereNotNull`, `.WhereNotEmpty`), consultas SQLite diretas sobre fontes XML e CSV mapeadas com auto-staging e views, e descoberta multi-database mapeada em estrutura de árvore (`Conexão -> Database -> [Schema ->] Tabela -> Coluna`). |
 | [`advanced-dql-support-sqlserver-postgres-sqlite`](changes/advanced-dql-support-sqlserver-postgres-sqlite/) | **Concluído (100% Testado)** | Suporte completo a DQL avançado (correlação CROSS APPLY/LATERAL, subqueries escalares, HAVING, agregação por coluna, CE `fsql { ... }` pura, `toRawQuery` formatado) em SQL Server, PostgreSQL e SQLite. |
-| [`fsql-analytics-cte-and-set-operations`](changes/fsql-analytics-cte-and-set-operations/) | **Proposto** | Evolução da especificação FSQL: Window Functions (`OVER`), CTEs recursivos/não-recursivos (`WITH`), operações de conjunto (`UNION`/`EXCEPT`), Full/Right Outer Joins e extração de JSON. |
+| [`fsql-analytics-cte-and-set-operations`](changes/fsql-analytics-cte-and-set-operations/) | **Concluído (100% Testado)** | Evolução da especificação FSQL: Window Functions (`OVER`), CTEs recursivos/não-recursivos (`WITH`), operações de conjunto (`UNION`/`EXCEPT`), Full/Right Outer Joins e extração de JSON. |
 
 ---
 

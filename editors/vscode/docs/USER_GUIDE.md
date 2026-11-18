@@ -134,6 +134,27 @@ Click the **`Create Sample Data & Demo Notebooks`** button (`$(database)`) on th
 
 Passwords are **never stored in plaintext** on disk. When you register a connection with `{password}`, credentials are encrypted and stored in your operating system's native secure credential vault via VS Code's `SecretStorage`.
 
+### Multi-Database Discovery & Hierarchical Tree Mapping
+
+When you add or inspect a server-based database connection (**SQL Server**, **PostgreSQL**, **MySQL**, **MariaDB**, **Oracle**), F# Query Studio automatically queries the server for **all accessible databases** and maps them in a clean tree hierarchy:
+- **In the Connections Sidebar Explorer**: `Connection -> Database -> [Schema ->] Table -> Column`.
+- **In Strongly-Typed F# Code (`Connections.sql`)**:
+  ```fsharp
+  // 1. Hierarchical database & schema navigation across any database on the server
+  fsql {
+      for p in Connections.sql.PostgreSQL_Advanced.fsqs_demo.products do
+      join c in Connections.sql.PostgreSQL_Advanced.fsqs_demo.categories on (p.category_id = c.id)
+      whereNotEmpty p.sku
+      select {| Sku = p.sku; Product = p.name; Category = c.name; Price = p.price |}
+  }
+
+  // 2. Top-level shortcut for tables in the connection's default database
+  fsql {
+      for p in Connections.sql.PostgreSQL_Advanced.products do
+      select p
+  }
+  ```
+
 ---
 
 ## 5. Smart Connection Autocomplete & Type Badges
@@ -450,10 +471,49 @@ printfn "Plan:\n%s" planReport.PlanText
       |> Seq.pivot (fun r -> r.Year) (fun r -> r.Product) (fun r -> r.Amount) Seq.sum
   ```
 
-### Persistent SQLite Disk Cache for CSV & Excel
+#### 9. Null & Empty Conditions (`not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull`, `whereNotEmpty`)
+Filter non-null and non-empty fields with full SQL pushdown (`IS NOT NULL` and `<> ''`) using either predicates inside `where (...)`, dedicated custom operations, or fluent extension methods:
 
-When you register or auto-import flat files (`.csv`, `.xlsx`), F# Query Studio immediately and asynchronously pre-stages them into a persistent local SQLite database located at:
+```fsharp
+// 1. Using predicates and dedicated custom operations in fsql
+fsql {
+    for o in Connections.sql.SampleStore.Orders do
+    where (not (isNull o.Notes) && notEmpty o.Status && o.TotalAmount >= 150.0f)
+    whereNotNull o.OrderNumber
+    whereNotEmpty o.PaymentMethod
+    whereNotNullOrEmpty o.Channel
+    whereNotNullOrWhiteSpace o.Currency
+    select {| OrderId = o.Id; OrderNumber = o.OrderNumber; Status = o.Status; Total = o.TotalAmount |}
+}
+
+// 2. Using fluent methods on SqlPushdownQueryable<'T>
+let verifiedCustomers =
+    Connections.sql.SampleStore.Customers
+        .WhereNotNull(fun c -> c.Email)
+        .WhereNotEmpty(fun c -> c.City)
+        .WhereNotNullOrWhiteSpace(fun c -> c.FirstName)
+```
+
+### Persistent SQLite Disk Cache & Direct SQLite Queries for CSV, XML, JSON & Excel
+
+When you register or auto-import flat files (`.csv`, `.xlsx`, `.xml`, `.json`), F# Query Studio stages them into a persistent local SQLite database located at:
 `<workspace>/.fsqs/cache/engine.db`
+
+- **Automatic Alias Views**: Every mapped file automatically creates SQLite `VIEW` aliases matching its connection name, file base name, and collection/sheet name (`SalesFeed`, `sales_feed`, `LogisticsHub`, `Shipments`, `Carriers`).
+- **On-Demand Staging for Direct SQLite Queries**: Running `Connections.sql.rawQuery`, `Connections.sql.query<'T>`, `Connections.queryEngine<'T>`, `Connections.csv.<Conn>.rawQuery`, or `Connections.xml.<Conn>.rawQuery` automatically ensures all workspace files are staged before executing the SQL query:
+  ```fsharp
+  // Direct SQLite query joining XML elements (Shipments & Carriers)
+  Connections.xml.LogisticsHub.rawQuery(
+      "SELECT s.ShipmentId, c.Name AS Carrier, s.Destination, s.ShippingCost FROM Shipments s JOIN Carriers c ON s.CarrierId = c.CarrierId WHERE s.ShippingCost >= @minCost",
+      [ "@minCost", box 100.0 ]
+  )
+
+  // Direct SQLite query on a mapped CSV file (using either connection name SalesFeed or file name sales_feed)
+  Connections.sql.rawQuery(
+      "SELECT OrderId, Customer, Product, TotalAmount FROM sales_feed WHERE Category = @cat LIMIT 10",
+      [ "@cat", box "Electronics" ]
+  )
+  ```
 
 - **Smart Cache Validation**: The engine inspects each file's last modified timestamp (`mtime`) and byte length. Unchanged files are reused instantaneously with zero loading lag on subsequent runs.
 - **Immediate Async Pre-warming**: Staging starts automatically in the background upon connection registration or workspace open.

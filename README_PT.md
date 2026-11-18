@@ -41,7 +41,9 @@ O pipeline de CI também publica o pacote VSIX automaticamente (`fs-query-studio
    // DQL funcional puro com fsql
    fsql {
        for u in Connections.sql.MinhaConexao.Users do
-       where (u.IsActive && u.Age >= 21)
+       where (u.IsActive && u.Age >= 21 && not (isNull u.Email) && notEmpty u.City)
+       whereNotNull u.FirstName
+       whereNotEmpty u.LastName
        whereExists (fsql { for o in Connections.sql.MinhaConexao.Orders do where (o.UserId = u.Id) })
        sortBy u.LastName
        select {|
@@ -78,7 +80,7 @@ Especificação Formal da Linguagem: **[`docs/FSQL_LANGUAGE_SPECIFICATION.md`](d
 - **API `Connections` Unificada** — `Connections.sql` / `csv` / `excel` / `json` / `xml` / `rest` acessam conexões diretamente com tipos gerados em background e execução `rawQuery` isolada por conexão. O valor da última expressão é renderizado automaticamente — coleções geram o grid, conectores adicionam **Export CSV**, valores escalares são exibidos como texto formatado.
 - **Grid de Resultados Interativo** — tabela virtualizada de alta performance, alternância para visualização de metadados/esquema, exportação para CSV e paginação contínua ("Load More") para grandes volumes.
 - **Inteligência de Linguagem no Editor** — autocompletação, hover/tooltips, signature help, diagnósticos em tempo real, realce semântico de tokens e navegação **Go to Definition (`F12`)** entre células, tipos gerados e modelos de dados, além de autocomplete contextual de conexões filtrado por tipo.
-- **Explorador de Conexões** — visualização em árvore na Activity Bar organizada por conexões → schemas → tabelas/views → colunas, com carregamento sob demanda e wizards de criação/edição.
+- **Explorador de Conexões** — visualização em árvore na Activity Bar organizada por conexões → databases → schemas → tabelas/views → colunas, com carregamento sob demanda e wizards de criação/edição.
 - **Documentação Embutida** — clique no ícone de livro `$(book)` na barra de conexões ou no título do editor para acessar o Guia do Usuário traduzido sem sair do editor.
 
 Detalhes e limitações: **[`editors/vscode/docs/README_PT.md`](editors/vscode/docs/README_PT.md)** (English: [`editors/vscode/README.md`](editors/vscode/README.md)).

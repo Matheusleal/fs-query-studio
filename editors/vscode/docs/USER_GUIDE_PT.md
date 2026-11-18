@@ -134,6 +134,27 @@ Clique no botão **`Create Sample Data & Demo Notebooks`** (`$(database)`) no ca
 
 As senhas **nunca são armazenadas em texto puro**. Ao cadastrar uma conexão com `{password}`, a credencial é protegida com criptografia nativa no chaveiro seguro do seu sistema operacional através da API `SecretStorage` do VS Code.
 
+### Descoberta de Todos os Databases e Mapeamento Hierárquico em Árvore
+
+Ao adicionar ou inspecionar uma conexão de banco de dados de servidor (**SQL Server**, **PostgreSQL**, **MySQL**, **MariaDB**, **Oracle**), o F# Query Studio busca automaticamente **todos os databases acessíveis** na instância e os mapeia em estrutura de árvore:
+- **No Painel Lateral Connections**: `Conexão -> Database -> [Schema ->] Tabela -> Coluna`.
+- **No Código F# Fortemente Tipado (`Connections.sql`)**:
+  ```fsharp
+  // 1. Navegação hierárquica em árvore por qualquer database e schema do servidor
+  fsql {
+      for p in Connections.sql.PostgreSQL_Advanced.fsqs_demo.products do
+      join c in Connections.sql.PostgreSQL_Advanced.fsqs_demo.categories on (p.category_id = c.id)
+      whereNotEmpty p.sku
+      select {| Sku = p.sku; Produto = p.name; Categoria = c.name; Preco = p.price |}
+  }
+
+  // 2. Atalho direto na raiz para tabelas do database padrão da conexão
+  fsql {
+      for p in Connections.sql.PostgreSQL_Advanced.products do
+      select p
+  }
+  ```
+
 ---
 
 ## 5. Auto-complete Inteligente de Conexões e Badges de Tipo
@@ -450,10 +471,49 @@ printfn "Plano:\n%s" relatorioPlano.PlanText
       |> Seq.pivot (fun r -> r.Ano) (fun r -> r.Produto) (fun r -> r.Valor) Seq.sum
   ```
 
-### Cache Persistente em Disco SQLite para CSV e Excel
+#### 9. Condições para `not null` e `not empty` (`not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull`, `whereNotEmpty`)
+Filtre campos não nulos e não vazios com pushdown SQL completo (`IS NOT NULL` e `<> ''`) utilizando predicados dentro de `where (...)`, custom operations dedicadas na `fsql` ou métodos fluentes:
 
-Ao cadastrar ou importar arquivos planos (`.csv`, `.xlsx`), o F# Query Studio pré-carrega os dados de forma assíncrona em um banco SQLite em disco em:
+```fsharp
+// 1. Usando predicados e custom operations dedicadas na fsql
+fsql {
+    for o in Connections.sql.SampleStore.Orders do
+    where (not (isNull o.Notes) && notEmpty o.Status && o.TotalAmount >= 150.0f)
+    whereNotNull o.OrderNumber
+    whereNotEmpty o.PaymentMethod
+    whereNotNullOrEmpty o.Channel
+    whereNotNullOrWhiteSpace o.Currency
+    select {| PedidoId = o.Id; Numero = o.OrderNumber; Status = o.Status; Total = o.TotalAmount |}
+}
+
+// 2. Usando métodos fluentes em SqlPushdownQueryable<'T>
+let clientesVerificados =
+    Connections.sql.SampleStore.Customers
+        .WhereNotNull(fun c -> c.Email)
+        .WhereNotEmpty(fun c -> c.City)
+        .WhereNotNullOrWhiteSpace(fun c -> c.FirstName)
+```
+
+### Cache Persistente em Disco SQLite e Consultas SQLite Diretas para CSV, XML, JSON e Excel
+
+Ao cadastrar ou importar arquivos planos (`.csv`, `.xlsx`, `.xml`, `.json`), o F# Query Studio sincroniza os dados em um banco SQLite em disco em:
 `<workspace>/.fsqs/cache/engine.db`
+
+- **Views de Alias Automáticas**: Cada arquivo mapeado cria automaticamente `VIEW`s SQLite correspondentes ao nome da conexão, ao nome base do arquivo e ao nome da coleção/aba (`SalesFeed`, `sales_feed`, `LogisticsHub`, `Shipments`, `Carriers`).
+- **Auto-Staging Sob Demanda em Consultas SQLite Diretas**: Ao executar `Connections.sql.rawQuery`, `Connections.sql.query<'T>`, `Connections.queryEngine<'T>`, `Connections.csv.<Conn>.rawQuery` ou `Connections.xml.<Conn>.rawQuery`, todas as conexões de arquivos do workspace são preparadas automaticamente antes da execução SQL:
+  ```fsharp
+  // Consulta SQLite direta unindo elementos XML (Shipments e Carriers)
+  Connections.xml.LogisticsHub.rawQuery(
+      "SELECT s.ShipmentId, c.Name AS Carrier, s.Destination, s.ShippingCost FROM Shipments s JOIN Carriers c ON s.CarrierId = c.CarrierId WHERE s.ShippingCost >= @minCost",
+      [ "@minCost", box 100.0 ]
+  )
+
+  // Consulta SQLite direta em um CSV mapeado (usando o nome da conexão SalesFeed ou o nome do arquivo sales_feed)
+  Connections.sql.rawQuery(
+      "SELECT OrderId, Customer, Product, TotalAmount FROM sales_feed WHERE Category = @cat LIMIT 10",
+      [ "@cat", box "Electronics" ]
+  )
+  ```
 
 - **Validação Inteligente de Invalidação**: O motor verifica a data de modificação (`mtime`) e o tamanho em bytes do arquivo. Arquivos inalterados são reaproveitados instantaneamente com zero atraso nas próximas consultas.
 - **Aquecimento Assíncrono Imediato**: A sincronização começa imediatamente em segundo plano ao registrar conexões ou abrir o workspace.

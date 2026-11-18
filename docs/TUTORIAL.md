@@ -144,10 +144,12 @@ Back in the notebook, you can write strongly-typed queries using **`fsql`** (F# 
 ```fsharp
 fsql {
     for t in Connections.sql.Chinook.Track do
-    where (t.Milliseconds > 300000)
+    where (t.Milliseconds > 300000 && not (isNull t.Composer) && notEmpty t.Name)
+    whereNotNull t.Composer
+    whereNotEmpty t.Name
     sortByDescending t.Milliseconds
     take 20
-    select {| Title = t.Name; DurationMs = t.Milliseconds; UnitPrice = t.UnitPrice |}
+    select {| Title = t.Name; Composer = t.Composer; DurationMs = t.Milliseconds; UnitPrice = t.UnitPrice |}
 }
 ```
 

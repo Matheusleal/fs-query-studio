@@ -899,6 +899,39 @@ let report = fsql.explain complexQuery
 printfn "Engine: %A" report.Dialect
 printfn "%s" report.PlanText
 """
+                mkMarkdown "## 14. 🛡️ Null & Empty Filtering (`not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull`, `whereNotEmpty`)"
+                mkCode """
+// 14. Filter non-null and non-empty columns with full SQL pushdown in PostgreSQL
+fsql {
+    for c in Connections.sql.PostgreSQL_Advanced.customers do
+    where (not (isNull c.email) && notEmpty c.city)
+    whereNotNull c.first_name
+    whereNotEmpty c.country
+    select {|
+        Id = c.id
+        Customer = c.first_name + " " + c.last_name
+        Email = c.email
+        City = c.city
+        Country = c.country
+    |}
+}
+"""
+                mkMarkdown "## 15. 🌳 Multi-Database Hierarchical Tree Mapping (`Connections.sql.<Conn>.<Database>.<Table>`)"
+                mkCode """
+// 15. Query tables directly via the discovered database tree hierarchy (fsqs_demo)
+fsql {
+    for p in Connections.sql.PostgreSQL_Advanced.fsqs_demo.products do
+    join c in Connections.sql.PostgreSQL_Advanced.fsqs_demo.categories on (p.category_id = c.id)
+    whereNotEmpty p.sku
+    sortByDescending p.price
+    select {|
+        Sku = p.sku
+        Product = p.name
+        Category = c.name
+        Price = p.price
+    |}
+}
+"""
             ]
         serializeNotebook cells
 
@@ -1233,6 +1266,39 @@ let complexQuery =
 let diag = fsql.explain complexQuery
 printfn "Engine: %A" diag.Dialect
 printfn "%s" diag.PlanText
+"""
+                mkMarkdown "## 14. 🛡️ Null & Empty Filtering (`not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull`, `whereNotEmpty`)"
+                mkCode """
+// 14. Filter non-null and non-empty columns with full SQL pushdown in SQL Server
+fsql {
+    for c in Connections.sql.SqlServer_Advanced.Customers do
+    where (not (isNull c.Email) && notEmpty c.City)
+    whereNotNull c.FirstName
+    whereNotEmpty c.Country
+    select {|
+        Id = c.Id
+        Customer = c.FirstName + " " + c.LastName
+        Email = c.Email
+        City = c.City
+        Country = c.Country
+    |}
+}
+"""
+                mkMarkdown "## 15. 🌳 Multi-Database Hierarchical Tree Mapping (`Connections.sql.<Conn>.<Database>.<Table>`)"
+                mkCode """
+// 15. Query tables directly via the discovered database tree hierarchy (master)
+fsql {
+    for p in Connections.sql.SqlServer_Advanced.master.Products do
+    join c in Connections.sql.SqlServer_Advanced.master.Categories on (p.CategoryId = c.Id)
+    whereNotEmpty p.Sku
+    sortByDescending p.Price
+    select {|
+        Sku = p.Sku
+        Product = p.Name
+        Category = c.Name
+        Price = p.Price
+    |}
+}
 """
             ]
         serializeNotebook cells
@@ -1582,6 +1648,39 @@ let diag = fsql.explain complexQuery
 printfn "Dialeto: %A" diag.Dialect
 printfn "%s" diag.PlanText
 """
+                mkMarkdown "## 14. 🛡️ Filtros `not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull` e `whereNotEmpty`"
+                mkCode """
+// 14. Filtra colunas não nulas e não vazias com pushdown SQL completo no PostgreSQL
+fsql {
+    for c in Connections.sql.PostgreSQL_Advanced.customers do
+    where (not (isNull c.email) && notEmpty c.city)
+    whereNotNull c.first_name
+    whereNotEmpty c.country
+    select {|
+        Id = c.id
+        Customer = c.first_name + " " + c.last_name
+        Email = c.email
+        City = c.city
+        Country = c.country
+    |}
+}
+"""
+                mkMarkdown "## 15. 🌳 Mapeamento Hierárquico Multi-Database em Árvore (`Connections.sql.<Conn>.<Database>.<Table>`)"
+                mkCode """
+// 15. Consulta tabelas diretamente pela hierarquia em árvore do database descoberto (fsqs_demo)
+fsql {
+    for p in Connections.sql.PostgreSQL_Advanced.fsqs_demo.products do
+    join c in Connections.sql.PostgreSQL_Advanced.fsqs_demo.categories on (p.category_id = c.id)
+    whereNotEmpty p.sku
+    sortByDescending p.price
+    select {|
+        Sku = p.sku
+        Product = p.name
+        Category = c.name
+        Price = p.price
+    |}
+}
+"""
             ]
         serializeNotebook cells
 
@@ -1923,10 +2022,44 @@ let diag = fsql.explain complexQuery
 printfn "Dialeto: %A" diag.Dialect
 printfn "%s" diag.PlanText
 """
+                mkMarkdown "## 14. 🛡️ Filtros `not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull` e `whereNotEmpty`"
+                mkCode """
+// 14. Filtra colunas não nulas e não vazias com pushdown SQL completo no SQL Server
+fsql {
+    for c in Connections.sql.SqlServer_Advanced.Customers do
+    where (not (isNull c.Email) && notEmpty c.City)
+    whereNotNull c.FirstName
+    whereNotEmpty c.Country
+    select {|
+        Id = c.Id
+        Customer = c.FirstName + " " + c.LastName
+        Email = c.Email
+        City = c.City
+        Country = c.Country
+    |}
+}
+"""
+                mkMarkdown "## 15. 🌳 Mapeamento Hierárquico Multi-Database em Árvore (`Connections.sql.<Conn>.<Database>.<Table>`)"
+                mkCode """
+// 15. Consulta tabelas diretamente pela hierarquia em árvore do database descoberto (master)
+fsql {
+    for p in Connections.sql.SqlServer_Advanced.master.Products do
+    join c in Connections.sql.SqlServer_Advanced.master.Categories on (p.CategoryId = c.Id)
+    whereNotEmpty p.Sku
+    sortByDescending p.Price
+    select {|
+        Sku = p.Sku
+        Product = p.Name
+        Category = c.Name
+        Price = p.Price
+    |}
+}
+"""
             ]
         serializeNotebook cells
 
     let private buildEngineNotebook (engineDisplayName: string) (connName: string) (isUpper: bool) (dockerService: string) (icon: string) (isPt: bool) : string =
+        let defaultDb = if isUpper then "SYSTEM" else "fsqs_demo"
         let tblProd = if isUpper then "PRODUCTS" else "products"
         let tblOrd = if isUpper then "ORDERS" else "orders"
         let tblCat = if isUpper then "CATEGORIES" else "categories"
@@ -2114,6 +2247,34 @@ let diag = fsql.explain sampleQuery
 printfn "Dialect: %%A" diag.Dialect
 printfn "%%s" diag.PlanText
 """
+                    mkMarkdown "## 8. 🛡️ Null & Empty Filtering (`not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull`, `whereNotEmpty`)"
+                    mkCode $"""
+// 8. Filter non-null and non-empty columns with full SQL pushdown in {engineDisplayName}
+fsql {{
+    for c in Connections.sql.{connName}.{tblCust} do
+    where (not (isNull c.{colFirstName}) && notEmpty c.{colFirstName})
+    whereNotNull c.{colFirstName}
+    select {{|
+        CustomerId = c.{colId}
+        Customer = c.{colFirstName}
+    |}}
+}}
+"""
+                    mkMarkdown "## 9. 🌳 Multi-Database Hierarchical Tree Mapping (`Connections.sql.<Conn>.<Database>.<Table>`)"
+                    mkCode $"""
+// 9. Query tables directly via the discovered database tree hierarchy ({defaultDb})
+fsql {{
+    for p in Connections.sql.{connName}.{defaultDb}.{tblProd} do
+    join c in Connections.sql.{connName}.{defaultDb}.{tblCat} on (p.{colCatId} = c.{colId})
+    whereNotEmpty p.{colName}
+    sortByDescending p.{colPrice}
+    select {{|
+        Product = p.{colName}
+        Category = c.{colName}
+        Price = p.{colPrice}
+    |}}
+}}
+"""
                 ]
             else
                 [
@@ -2285,6 +2446,34 @@ let consultaComplexa =
 let diag = fsql.explain consultaComplexa
 printfn "Dialeto: %%A" diag.Dialect
 printfn "%%s" diag.PlanText
+"""
+                    mkMarkdown "## 8. 🛡️ Filtros `not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull` e `whereNotEmpty`"
+                    mkCode $"""
+// 8. Filtra colunas não nulas e não vazias com pushdown SQL completo no {engineDisplayName}
+fsql {{
+    for c in Connections.sql.{connName}.{tblCust} do
+    where (not (isNull c.{colFirstName}) && notEmpty c.{colFirstName})
+    whereNotNull c.{colFirstName}
+    select {{|
+        CustomerId = c.{colId}
+        Customer = c.{colFirstName}
+    |}}
+}}
+"""
+                    mkMarkdown "## 9. 🌳 Mapeamento Hierárquico Multi-Database em Árvore (`Connections.sql.<Conn>.<Database>.<Table>`)"
+                    mkCode $"""
+// 9. Consulta tabelas diretamente pela hierarquia em árvore do database descoberto ({defaultDb})
+fsql {{
+    for p in Connections.sql.{connName}.{defaultDb}.{tblProd} do
+    join c in Connections.sql.{connName}.{defaultDb}.{tblCat} on (p.{colCatId} = c.{colId})
+    whereNotEmpty p.{colName}
+    sortByDescending p.{colPrice}
+    select {{|
+        Product = p.{colName}
+        Category = c.{colName}
+        Price = p.{colPrice}
+    |}}
+}}
 """
                 ]
         serializeNotebook cells

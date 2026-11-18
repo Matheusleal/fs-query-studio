@@ -8,6 +8,20 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+### Added
+
+- **Dedicated `notNull` & `notEmpty` Predicates, Custom Operations, and Fluent Extensions** — First-class null and empty filtering in `fsql`:
+  - Top-level predicates inside `where (...)`: `notNull` / `isNotNull`, `notEmpty` / `isNotEmpty`, `notNullOrEmpty` / `isNotNullOrEmpty`, `isNull`, `isEmpty` / `isNullOrEmpty`, `isNullOrWhiteSpace`, and `notNullOrWhiteSpace` / `isNotNullOrWhiteSpace`.
+  - Custom operations directly in `fsql { ... }`: `whereNotNull`, `whereIsNull`, `whereNotEmpty`, `whereIsEmpty`, `whereNotNullOrEmpty`, and `whereNotNullOrWhiteSpace`.
+  - Fluent methods on `SqlPushdownQueryable<'T>`: `.WhereNotNull(...)`, `.WhereIsNull(...)`, `.WhereNotEmpty(...)`, `.WhereIsEmpty(...)`, `.WhereNotNullOrEmpty(...)`, and `.WhereNotNullOrWhiteSpace(...)`.
+- **Multi-Database Discovery & Hierarchical Tree Mapping (`Connection -> Database -> [Schema ->] Table -> Column`)** — Server-based SQL connectors (`SqlServer`, `PostgreSql`, `MySql`, `MariaDb`, `Oracle`) now discover all accessible databases on the server and expose them as a multi-level tree in both the VS Code Connections Explorer (`tree.ts`) and generated F# entities (`Connections.sql.<Conn>.<Database>.[<Schema>.]<Table>`), while preserving root-level shortcuts (`Connections.sql.<Conn>.<Table>`) for the default database.
+- **Direct SQLite Engine Queries on Mapped CSV, XML, JSON & Excel Connections** — Added `.rawQuery`, `.query<'T>`, and `.Execute` directly on `Connections.csv.<Conn>`, `Connections.xml.<Conn>`, `Connections.json.<Conn>`, and `Connections.excel.<Conn>`, with automatic on-demand staging in `.fsqs/cache/engine.db` and SQLite `VIEW` aliases (`<FileBaseName>`, `<TableName>`, `<Conn>_<TableName>`, `<Conn>`).
+
+### Fixed
+
+- **`not` and `isNull` Translation in `where` Clauses** — Fixed `ExpressionPushdownTranslator` (`SqlPushdownQuery.fs`) to handle `Operators.not` (`op_BooleanNot`), `Operators.isNull`, `Object.ReferenceEquals`, `BlockExpression`, and boolean `ConditionalExpression` nodes so expressions like `where (not (isNull table.Column))` push down to native SQL (`WHERE (table.Column IS NOT NULL)`).
+- **Direct SQLite Queries on Unstaged XML & CSV Connections** — Fixed `Connections.sql.rawQuery`, `Connections.sql.query`, `Connections.queryEngine`, and `Connections.sql.<SqliteConn>.rawQuery` failing with `no such table` when querying mapped CSV or XML tables before a LINQ query had staged them.
+
 ## [0.7.0] — 2026-11-16
 
 ### Added

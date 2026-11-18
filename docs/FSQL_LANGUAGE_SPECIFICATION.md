@@ -1,10 +1,10 @@
 # FSQL Language Specification
 
 > **Document Type**: Internal Technical Language Specification  
-> **Specification Version**: 1.0  
+> **Specification Version**: 1.1  
 > **Status**: Canonical  
 > **Applies to**: F# Query Studio Universal Query Engine  
-> **Target Dialects**: SQL Server (T-SQL), PostgreSQL, SQLite  
+> **Target Dialects**: SQL Server (T-SQL), PostgreSQL, MySQL, MariaDB, Oracle, SQLite  
 > **Language Guides**: [English Guide](FSQL_AI_AGENT_GUIDE.md) | [Guia em Português](FSQL_AI_AGENT_GUIDE_PT.md)  
 
 ---
@@ -153,6 +153,12 @@ JoinClause ::=
 
 FilterClause ::=
     "where" "(" BooleanExpression ")"
+    | "whereNotNull" Expression
+    | "whereIsNull" Expression
+    | "whereNotEmpty" Expression
+    | "whereIsEmpty" Expression
+    | "whereNotNullOrEmpty" Expression
+    | "whereNotNullOrWhiteSpace" Expression
     | "whereExists" "(" FSqlExpression ")"
     | "whereNotExists" "(" FSqlExpression ")" ;
 
@@ -215,6 +221,33 @@ fsql {
 ```
 - **Generated SQL:** `SELECT _t0.Id FROM (SELECT _sub0.* FROM Orders _sub0 WHERE (_sub0.TotalAmount >= @p0)) _t0`
 
+### 3.3 Multi-Database Hierarchical Tree Binding (`Connections.sql.<Conn>.<Database>.[<Schema>.]<Table>`)
+When inspecting a server-backed database connection (`SqlServer`, `PostgreSql`, `MySql`, `MariaDb`, `Oracle`), F# Query Studio discovers all accessible databases on the server and maps them into a strongly-typed hierarchical tree structure:
+- **Default Schema in Database**: `Connections.sql.<Conn>.<Database>.<Table>`
+- **Non-Default Schema in Database**: `Connections.sql.<Conn>.<Database>.<Schema>.<Table>`
+- **Default Connected Database Shortcut**: Tables belonging to the connection's default database are also exposed directly at `Connections.sql.<Conn>.<Table>` (and `Connections.sql.<Conn>.<Schema>.<Table>`) for backwards compatibility.
+
+```fsharp
+// Querying tables across databases on the same server connection
+fsql {
+    for o in Connections.sql.ErpServer.SalesDb.Orders do
+    join inv in Connections.sql.ErpServer.InventoryDb.warehousing.StockLevels on (o.ProductId = inv.ProductId)
+    whereNotEmpty o.Status
+    select {| OrderId = o.Id; AvailableQty = inv.QuantityOnHand |}
+}
+```
+
+### 3.4 Direct SQLite Engine Queries & Auto-Staging on Mapped Flat-File Sources (`CSV`, `XML`, `JSON`, `Excel`)
+All mapped file connections (`CSV`, `XML`, `JSON`, `Excel`) are staged automatically on-demand in `.fsqs/cache/engine.db` and create SQLite `VIEW` aliases matching the connection name, file base name, and table/element name (`<FileBaseName>`, `<TableName>`, `<Conn>_<TableName>`, `<Conn>`).
+Direct SQLite queries can be executed via:
+- `Connections.sql.rawQuery(sql, ?parameters)` / `Connections.sql.query<T>(sql, ?parameters)`
+- `Connections.queryEngine<T> sql` / `Connections.queryEngineWith<T> sql parameters`
+- `Connections.csv.<Conn>.rawQuery(sql, ?parameters)` / `.query<T>(sql, ?parameters)`
+- `Connections.xml.<Conn>.rawQuery(sql, ?parameters)` / `.query<T>(sql, ?parameters)`
+- `Connections.json.<Conn>.rawQuery(sql, ?parameters)` / `.query<T>(sql, ?parameters)`
+- `Connections.excel.<Conn>.rawQuery(sql, ?parameters)` / `.query<T>(sql, ?parameters)`
+- `Connections.sql.<SqliteConn>.rawQuery(sql, ?parameters)` (automatically attaches `engine.db` on-demand when referencing staged CSV/XML/JSON/Excel tables).
+
 ---
 
 ## 4. Filtering & Predicate Expressions
@@ -254,21 +287,38 @@ where (c.Age >= 18 && c.Age <= 65)
 ```
 - **Generated SQL:** `WHERE (_t0.Age >= @p0 AND _t0.Age <= @p1)`
 
-### 4.4 Null Checks & F# Option / Nullable Types
-FSQL provides complete, transparent handling of `option<'T>`, `voption<'T>`, and `Nullable<'T>`:
+### 4.4 Null & Empty Checks & F# Option / Nullable Types
+FSQL provides complete, transparent handling of `null`, empty strings, whitespace strings, `option<'T>`, `voption<'T>`, and `Nullable<'T>`, both inside `where (...)` predicates and via dedicated custom operations:
 ```fsharp
-// Explicit null check
+// 1. Negated and explicit null checks inside where (...)
 where (not (isNull c.Company))
+where (notNull c.Company)
+where (isNotNull c.Company)
+where (isNull c.DeletedAt)
 
-// Option property checks
+// 2. Non-empty and non-whitespace checks inside where (...)
+where (notEmpty c.Email && notNullOrEmpty c.City && notNullOrWhiteSpace c.FirstName)
+where (isEmpty c.Notes || isNullOrEmpty c.Notes || isNullOrWhiteSpace c.Notes)
+
+// 3. Dedicated custom operations directly in fsql { ... }
+whereNotNull c.Company
+whereIsNull c.DeletedAt
+whereNotEmpty c.Email
+whereIsEmpty c.Notes
+whereNotNullOrEmpty c.City
+whereNotNullOrWhiteSpace c.FirstName
+
+// 4. Option / Nullable property checks and automatic .Value unwrapping
 where c.Description.IsSome
 where c.Description.IsNone
-
-// Automatic .Value unwrapping (maps directly to the column, avoiding nonexistent 'Value' column references)
 where (c.Description.Value = "HighQuality")
 ```
 - **Generated SQL:**
-  - `not (isNull c.Company)` -> `WHERE (_t0.Company IS NOT NULL)`
+  - `not (isNull c.Company)` / `notNull c.Company` / `whereNotNull c.Company` -> `WHERE (_t0.Company IS NOT NULL)`
+  - `isNull c.DeletedAt` / `whereIsNull c.DeletedAt` -> `WHERE (_t0.DeletedAt IS NULL)`
+  - `notEmpty c.Email` / `notNullOrEmpty c.Email` / `whereNotEmpty c.Email` / `whereNotNullOrEmpty c.Email` -> `WHERE (_t0.Email IS NOT NULL AND _t0.Email <> '')` (Oracle: `WHERE (_t0.Email IS NOT NULL AND LENGTH(_t0.Email) > 0)`)
+  - `notNullOrWhiteSpace c.FirstName` / `whereNotNullOrWhiteSpace c.FirstName` -> `WHERE (_t0.FirstName IS NOT NULL AND TRIM(_t0.FirstName) <> '')`
+  - `isEmpty c.Notes` / `whereIsEmpty c.Notes` -> `WHERE (_t0.Notes IS NULL OR _t0.Notes = '')`
   - `c.Description.IsSome` -> `WHERE (_t0.Description IS NOT NULL)`
   - `c.Description.IsNone` -> `WHERE (_t0.Description IS NULL)`
   - `c.Description.Value = "HighQuality"` -> `WHERE (_t0.Description = @p0)`
@@ -645,6 +695,10 @@ let paged =
     queryable
         .Where("Price > @minPrice", [ "@minPrice", box 25.0M ])
         .WhereIn("Category", [ "Electronics"; "Hardware" ])
+        .WhereNotNull(fun p -> p.Category)
+        .WhereNotEmpty(fun p -> p.Name)
+        .WhereNotNullOrEmpty(fun p -> p.Sku)
+        .WhereNotNullOrWhiteSpace("Brand")
         .Page(page = 1, pageSize = 20)
 ```
 
@@ -910,6 +964,9 @@ The FSQL compiler translates the neutral `PushdownQueryPlan` into engine-specifi
 | **Boolean Values** | `1` / `0` (`BIT`) | `TRUE` / `FALSE` (`BOOLEAN`) | `1` / `0` (`INTEGER`) |
 | **Option / Nullable Unwrapping** | Strips `.Value`, maps to column | Strips `.Value`, maps to column | Strips `.Value`, maps to column |
 | **Option IsSome / IsNone** | `IS NOT NULL` / `IS NULL` | `IS NOT NULL` / `IS NULL` | `IS NOT NULL` / `IS NULL` |
+| **Null Checks (`not (isNull x)`, `notNull`, `whereNotNull`)** | `col IS NOT NULL` | `col IS NOT NULL` | `col IS NOT NULL` |
+| **Non-Empty Checks (`notEmpty`, `whereNotEmpty`, `whereNotNullOrEmpty`)** | `(col IS NOT NULL AND col <> '')` | `(col IS NOT NULL AND col <> '')` | `(col IS NOT NULL AND col <> '')` |
+| **Non-Whitespace Checks (`notNullOrWhiteSpace`, `whereNotNullOrWhiteSpace`)** | `(col IS NOT NULL AND TRIM(col) <> '')` | `(col IS NOT NULL AND TRIM(col) <> '')` | `(col IS NOT NULL AND TRIM(col) <> '')` |
 | **Substring** | `SUBSTRING(col, start + 1, len)` | `SUBSTR(col, start + 1, len)` | `SUBSTR(col, start + 1, len)` |
 | **Date Year / Month / Day** | `YEAR(c)`, `MONTH(c)`, `DAY(c)` | `EXTRACT(YEAR FROM c)`, etc. | `CAST(strftime('%Y', c) AS INTEGER)` |
 | **Date Casting** | `CAST(c AS DATE)` | `CAST(c AS DATE)` | `date(c)` |
