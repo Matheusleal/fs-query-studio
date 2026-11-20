@@ -144,7 +144,7 @@ Ao adicionar ou inspecionar uma conexão de banco de dados de servidor (**SQL Se
   fsql {
       for p in Connections.sql.PostgreSQL_Advanced.fsqs_demo.products do
       join c in Connections.sql.PostgreSQL_Advanced.fsqs_demo.categories on (p.category_id = c.id)
-      whereNotEmpty p.sku
+      where (isNotEmpty p.sku)
       select {| Sku = p.sku; Produto = p.name; Categoria = c.name; Preco = p.price |}
   }
 
@@ -471,27 +471,15 @@ printfn "Plano:\n%s" relatorioPlano.PlanText
       |> Seq.pivot (fun r -> r.Ano) (fun r -> r.Produto) (fun r -> r.Valor) Seq.sum
   ```
 
-#### 9. Condições para `not null` e `not empty` (`not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull`, `whereNotEmpty`)
-Filtre campos não nulos e não vazios com pushdown SQL completo (`IS NOT NULL` e `<> ''`) utilizando predicados dentro de `where (...)`, custom operations dedicadas na `fsql` ou métodos fluentes:
+#### 9. Condições para `not null` e `not empty` (`isNotNull`, `isNotEmpty`, `isNotNullOrEmpty`)
+Filtre campos não nulos e não vazios com pushdown SQL completo (`IS NOT NULL` e `<> ''`) dentro de `where (...)`:
 
 ```fsharp
-// 1. Usando predicados e custom operations dedicadas na fsql
 fsql {
     for o in Connections.sql.SampleStore.Orders do
-    where (not (isNull o.Notes) && notEmpty o.Status && o.TotalAmount >= 150.0f)
-    whereNotNull o.OrderNumber
-    whereNotEmpty o.PaymentMethod
-    whereNotNullOrEmpty o.Channel
-    whereNotNullOrWhiteSpace o.Currency
+    where (isNotNull o.Notes && isNotEmpty o.Status && isNotNullOrEmpty o.PaymentMethod && o.TotalAmount >= 150.0f)
     select {| PedidoId = o.Id; Numero = o.OrderNumber; Status = o.Status; Total = o.TotalAmount |}
 }
-
-// 2. Usando métodos fluentes em SqlPushdownQueryable<'T>
-let clientesVerificados =
-    Connections.sql.SampleStore.Customers
-        .WhereNotNull(fun c -> c.Email)
-        .WhereNotEmpty(fun c -> c.City)
-        .WhereNotNullOrWhiteSpace(fun c -> c.FirstName)
 ```
 
 ### Cache Persistente em Disco SQLite e Consultas SQLite Diretas para CSV, XML, JSON e Excel

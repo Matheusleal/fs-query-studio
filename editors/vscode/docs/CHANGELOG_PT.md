@@ -8,10 +8,7 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ### Adicionado
 
-- **Condições Dedicadas para `notNull` e `notEmpty` (Predicados, Custom Operations e Extensões Fluentes)** — Filtragem de valores nulos e vazios de primeira classe no `fsql`:
-  - Funções nativas dentro de `where (...)`: `notNull` / `isNotNull`, `notEmpty` / `isNotEmpty`, `notNullOrEmpty` / `isNotNullOrEmpty`, `isNull`, `isEmpty` / `isNullOrEmpty`, `isNullOrWhiteSpace` e `notNullOrWhiteSpace` / `isNotNullOrWhiteSpace`.
-  - Custom operations diretas em `fsql { ... }`: `whereNotNull`, `whereIsNull`, `whereNotEmpty`, `whereIsEmpty`, `whereNotNullOrEmpty` e `whereNotNullOrWhiteSpace`.
-  - Métodos fluentes em `SqlPushdownQueryable<'T>`: `.WhereNotNull(...)`, `.WhereIsNull(...)`, `.WhereNotEmpty(...)`, `.WhereIsEmpty(...)`, `.WhereNotNullOrEmpty(...)` e `.WhereNotNullOrWhiteSpace(...)`.
+- **Condições Dedicadas `isNotNull`, `isNotEmpty` e `isNotNullOrEmpty`** — Filtragem de valores não nulos e não vazios em cláusulas `where (...)` no `fsql` com pushdown para SQL nativo (`IS NOT NULL` e `<> ''` / `LENGTH(...) > 0` no Oracle).
 - **Descoberta Multi-Database e Mapeamento em Árvore (`Conexão -> Database -> [Schema ->] Tabela -> Coluna`)** — Conectores SQL de servidor (`SqlServer`, `PostgreSql`, `MySql`, `MariaDb`, `Oracle`) agora descobrem todos os databases acessíveis na instância e os mapeiam em estrutura de árvore tanto na TreeView do VS Code (`tree.ts`) quanto nas entidades F# geradas (`Connections.sql.<Conn>.<Database>.[<Schema>.]<Table>`), mantendo atalhos na raiz (`Connections.sql.<Conn>.<Table>`) para o database padrão.
 - **Consultas SQLite Diretas em Conexões CSV, XML, JSON e Excel Mapeadas** — Adicionados `.rawQuery`, `.query<'T>` e `.Execute` diretamente em `Connections.csv.<Conn>`, `Connections.xml.<Conn>`, `Connections.json.<Conn>` e `Connections.excel.<Conn>`, com auto-staging sob demanda em `.fsqs/cache/engine.db` e `VIEW`s de alias no SQLite (`<FileBaseName>`, `<TableName>`, `<Conn>_<TableName>`, `<Conn>`).
 

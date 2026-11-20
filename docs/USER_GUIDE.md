@@ -144,7 +144,7 @@ When you add or inspect a server-based database connection (**SQL Server**, **Po
   fsql {
       for p in Connections.sql.PostgreSQL_Advanced.fsqs_demo.products do
       join c in Connections.sql.PostgreSQL_Advanced.fsqs_demo.categories on (p.category_id = c.id)
-      whereNotEmpty p.sku
+      where (isNotEmpty p.sku)
       select {| Sku = p.sku; Product = p.name; Category = c.name; Price = p.price |}
   }
 
@@ -471,27 +471,15 @@ printfn "Plan:\n%s" planReport.PlanText
       |> Seq.pivot (fun r -> r.Year) (fun r -> r.Product) (fun r -> r.Amount) Seq.sum
   ```
 
-#### 9. Null & Empty Conditions (`not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull`, `whereNotEmpty`)
-Filter non-null and non-empty fields with full SQL pushdown (`IS NOT NULL` and `<> ''`) using either predicates inside `where (...)`, dedicated custom operations, or fluent extension methods:
+#### 9. Null & Empty Conditions (`isNotNull`, `isNotEmpty`, `isNotNullOrEmpty`)
+Filter non-null and non-empty fields with full SQL pushdown (`IS NOT NULL` and `<> ''`) inside `where (...)`:
 
 ```fsharp
-// 1. Using predicates and dedicated custom operations in fsql
 fsql {
     for o in Connections.sql.SampleStore.Orders do
-    where (not (isNull o.Notes) && notEmpty o.Status && o.TotalAmount >= 150.0f)
-    whereNotNull o.OrderNumber
-    whereNotEmpty o.PaymentMethod
-    whereNotNullOrEmpty o.Channel
-    whereNotNullOrWhiteSpace o.Currency
+    where (isNotNull o.Notes && isNotEmpty o.Status && isNotNullOrEmpty o.PaymentMethod && o.TotalAmount >= 150.0f)
     select {| OrderId = o.Id; OrderNumber = o.OrderNumber; Status = o.Status; Total = o.TotalAmount |}
 }
-
-// 2. Using fluent methods on SqlPushdownQueryable<'T>
-let verifiedCustomers =
-    Connections.sql.SampleStore.Customers
-        .WhereNotNull(fun c -> c.Email)
-        .WhereNotEmpty(fun c -> c.City)
-        .WhereNotNullOrWhiteSpace(fun c -> c.FirstName)
 ```
 
 ### Persistent SQLite Disk Cache & Direct SQLite Queries for CSV, XML, JSON & Excel

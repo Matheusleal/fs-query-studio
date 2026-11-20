@@ -2213,7 +2213,7 @@ let ``fsql translates double negation and compound boolean negations with isNull
     Assert.Equal(3, rows.Length)
 
 [<Fact>]
-let ``fsql translates dedicated notNull, isNotNull, notEmpty, isNotEmpty, notNullOrEmpty, and isEmpty predicates`` () =
+let ``fsql translates dedicated isNotNull, isNotEmpty, and isNotNullOrEmpty predicates`` () =
     use db = new TempSqliteDb()
     use rawConn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path}")
     rawConn.Open()
@@ -2228,8 +2228,8 @@ let ``fsql translates dedicated notNull, isNotNull, notEmpty, isNotEmpty, notNul
     let conn = SqliteConnector(db.Path)
     let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
 
-    // 1. notNull / isNotNull
-    let q1 = fsql { for p in products do where (notNull p.Category && isNotNull p.Name); select p.Name }
+    // 1. isNotNull
+    let q1 = fsql { for p in products do where (isNotNull p.Category && isNotNull p.Name); select p.Name }
     let sql1 = toRawSql q1
     Assert.Contains("(Category IS NOT NULL)", sql1)
     Assert.Contains("(Name IS NOT NULL)", sql1)
@@ -2237,8 +2237,8 @@ let ``fsql translates dedicated notNull, isNotNull, notEmpty, isNotEmpty, notNul
     Assert.DoesNotContain("NullCat", r1)
     Assert.Contains("EmptyCat", r1)
 
-    // 2. notEmpty / isNotEmpty / notNullOrEmpty / isNotNullOrEmpty / notNullAndNotEmpty
-    let q2 = fsql { for p in products do where (notEmpty p.Category && isNotEmpty p.Name && notNullOrEmpty p.Category && isNotNullOrEmpty p.Name && notNullAndNotEmpty p.Category); select p.Name }
+    // 2. isNotEmpty / isNotNullOrEmpty
+    let q2 = fsql { for p in products do where (isNotEmpty p.Category && isNotNullOrEmpty p.Name); select p.Name }
     let sql2 = toRawSql q2
     Assert.Contains("(Category IS NOT NULL AND Category <> '')", sql2)
     let r2 = q2 |> Seq.toList
@@ -2246,31 +2246,8 @@ let ``fsql translates dedicated notNull, isNotNull, notEmpty, isNotEmpty, notNul
     Assert.DoesNotContain("EmptyCat", r2)
     Assert.Contains("SpaceCat", r2)
 
-    // 3. notNullOrWhiteSpace / isNotNullOrWhiteSpace
-    let q3 = fsql { for p in products do where (notNullOrWhiteSpace p.Category && isNotNullOrWhiteSpace p.Name); select p.Name }
-    let sql3 = toRawSql q3
-    Assert.Contains("(Category IS NOT NULL AND TRIM(Category) <> '')", sql3)
-    let r3 = q3 |> Seq.toList
-    Assert.DoesNotContain("NullCat", r3)
-    Assert.DoesNotContain("EmptyCat", r3)
-    Assert.DoesNotContain("SpaceCat", r3)
-    Assert.Equal(5, r3.Length)
-
-    // 4. isEmpty / isNullOrEmpty / isNullOrWhiteSpace
-    let q4 = fsql { for p in products do where (isEmpty p.Category || isNullOrEmpty p.Category); select p.Name }
-    Assert.Contains("(Category IS NULL OR Category = '')", toRawSql q4)
-    let r4 = q4 |> Seq.toList
-    Assert.Contains("NullCat", r4)
-    Assert.Contains("EmptyCat", r4)
-    Assert.DoesNotContain("SpaceCat", r4)
-
-    let q5 = fsql { for p in products do where (isNullOrWhiteSpace p.Category); select p.Name }
-    Assert.Contains("(Category IS NULL OR TRIM(Category) = '')", toRawSql q5)
-    let r5 = q5 |> Seq.toList
-    Assert.Equal(3, r5.Length)
-
 [<Fact>]
-let ``fsql custom operations whereNotNull, whereIsNull, whereNotEmpty, whereIsEmpty, whereNotNullOrEmpty, whereNotNullOrWhiteSpace and builder methods work`` () =
+let ``fsql builder methods isNotNull, isNotEmpty, isNotNullOrEmpty and conditional CASE WHEN projections work across dialects`` () =
     use db = new TempSqliteDb()
     use rawConn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path}")
     rawConn.Open()
@@ -2285,93 +2262,44 @@ let ``fsql custom operations whereNotNull, whereIsNull, whereNotEmpty, whereIsEm
     let conn = SqliteConnector(db.Path)
     let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
 
-    let qCustomNotNull =
-        fsql {
-            for p in products do
-            whereNotNull p.Category
-            select p.Name
-        }
-    Assert.Contains("(Category IS NOT NULL)", toRawSql qCustomNotNull)
-    Assert.Equal(7, qCustomNotNull |> Seq.length)
-
-    let qCustomIsNull =
-        fsql {
-            for p in products do
-            whereIsNull p.Category
-            select p.Name
-        }
-    Assert.Contains("(Category IS NULL)", toRawSql qCustomIsNull)
-    Assert.Equal<string list>([ "NullCat" ], qCustomIsNull |> Seq.toList)
-
-    let qCustomNotEmpty =
-        fsql {
-            for p in products do
-            whereNotEmpty p.Category
-            whereNotNullOrEmpty p.Name
-            select p.Name
-        }
-    Assert.Contains("(Category IS NOT NULL AND Category <> '')", toRawSql qCustomNotEmpty)
-    Assert.Equal(6, qCustomNotEmpty |> Seq.length)
-
-    let qCustomIsEmpty =
-        fsql {
-            for p in products do
-            whereIsEmpty p.Category
-            select p.Name
-        }
-    Assert.Contains("(Category IS NULL OR Category = '')", toRawSql qCustomIsEmpty)
-    Assert.Equal(2, qCustomIsEmpty |> Seq.length)
-
-    let qCustomNotWs =
-        fsql {
-            for p in products do
-            whereNotNullOrWhiteSpace p.Category
-            select p.Name
-        }
-    Assert.Contains("(Category IS NOT NULL AND TRIM(Category) <> '')", toRawSql qCustomNotWs)
-    Assert.Equal(5, qCustomNotWs |> Seq.length)
-
-    // Builder method variants & fluent methods on SqlPushdownQueryable (both string and lambda overloads + Oracle dialect)
+    // Builder method variants + Oracle dialect
     let qBuilder =
         fsql {
             for p in products do
-            where (fsql.notNull p.Category && fsql.isNotNull p.Name && fsql.notEmpty p.Category && fsql.isNotEmpty p.Name && fsql.notNullOrEmpty p.Category && fsql.isNotNullOrEmpty p.Name && fsql.notNullOrWhiteSpace p.Category && fsql.isNotNullOrWhiteSpace p.Name && not (fsql.isEmpty p.Category) && not (fsql.isNullOrEmpty p.Category) && not (fsql.isNullOrWhiteSpace p.Category))
+            where (fsql.isNotNull p.Category && fsql.isNotEmpty p.Category && fsql.isNotNullOrEmpty p.Name)
             select p.Name
         }
-    Assert.Equal(5, qBuilder |> Seq.length)
+    Assert.Equal(6, qBuilder |> Seq.length)
 
-    let exprOracle = (qCustomNotEmpty :> IQueryable).Expression
+    let exprOracle = (qBuilder :> IQueryable).Expression
     let oracleSql = (ExpressionPushdownTranslator.extractPlanFromExpression exprOracle "Products" [] SqlDialect.Oracle).BuildSql(SqlDialect.Oracle)
     Assert.Contains("LENGTH(Category) > 0", oracleSql)
 
-    // Fluent methods on SqlPushdownQueryable
-    Assert.Contains("(Category IS NULL)", products.WhereIsNull("Category").ToRawSql())
-    Assert.Contains("(Category IS NULL)", products.WhereIsNull(fun p -> p.Category).ToRawSql())
-    Assert.Contains("(Category IS NOT NULL)", products.WhereNotNull("Category").ToRawSql())
-    Assert.Contains("(Category IS NOT NULL)", products.WhereNotNull(fun p -> p.Category).ToRawSql())
-    Assert.Contains("(Category IS NULL OR Category = '')", products.WhereIsEmpty("Category").ToRawSql())
-    Assert.Contains("(Category IS NULL OR Category = '')", products.WhereIsEmpty(fun p -> p.Category).ToRawSql())
-    Assert.Contains("(Category IS NOT NULL AND Category <> '')", products.WhereNotEmpty("Category").ToRawSql())
-    Assert.Contains("(Category IS NOT NULL AND Category <> '')", products.WhereNotEmpty(fun p -> p.Category).ToRawSql())
-    Assert.Contains("(Category IS NOT NULL AND Category <> '')", products.WhereNotNullOrEmpty("Category").ToRawSql())
-    Assert.Contains("(Category IS NOT NULL AND Category <> '')", products.WhereNotNullOrEmpty(fun p -> p.Category).ToRawSql())
-    Assert.Contains("(Category IS NOT NULL AND TRIM(Category) <> '')", products.WhereNotNullOrWhiteSpace("Category").ToRawSql())
-    Assert.Contains("(Category IS NOT NULL AND TRIM(Category) <> '')", products.WhereNotNullOrWhiteSpace(fun p -> p.Category).ToRawSql())
-
-    // Conditional CASE WHEN with isNull / notNull / notEmpty in SELECT projection
+    // Conditional CASE WHEN with isNull / isNotNull / isNotEmpty / isNotNullOrEmpty in SELECT projection
     let qCase =
         fsql {
             for p in products do
             select {|
                 Name = p.Name
-                CatStatus = if notEmpty p.Category then p.Category elif isNull p.Category then "Missing" else "Empty"
-                CoalescedCat = if not (isNull p.Category) then p.Category else "DefaultCat"
+                CatStatus = if isNotEmpty p.Category then p.Category elif isNull p.Category then "Missing" else "Empty"
+                CoalescedCat = if isNotNull p.Category then p.Category else "DefaultCat"
             |}
         }
     let sqlCase = toRawSql qCase
     Assert.Contains("CASE WHEN", sqlCase)
     Assert.Contains("COALESCE(Category, 'DefaultCat')", sqlCase)
     Assert.Equal(8, qCase |> Seq.length)
+
+    // In-memory evaluation of isNotNull, isNotEmpty, isNotNullOrEmpty
+    Assert.True(isNotNull "abc")
+    Assert.False(isNotNull (null: string))
+    Assert.True(isNotEmpty "abc")
+    Assert.True(isNotEmpty 123)
+    Assert.False(isNotEmpty "")
+    Assert.False(isNotEmpty (null: string))
+    Assert.True(isNotNullOrEmpty "abc")
+    Assert.False(isNotNullOrEmpty "")
+    Assert.False(isNotNullOrEmpty (null: string))
 
 
 

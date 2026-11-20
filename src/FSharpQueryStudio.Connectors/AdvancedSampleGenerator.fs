@@ -899,14 +899,12 @@ let report = fsql.explain complexQuery
 printfn "Engine: %A" report.Dialect
 printfn "%s" report.PlanText
 """
-                mkMarkdown "## 14. 🛡️ Null & Empty Filtering (`not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull`, `whereNotEmpty`)"
+                mkMarkdown "## 14. 🛡️ Null & Empty Filtering (`isNotNull`, `isNotEmpty`, `isNotNullOrEmpty`)"
                 mkCode """
 // 14. Filter non-null and non-empty columns with full SQL pushdown in PostgreSQL
 fsql {
     for c in Connections.sql.PostgreSQL_Advanced.customers do
-    where (not (isNull c.email) && notEmpty c.city)
-    whereNotNull c.first_name
-    whereNotEmpty c.country
+    where (isNotNull c.email && isNotEmpty c.city && isNotNullOrEmpty c.country)
     select {|
         Id = c.id
         Customer = c.first_name + " " + c.last_name
@@ -922,7 +920,7 @@ fsql {
 fsql {
     for p in Connections.sql.PostgreSQL_Advanced.fsqs_demo.products do
     join c in Connections.sql.PostgreSQL_Advanced.fsqs_demo.categories on (p.category_id = c.id)
-    whereNotEmpty p.sku
+    where (isNotEmpty p.sku)
     sortByDescending p.price
     select {|
         Sku = p.sku
@@ -1267,14 +1265,12 @@ let diag = fsql.explain complexQuery
 printfn "Engine: %A" diag.Dialect
 printfn "%s" diag.PlanText
 """
-                mkMarkdown "## 14. 🛡️ Null & Empty Filtering (`not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull`, `whereNotEmpty`)"
+                mkMarkdown "## 14. 🛡️ Null & Empty Filtering (`isNotNull`, `isNotEmpty`, `isNotNullOrEmpty`)"
                 mkCode """
 // 14. Filter non-null and non-empty columns with full SQL pushdown in SQL Server
 fsql {
     for c in Connections.sql.SqlServer_Advanced.Customers do
-    where (not (isNull c.Email) && notEmpty c.City)
-    whereNotNull c.FirstName
-    whereNotEmpty c.Country
+    where (isNotNull c.Email && isNotEmpty c.City && isNotNullOrEmpty c.Country)
     select {|
         Id = c.Id
         Customer = c.FirstName + " " + c.LastName
@@ -1290,7 +1286,7 @@ fsql {
 fsql {
     for p in Connections.sql.SqlServer_Advanced.master.Products do
     join c in Connections.sql.SqlServer_Advanced.master.Categories on (p.CategoryId = c.Id)
-    whereNotEmpty p.Sku
+    where (isNotEmpty p.Sku)
     sortByDescending p.Price
     select {|
         Sku = p.Sku
@@ -1648,14 +1644,12 @@ let diag = fsql.explain complexQuery
 printfn "Dialeto: %A" diag.Dialect
 printfn "%s" diag.PlanText
 """
-                mkMarkdown "## 14. 🛡️ Filtros `not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull` e `whereNotEmpty`"
+                mkMarkdown "## 14. 🛡️ Filtros `isNotNull`, `isNotEmpty` e `isNotNullOrEmpty`"
                 mkCode """
 // 14. Filtra colunas não nulas e não vazias com pushdown SQL completo no PostgreSQL
 fsql {
     for c in Connections.sql.PostgreSQL_Advanced.customers do
-    where (not (isNull c.email) && notEmpty c.city)
-    whereNotNull c.first_name
-    whereNotEmpty c.country
+    where (isNotNull c.email && isNotEmpty c.city && isNotNullOrEmpty c.country)
     select {|
         Id = c.id
         Customer = c.first_name + " " + c.last_name
@@ -1671,7 +1665,7 @@ fsql {
 fsql {
     for p in Connections.sql.PostgreSQL_Advanced.fsqs_demo.products do
     join c in Connections.sql.PostgreSQL_Advanced.fsqs_demo.categories on (p.category_id = c.id)
-    whereNotEmpty p.sku
+    where (isNotEmpty p.sku)
     sortByDescending p.price
     select {|
         Sku = p.sku
@@ -2022,14 +2016,12 @@ let diag = fsql.explain complexQuery
 printfn "Dialeto: %A" diag.Dialect
 printfn "%s" diag.PlanText
 """
-                mkMarkdown "## 14. 🛡️ Filtros `not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull` e `whereNotEmpty`"
+                mkMarkdown "## 14. 🛡️ Filtros `isNotNull`, `isNotEmpty` e `isNotNullOrEmpty`"
                 mkCode """
 // 14. Filtra colunas não nulas e não vazias com pushdown SQL completo no SQL Server
 fsql {
     for c in Connections.sql.SqlServer_Advanced.Customers do
-    where (not (isNull c.Email) && notEmpty c.City)
-    whereNotNull c.FirstName
-    whereNotEmpty c.Country
+    where (isNotNull c.Email && isNotEmpty c.City && isNotNullOrEmpty c.Country)
     select {|
         Id = c.Id
         Customer = c.FirstName + " " + c.LastName
@@ -2045,7 +2037,7 @@ fsql {
 fsql {
     for p in Connections.sql.SqlServer_Advanced.master.Products do
     join c in Connections.sql.SqlServer_Advanced.master.Categories on (p.CategoryId = c.Id)
-    whereNotEmpty p.Sku
+    where (isNotEmpty p.Sku)
     sortByDescending p.Price
     select {|
         Sku = p.Sku
@@ -2247,13 +2239,12 @@ let diag = fsql.explain sampleQuery
 printfn "Dialect: %%A" diag.Dialect
 printfn "%%s" diag.PlanText
 """
-                    mkMarkdown "## 8. 🛡️ Null & Empty Filtering (`not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull`, `whereNotEmpty`)"
+                    mkMarkdown "## 8. 🛡️ Null & Empty Filtering (`isNotNull`, `isNotEmpty`, `isNotNullOrEmpty`)"
                     mkCode $"""
 // 8. Filter non-null and non-empty columns with full SQL pushdown in {engineDisplayName}
 fsql {{
     for c in Connections.sql.{connName}.{tblCust} do
-    where (not (isNull c.{colFirstName}) && notEmpty c.{colFirstName})
-    whereNotNull c.{colFirstName}
+    where (isNotNull c.{colFirstName} && isNotEmpty c.{colFirstName} && isNotNullOrEmpty c.{colFirstName})
     select {{|
         CustomerId = c.{colId}
         Customer = c.{colFirstName}
@@ -2266,7 +2257,7 @@ fsql {{
 fsql {{
     for p in Connections.sql.{connName}.{defaultDb}.{tblProd} do
     join c in Connections.sql.{connName}.{defaultDb}.{tblCat} on (p.{colCatId} = c.{colId})
-    whereNotEmpty p.{colName}
+    where (isNotEmpty p.{colName})
     sortByDescending p.{colPrice}
     select {{|
         Product = p.{colName}
@@ -2447,13 +2438,12 @@ let diag = fsql.explain consultaComplexa
 printfn "Dialeto: %%A" diag.Dialect
 printfn "%%s" diag.PlanText
 """
-                    mkMarkdown "## 8. 🛡️ Filtros `not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull` e `whereNotEmpty`"
+                    mkMarkdown "## 8. 🛡️ Filtros `isNotNull`, `isNotEmpty` e `isNotNullOrEmpty`"
                     mkCode $"""
 // 8. Filtra colunas não nulas e não vazias com pushdown SQL completo no {engineDisplayName}
 fsql {{
     for c in Connections.sql.{connName}.{tblCust} do
-    where (not (isNull c.{colFirstName}) && notEmpty c.{colFirstName})
-    whereNotNull c.{colFirstName}
+    where (isNotNull c.{colFirstName} && isNotEmpty c.{colFirstName} && isNotNullOrEmpty c.{colFirstName})
     select {{|
         CustomerId = c.{colId}
         Customer = c.{colFirstName}
@@ -2466,7 +2456,7 @@ fsql {{
 fsql {{
     for p in Connections.sql.{connName}.{defaultDb}.{tblProd} do
     join c in Connections.sql.{connName}.{defaultDb}.{tblCat} on (p.{colCatId} = c.{colId})
-    whereNotEmpty p.{colName}
+    where (isNotEmpty p.{colName})
     sortByDescending p.{colPrice}
     select {{|
         Product = p.{colName}

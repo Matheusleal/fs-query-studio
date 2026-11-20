@@ -890,20 +890,17 @@ pendingAudit
 """
 
                 mkMarkdown """
-## 25. 🛡️ Null & Empty Filtering (`not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull`, `whereNotEmpty`)
+## 25. 🛡️ Null & Empty Filtering (`isNotNull`, `isNotEmpty`, `isNotNullOrEmpty`)
 
-Filter null and empty columns using `not (isNull ...)`, `notNull`, `notEmpty`, `notNullOrEmpty`, or dedicated custom operations (`whereNotNull`, `whereNotEmpty`, `whereNotNullOrEmpty`, `whereNotNullOrWhiteSpace`) — all pushed down directly to native SQL (`IS NOT NULL` and `<> ''`).
+Filter null and empty columns directly inside `where (...)` using `isNotNull`, `isNotEmpty`, and `isNotNullOrEmpty` — all pushed down directly to native SQL (`IS NOT NULL` and `<> ''`).
 """
 
                 mkCode """
-// 25. Filter non-null and non-empty fields using where (not (isNull ...)) and dedicated custom operations
+// 25. Filter non-null and non-empty fields using isNotNull, isNotEmpty, and isNotNullOrEmpty
 let validOrdersQuery =
     fsql {
         for o in Connections.sql.SampleStore.Orders do
-        where (not (isNull o.Notes) && notEmpty o.Status && o.TotalAmount >= 150.0f)
-        whereNotNull o.OrderNumber
-        whereNotEmpty o.PaymentMethod
-        whereNotNullOrEmpty o.Channel
+        where (isNotNull o.Notes && isNotEmpty o.Status && isNotNullOrEmpty o.PaymentMethod && o.TotalAmount >= 150.0f)
         sortByDescending o.TotalAmount
         take 10
         select {|
@@ -941,36 +938,6 @@ Connections.sql.rawQuery(
     "SELECT OrderId, Customer, Product, Category, TotalAmount, Status FROM sales_feed WHERE Category = @cat AND TotalAmount >= @minTotal ORDER BY TotalAmount DESC LIMIT 10",
     [ "@cat", box "Electronics"; "@minTotal", box 100.0 ]
 )
-"""
-
-                mkMarkdown """
-## 27. 🔗 Fluent `.WhereNotNull` / `.WhereNotEmpty` Chaining with `fsql`
-
-You can also chain `.WhereNotNull(...)`, `.WhereNotEmpty(...)`, `.WhereNotNullOrEmpty(...)`, and `.WhereNotNullOrWhiteSpace(...)` fluently on any `SqlPushdownQueryable<'T>` table before or inside an `fsql` query.
-"""
-
-                mkCode """
-// 27. Fluent WhereNotNull / WhereNotEmpty / WhereNotNullOrWhiteSpace combined with fsql
-let verifiedCustomers =
-    Connections.sql.SampleStore.Customers
-        .WhereNotNull(fun c -> c.Email)
-        .WhereNotEmpty(fun c -> c.City)
-        .WhereNotNullOrWhiteSpace(fun c -> c.FirstName)
-
-fsql {
-    for c in verifiedCustomers do
-    where (c.Country = "Brazil" || c.Country = "UK")
-    sortByDescending c.LoyaltyPoints
-    take 10
-    select {|
-        Id = c.Id
-        Customer = c.FirstName + " " + c.LastName
-        Email = c.Email
-        City = c.City
-        Country = c.Country
-        LoyaltyPoints = c.LoyaltyPoints
-    |}
-}
 """
 
                 mkMarkdown """
@@ -1699,20 +1666,17 @@ auditoriaPendentes
 """
 
                 mkMarkdown """
-## 25. 🛡️ Filtros `not (isNull ...)`, `notNull`, `notEmpty`, `whereNotNull` e `whereNotEmpty`
+## 25. 🛡️ Filtros `isNotNull`, `isNotEmpty` e `isNotNullOrEmpty`
 
-Filtre colunas nulas ou vazias usando `not (isNull ...)`, `notNull`, `notEmpty`, `notNullOrEmpty` ou as custom operations dedicadas (`whereNotNull`, `whereNotEmpty`, `whereNotNullOrEmpty`, `whereNotNullOrWhiteSpace`) — todas traduzidas com pushdown direto para SQL (`IS NOT NULL` e `<> ''`).
+Filtre colunas nulas ou vazias diretamente em `where (...)` usando `isNotNull`, `isNotEmpty` e `isNotNullOrEmpty` — todas traduzidas com pushdown direto para SQL (`IS NOT NULL` e `<> ''`).
 """
 
                 mkCode """
-// 25. Filtra campos não nulos e não vazios usando where (not (isNull ...)) e custom operations dedicadas
+// 25. Filtra campos não nulos e não vazios usando isNotNull, isNotEmpty e isNotNullOrEmpty
 let pedidosValidosQuery =
     fsql {
         for o in Connections.sql.SampleStore.Orders do
-        where (not (isNull o.Notes) && notEmpty o.Status && o.TotalAmount >= 150.0f)
-        whereNotNull o.OrderNumber
-        whereNotEmpty o.PaymentMethod
-        whereNotNullOrEmpty o.Channel
+        where (isNotNull o.Notes && isNotEmpty o.Status && isNotNullOrEmpty o.PaymentMethod && o.TotalAmount >= 150.0f)
         sortByDescending o.TotalAmount
         take 10
         select {|
@@ -1750,36 +1714,6 @@ Connections.sql.rawQuery(
     "SELECT OrderId AS PedidoId, Customer AS Cliente, Product AS Produto, Category AS Categoria, TotalAmount AS ValorTotal, Status FROM sales_feed WHERE Category = @cat AND TotalAmount >= @minTotal ORDER BY TotalAmount DESC LIMIT 10",
     [ "@cat", box "Electronics"; "@minTotal", box 100.0 ]
 )
-"""
-
-                mkMarkdown """
-## 27. 🔗 Encadeamento Fluente `.WhereNotNull` / `.WhereNotEmpty` com `fsql`
-
-Você também pode encadear `.WhereNotNull(...)`, `.WhereNotEmpty(...)`, `.WhereNotNullOrEmpty(...)` e `.WhereNotNullOrWhiteSpace(...)` diretamente em qualquer tabela `SqlPushdownQueryable<'T>` antes ou dentro de um bloco `fsql`.
-"""
-
-                mkCode """
-// 27. Encadeamento fluente WhereNotNull / WhereNotEmpty / WhereNotNullOrWhiteSpace combinado com fsql
-let clientesVerificados =
-    Connections.sql.SampleStore.Customers
-        .WhereNotNull(fun c -> c.Email)
-        .WhereNotEmpty(fun c -> c.City)
-        .WhereNotNullOrWhiteSpace(fun c -> c.FirstName)
-
-fsql {
-    for c in clientesVerificados do
-    where (c.Country = "Brazil" || c.Country = "UK")
-    sortByDescending c.LoyaltyPoints
-    take 10
-    select {|
-        Id = c.Id
-        Cliente = c.FirstName + " " + c.LastName
-        Email = c.Email
-        Cidade = c.City
-        Pais = c.Country
-        PontosFidelidade = c.LoyaltyPoints
-    |}
-}
 """
 
                 mkMarkdown """

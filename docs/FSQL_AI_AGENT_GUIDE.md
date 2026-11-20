@@ -23,7 +23,7 @@ In F# Query Studio, **`fsql`** (**F# Query Language**) is the unified, first-cla
 ## 2. Standard Session Imports & Connection Access
 
 When writing scripts or notebook cells, agents must include:
-
+Ç
 ```fsharp
 open System
 open System.Linq
@@ -77,9 +77,7 @@ let directXmlRows =
 let pageOfProducts =
     fsql {
         for p in mssqlProducts do
-        where (p.Price >= 50.0M && p.InStock && not (isNull p.Category) && notEmpty p.Name)
-        whereNotNull p.Category
-        whereNotEmpty p.Name
+        where (p.Price >= 50.0M && p.InStock && isNotNull p.Category && isNotEmpty p.Name && isNotNullOrEmpty p.Category)
         sortByDescending p.Price
         thenBy p.Name
         skip 10
@@ -89,8 +87,9 @@ let pageOfProducts =
 ```
 
 Supported null & empty conditions in `fsql` (pushed down to native SQL across all dialects):
-- **Predicates inside `where (...)`**: `not (isNull x.Col)`, `isNull x.Col`, `notNull x.Col` / `isNotNull x.Col`, `notEmpty x.Col` / `isNotEmpty x.Col` / `notNullOrEmpty x.Col` / `isNotNullOrEmpty x.Col`, `notNullOrWhiteSpace x.Col` / `isNotNullOrWhiteSpace x.Col`, `isEmpty x.Col` / `isNullOrEmpty x.Col`, `isNullOrWhiteSpace x.Col`.
-- **Dedicated `fsql` custom operations**: `whereNotNull x.Col`, `whereIsNull x.Col`, `whereNotEmpty x.Col`, `whereIsEmpty x.Col`, `whereNotNullOrEmpty x.Col`, `whereNotNullOrWhiteSpace x.Col`.
+- **`isNotNull x.Col`**: Translates to `(x.Col IS NOT NULL)`.
+- **`isNotEmpty x.Col`** / **`isNotNullOrEmpty x.Col`**: Translates to `(x.Col IS NOT NULL AND x.Col <> '')` (or `LENGTH(x.Col) > 0` on Oracle).
+- **`isNull x.Col`** / **`not (isNull x.Col)`**: Translates to `(x.Col IS NULL)` and `(x.Col IS NOT NULL)`.
 
 ### 3.2 Aggregations (Pushdown to `COUNT`, `MAX`, `MIN`, `SUM`, `AVG`)
 ```fsharp

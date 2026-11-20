@@ -77,9 +77,7 @@ let directXmlRows =
 let paginaDeProdutos =
     fsql {
         for p in mssqlProducts do
-        where (p.Price >= 50.0M && p.InStock && not (isNull p.Category) && notEmpty p.Name)
-        whereNotNull p.Category
-        whereNotEmpty p.Name
+        where (p.Price >= 50.0M && p.InStock && isNotNull p.Category && isNotEmpty p.Name && isNotNullOrEmpty p.Category)
         sortByDescending p.Price
         thenBy p.Name
         skip 10
@@ -89,8 +87,9 @@ let paginaDeProdutos =
 ```
 
 Condições dedicadas para `not null` e `not empty` suportadas no `fsql` (compiladas para SQL nativo em todos os dialetos):
-- **Predicados dentro de `where (...)`**: `not (isNull x.Col)`, `isNull x.Col`, `notNull x.Col` / `isNotNull x.Col`, `notEmpty x.Col` / `isNotEmpty x.Col` / `notNullOrEmpty x.Col` / `isNotNullOrEmpty x.Col`, `notNullOrWhiteSpace x.Col` / `isNotNullOrWhiteSpace x.Col`, `isEmpty x.Col` / `isNullOrEmpty x.Col`, `isNullOrWhiteSpace x.Col`.
-- **Operações dedicadas do `fsql`**: `whereNotNull x.Col`, `whereIsNull x.Col`, `whereNotEmpty x.Col`, `whereIsEmpty x.Col`, `whereNotNullOrEmpty x.Col`, `whereNotNullOrWhiteSpace x.Col`.
+- **`isNotNull x.Col`**: Compila para `(x.Col IS NOT NULL)`.
+- **`isNotEmpty x.Col`** / **`isNotNullOrEmpty x.Col`**: Compila para `(x.Col IS NOT NULL AND x.Col <> '')` (ou `LENGTH(x.Col) > 0` no Oracle).
+- **`isNull x.Col`** / **`not (isNull x.Col)`**: Compila para `(x.Col IS NULL)` e `(x.Col IS NOT NULL)`.
 
 ### 3.2 Agregações (Pushdown para `COUNT`, `MAX`, `MIN`, `SUM`, `AVG`)
 ```fsharp

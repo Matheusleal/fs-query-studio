@@ -8,10 +8,10 @@ When a query predicate in `fsql` contains `isNull`, `not (isNull <col>)`, `Objec
 the `ExpressionPushdownTranslator` shall translate the predicate into native SQL (`(<col> IS NULL)`, `(<col> IS NOT NULL)`, `(NOT <predicate>)`) across all supported SQL dialects without falling back to incompatible post-projection evaluation.
 ```
 
-### [REQ-FSQL-COND-002] Condições e Operações Dedicadas para `notNull`, `notEmpty` e `notNullOrEmpty`
+### [REQ-FSQL-COND-002] Condições Dedicadas `isNotNull`, `isNotEmpty` e `isNotNullOrEmpty`
 ```text
-When a query uses `notNull`, `isNotNull`, `notEmpty`, `isNotEmpty`, `notNullOrEmpty`, `isNotNullOrEmpty`, `notNullAndNotEmpty`, `notNullOrWhiteSpace`, `isNotNullOrWhiteSpace`, `isEmpty`, `isNullOrEmpty`, `isNullOrWhiteSpace` (as functions in `where`, methods on `fsql`, custom operations `whereNotNull`, `whereIsNull`, `whereNotEmpty`, `whereIsEmpty`, `whereNotNullOrEmpty`, `whereNotNullOrWhiteSpace`, or fluent methods on `SqlPushdownQueryable<'T>`),
-the `ExpressionPushdownTranslator` and `FSqlQueryBuilder` shall compile the condition into dialect-appropriate SQL (`(<col> IS NOT NULL)`, `(<col> IS NOT NULL AND <col> <> '')` or `LENGTH(<col>) > 0` on Oracle, and `(<col> IS NOT NULL AND TRIM(<col>) <> '')`) and evaluate accurately in memory when used outside pushdown.
+When a query uses `isNotNull`, `isNotEmpty`, or `isNotNullOrEmpty` inside `where` predicates in `fsql`,
+the `ExpressionPushdownTranslator` and `FSqlQueryBuilder` shall compile the condition into dialect-appropriate SQL (`(<col> IS NOT NULL)` and `(<col> IS NOT NULL AND <col> <> '')` or `LENGTH(<col>) > 0` on Oracle) and evaluate accurately in memory when used outside pushdown, without exposing redundant custom operations (`whereNotNull`, `whereNotEmpty`, `whereNotNullOrEmpty`, etc.).
 ```
 
 ### [REQ-SQLITE-DIRECT-003] Execução Direta no SQLite para Fontes XML e CSV Mapeadas

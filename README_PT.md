@@ -41,9 +41,7 @@ O pipeline de CI também publica o pacote VSIX automaticamente (`fs-query-studio
    // DQL funcional puro com fsql
    fsql {
        for u in Connections.sql.MinhaConexao.Users do
-       where (u.IsActive && u.Age >= 21 && not (isNull u.Email) && notEmpty u.City)
-       whereNotNull u.FirstName
-       whereNotEmpty u.LastName
+       where (u.IsActive && u.Age >= 21 && isNotNull u.Email && isNotEmpty u.City && isNotNullOrEmpty u.LastName)
        whereExists (fsql { for o in Connections.sql.MinhaConexao.Orders do where (o.UserId = u.Id) })
        sortBy u.LastName
        select {|
