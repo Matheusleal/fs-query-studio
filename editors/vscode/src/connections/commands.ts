@@ -52,6 +52,7 @@ export interface ConnectionFeatureDeps {
   secrets: vscode.SecretStorage;
   log: (line: string) => void;
   isPaused?: () => boolean;
+  extensionUri?: vscode.Uri;
 }
 
 export interface ConnectionsApi {
@@ -75,6 +76,7 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
     schemaCache,
     log: deps.log,
     getWorkspaceDir: getPrimaryWorkspaceDir,
+    extensionUri: deps.extensionUri,
   });
   const refresh = () => {
     if (deps.isPaused?.()) {
@@ -291,7 +293,7 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
     },
   };
 
-  const disposables: vscode.Disposable[] = [view, add, edit, remove, refreshCmd];
+  const disposables: vscode.Disposable[] = [view, add, edit, remove, refreshCmd, { dispose: () => tree.dispose() }];
   if (watcherDisposable) disposables.push(watcherDisposable);
   return {
     disposable: vscode.Disposable.from(...disposables),

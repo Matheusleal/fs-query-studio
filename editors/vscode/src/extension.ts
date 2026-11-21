@@ -564,6 +564,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     secrets: context.secrets,
     log,
     isPaused: () => isPaused,
+    extensionUri: context.extensionUri,
   });
 
   const languageFeatures = registerLanguageFeatures({
