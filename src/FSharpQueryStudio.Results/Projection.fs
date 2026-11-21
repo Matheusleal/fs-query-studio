@@ -568,8 +568,24 @@ module Projection =
                     $"{unwrapped.Message}\nCause: {unwrapped.InnerException.Message}"
                 else
                     unwrapped.Message
+
+        let dockerTip =
+            let allText = $"{msg}\n{ex.ToString()}"
+            if allText.Contains("127.0.0.1:5432") || allText.Contains("localhost:5432") || allText.Contains("Npgsql") then
+                "\n\n[Dica / Tip] O container Docker do PostgreSQL parece estar offline. Para iniciar:\n  docker compose -f docker-compose.fsqs.yml up -d fsqs-postgres"
+            elif allText.Contains("1433") || allText.Contains("SqlException") then
+                "\n\n[Dica / Tip] O container Docker do SQL Server parece estar offline. Para iniciar:\n  docker compose -f docker-compose.fsqs.yml up -d fsqs-sqlserver"
+            elif allText.Contains("3306") || (allText.Contains("MySQL") && allText.Contains("connect")) then
+                "\n\n[Dica / Tip] O container Docker do MySQL parece estar offline. Para iniciar:\n  docker compose -f docker-compose.fsqs.yml up -d fsqs-mysql"
+            elif allText.Contains("3307") || (allText.Contains("MariaDB") && allText.Contains("connect")) then
+                "\n\n[Dica / Tip] O container Docker do MariaDB parece estar offline. Para iniciar:\n  docker compose -f docker-compose.fsqs.yml up -d fsqs-mariadb"
+            elif allText.Contains("1521") || allText.Contains("ORA-12541") || allText.Contains("ORA-") then
+                "\n\n[Dica / Tip] O container Docker do Oracle parece estar offline. Para iniciar:\n  docker compose -f docker-compose.fsqs.yml up -d fsqs-oracle"
+            else
+                ""
+
         { emptyEnvelope ResultKind.Error elapsedMs with
-            DisplayText = Some msg }
+            DisplayText = Some (msg + dockerTip) }
 
     /// Same shape as `project`, plus the live `PagingCursor` a truncated
     /// Table result was cut off at — Section 7's `results/page`. `None`

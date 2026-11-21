@@ -259,7 +259,19 @@ module EntityBackgroundGenerator =
             currentGenerationTask.Wait()
         with _ -> ()
 
-    let private needsSynchronousGeneration (targetPath: string) (connections: ConnectionDefinition list) : bool =
+    let internal isModuleIncomplete (existing: string) (connName: string) : bool =
+        let cleanName = cleanIdentifier connName
+        let modName = $"{cleanName}Db"
+        if existing.Contains($"module {modName} =") then
+            not (existing.Contains($"module {modName} =\n    module ")
+                 || existing.Contains($"module {modName} =\r\n    module ")
+                 || existing.Contains($"module {modName} =\n        type ")
+                 || existing.Contains($"module {modName} =\r\n        type ")
+                 || existing.Contains("        type "))
+        else
+            false
+
+    let needsSynchronousGeneration (targetPath: string) (connections: ConnectionDefinition list) : bool =
         if not (File.Exists targetPath) then
             true
         else
@@ -282,7 +294,8 @@ module EntityBackgroundGenerator =
                             deduped
                             |> List.exists (fun def ->
                                 let cleanName = cleanIdentifier def.Name
-                                not (existing.Contains($"(\"{def.Name}\")") || existing.Contains($"(\"{cleanName}\")")))
+                                not (existing.Contains($"(\"{def.Name}\")") || existing.Contains($"(\"{cleanName}\")"))
+                                || isModuleIncomplete existing def.Name)
                     generatedFileCache.[targetPath] <- { Timestamp = lastWrite; ConnectionFingerprint = fingerprint }
                     needsGen
                 with _ ->

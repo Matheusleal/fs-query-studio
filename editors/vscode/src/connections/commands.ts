@@ -82,6 +82,19 @@ export function registerConnectionFeatures(deps: ConnectionFeatureDeps): {
     }
     schemaCache.clear();
     tree.refresh();
+    void (async () => {
+      try {
+        const worker = await deps.getWorker();
+        const wsDir = getPrimaryWorkspaceDir();
+        if (wsDir) {
+          await worker.send({
+            id: newRequestId(),
+            method: "connection/refresh",
+            params: { workspaceDir: wsDir },
+          });
+        }
+      } catch {}
+    })();
   };
 
   let watcherDisposable: vscode.Disposable | undefined;

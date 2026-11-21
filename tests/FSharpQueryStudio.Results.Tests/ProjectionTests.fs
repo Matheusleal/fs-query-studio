@@ -485,6 +485,30 @@ let ``projectErrorWithDetails handles Operation could not be completed and detai
     Assert.Equal("Other error", envNoDetails.DisplayText.Value)
 
 [<Fact>]
+let ``projectErrorWithDetails includes docker compose tips when database connection fails on standard ports`` () =
+    let exPg = System.Exception("Connection refused to 127.0.0.1:5432")
+    let envPg = Projection.projectErrorWithDetails exPg None 10L
+    Assert.Contains("docker compose -f docker-compose.fsqs.yml up -d fsqs-postgres", envPg.DisplayText.Value)
+
+    let exMs = System.Exception("Could not connect to localhost:1433")
+    let envMs = Projection.projectErrorWithDetails exMs None 10L
+    Assert.Contains("docker compose -f docker-compose.fsqs.yml up -d fsqs-sqlserver", envMs.DisplayText.Value)
+
+[<Fact>]
+let ``projectErrorWithDetails includes docker compose tips for mysql, mariadb and oracle`` () =
+    let exMy = System.Exception("Connection to 127.0.0.1:3306 failed")
+    let envMy = Projection.projectErrorWithDetails exMy None 10L
+    Assert.Contains("docker compose -f docker-compose.fsqs.yml up -d fsqs-mysql", envMy.DisplayText.Value)
+
+    let exMaria = System.Exception("Connection to 127.0.0.1:3307 failed")
+    let envMaria = Projection.projectErrorWithDetails exMaria None 10L
+    Assert.Contains("docker compose -f docker-compose.fsqs.yml up -d fsqs-mariadb", envMaria.DisplayText.Value)
+
+    let exOra = System.Exception("ORA-12541: TNS:no listener at 127.0.0.1:1521")
+    let envOra = Projection.projectErrorWithDetails exOra None 10L
+    Assert.Contains("docker compose -f docker-compose.fsqs.yml up -d fsqs-oracle", envOra.DisplayText.Value)
+
+[<Fact>]
 let ``projectWorkerError creates Error envelope from WorkerErrorInfo`` () =
     let info = { Code = "worker/crash"; Message = "Process terminated unexpectedly" }
     let env = Projection.projectWorkerError info

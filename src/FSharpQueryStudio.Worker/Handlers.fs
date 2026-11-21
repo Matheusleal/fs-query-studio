@@ -296,7 +296,10 @@ module Handlers =
 
             let isEntitiesVerified =
                 match verifiedWorkspaceEntities.TryGetValue(targetWs) with
-                | true, cached when cached.WorkspaceFileTimestamp = wsTimestamp && cached.GeneratedFileTimestamp = genTimestamp && genTimestamp <> DateTime.MinValue ->
+                | true, cached when cached.WorkspaceFileTimestamp = wsTimestamp
+                                    && cached.GeneratedFileTimestamp = genTimestamp
+                                    && genTimestamp <> DateTime.MinValue
+                                    && not (EntityBackgroundGenerator.needsSynchronousGeneration genFile connections) ->
                     true
                 | _ -> false
 
@@ -1132,6 +1135,28 @@ module Handlers =
 
             | "connection/register" -> return handleConnectionRegister request
             | "connection/remove" -> return handleConnectionRemove request
+            | "connection/refresh" | "workspace/refreshEntities" ->
+                Connections.clearSchemaCache ()
+                EntityBackgroundGenerator.resetCache ()
+                verifiedWorkspaceEntities.Clear ()
+                let defaultDir = Directory.GetCurrentDirectory()
+                let targetWs =
+                    try
+                        let doc = JsonDocument.Parse(request.Params.GetRawText())
+                        let root = doc.RootElement
+                        let mutable prop = Unchecked.defaultof<JsonElement>
+                        if root.TryGetProperty("workspaceDir", &prop) || root.TryGetProperty("workspaceDirectory", &prop) || root.TryGetProperty("targetDir", &prop) then
+                            prop.GetString()
+                        else defaultDir
+                    with _ -> defaultDir
+                if not (String.IsNullOrEmpty targetWs) && Directory.Exists targetWs then
+                    let connections = readEffectiveConnections targetWs false
+                    try
+                        (EntityBackgroundGenerator.generateForConnectionsAsync targetWs connections secretStore).GetAwaiter().GetResult() |> ignore
+                    with ex ->
+                        Log.Warning("FS Query Studio: Forced entity regeneration failed: {Error}", ex.Message)
+                SessionStore.resetAll ()
+                return { Id = request.Id; Result = Some(JsonSerializer.SerializeToElement({| ok = true |}, Serialization.options)); Error = None }
             | "connection/schema" -> return! handleConnectionSchema request
             | "workspace/createSampleData" -> return handleCreateSampleData request
             | "workspace/createAdvancedSamples" -> return handleCreateAdvancedSamples request

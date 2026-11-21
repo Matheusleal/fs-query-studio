@@ -64,7 +64,7 @@ module Connections =
 
     let private schemaCache = System.Collections.Concurrent.ConcurrentDictionary<string, CachedSchemaEntry>()
 
-    let internal clearSchemaCache () : unit =
+    let clearSchemaCache () : unit =
         schemaCache.Clear()
 
     let configure (newResolver: IConnectionResolver) =
@@ -974,18 +974,29 @@ module Connections =
             let tables =
                 let cacheKey = $"{name}@@{connector.ConnectionString}"
                 match schemaCache.TryGetValue(cacheKey) with
-                | true, cached when (DateTime.UtcNow - cached.Timestamp).TotalSeconds < 120.0 ->
+                | true, cached when (DateTime.UtcNow - cached.Timestamp).TotalSeconds < 120.0 && not (List.isEmpty cached.Tables) ->
                     cached.Tables
                 | _ ->
-                    try
-                        use cts = new CancellationTokenSource(TimeSpan.FromSeconds(3.0))
-                        let t = (connector.DiscoverSchemaAsync(cts.Token)).GetAwaiter().GetResult()
-                        schemaCache.[cacheKey] <- { Timestamp = DateTime.UtcNow; Tables = t }
-                        t
-                    with ex ->
-                        Log.Warning("FS Query Studio: Schema discovery timed out or failed during entity generation for '{Name}': {Error}", name, ex.Message)
-                        schemaCache.[cacheKey] <- { Timestamp = DateTime.UtcNow.AddSeconds(-90.0); Tables = [] }
-                        []
+                    let liveTables =
+                        try
+                            use cts = new CancellationTokenSource(TimeSpan.FromSeconds(3.0))
+                            let t = (connector.DiscoverSchemaAsync(cts.Token)).GetAwaiter().GetResult()
+                            if not (List.isEmpty t) then
+                                schemaCache.[cacheKey] <- { Timestamp = DateTime.UtcNow; Tables = t }
+                            t
+                        with ex ->
+                            Log.Warning("FS Query Studio: Schema discovery timed out or failed during entity generation for '{Name}': {Error}", name, ex.Message)
+                            []
+                    match liveTables with
+                    | [] ->
+                        match AdvancedSampleGenerator.tryGetKnownSampleTables name with
+                        | Some sampleTables ->
+                            Log.Information("FS Query Studio: Using pre-defined sample schema for offline sample database '{Name}'", name)
+                            sampleTables
+                        | None ->
+                            schemaCache.[cacheKey] <- { Timestamp = DateTime.UtcNow.AddSeconds(-90.0); Tables = [] }
+                            []
+                    | t -> t
             let parsedTables =
                 tables
                 |> List.map (fun t ->
@@ -1115,9 +1126,11 @@ module Connections =
             sb.AppendLine("        member _.Table<'T>(tableName: string) : FSharpQueryStudio.Connectors.SqlPushdownQueryable<'T> = conn.Table<'T>(tableName)") |> ignore
             sb.AppendLine("        member _.Connection = conn") |> ignore
 
-            let emittedTopLevelProps = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            let emittedTopLevelProps = System.Collections.Generic.HashSet<string>(StringComparer.Ordinal)
             for (schema, _) in schemaGroups do
                 emittedTopLevelProps.Add(escapeIdent schema) |> ignore
+                emittedTopLevelProps.Add(escapeIdent (schema.ToLowerInvariant())) |> ignore
+                emittedTopLevelProps.Add(escapeIdent (schema.ToUpperInvariant())) |> ignore
 
             // Emit top-level properties for the default database/schema first (backwards compatibility)
             for (schema, entries) in schemaGroups do
@@ -1134,13 +1147,22 @@ module Connections =
                             | Some s -> s = "public" || s = "dbo" || s = "main"
                         if isDefaultSub then
                             let propName = escapeIdent rawTableName
-                            if emittedTopLevelProps.Add(propName) then
-                                let typeRef =
-                                    match subOpt with
-                                    | None -> $"{escapeIdent schema}.{propName}"
-                                    | Some s -> $"{escapeIdent schema}.{escapeIdent s}.{propName}"
-                                let sqlTarget = formatTopLevelSqlTarget schema subOpt rawTableName t.Name
-                                sb.AppendLine($"        member _.{propName} : FSharpQueryStudio.Connectors.SqlPushdownQueryable<{typeRef}> = conn.Table<{typeRef}>(\"{sqlTarget}\")") |> ignore
+                            let emitTopProp (nameToEmit: string) =
+                                if emittedTopLevelProps.Add(nameToEmit) then
+                                    let typeRef =
+                                        match subOpt with
+                                        | None -> $"{escapeIdent schema}.{propName}"
+                                        | Some s -> $"{escapeIdent schema}.{escapeIdent s}.{propName}"
+                                    let sqlTarget = formatTopLevelSqlTarget schema subOpt rawTableName t.Name
+                                    sb.AppendLine($"        member _.{nameToEmit} : FSharpQueryStudio.Connectors.SqlPushdownQueryable<{typeRef}> = conn.Table<{typeRef}>(\"{sqlTarget}\")") |> ignore
+                            emitTopProp propName
+                            if rawTableName <> rawTableName.ToLowerInvariant() then
+                                emitTopProp (escapeIdent (rawTableName.ToLowerInvariant()))
+                            if rawTableName <> rawTableName.ToUpperInvariant() then
+                                emitTopProp (escapeIdent (rawTableName.ToUpperInvariant()))
+                            let pascal = rawTableName.Substring(0, 1).ToUpperInvariant() + (if rawTableName.Length > 1 then rawTableName.Substring(1) else "")
+                            if pascal <> rawTableName then
+                                emitTopProp (escapeIdent pascal)
 
             // Emit database / schema tree properties
             for (schema, entries) in schemaGroups do

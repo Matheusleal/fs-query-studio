@@ -17,6 +17,161 @@ module AdvancedSampleGenerator =
           NotebooksGenerated: string list
           RegisteredConnections: string list }
 
+    /// Returns pre-defined schemas for containerized sample databases when offline.
+    let tryGetKnownSampleTables (connName: string) : ConnectorTable list option =
+        let mkCol (n: string) (dt: string) : ConnectorColumn = { Name = n; DataType = dt }
+        let mkTable (n: string) (cols: ConnectorColumn list) : ConnectorTable = { Name = n; Columns = cols }
+        let pgCols = [
+            mkTable "categories" [
+                mkCol "id" "int"
+                mkCol "name" "string"
+                mkCol "description" "string"
+                mkCol "code" "string"
+                mkCol "is_active" "bool"
+            ]
+            mkTable "products" [
+                mkCol "id" "int"
+                mkCol "category_id" "int"
+                mkCol "name" "string"
+                mkCol "sku" "string"
+                mkCol "price" "decimal"
+                mkCol "cost_price" "decimal"
+                mkCol "stock_quantity" "int"
+                mkCol "specs" "string"
+            ]
+            mkTable "customers" [
+                mkCol "id" "int"
+                mkCol "first_name" "string"
+                mkCol "last_name" "string"
+                mkCol "email" "string"
+                mkCol "city" "string"
+                mkCol "country" "string"
+                mkCol "profile" "string"
+            ]
+            mkTable "orders" [
+                mkCol "id" "int"
+                mkCol "customer_id" "int"
+                mkCol "order_date" "System.DateTime"
+                mkCol "status" "string"
+                mkCol "total_amount" "decimal"
+            ]
+            mkTable "order_items" [
+                mkCol "id" "int"
+                mkCol "order_id" "int"
+                mkCol "product_id" "int"
+                mkCol "quantity" "int"
+                mkCol "unit_price" "decimal"
+                mkCol "line_total" "decimal"
+            ]
+        ]
+
+        let sqlServerCols = [
+            mkTable "Categories" [
+                mkCol "Id" "int"
+                mkCol "Name" "string"
+                mkCol "Description" "string"
+                mkCol "Code" "string"
+                mkCol "IsActive" "bool"
+            ]
+            mkTable "Products" [
+                mkCol "Id" "int"
+                mkCol "CategoryId" "int"
+                mkCol "Name" "string"
+                mkCol "Sku" "string"
+                mkCol "Price" "decimal"
+                mkCol "CostPrice" "decimal"
+                mkCol "StockQuantity" "int"
+                mkCol "Specs" "string"
+            ]
+            mkTable "Customers" [
+                mkCol "Id" "int"
+                mkCol "FirstName" "string"
+                mkCol "LastName" "string"
+                mkCol "Email" "string"
+                mkCol "City" "string"
+                mkCol "Country" "string"
+                mkCol "Profile" "string"
+            ]
+            mkTable "Orders" [
+                mkCol "Id" "int"
+                mkCol "CustomerId" "int"
+                mkCol "OrderDate" "System.DateTime"
+                mkCol "Status" "string"
+                mkCol "TotalAmount" "decimal"
+            ]
+            mkTable "OrderItems" [
+                mkCol "Id" "int"
+                mkCol "OrderId" "int"
+                mkCol "ProductId" "int"
+                mkCol "Quantity" "int"
+                mkCol "UnitPrice" "decimal"
+                mkCol "LineTotal" "decimal"
+            ]
+        ]
+
+        let oracleCols = [
+            mkTable "CATEGORIES" [
+                mkCol "ID" "int"
+                mkCol "NAME" "string"
+                mkCol "DESCRIPTION" "string"
+                mkCol "CODE" "string"
+                mkCol "IS_ACTIVE" "bool"
+            ]
+            mkTable "PRODUCTS" [
+                mkCol "ID" "int"
+                mkCol "CATEGORY_ID" "int"
+                mkCol "NAME" "string"
+                mkCol "SKU" "string"
+                mkCol "PRICE" "decimal"
+                mkCol "COST_PRICE" "decimal"
+                mkCol "STOCK_QUANTITY" "int"
+                mkCol "SPECS" "string"
+            ]
+            mkTable "CUSTOMERS" [
+                mkCol "ID" "int"
+                mkCol "FIRST_NAME" "string"
+                mkCol "LAST_NAME" "string"
+                mkCol "EMAIL" "string"
+                mkCol "CITY" "string"
+                mkCol "COUNTRY" "string"
+                mkCol "PROFILE" "string"
+            ]
+            mkTable "ORDERS" [
+                mkCol "ID" "int"
+                mkCol "CUSTOMER_ID" "int"
+                mkCol "ORDER_DATE" "System.DateTime"
+                mkCol "STATUS" "string"
+                mkCol "TOTAL_AMOUNT" "decimal"
+            ]
+            mkTable "ORDER_ITEMS" [
+                mkCol "ID" "int"
+                mkCol "ORDER_ID" "int"
+                mkCol "PRODUCT_ID" "int"
+                mkCol "QUANTITY" "int"
+                mkCol "UNIT_PRICE" "decimal"
+                mkCol "LINE_TOTAL" "decimal"
+            ]
+        ]
+
+        match connName with
+        | "PostgreSQL_Advanced" ->
+            Some [
+                for t in pgCols -> mkTable $"fsqs_demo.{t.Name}" t.Columns
+            ]
+        | "MySQL_Advanced" | "MariaDB_Advanced" ->
+            Some [
+                for t in pgCols -> mkTable $"fsqs_demo.{t.Name}" t.Columns
+            ]
+        | "SqlServer_Advanced" ->
+            Some [
+                for t in sqlServerCols -> mkTable $"master.dbo.{t.Name}" t.Columns
+            ]
+        | "Oracle_Advanced" ->
+            Some [
+                for t in oracleCols -> mkTable $"FREEPDB1.SYSTEM.{t.Name}" t.Columns
+            ]
+        | _ -> None
+
     type private NotebookCell =
         { kind: string
           language: string option
