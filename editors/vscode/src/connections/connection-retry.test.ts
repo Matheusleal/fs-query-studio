@@ -59,8 +59,8 @@ describe("Connection Retry Routine & Status Icons", () => {
 
     const item = provider.getTreeItem({ t: "connection", def: mockPostgresDef });
     const iconPath = item.iconPath as { light: vscode.Uri; dark: vscode.Uri };
-    expect(iconPath.light.toString()).toBe(vscode.Uri.joinPath(extensionUri, "media", "db-connected.svg").toString());
-    expect(iconPath.dark.toString()).toBe(vscode.Uri.joinPath(extensionUri, "media", "db-connected.svg").toString());
+    expect(iconPath.light.toString()).toBe(vscode.Uri.joinPath(extensionUri, "media", "light", "db-connected.svg").toString());
+    expect(iconPath.dark.toString()).toBe(vscode.Uri.joinPath(extensionUri, "media", "dark", "db-connected.svg").toString());
     expect(item.tooltip).toContain("Connected");
   });
 
@@ -100,8 +100,8 @@ describe("Connection Retry Routine & Status Icons", () => {
 
     const itemConnecting = provider.getTreeItem({ t: "connection", def: mockPostgresDef });
     const iconConnecting = itemConnecting.iconPath as { light: vscode.Uri; dark: vscode.Uri };
-    expect(iconConnecting.light.toString()).toBe(vscode.Uri.joinPath(extensionUri, "media", "db-connecting.svg").toString());
-    expect(iconConnecting.dark.toString()).toBe(vscode.Uri.joinPath(extensionUri, "media", "db-connecting.svg").toString());
+    expect(iconConnecting.light.toString()).toBe(vscode.Uri.joinPath(extensionUri, "media", "light", "db-connecting.svg").toString());
+    expect(iconConnecting.dark.toString()).toBe(vscode.Uri.joinPath(extensionUri, "media", "dark", "db-connecting.svg").toString());
   });
 
   it("Scenario 2.2: recovers on subsequent retry, transitions to connected and notifies success", async () => {
@@ -136,8 +136,8 @@ describe("Connection Retry Routine & Status Icons", () => {
 
     const item = provider.getTreeItem({ t: "connection", def: mockPostgresDef });
     const iconPath = item.iconPath as { light: vscode.Uri; dark: vscode.Uri };
-    expect(iconPath.light.toString()).toBe(vscode.Uri.joinPath(extensionUri, "media", "db-connected.svg").toString());
-    expect(iconPath.dark.toString()).toBe(vscode.Uri.joinPath(extensionUri, "media", "db-connected.svg").toString());
+    expect(iconPath.light.toString()).toBe(vscode.Uri.joinPath(extensionUri, "media", "light", "db-connected.svg").toString());
+    expect(iconPath.dark.toString()).toBe(vscode.Uri.joinPath(extensionUri, "media", "dark", "db-connected.svg").toString());
   });
 
   // --- Scenario 3: Retries Exhausted (3 Failed Attempts) ---
@@ -161,8 +161,8 @@ describe("Connection Retry Routine & Status Icons", () => {
 
     const item = provider.getTreeItem({ t: "connection", def: mockPostgresDef });
     const iconPath = item.iconPath as { light: vscode.Uri; dark: vscode.Uri };
-    expect(iconPath.light.toString()).toBe(vscode.Uri.joinPath(extensionUri, "media", "db-disconnected.svg").toString());
-    expect(iconPath.dark.toString()).toBe(vscode.Uri.joinPath(extensionUri, "media", "db-disconnected.svg").toString());
+    expect(iconPath.light.toString()).toBe(vscode.Uri.joinPath(extensionUri, "media", "light", "db-disconnected.svg").toString());
+    expect(iconPath.dark.toString()).toBe(vscode.Uri.joinPath(extensionUri, "media", "dark", "db-disconnected.svg").toString());
     expect(item.tooltip).toContain("Disconnected");
   });
 

@@ -35,15 +35,16 @@ export interface ConnectionsTreeDeps {
 }
 
 export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode> {
-  private readonly changed = new vscode.EventEmitter<void>();
+  private readonly changed = new vscode.EventEmitter<ConnNode | void>();
   readonly onDidChangeTreeData = this.changed.event;
 
   private readonly connectionStatus = new Map<string, ConnectionStatus>();
   private readonly retryCounts = new Map<string, number>();
   private readonly retryTimers = new Map<string, NodeJS.Timeout>();
+  private readonly connNodes = new Map<string, ConnNode>();
   private lastSchemaError: string | undefined;
 
-  constructor(private readonly deps: ConnectionsTreeDeps) {}
+  constructor(private readonly deps: ConnectionsTreeDeps) { }
 
   getConnectionStatus(id: string): ConnectionStatus {
     return this.connectionStatus.get(id) ?? "connecting";
@@ -51,7 +52,20 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
 
   setConnectionStatus(id: string, status: ConnectionStatus): void {
     this.connectionStatus.set(id, status);
-    this.changed.fire();
+    this.fireNodeChanged(id);
+  }
+
+  private fireNodeChanged(id?: string): void {
+    if (!id) {
+      this.changed.fire();
+      return;
+    }
+    const node = this.connNodes.get(id);
+    if (node) {
+      this.changed.fire(node);
+    } else {
+      this.changed.fire();
+    }
   }
 
   refresh(): void {
@@ -61,6 +75,7 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
     this.retryTimers.clear();
     this.retryCounts.clear();
     this.connectionStatus.clear();
+    this.connNodes.clear();
     this.changed.fire();
   }
 
@@ -83,8 +98,8 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
           status === "connected"
             ? (isPt ? "Conectado" : "Connected")
             : status === "connecting"
-            ? (isPt ? "Conectando..." : "Connecting...")
-            : (isPt ? "Desconectado" : "Disconnected");
+              ? (isPt ? "Conectando..." : "Connecting...")
+              : (isPt ? "Desconectado" : "Disconnected");
 
         item.description = kind;
         item.tooltip = `${node.def.name} - ${statusText}\nKind: ${kind}`;
@@ -92,8 +107,8 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
 
         if (this.deps.extensionUri) {
           item.iconPath = {
-            light: vscode.Uri.joinPath(this.deps.extensionUri, "media", `db-${status}.svg`),
-            dark: vscode.Uri.joinPath(this.deps.extensionUri, "media", `db-${status}.svg`),
+            light: vscode.Uri.joinPath(this.deps.extensionUri, "media", "light", `db-${status}.svg`),
+            dark: vscode.Uri.joinPath(this.deps.extensionUri, "media", "dark", `db-${status}.svg`),
           };
         } else {
           item.iconPath = new vscode.ThemeIcon("database");
@@ -192,11 +207,12 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
     if (existing !== undefined) {
       this.connectionStatus.set(def.id, "connected");
       this.retryCounts.delete(def.id);
+      this.fireNodeChanged(def.id);
       return existing;
     }
 
     this.connectionStatus.set(def.id, "connecting");
-    this.changed.fire();
+    this.fireNodeChanged(def.id);
 
     const tables = await this.fetchSchema(def);
     if (tables !== undefined) {
@@ -215,7 +231,7 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
           : `Connection to '${def.name}' established successfully.`;
         this.notify("info", msg);
       }
-      this.changed.fire();
+      this.fireNodeChanged(def.id);
       return tables;
     }
 
@@ -230,7 +246,7 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
         ? `A conexão com '${def.name}' não foi estabelecida (${errMsg}). Tentando reconectar (tentativa ${currentAttempt} de ${maxRetries})...`
         : `Connection to '${def.name}' could not be established (${errMsg}). Retrying (attempt ${currentAttempt} of ${maxRetries})...`;
       this.notify("warning", warnMsg);
-      this.changed.fire();
+      this.fireNodeChanged(def.id);
 
       const delay = this.deps.retryDelayMs ?? 3000;
       const timer = setTimeout(() => {
@@ -246,7 +262,7 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
         ? `Não foi possível estabelecer conexão com '${def.name}' após ${maxRetries} tentativas. Verifique se o serviço está em execução.`
         : `Could not establish connection to '${def.name}' after ${maxRetries} attempts. Please verify if the database service is running.`;
       this.notify("error", failMsg);
-      this.changed.fire();
+      this.fireNodeChanged(def.id);
       return undefined;
     }
   }
@@ -265,14 +281,26 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
       }
       const result = frame.result as ConnectionListResult;
       const connections = result.connections ?? [];
+      const nodes: ConnNode[] = [];
       for (const def of connections) {
-        if (!this.deps.schemaCache.get(def.id)) {
-          void this.checkConnectionWithRetry(def);
-        } else {
+        const node: ConnNode = { t: "connection", def };
+        this.connNodes.set(def.id, node);
+        nodes.push(node);
+        if (this.deps.schemaCache.get(def.id)) {
           this.connectionStatus.set(def.id, "connected");
         }
       }
-      return connections.map((def) => ({ t: "connection", def }));
+
+      // Check connections in background asynchronously without blocking tree display
+      setTimeout(() => {
+        for (const def of connections) {
+          if (!this.deps.schemaCache.get(def.id)) {
+            void this.checkConnectionWithRetry(def);
+          }
+        }
+      }, 50);
+
+      return nodes;
     } catch (err) {
       this.deps.log(`connection/list failed: ${(err as Error).message}`);
       return [{ t: "error", message: `Connections unavailable: ${(err as Error).message}` }];
@@ -280,10 +308,16 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
   }
 
   private async tablesOf(def: ConnectionDefinition): Promise<ConnNode[]> {
-    const cached = this.deps.schemaCache.get(def.id);
-    let tables = cached;
+    let tables = this.deps.schemaCache.get(def.id);
     if (tables === undefined) {
-      tables = await this.checkConnectionWithRetry(def);
+      tables = await this.fetchSchema(def);
+      if (tables !== undefined) {
+        this.connectionStatus.set(def.id, "connected");
+        this.fireNodeChanged(def.id);
+      } else {
+        this.connectionStatus.set(def.id, "disconnected");
+        this.fireNodeChanged(def.id);
+      }
     }
     if (tables === undefined) {
       return [{ t: "error", message: this.lastSchemaError ?? "Schema discovery failed." }];
