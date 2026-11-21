@@ -1191,7 +1191,7 @@ module ExpressionPushdownTranslator =
                     None
             elif mc.Method.Name = "Any" || mc.Method.Name = "exists" || mc.Method.Name = "Exists" || mc.Method.Name = "whereExists" then
                 let sourceExpr =
-                    if mc.Method.IsStatic && mc.Arguments.Count >= 1 then mc.Arguments.[0]
+                    if mc.Arguments.Count >= 1 then mc.Arguments.[0]
                     elif not (isNull mc.Object) then mc.Object
                     else null
                 if not (isNull sourceExpr) then
@@ -1242,7 +1242,7 @@ module ExpressionPushdownTranslator =
                 else None
             elif mc.Method.Name = "notExists" || mc.Method.Name = "NotExists" || mc.Method.Name = "whereNotExists" then
                 let sourceExpr =
-                    if mc.Method.IsStatic && mc.Arguments.Count >= 1 then mc.Arguments.[0]
+                    if mc.Arguments.Count >= 1 then mc.Arguments.[0]
                     elif not (isNull mc.Object) then mc.Object
                     else null
                 if not (isNull sourceExpr) then
@@ -1573,15 +1573,23 @@ module ExpressionPushdownTranslator =
                 let colSql = defaultArg (translateScalarExpr dialect plan mc.Arguments.[0]) (extractColumnNameWithAlias plan mc.Arguments.[0])
                 let rawPath = evaluateClientValue mc.Arguments.[1]
                 let pathStr = if isNull rawPath then "$" else string rawPath
+                let normalizedPath =
+                    if String.IsNullOrEmpty pathStr || pathStr = "$" then "$"
+                    elif not (pathStr.StartsWith("$")) then
+                        if pathStr.StartsWith(".") then "$" + pathStr else "$." + pathStr
+                    else pathStr
                 match dialect with
                 | SqlDialect.SqlServer | SqlDialect.Oracle ->
-                    Some $"JSON_VALUE({colSql}, '{pathStr}')"
+                    Some $"JSON_VALUE({colSql}, '{normalizedPath}')"
                 | SqlDialect.Sqlite ->
-                    Some $"json_extract({colSql}, '{pathStr}')"
+                    Some $"json_extract({colSql}, '{normalizedPath}')"
                 | SqlDialect.MySql | SqlDialect.MariaDb ->
-                    Some $"JSON_UNQUOTE(JSON_EXTRACT({colSql}, '{pathStr}'))"
+                    Some $"JSON_UNQUOTE(JSON_EXTRACT({colSql}, '{normalizedPath}'))"
                 | SqlDialect.PostgreSql ->
-                    let trimmed = if pathStr.StartsWith("$.") then pathStr.Substring(2) else pathStr
+                    let trimmed =
+                        if normalizedPath.StartsWith("$.") then normalizedPath.Substring(2)
+                        elif normalizedPath.StartsWith("$") then normalizedPath.Substring(1)
+                        else normalizedPath
                     if trimmed.Contains(".") then
                         let parts = trimmed.Split('.') |> String.concat "', '"
                         Some $"({colSql} #>> '{{{parts}}}')"
@@ -4159,6 +4167,12 @@ module SqlComputationExtensions =
 
         /// Checks whether a string or value is NOT NULL and NOT empty (`""`) (translates to `(col IS NOT NULL AND col <> '')` in SQL pushdown).
         member inline _.isNotNullOrEmpty(value: 'T) : bool = isNotNullOrEmpty value
+
+        /// Declares a correlated subquery existence check in F# queries.
+        member inline _.exists(subquery: #seq<'T>) : bool = true
+
+        /// Declares a correlated subquery non-existence check in F# queries.
+        member inline _.notExists(subquery: #seq<'T>) : bool = false
 
         /// Declares a Common Table Expression (CTE) in the current query.
         member inline _.withCte(name: string, cteQuery: #seq<'U>) : unit = ()

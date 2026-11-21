@@ -2341,6 +2341,96 @@ let ``verify only requested methods isNotNull, isNotEmpty, and isNotNullOrEmpty 
     for m in disallowedQueryableMethods do
         Assert.Null(queryableType.GetMethod(m))
 
+[<Fact>]
+let ``fsql where notExists filters entities without matching records`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let customers = SqlPushdownQueryable<TestCustomer>(conn, "Customers")
+    let orders = SqlPushdownQueryable<TestOrder>(conn, "Orders")
+
+    let customersWithoutOrders =
+        fsql {
+            for c in customers do
+            where (notExists (fsql { for o in orders do where (o.CustomerId = c.CustomerId) }))
+            select c.CustomerName
+        }
+        |> Seq.toList
+
+    Assert.Equal<string list>([ "Charlie" ], customersWithoutOrders)
+
+[<Fact>]
+let ``fsql where fsql.notExists method syntax filters entities without matching records`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let customers = SqlPushdownQueryable<TestCustomer>(conn, "Customers")
+    let orders = SqlPushdownQueryable<TestOrder>(conn, "Orders")
+
+    let customersWithoutOrders =
+        fsql {
+            for c in customers do
+            where (fsql.notExists (fsql { for o in orders do where (o.CustomerId = c.CustomerId) }))
+            select c.CustomerName
+        }
+        |> Seq.toList
+
+    Assert.Equal<string list>([ "Charlie" ], customersWithoutOrders)
+
+[<Fact>]
+let ``fsql jsonValue normalizes bare path to dollar prefix for SQL Server dialect`` () =
+    let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
+    let products = SqlPushdownQueryable<TestProduct>(dummyConn, "Products")
+
+    let q =
+        fsql {
+            for p in products do
+            where (fsql.jsonValue(p.Category, "type") = "Gadget")
+            select p.Name
+        }
+    let sql = toRawSql q
+    Assert.Contains("JSON_VALUE(Category, '$.type')", sql)
+
+[<Fact>]
+let ``fsql jsonValue preserves existing dollar prefix path without duplicate prefix`` () =
+    let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
+    let products = SqlPushdownQueryable<TestProduct>(dummyConn, "Products")
+
+    let q =
+        fsql {
+            for p in products do
+            where (fsql.jsonValue(p.Category, "$.wireless") = "true")
+            select p.Name
+        }
+    let sql = toRawSql q
+    Assert.Contains("JSON_VALUE(Category, '$.wireless')", sql)
+
+[<Fact>]
+let ``Oracle pushdown plan sanitizes aliases so no identifier starts with underscore`` () =
+    let dummyConn = OracleConnector("User Id=dummy;Password=dummy;Data Source=dummy;")
+    let customers = SqlPushdownQueryable<TestCustomer>(dummyConn, "CUSTOMERS")
+    let orders = SqlPushdownQueryable<TestOrder>(dummyConn, "ORDERS")
+
+    let q =
+        fsql {
+            for c in customers do
+            join o in orders on (c.CustomerId = o.CustomerId)
+            select {| Customer = c.CustomerName; OrderId = o.OrderId |}
+        }
+    let sql = toRawSql q
+    Assert.DoesNotContain(" _t0", sql)
+    Assert.DoesNotContain(" _t1", sql)
+    Assert.Contains(" t0", sql)
+    Assert.Contains(" t1", sql)
+
+[<Fact>]
+let ``OracleConnector PrepareSql strips leading underscore from unquoted aliases`` () =
+    let rawSql = "SELECT _t0.ID, _t1.NAME FROM CUSTOMERS _t0 JOIN ORDERS _t1 ON _t0.ID = _t1.CUST_ID"
+    let prepared = OracleConnector.PrepareSql(rawSql)
+    Assert.DoesNotContain("_t0", prepared)
+    Assert.DoesNotContain("_t1", prepared)
+    Assert.Contains("t0.ID", prepared)
+    Assert.Contains("t1.NAME", prepared)
+
+
 
 
 

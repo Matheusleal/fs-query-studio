@@ -204,7 +204,7 @@ Rather than executing naive `SELECT *` queries and filtering records in client m
 - **Parameterized Filters**: `where (o.TotalAmount >= 100.0f)` translates to `WHERE (_t0.TotalAmount >= @p0)`
 - **Sorting & Slicing**: `sortBy`, `sortByDescending`, `take N`, `skip M` translate directly to `ORDER BY ... LIMIT N OFFSET M` (or `OFFSET N ROWS FETCH NEXT M ROWS ONLY` on SQL Server)
 - **Server-Side Aggregations**: `count` (both table-level and column-level), `maxBy`, `minBy`, `sumBy`, `averageBy` translate directly to `COUNT(*)`, `MAX(...)`, `MIN(...)`, `SUM(...)`, `AVG(...)`
-- **Correlated Subqueries**: `whereExists (fsql { ... })` and `whereNotExists (fsql { ... })` translate to `WHERE EXISTS (SELECT 1 ...)`
+- **Correlated Subqueries**: `whereExists (fsql { ... })` and `where (notExists (fsql { ... }))` translate to `WHERE EXISTS (SELECT 1 ...)` and `WHERE NOT EXISTS (SELECT 1 ...)`
 - **Correlated Joins**: `crossApply (fsql { ... })` (SQL Server) and `lateral (fsql { ... })` (PostgreSQL)
 - **Grouping & Having**: `groupBy ... into g; having (fsql { for item in g do count } >= n)` translates to `GROUP BY ... HAVING (COUNT(*) >= @p0)`
 
@@ -328,7 +328,7 @@ fsql {
 }
 ```
 
-#### 4. Subqueries and Subselects (`WHERE col IN (SELECT ...)`, `whereExists`, `whereNotExists`)
+#### 4. Subqueries and Subselects (`WHERE col IN (SELECT ...)`, `whereExists`, `notExists`)
 You can compose strongly-typed subqueries that translate directly to native SQL subselects (`IN` and `EXISTS`):
 
 ```fsharp

@@ -535,6 +535,42 @@ module Projection =
             | Some acc -> acc.GetValue obj key
             | None -> null
 
+    exception private FallbackToTextException of string
+
+    let rec unwrapException (ex: exn) : exn =
+        match ex with
+        | :? System.Reflection.TargetInvocationException as tie when not (isNull tie.InnerException) ->
+            unwrapException tie.InnerException
+        | :? System.AggregateException as ae when not (isNull ae.InnerException) ->
+            unwrapException ae.InnerException
+        | other -> other
+
+    /// An uncaught script exception becomes a structured Error result —
+    /// see Section 9 — never an unhandled worker crash.
+    let projectError (ex: exn) (elapsedMs: int64) : ResultEnvelope =
+        let unwrapped = unwrapException ex
+        let msg =
+            if not (isNull unwrapped.InnerException) && not (String.IsNullOrWhiteSpace unwrapped.InnerException.Message) then
+                $"{unwrapped.Message}\nCause: {unwrapped.InnerException.Message}"
+            else
+                unwrapped.Message
+        { emptyEnvelope ResultKind.Error elapsedMs with
+            DisplayText = Some msg }
+
+    let projectErrorWithDetails (ex: exn) (details: string option) (elapsedMs: int64) : ResultEnvelope =
+        let unwrapped = unwrapException ex
+        let msg =
+            match details with
+            | Some d when not (String.IsNullOrWhiteSpace d) && (ex.Message.Contains("Operation could not be completed") || unwrapped.Message.Contains("Operation could not be completed")) -> d
+            | Some d when not (String.IsNullOrWhiteSpace d) -> $"{unwrapped.Message}\n\nDetails:\n{d}"
+            | _ ->
+                if not (isNull unwrapped.InnerException) && not (String.IsNullOrWhiteSpace unwrapped.InnerException.Message) then
+                    $"{unwrapped.Message}\nCause: {unwrapped.InnerException.Message}"
+                else
+                    unwrapped.Message
+        { emptyEnvelope ResultKind.Error elapsedMs with
+            DisplayText = Some msg }
+
     /// Same shape as `project`, plus the live `PagingCursor` a truncated
     /// Table result was cut off at — Section 7's `results/page`. `None`
     /// whenever nothing was truncated (every other kind, or a sequence
@@ -631,7 +667,7 @@ module Projection =
                     match first with
                     | :? ConnectorQueryResult ->
                         disposeEnumerator ()
-                        failwith "a sequence of ConnectorQueryResult is not supported; enumerate .Rows"
+                        raise (FallbackToTextException "a sequence of ConnectorQueryResult is not supported; enumerate .Rows")
                     | _ when not (isNull first) && FSharpType.IsRecord(first.GetType(), recordBindingFlags) ->
                         let recordType = first.GetType()
                         let pref = preferredColumnOrder |> Option.orElseWith (fun () -> tryGetOrExtractRecordOrder recordType sourceCode)
@@ -641,11 +677,7 @@ module Projection =
                         let mutable keepReading = true
                         try
                             while keepReading do
-                                let hasNext =
-                                    try
-                                        e.MoveNext()
-                                    with _ ->
-                                        false
+                                let hasNext = e.MoveNext()
                                 if not hasNext then
                                     keepReading <- false
                                 else
@@ -653,7 +685,7 @@ module Projection =
                                     if isNull curr then
                                         ()
                                     elif curr.GetType() <> recordType then
-                                        failwith "Mixed-shape sequence cannot be projected as a uniform record table."
+                                        raise (FallbackToTextException "Mixed-shape sequence cannot be projected as a uniform record table.")
                                     else
                                         dataRows.Add(reader curr)
                         finally
@@ -673,7 +705,7 @@ module Projection =
                             while e.MoveNext() do
                                 let curr = e.Current
                                 if isNull curr || curr.GetType() <> tupleType then
-                                    failwith "Mixed-shape sequence cannot be projected as a uniform tuple table."
+                                    raise (FallbackToTextException "Mixed-shape sequence cannot be projected as a uniform tuple table.")
                                 dataRows.Add(reader curr)
                         finally
                             disposeEnumerator ()
@@ -731,19 +763,23 @@ module Projection =
                                 IsTruncated = hasMore }
 
                         envelope, (if hasMore then Some cursor else None), None
-            | v -> { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some(sprintf "%A" v) }, None, None
-        with _ ->
-            // `sprintf "%A" value` re-enumerates `value`; a one-shot `seq`
-            // that failed mid-enumeration above throws again here, and this
-            // handler is the last line of defence — it must never itself
-            // escape `projectWithCursor`.
+            | v ->
+                let text =
+                    try sprintf "%A" v
+                    with _ -> "<unprintable value>"
+                { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some text }, None, None
+        with
+        | FallbackToTextException msg ->
             let text =
                 try
                     sprintf "%A" value
                 with _ ->
-                    "<unprintable value>"
-
+                    msg
             { emptyEnvelope ResultKind.Text elapsedMs with DisplayText = Some text }, None, None
+        | ex ->
+            // Surface database / evaluation exceptions during enumeration directly as an Error result
+            // rather than swallowing them into `<unprintable value>` or `<seq>` text!
+            projectError ex elapsedMs, None, None
 
     let projectWithCursor (value: obj) (elapsedMs: int64) : ResultEnvelope * PagingCursor option * RetainedTable option =
         projectWithCursorDetailed value elapsedMs None None
@@ -751,40 +787,6 @@ module Projection =
     let project (value: obj) (elapsedMs: int64) : ResultEnvelope =
         let env, _, _ = projectWithCursor value elapsedMs
         env
-
-    let rec unwrapException (ex: exn) : exn =
-        match ex with
-        | :? System.Reflection.TargetInvocationException as tie when not (isNull tie.InnerException) ->
-            unwrapException tie.InnerException
-        | :? System.AggregateException as ae when not (isNull ae.InnerException) ->
-            unwrapException ae.InnerException
-        | other -> other
-
-    /// An uncaught script exception becomes a structured Error result —
-    /// see Section 9 — never an unhandled worker crash.
-    let projectError (ex: exn) (elapsedMs: int64) : ResultEnvelope =
-        let unwrapped = unwrapException ex
-        let msg =
-            if not (isNull unwrapped.InnerException) && not (String.IsNullOrWhiteSpace unwrapped.InnerException.Message) then
-                $"{unwrapped.Message}\nCause: {unwrapped.InnerException.Message}"
-            else
-                unwrapped.Message
-        { emptyEnvelope ResultKind.Error elapsedMs with
-            DisplayText = Some msg }
-
-    let projectErrorWithDetails (ex: exn) (details: string option) (elapsedMs: int64) : ResultEnvelope =
-        let unwrapped = unwrapException ex
-        let msg =
-            match details with
-            | Some d when not (String.IsNullOrWhiteSpace d) && (ex.Message.Contains("Operation could not be completed") || unwrapped.Message.Contains("Operation could not be completed")) -> d
-            | Some d when not (String.IsNullOrWhiteSpace d) -> $"{unwrapped.Message}\n\nDetails:\n{d}"
-            | _ ->
-                if not (isNull unwrapped.InnerException) && not (String.IsNullOrWhiteSpace unwrapped.InnerException.Message) then
-                    $"{unwrapped.Message}\nCause: {unwrapped.InnerException.Message}"
-                else
-                    unwrapped.Message
-        { emptyEnvelope ResultKind.Error elapsedMs with
-            DisplayText = Some msg }
 
     /// A worker-level error (crash, busy) — see A.8/A.9's `WorkerErrorInfo`
     /// — reads the same as a script-level Error to whatever's displaying

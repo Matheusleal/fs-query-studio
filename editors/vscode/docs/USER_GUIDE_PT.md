@@ -204,7 +204,7 @@ Em vez de executar queries ingênuas com `SELECT *` e filtrar tudo na memória d
 - **Filtros Parametrizados**: `where (o.TotalAmount >= 100.0f)` gera `WHERE (_t0.TotalAmount >= @p0)`
 - **Ordenação e Paginação**: `sortBy`, `sortByDescending`, `take N`, `skip M` geram diretamente `ORDER BY ... LIMIT N OFFSET M` (ou `OFFSET N ROWS FETCH NEXT M ROWS ONLY` no SQL Server)
 - **Agregações no Servidor**: `count` (de tabela ou coluna projetada), `maxBy`, `minBy`, `sumBy`, `averageBy` traduzem diretamente para `COUNT(*)`, `MAX(...)`, `MIN(...)`, `SUM(...)`, `AVG(...)`
-- **Subqueries Correlacionadas**: `whereExists (fsql { ... })` e `whereNotExists (fsql { ... })` geram `WHERE EXISTS (SELECT 1 ...)`
+- **Subqueries Correlacionadas**: `whereExists (fsql { ... })` e `where (notExists (fsql { ... }))` geram `WHERE EXISTS (SELECT 1 ...)` e `WHERE NOT EXISTS (SELECT 1 ...)`
 - **Joins Correlacionados**: `crossApply (fsql { ... })` (SQL Server) e `lateral (fsql { ... })` (PostgreSQL)
 - **Agrupamento e Having**: `groupBy ... into g; having (fsql { for item in g do count } >= n)` gera `GROUP BY ... HAVING (COUNT(*) >= @p0)`
 
@@ -328,7 +328,7 @@ fsql {
 }
 ```
 
-#### 4. Subqueries e Subselects (`WHERE col IN (SELECT ...)`, `whereExists`, `whereNotExists`)
+#### 4. Subqueries e Subselects (`WHERE col IN (SELECT ...)`, `whereExists`, `notExists`)
 Você pode compor subconsultas tipadas que são convertidas diretamente em subselects SQL nativos (`IN` e `EXISTS`):
 
 ```fsharp

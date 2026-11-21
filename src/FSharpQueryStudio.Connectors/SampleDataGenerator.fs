@@ -662,7 +662,7 @@ lines
 """
 
                 mkMarkdown """
-## 17. 🎯 Advanced DQL: Correlated Subqueries with `whereExists` & `whereNotExists` (`SampleStore`)
+## 17. 🎯 Advanced DQL: Correlated Subqueries with `whereExists` & `notExists` (`SampleStore`)
 
 Using **`fsql`**, you can write correlated `EXISTS` and `NOT EXISTS` subqueries directly in pure F# syntax without string queries or manual count comparisons.
 Here we filter Brazilian and US customers who have placed high-value orders (>= $250).
@@ -863,9 +863,9 @@ fsql {
 """
 
                 mkMarkdown """
-## 24. 🔍 Correlated Non-Existence (`whereNotExists`) & Engine Execution Plan (`fsql.explain`)
+## 24. 🔍 Correlated Non-Existence (`notExists`) & Engine Execution Plan (`fsql.explain`)
 
-Find entities without related records using `whereNotExists` and inspect the database execution plan directly.
+Find entities without related records using `notExists` and inspect the database execution plan directly.
 """
 
                 mkCode """
@@ -874,7 +874,7 @@ let pendingAudit =
     fsql {
         for c in Connections.sql.SampleStore.Customers do
         where (c.Country = "Brazil")
-        whereNotExists (fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") })
+        where (notExists (fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") }))
         take 10
         select {|
             Cliente = c.FirstName + " " + c.LastName
@@ -1438,7 +1438,7 @@ lines
 """
 
                 mkMarkdown """
-## 17. 🎯 DQL Avançado: Subqueries Correlacionadas com `whereExists` e `whereNotExists` (`SampleStore`)
+## 17. 🎯 DQL Avançado: Subqueries Correlacionadas com `whereExists` e `notExists` (`SampleStore`)
 
 Com a computation expression **`fsql`**, você pode escrever testes de existência correlacionados (`EXISTS` e `NOT EXISTS`) em sintaxe funcional pura F#, sem concatenação de strings SQL.
 Aqui filtramos clientes do Brasil e dos EUA que possuem pedidos de alto valor (>= $250).
@@ -1639,9 +1639,9 @@ fsql {
 """
 
                 mkMarkdown """
-## 24. 🔍 Não-Existência Correlacionada (`whereNotExists`) & Diagnóstico do Plano de Execução (`fsql.explain`)
+## 24. 🔍 Não-Existência Correlacionada (`notExists`) & Diagnóstico do Plano de Execução (`fsql.explain`)
 
-Encontre entidades sem registros relacionados usando `whereNotExists` e inspecione o relatório do plano de execução do banco de dados em tempo real.
+Encontre entidades sem registros relacionados usando `notExists` e inspecione o relatório do plano de execução do banco de dados em tempo real.
 """
 
                 mkCode """
@@ -1650,7 +1650,7 @@ let auditoriaPendentes =
     fsql {
         for c in Connections.sql.SampleStore.Customers do
         where (c.Country = "Brazil")
-        whereNotExists (fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") })
+        where (notExists (fsql { for o in Connections.sql.SampleStore.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") }))
         take 10
         select {|
             Cliente = c.FirstName + " " + c.LastName

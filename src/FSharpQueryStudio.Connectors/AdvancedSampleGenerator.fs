@@ -571,7 +571,7 @@ This notebook demonstrates the full power of **FSQL** pushed down to **PostgreSQ
 - **Analytical Window Functions** (`OVER (PARTITION BY ... ORDER BY ...)`, `rowNumber`, `rank`, `denseRank`, running aggregates)
 - **Positional & Value Window Functions** (`lag`, `lead`, `firstValue`, `lastValue`, running `avg`, `max`)
 - **Semi-Structured JSON Navigation** (`fsql.jsonValue` -> `specs ->> 'brand'`)
-- **Correlated Subqueries** (`whereExists`, `whereNotExists`, scalar subqueries in projection)
+- **Correlated Subqueries** (`whereExists`, `notExists`, scalar subqueries in projection)
 - **Group Aggregations with Filter** (`groupBy` + `having`)
 - **Common Table Expressions** (Multi-variable composition, unnamed `withCte`, recursive `withRecursiveCte`)
 - **Set Operations** (`union`, `unionAll`, `intersect`, `except`)
@@ -649,7 +649,7 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 4. 🎯 Correlated Subqueries (`whereExists`, `whereNotExists` & Scalar Projection)"
+                mkMarkdown "## 4. 🎯 Correlated Subqueries (`whereExists`, `notExists` & Scalar Projection)"
                 mkCode """
 // 4.1 Customers who placed completed orders, projecting correlated order count
 fsql {
@@ -663,10 +663,10 @@ fsql {
 }
 """
                 mkCode """
-// 4.2 Customers with NO pending orders using whereNotExists
+// 4.2 Customers with NO pending orders using notExists
 fsql {
     for c in Connections.sql.PostgreSQL_Advanced.customers do
-    whereNotExists (fsql { for o in Connections.sql.PostgreSQL_Advanced.orders do where (o.customer_id = c.id && o.status = "Pending") })
+    where (notExists (fsql { for o in Connections.sql.PostgreSQL_Advanced.orders do where (o.customer_id = c.id && o.status = "Pending") }))
     select {|
         Customer = c.first_name + " " + c.last_name
         City = c.city
@@ -944,7 +944,7 @@ This notebook demonstrates the full power of **FSQL** pushed down to **SQL Serve
 - **T-SQL 412 Mitigation** (Safe auto-injected `ORDER BY (SELECT NULL)`)
 - **Positional & Value Window Functions** (`lag`, `lead`, `firstValue`, `lastValue`, running `avg`, `max`)
 - **Semi-Structured JSON Navigation** (`fsql.jsonValue` -> `JSON_VALUE`)
-- **Correlated Subqueries** (`whereExists`, `whereNotExists`, scalar subqueries in projection)
+- **Correlated Subqueries** (`whereExists`, `notExists`, scalar subqueries in projection)
 - **Group Aggregations with Filter** (`groupBy` + `having`)
 - **Common Table Expressions** (Multi-variable composition, unnamed `withCte`, recursive `withRecursiveCte`)
 - **Set Operations** (`union`, `unionAll`, `intersect`, `except`)
@@ -1022,7 +1022,7 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 4. 🎯 Correlated Subqueries (`whereExists`, `whereNotExists` & Scalar Projection)"
+                mkMarkdown "## 4. 🎯 Correlated Subqueries (`whereExists`, `notExists` & Scalar Projection)"
                 mkCode """
 // 4.1 Customers who placed high-value orders, projecting correlated order count
 fsql {
@@ -1036,10 +1036,10 @@ fsql {
 }
 """
                 mkCode """
-// 4.2 Customers with NO pending orders using whereNotExists
+// 4.2 Customers with NO pending orders using notExists
 fsql {
     for c in Connections.sql.SqlServer_Advanced.Customers do
-    whereNotExists (fsql { for o in Connections.sql.SqlServer_Advanced.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") })
+    where (notExists (fsql { for o in Connections.sql.SqlServer_Advanced.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") }))
     select {|
         Customer = c.FirstName + " " + c.LastName
         City = c.City
@@ -1310,7 +1310,7 @@ Este notebook demonstra todo o poder do **FSQL** com pushdown no **PostgreSQL**:
 - **Funções de Janela Analíticas** (`OVER (PARTITION BY ... ORDER BY ...)`, `rowNumber`, `rank`, `denseRank`, agregações acumuladas)
 - **Funções Posicionais e de Valor** (`lag`, `lead`, `firstValue`, `lastValue`, `avg` e `max` acumulados)
 - **Navegação em JSON Semi-Estruturado** (`fsql.jsonValue` -> `specs ->> 'brand'`)
-- **Subqueries Correlacionadas** (`whereExists`, `whereNotExists`, subqueries escalares na projeção)
+- **Subqueries Correlacionadas** (`whereExists`, `notExists`, subqueries escalares na projeção)
 - **Agrupamentos com Filtro de Agregação** (`groupBy` + `having`)
 - **Common Table Expressions** (Composição multivariável, `withCte` transparente sem nome, recursiva com `withRecursiveCteSql`)
 - **Operações de Conjunto** (`union`, `unionAll`, `intersect`, `except`)
@@ -1388,7 +1388,7 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 4. 🎯 Subqueries Correlacionadas (`whereExists`, `whereNotExists` e Projeção Escalar)"
+                mkMarkdown "## 4. 🎯 Subqueries Correlacionadas (`whereExists`, `notExists` e Projeção Escalar)"
                 mkCode """
 // 4.1 Clientes que realizaram pedidos concluídos, projetando contagem correlacionada de pedidos
 fsql {
@@ -1402,10 +1402,10 @@ fsql {
 }
 """
                 mkCode """
-// 4.2 Clientes sem pedidos pendentes usando whereNotExists
+// 4.2 Clientes sem pedidos pendentes usando notExists
 fsql {
     for c in Connections.sql.PostgreSQL_Advanced.customers do
-    whereNotExists (fsql { for o in Connections.sql.PostgreSQL_Advanced.orders do where (o.customer_id = c.id && o.status = "Pending") })
+    where (notExists (fsql { for o in Connections.sql.PostgreSQL_Advanced.orders do where (o.customer_id = c.id && o.status = "Pending") }))
     select {|
         Customer = c.first_name + " " + c.last_name
         City = c.city
@@ -1689,7 +1689,7 @@ Este notebook demonstra todo o poder do **FSQL** com pushdown no **SQL Server 20
 - **Mitigação T-SQL 412** (`ORDER BY (SELECT NULL)` seguro injetado automaticamente quando necessário)
 - **Funções Posicionais e de Valor** (`lag`, `lead`, `firstValue`, `lastValue`, `avg` e `max` acumulados)
 - **Navegação em JSON Semi-Estruturado** (`fsql.jsonValue` -> `JSON_VALUE`)
-- **Subqueries Correlacionadas** (`whereExists`, `whereNotExists`, subqueries escalares na projeção)
+- **Subqueries Correlacionadas** (`whereExists`, `notExists`, subqueries escalares na projeção)
 - **Agrupamentos com Filtro de Agregação** (`groupBy` + `having`)
 - **Common Table Expressions** (Composição multivariável, `withCte` transparente sem nome, recursiva com `withRecursiveCteSql`)
 - **Operações de Conjunto** (`union`, `unionAll`, `intersect`, `except`)
@@ -1767,7 +1767,7 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 4. 🎯 Subqueries Correlacionadas (`whereExists`, `whereNotExists` e Projeção Escalar)"
+                mkMarkdown "## 4. 🎯 Subqueries Correlacionadas (`whereExists`, `notExists` e Projeção Escalar)"
                 mkCode """
 // 4.1 Clientes que realizaram pedidos de alto valor, projetando contagem correlacionada de pedidos
 fsql {
@@ -1781,10 +1781,10 @@ fsql {
 }
 """
                 mkCode """
-// 4.2 Clientes sem pedidos pendentes usando whereNotExists
+// 4.2 Clientes sem pedidos pendentes usando notExists
 fsql {
     for c in Connections.sql.SqlServer_Advanced.Customers do
-    whereNotExists (fsql { for o in Connections.sql.SqlServer_Advanced.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") })
+    where (notExists (fsql { for o in Connections.sql.SqlServer_Advanced.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") }))
     select {|
         Customer = c.FirstName + " " + c.LastName
         City = c.City
@@ -2077,7 +2077,7 @@ This notebook demonstrates the full power of **FSQL** pushed down to **{engineDi
 - **Analytical Window Functions** (`OVER (PARTITION BY ... ORDER BY ...)`, `rowNumber`, `rank`, `denseRank`, running aggregates)
 - **Positional & Value Window Functions** (`lag`, `lead`, `firstValue`, `lastValue`, running `avg`, `max`)
 - **Semi-Structured JSON Navigation** (`fsql.jsonValue`)
-- **Correlated Subqueries & Existence Predicates** (`whereExists`, `whereNotExists`, scalar projection subqueries)
+- **Correlated Subqueries & Existence Predicates** (`whereExists`, `notExists`, scalar projection subqueries)
 - **Aggregation with Group Filtering** (`groupBy` + `having`)
 - **Common Table Expressions** (Multi-variable composition, transparent CTEs)
 - **Set Operations** (`union`, `unionAll`, `intersect`, `except`)
@@ -2150,7 +2150,7 @@ fsql {{
     |}}
 }}
 """
-                    mkMarkdown "## 4. 🎯 Correlated Subqueries & Existence Predicates (`whereExists` / `whereNotExists`)"
+                    mkMarkdown "## 4. 🎯 Correlated Subqueries & Existence Predicates (`whereExists` / `notExists`)"
                     mkCode $"""
 // 4.1 Finding customers who placed high-value orders (>= $200) with correlated order count
 fsql {{
@@ -2167,7 +2167,7 @@ fsql {{
 // 4.2 Finding customers with no pending orders
 fsql {{
     for c in Connections.sql.{connName}.{tblCust} do
-    whereNotExists (fsql {{ for o in Connections.sql.{connName}.{tblOrd} do where (o.{colCustId} = c.{colId} && o.{colStatus} = "Pending") }})
+    where (notExists (fsql {{ for o in Connections.sql.{connName}.{tblOrd} do where (o.{colCustId} = c.{colId} && o.{colStatus} = "Pending") }}))
     select {{|
         CustomerId = c.{colId}
         Customer = c.{colFirstName}
@@ -2276,7 +2276,7 @@ Este caderno demonstra todo o poder do **FSQL** com pushdown completo para o **{
 - **Funções de Janela Analíticas** (`OVER (PARTITION BY ... ORDER BY ...)`, `rowNumber`, `rank`, `denseRank`, agregações acumuladas)
 - **Funções Posicionais e de Valor** (`lag`, `lead`, `firstValue`, `lastValue`, `avg` e `max` acumulados)
 - **Navegação em JSON Semi-Estruturado** (`fsql.jsonValue`)
-- **Subqueries Correlacionadas** (`whereExists`, `whereNotExists`, subqueries escalares na projeção)
+- **Subqueries Correlacionadas** (`whereExists`, `notExists`, subqueries escalares na projeção)
 - **Agrupamentos com Filtro de Agregação** (`groupBy` + `having`)
 - **Common Table Expressions** (Composição e CTEs transparentes)
 - **Operações de Conjunto** (`union`, `unionAll`, `intersect`, `except`)
@@ -2349,7 +2349,7 @@ fsql {{
     |}}
 }}
 """
-                    mkMarkdown "## 4. 🎯 Subqueries Correlacionadas e Predicados de Existência (`whereExists` / `whereNotExists`)"
+                    mkMarkdown "## 4. 🎯 Subqueries Correlacionadas e Predicados de Existência (`whereExists` / `notExists`)"
                     mkCode $"""
 // 4.1 Clientes com pedidos de alto valor (>= R$ 200) e contagem correlacionada
 fsql {{
@@ -2366,7 +2366,7 @@ fsql {{
 // 4.2 Clientes sem pedidos pendentes
 fsql {{
     for c in Connections.sql.{connName}.{tblCust} do
-    whereNotExists (fsql {{ for o in Connections.sql.{connName}.{tblOrd} do where (o.{colCustId} = c.{colId} && o.{colStatus} = "Pending") }})
+    where (notExists (fsql {{ for o in Connections.sql.{connName}.{tblOrd} do where (o.{colCustId} = c.{colId} && o.{colStatus} = "Pending") }}))
     select {{|
         CustomerId = c.{colId}
         Customer = c.{colFirstName}

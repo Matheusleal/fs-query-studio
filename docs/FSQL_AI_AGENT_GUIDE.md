@@ -127,8 +127,8 @@ let productsWithLargeOrders =
     }
 ```
 
-### 3.4 Correlated Subqueries (`whereExists` & `whereNotExists`)
-Agents must prefer `whereExists` / `whereNotExists` over manual count comparisons:
+### 3.4 Correlated Subqueries (`whereExists` & `notExists`)
+Agents must prefer `whereExists` / `where (notExists ...)` over manual count comparisons:
 
 ```fsharp
 // Transpiles to: WHERE EXISTS (SELECT 1 FROM Orders _sub WHERE _sub.ProductId = _t0.Id)
@@ -143,7 +143,7 @@ let activeProducts =
 let abandonedProducts =
     fsql {
         for p in mssqlProducts do
-        whereNotExists (fsql { for o in mssqlOrders do where (o.ProductId = p.Id) })
+        where (notExists (fsql { for o in mssqlOrders do where (o.ProductId = p.Id) }))
         select {| Id = p.Id; Name = p.Name |}
     }
 ```

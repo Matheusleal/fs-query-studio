@@ -19,10 +19,16 @@ module OracleConnectorExtensions =
 /// Oracle connector — connection, parameterized commands, reader-based paging, schema discovery.
 type OracleConnector(connectionString: string) =
 
-    /// Adapts `@param` syntax to Oracle `:param` bind variable syntax if needed.
+    /// Adapts `@param` syntax to Oracle `:param` bind variable syntax and strips illegal leading underscores from unquoted identifiers.
     static member PrepareSql(sql: string) =
-        if String.IsNullOrEmpty sql || not (sql.Contains("@")) then sql
-        else Regex.Replace(sql, @"@([a-zA-Z0-9_]+)", ":$1")
+        if String.IsNullOrEmpty sql then sql
+        else
+            let paramPrepared =
+                if sql.Contains("@") then Regex.Replace(sql, @"@([a-zA-Z0-9_]+)", ":$1")
+                else sql
+            // In Oracle SQL, unquoted identifiers cannot begin with an underscore '_'.
+            // Automatically strip leading underscores from generated aliases like _t0, _sub1, _src.
+            Regex.Replace(paramPrepared, @"\b_([a-zA-Z0-9_]+)\b", "$1")
 
     /// Binds every `(name, value)` pair as a real `OracleParameter` — never string-concatenated into `sql`.
     static member BindParameters(command: OracleCommand, parameters: (string * obj) list) =

@@ -353,16 +353,16 @@ fsql {
   ```
 - **Optimization:** The compiler rewrites the inner subquery projection to `SELECT 1` automatically.
 
-### 5.2 Non-Existence Subqueries (`whereNotExists`)
+### 5.2 Non-Existence Subqueries (`notExists`)
 ```fsharp
 fsql {
     for c in Connections.sql.SampleStore.Customers do
-    whereNotExists (
+    where (notExists (
         fsql {
             for o in Connections.sql.SampleStore.Orders do
             where (o.CustomerId = c.Id)
         }
-    )
+    ))
     select c.FirstName
 }
 ```

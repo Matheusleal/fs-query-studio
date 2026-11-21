@@ -551,3 +551,34 @@ let ``unprintable value falls back to unprintable value placeholder in Text enve
     Assert.Equal(ResultKind.Text, env.Kind)
     Assert.True(env.DisplayText.IsSome)
 
+type private FailingQuerySequence() =
+    interface System.Collections.IEnumerable with
+        member _.GetEnumerator() =
+            raise (System.InvalidOperationException("Database connection timeout during execution"))
+
+[<Fact>]
+let ``projectWithCursor surfaces database and evaluation exceptions during enumeration as Error envelope`` () =
+    let failingSeq = FailingQuerySequence()
+    let env, cursor, retained = Projection.projectWithCursor failingSeq 0L
+    Assert.Equal(ResultKind.Error, env.Kind)
+    Assert.True(cursor.IsNone)
+    Assert.True(retained.IsNone)
+    Assert.True(env.DisplayText.IsSome)
+    Assert.Contains("Database connection timeout during execution", env.DisplayText.Value)
+
+[<Fact>]
+let ``projectWithCursor surfaces mid-stream record sequence exceptions as Error envelope instead of silent truncation`` () =
+    let failingRecords =
+        seq {
+            yield { Id = 1; Name = "Row1" }
+            raise (System.InvalidOperationException("ORA-00936: missing expression in database"))
+            yield { Id = 2; Name = "Row2" }
+        }
+    let env, cursor, retained = Projection.projectWithCursor failingRecords 0L
+    Assert.Equal(ResultKind.Error, env.Kind)
+    Assert.True(cursor.IsNone)
+    Assert.True(retained.IsNone)
+    Assert.True(env.DisplayText.IsSome)
+    Assert.Contains("ORA-00936", env.DisplayText.Value)
+
+
