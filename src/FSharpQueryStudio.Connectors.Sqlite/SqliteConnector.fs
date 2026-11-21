@@ -19,9 +19,39 @@ module SqliteConnectorExtensions =
 /// SQLite creates it automatically on first connection if it doesn't
 /// exist yet.
 type SqliteConnector(filePath: string) =
+    static let mutable stagedEngineDatabasePathResolver : (unit -> string option) option = None
+
     let connectionString =
         let csb = SqliteConnectionStringBuilder(DataSource = filePath, Pooling = false)
         csb.ToString()
+
+    let tryEnsureAndAttachStagedEngine (conn: SqliteConnection) : bool =
+        match stagedEngineDatabasePathResolver with
+        | Some resolveEngineDbPath ->
+            match resolveEngineDbPath () with
+            | Some engineDbPath when not (String.IsNullOrWhiteSpace engineDbPath) && System.IO.File.Exists engineDbPath ->
+                let isSameDb =
+                    try
+                        String.Equals(System.IO.Path.GetFullPath(filePath), System.IO.Path.GetFullPath(engineDbPath), StringComparison.OrdinalIgnoreCase)
+                    with _ ->
+                        String.Equals(filePath, engineDbPath, StringComparison.OrdinalIgnoreCase)
+                if isSameDb then
+                    true
+                else
+                    try
+                        use attachCmd = conn.CreateCommand()
+                        attachCmd.CommandText <- "ATTACH DATABASE @enginePath AS _fqs_staged;"
+                        attachCmd.Parameters.AddWithValue("@enginePath", engineDbPath) |> ignore
+                        attachCmd.ExecuteNonQuery() |> ignore
+                        true
+                    with _ ->
+                        false
+            | _ -> false
+        | None -> false
+
+    static member StagedEngineDatabasePathResolver
+        with get () = stagedEngineDatabasePathResolver
+        and set (v) = stagedEngineDatabasePathResolver <- v
 
     /// Binds every `(name, value)` pair as a real `SqliteParameter` —
     /// never string-concatenated into `sql`. The structural guarantee
@@ -37,10 +67,29 @@ type SqliteConnector(filePath: string) =
     member _.ExecuteQuery (sql: string) (parameters: (string * obj) list) : ConnectorQueryResult =
         let initialConn = new SqliteConnection(connectionString)
         initialConn.Open()
+        let mutable attachedStaged = false
         let initialCmd = initialConn.CreateCommand()
         initialCmd.CommandText <- sql
         SqliteConnector.BindParameters(initialCmd, parameters)
-        let initialReader = initialCmd.ExecuteReader(CommandBehavior.CloseConnection)
+        let initialReader =
+            try
+                initialCmd.ExecuteReader(CommandBehavior.CloseConnection)
+            with
+            | :? SqliteException as ex when ex.Message.IndexOf("no such table", StringComparison.OrdinalIgnoreCase) >= 0 ->
+                initialCmd.Dispose()
+                if tryEnsureAndAttachStagedEngine initialConn then
+                    attachedStaged <- true
+                    let retryCmd = initialConn.CreateCommand()
+                    retryCmd.CommandText <- sql
+                    SqliteConnector.BindParameters(retryCmd, parameters)
+                    retryCmd.ExecuteReader(CommandBehavior.CloseConnection)
+                else
+                    initialConn.Dispose()
+                    reraise ()
+            | _ ->
+                initialCmd.Dispose()
+                initialConn.Dispose()
+                reraise ()
         let columns = [ for i in 0 .. initialReader.FieldCount - 1 -> initialReader.GetName(i) ]
         let fieldCount = initialReader.FieldCount
         initialReader.Dispose()
@@ -54,10 +103,25 @@ type SqliteConnector(filePath: string) =
                 Seq.delay (fun () ->
                     let conn = new SqliteConnection(connectionString)
                     conn.Open()
+                    if attachedStaged then
+                        tryEnsureAndAttachStagedEngine conn |> ignore
                     let cmd = conn.CreateCommand()
                     cmd.CommandText <- sql
                     SqliteConnector.BindParameters(cmd, parameters)
-                    let reader = cmd.ExecuteReader(CommandBehavior.CloseConnection)
+                    let reader =
+                        try
+                            cmd.ExecuteReader(CommandBehavior.CloseConnection)
+                        with
+                        | :? SqliteException as ex when not attachedStaged && ex.Message.IndexOf("no such table", StringComparison.OrdinalIgnoreCase) >= 0 ->
+                            cmd.Dispose()
+                            if tryEnsureAndAttachStagedEngine conn then
+                                let retryCmd = conn.CreateCommand()
+                                retryCmd.CommandText <- sql
+                                SqliteConnector.BindParameters(retryCmd, parameters)
+                                retryCmd.ExecuteReader(CommandBehavior.CloseConnection)
+                            else
+                                conn.Dispose()
+                                reraise ()
                     seq {
                         use _c = conn
                         use _cmd = cmd
@@ -77,7 +141,24 @@ type SqliteConnector(filePath: string) =
             let command = connection.CreateCommand()
             command.CommandText <- sql
             SqliteConnector.BindParameters(command, parameters)
-            let reader = command.ExecuteReader(CommandBehavior.CloseConnection)
+            let reader =
+                try
+                    command.ExecuteReader(CommandBehavior.CloseConnection)
+                with
+                | :? SqliteException as ex when ex.Message.IndexOf("no such table", StringComparison.OrdinalIgnoreCase) >= 0 ->
+                    command.Dispose()
+                    if tryEnsureAndAttachStagedEngine connection then
+                        let retryCmd = connection.CreateCommand()
+                        retryCmd.CommandText <- sql
+                        SqliteConnector.BindParameters(retryCmd, parameters)
+                        retryCmd.ExecuteReader(CommandBehavior.CloseConnection)
+                    else
+                        connection.Dispose()
+                        reraise ()
+                | _ ->
+                    command.Dispose()
+                    connection.Dispose()
+                    reraise ()
             seq {
                 use _conn = connection
                 use _cmd = command

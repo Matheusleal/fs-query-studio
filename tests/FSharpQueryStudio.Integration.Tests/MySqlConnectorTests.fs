@@ -90,7 +90,7 @@ type MySqlConnectorTests(fixture: MySqlContainerFixture) =
 
             let! tables = asInterface.DiscoverSchemaAsync(CancellationToken.None)
 
-            let orders = tables |> List.find (fun t -> t.Name = "orders")
+            let orders = tables |> List.find (fun t -> t.Name = "orders" || t.Name.EndsWith(".orders"))
             let columnNames = orders.Columns |> List.map (fun c -> c.Name) |> List.sort
             Assert.Equal<string list>([ "customer_id"; "id"; "total" ], columnNames)
             let totalCol = orders.Columns |> List.find (fun c -> c.Name = "total")

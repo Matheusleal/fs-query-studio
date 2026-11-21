@@ -19,10 +19,16 @@ module OracleConnectorExtensions =
 /// Oracle connector — connection, parameterized commands, reader-based paging, schema discovery.
 type OracleConnector(connectionString: string) =
 
-    /// Adapts `@param` syntax to Oracle `:param` bind variable syntax if needed.
+    /// Adapts `@param` syntax to Oracle `:param` bind variable syntax and strips illegal leading underscores from unquoted identifiers.
     static member PrepareSql(sql: string) =
-        if String.IsNullOrEmpty sql || not (sql.Contains("@")) then sql
-        else Regex.Replace(sql, @"@([a-zA-Z0-9_]+)", ":$1")
+        if String.IsNullOrEmpty sql then sql
+        else
+            let paramPrepared =
+                if sql.Contains("@") then Regex.Replace(sql, @"@([a-zA-Z0-9_]+)", ":$1")
+                else sql
+            // In Oracle SQL, unquoted identifiers cannot begin with an underscore '_'.
+            // Automatically strip leading underscores from generated aliases like _t0, _sub1, _src.
+            Regex.Replace(paramPrepared, @"\b_([a-zA-Z0-9_]+)\b", "$1")
 
     /// Binds every `(name, value)` pair as a real `OracleParameter` — never string-concatenated into `sql`.
     static member BindParameters(command: OracleCommand, parameters: (string * obj) list) =
@@ -121,13 +127,19 @@ type OracleConnector(connectionString: string) =
                           else c.data_type \
                         end as resolved_type \
                  from ( \
-                     select owner, table_name from all_tables where owner = USER and table_name not like '%$%' and table_name not like 'BIN$%' and table_name not like 'MVIEW$%' \
+                     select owner, table_name from all_tables \
+                     where (owner = USER or owner not in ('SYS', 'SYSTEM', 'CTXSYS', 'MDSYS', 'OLAPSYS', 'ORDSYS', 'OUTLN', 'WMSYS', 'XDB', 'DBSNMP', 'APPQOSSYS', 'GSMADMIN_INTERNAL', 'DVSYS', 'LBACSYS', 'AUDSYS', 'OJVMSYS', 'REMOTE_SCHEDULER_AGENT', 'DBSFWUSER', 'GGSYS')) \
+                       and table_name not like '%$%' and table_name not like 'BIN$%' and table_name not like 'MVIEW$%' \
+                       and table_name not in ('HELP', 'SQLPLUS_PRODUCT_PROFILE', 'PRODUCT_PRIVS') \
                      union all \
-                     select owner, view_name as table_name from all_views where owner = USER and view_name not like '%$%' and view_name not like 'BIN$%' and view_name not like 'MVIEW$%' \
+                     select owner, view_name as table_name from all_views \
+                     where (owner = USER or owner not in ('SYS', 'SYSTEM', 'CTXSYS', 'MDSYS', 'OLAPSYS', 'ORDSYS', 'OUTLN', 'WMSYS', 'XDB', 'DBSNMP', 'APPQOSSYS', 'GSMADMIN_INTERNAL', 'DVSYS', 'LBACSYS', 'AUDSYS', 'OJVMSYS', 'REMOTE_SCHEDULER_AGENT', 'DBSFWUSER', 'GGSYS')) \
+                       and view_name not like '%$%' and view_name not like 'BIN$%' and view_name not like 'MVIEW$%' \
+                       and view_name not in ('HELP', 'SQLPLUS_PRODUCT_PROFILE', 'PRODUCT_PRIVS') \
                  ) t \
                  join all_tab_columns c on c.table_name = t.table_name and c.owner = t.owner \
                  where c.column_name not like '%$%' and c.column_name not like '%#%' \
-                 order by t.table_name, c.column_id"
+                 order by t.owner, t.table_name, c.column_id"
 
             use! reader = command.ExecuteReaderAsync(ct)
             let rows = ResizeArray<string * string * string * string>()
@@ -143,7 +155,9 @@ type OracleConnector(connectionString: string) =
 
             return
                 rows
-                |> Seq.groupBy (fun (_owner, tableName, _, _) -> tableName)
+                |> Seq.groupBy (fun (owner, tableName, _, _) ->
+                    if String.IsNullOrWhiteSpace owner then tableName
+                    else $"{owner}.{tableName}")
                 |> Seq.map (fun (displayName, tableRows) ->
                     { Name = displayName
                       Columns =

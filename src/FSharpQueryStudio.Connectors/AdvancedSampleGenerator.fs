@@ -17,6 +17,161 @@ module AdvancedSampleGenerator =
           NotebooksGenerated: string list
           RegisteredConnections: string list }
 
+    /// Returns pre-defined schemas for containerized sample databases when offline.
+    let tryGetKnownSampleTables (connName: string) : ConnectorTable list option =
+        let mkCol (n: string) (dt: string) : ConnectorColumn = { Name = n; DataType = dt }
+        let mkTable (n: string) (cols: ConnectorColumn list) : ConnectorTable = { Name = n; Columns = cols }
+        let pgCols = [
+            mkTable "categories" [
+                mkCol "id" "int"
+                mkCol "name" "string"
+                mkCol "description" "string"
+                mkCol "code" "string"
+                mkCol "is_active" "bool"
+            ]
+            mkTable "products" [
+                mkCol "id" "int"
+                mkCol "category_id" "int"
+                mkCol "name" "string"
+                mkCol "sku" "string"
+                mkCol "price" "decimal"
+                mkCol "cost_price" "decimal"
+                mkCol "stock_quantity" "int"
+                mkCol "specs" "string"
+            ]
+            mkTable "customers" [
+                mkCol "id" "int"
+                mkCol "first_name" "string"
+                mkCol "last_name" "string"
+                mkCol "email" "string"
+                mkCol "city" "string"
+                mkCol "country" "string"
+                mkCol "profile" "string"
+            ]
+            mkTable "orders" [
+                mkCol "id" "int"
+                mkCol "customer_id" "int"
+                mkCol "order_date" "System.DateTime"
+                mkCol "status" "string"
+                mkCol "total_amount" "decimal"
+            ]
+            mkTable "order_items" [
+                mkCol "id" "int"
+                mkCol "order_id" "int"
+                mkCol "product_id" "int"
+                mkCol "quantity" "int"
+                mkCol "unit_price" "decimal"
+                mkCol "line_total" "decimal"
+            ]
+        ]
+
+        let sqlServerCols = [
+            mkTable "Categories" [
+                mkCol "Id" "int"
+                mkCol "Name" "string"
+                mkCol "Description" "string"
+                mkCol "Code" "string"
+                mkCol "IsActive" "bool"
+            ]
+            mkTable "Products" [
+                mkCol "Id" "int"
+                mkCol "CategoryId" "int"
+                mkCol "Name" "string"
+                mkCol "Sku" "string"
+                mkCol "Price" "decimal"
+                mkCol "CostPrice" "decimal"
+                mkCol "StockQuantity" "int"
+                mkCol "Specs" "string"
+            ]
+            mkTable "Customers" [
+                mkCol "Id" "int"
+                mkCol "FirstName" "string"
+                mkCol "LastName" "string"
+                mkCol "Email" "string"
+                mkCol "City" "string"
+                mkCol "Country" "string"
+                mkCol "Profile" "string"
+            ]
+            mkTable "Orders" [
+                mkCol "Id" "int"
+                mkCol "CustomerId" "int"
+                mkCol "OrderDate" "System.DateTime"
+                mkCol "Status" "string"
+                mkCol "TotalAmount" "decimal"
+            ]
+            mkTable "OrderItems" [
+                mkCol "Id" "int"
+                mkCol "OrderId" "int"
+                mkCol "ProductId" "int"
+                mkCol "Quantity" "int"
+                mkCol "UnitPrice" "decimal"
+                mkCol "LineTotal" "decimal"
+            ]
+        ]
+
+        let oracleCols = [
+            mkTable "CATEGORIES" [
+                mkCol "ID" "int"
+                mkCol "NAME" "string"
+                mkCol "DESCRIPTION" "string"
+                mkCol "CODE" "string"
+                mkCol "IS_ACTIVE" "bool"
+            ]
+            mkTable "PRODUCTS" [
+                mkCol "ID" "int"
+                mkCol "CATEGORY_ID" "int"
+                mkCol "NAME" "string"
+                mkCol "SKU" "string"
+                mkCol "PRICE" "decimal"
+                mkCol "COST_PRICE" "decimal"
+                mkCol "STOCK_QUANTITY" "int"
+                mkCol "SPECS" "string"
+            ]
+            mkTable "CUSTOMERS" [
+                mkCol "ID" "int"
+                mkCol "FIRST_NAME" "string"
+                mkCol "LAST_NAME" "string"
+                mkCol "EMAIL" "string"
+                mkCol "CITY" "string"
+                mkCol "COUNTRY" "string"
+                mkCol "PROFILE" "string"
+            ]
+            mkTable "ORDERS" [
+                mkCol "ID" "int"
+                mkCol "CUSTOMER_ID" "int"
+                mkCol "ORDER_DATE" "System.DateTime"
+                mkCol "STATUS" "string"
+                mkCol "TOTAL_AMOUNT" "decimal"
+            ]
+            mkTable "ORDER_ITEMS" [
+                mkCol "ID" "int"
+                mkCol "ORDER_ID" "int"
+                mkCol "PRODUCT_ID" "int"
+                mkCol "QUANTITY" "int"
+                mkCol "UNIT_PRICE" "decimal"
+                mkCol "LINE_TOTAL" "decimal"
+            ]
+        ]
+
+        match connName with
+        | "PostgreSQL_Advanced" ->
+            Some [
+                for t in pgCols -> mkTable $"fsqs_demo.{t.Name}" t.Columns
+            ]
+        | "MySQL_Advanced" | "MariaDB_Advanced" ->
+            Some [
+                for t in pgCols -> mkTable $"fsqs_demo.{t.Name}" t.Columns
+            ]
+        | "SqlServer_Advanced" ->
+            Some [
+                for t in sqlServerCols -> mkTable $"master.dbo.{t.Name}" t.Columns
+            ]
+        | "Oracle_Advanced" ->
+            Some [
+                for t in oracleCols -> mkTable $"FREEPDB1.SYSTEM.{t.Name}" t.Columns
+            ]
+        | _ -> None
+
     type private NotebookCell =
         { kind: string
           language: string option
@@ -571,7 +726,7 @@ This notebook demonstrates the full power of **FSQL** pushed down to **PostgreSQ
 - **Analytical Window Functions** (`OVER (PARTITION BY ... ORDER BY ...)`, `rowNumber`, `rank`, `denseRank`, running aggregates)
 - **Positional & Value Window Functions** (`lag`, `lead`, `firstValue`, `lastValue`, running `avg`, `max`)
 - **Semi-Structured JSON Navigation** (`fsql.jsonValue` -> `specs ->> 'brand'`)
-- **Correlated Subqueries** (`whereExists`, `whereNotExists`, scalar subqueries in projection)
+- **Correlated Subqueries** (`whereExists`, `notExists`, scalar subqueries in projection)
 - **Group Aggregations with Filter** (`groupBy` + `having`)
 - **Common Table Expressions** (Multi-variable composition, unnamed `withCte`, recursive `withRecursiveCte`)
 - **Set Operations** (`union`, `unionAll`, `intersect`, `except`)
@@ -649,7 +804,7 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 4. 🎯 Correlated Subqueries (`whereExists`, `whereNotExists` & Scalar Projection)"
+                mkMarkdown "## 4. 🎯 Correlated Subqueries (`whereExists`, `notExists` & Scalar Projection)"
                 mkCode """
 // 4.1 Customers who placed completed orders, projecting correlated order count
 fsql {
@@ -663,10 +818,10 @@ fsql {
 }
 """
                 mkCode """
-// 4.2 Customers with NO pending orders using whereNotExists
+// 4.2 Customers with NO pending orders using notExists
 fsql {
     for c in Connections.sql.PostgreSQL_Advanced.customers do
-    whereNotExists (fsql { for o in Connections.sql.PostgreSQL_Advanced.orders do where (o.customer_id = c.id && o.status = "Pending") })
+    where (notExists (fsql { for o in Connections.sql.PostgreSQL_Advanced.orders do where (o.customer_id = c.id && o.status = "Pending") }))
     select {|
         Customer = c.first_name + " " + c.last_name
         City = c.city
@@ -899,6 +1054,37 @@ let report = fsql.explain complexQuery
 printfn "Engine: %A" report.Dialect
 printfn "%s" report.PlanText
 """
+                mkMarkdown "## 14. 🛡️ Null & Empty Filtering (`isNotNull`, `isNotEmpty`, `isNotNullOrEmpty`)"
+                mkCode """
+// 14. Filter non-null and non-empty columns with full SQL pushdown in PostgreSQL
+fsql {
+    for c in Connections.sql.PostgreSQL_Advanced.customers do
+    where (isNotNull c.email && isNotEmpty c.city && isNotNullOrEmpty c.country)
+    select {|
+        Id = c.id
+        Customer = c.first_name + " " + c.last_name
+        Email = c.email
+        City = c.city
+        Country = c.country
+    |}
+}
+"""
+                mkMarkdown "## 15. 🌳 Multi-Database Hierarchical Tree Mapping (`Connections.sql.<Conn>.<Database>.<Table>`)"
+                mkCode """
+// 15. Query tables directly via the discovered database tree hierarchy (fsqs_demo)
+fsql {
+    for p in Connections.sql.PostgreSQL_Advanced.fsqs_demo.products do
+    join c in Connections.sql.PostgreSQL_Advanced.fsqs_demo.categories on (p.category_id = c.id)
+    where (isNotEmpty p.sku)
+    sortByDescending p.price
+    select {|
+        Sku = p.sku
+        Product = p.name
+        Category = c.name
+        Price = p.price
+    |}
+}
+"""
             ]
         serializeNotebook cells
 
@@ -913,7 +1099,7 @@ This notebook demonstrates the full power of **FSQL** pushed down to **SQL Serve
 - **T-SQL 412 Mitigation** (Safe auto-injected `ORDER BY (SELECT NULL)`)
 - **Positional & Value Window Functions** (`lag`, `lead`, `firstValue`, `lastValue`, running `avg`, `max`)
 - **Semi-Structured JSON Navigation** (`fsql.jsonValue` -> `JSON_VALUE`)
-- **Correlated Subqueries** (`whereExists`, `whereNotExists`, scalar subqueries in projection)
+- **Correlated Subqueries** (`whereExists`, `notExists`, scalar subqueries in projection)
 - **Group Aggregations with Filter** (`groupBy` + `having`)
 - **Common Table Expressions** (Multi-variable composition, unnamed `withCte`, recursive `withRecursiveCte`)
 - **Set Operations** (`union`, `unionAll`, `intersect`, `except`)
@@ -991,7 +1177,7 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 4. 🎯 Correlated Subqueries (`whereExists`, `whereNotExists` & Scalar Projection)"
+                mkMarkdown "## 4. 🎯 Correlated Subqueries (`whereExists`, `notExists` & Scalar Projection)"
                 mkCode """
 // 4.1 Customers who placed high-value orders, projecting correlated order count
 fsql {
@@ -1005,10 +1191,10 @@ fsql {
 }
 """
                 mkCode """
-// 4.2 Customers with NO pending orders using whereNotExists
+// 4.2 Customers with NO pending orders using notExists
 fsql {
     for c in Connections.sql.SqlServer_Advanced.Customers do
-    whereNotExists (fsql { for o in Connections.sql.SqlServer_Advanced.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") })
+    where (notExists (fsql { for o in Connections.sql.SqlServer_Advanced.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") }))
     select {|
         Customer = c.FirstName + " " + c.LastName
         City = c.City
@@ -1234,6 +1420,37 @@ let diag = fsql.explain complexQuery
 printfn "Engine: %A" diag.Dialect
 printfn "%s" diag.PlanText
 """
+                mkMarkdown "## 14. 🛡️ Null & Empty Filtering (`isNotNull`, `isNotEmpty`, `isNotNullOrEmpty`)"
+                mkCode """
+// 14. Filter non-null and non-empty columns with full SQL pushdown in SQL Server
+fsql {
+    for c in Connections.sql.SqlServer_Advanced.Customers do
+    where (isNotNull c.Email && isNotEmpty c.City && isNotNullOrEmpty c.Country)
+    select {|
+        Id = c.Id
+        Customer = c.FirstName + " " + c.LastName
+        Email = c.Email
+        City = c.City
+        Country = c.Country
+    |}
+}
+"""
+                mkMarkdown "## 15. 🌳 Multi-Database Hierarchical Tree Mapping (`Connections.sql.<Conn>.<Database>.<Table>`)"
+                mkCode """
+// 15. Query tables directly via the discovered database tree hierarchy (master)
+fsql {
+    for p in Connections.sql.SqlServer_Advanced.master.Products do
+    join c in Connections.sql.SqlServer_Advanced.master.Categories on (p.CategoryId = c.Id)
+    where (isNotEmpty p.Sku)
+    sortByDescending p.Price
+    select {|
+        Sku = p.Sku
+        Product = p.Name
+        Category = c.Name
+        Price = p.Price
+    |}
+}
+"""
             ]
         serializeNotebook cells
 
@@ -1248,7 +1465,7 @@ Este notebook demonstra todo o poder do **FSQL** com pushdown no **PostgreSQL**:
 - **Funções de Janela Analíticas** (`OVER (PARTITION BY ... ORDER BY ...)`, `rowNumber`, `rank`, `denseRank`, agregações acumuladas)
 - **Funções Posicionais e de Valor** (`lag`, `lead`, `firstValue`, `lastValue`, `avg` e `max` acumulados)
 - **Navegação em JSON Semi-Estruturado** (`fsql.jsonValue` -> `specs ->> 'brand'`)
-- **Subqueries Correlacionadas** (`whereExists`, `whereNotExists`, subqueries escalares na projeção)
+- **Subqueries Correlacionadas** (`whereExists`, `notExists`, subqueries escalares na projeção)
 - **Agrupamentos com Filtro de Agregação** (`groupBy` + `having`)
 - **Common Table Expressions** (Composição multivariável, `withCte` transparente sem nome, recursiva com `withRecursiveCteSql`)
 - **Operações de Conjunto** (`union`, `unionAll`, `intersect`, `except`)
@@ -1326,7 +1543,7 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 4. 🎯 Subqueries Correlacionadas (`whereExists`, `whereNotExists` e Projeção Escalar)"
+                mkMarkdown "## 4. 🎯 Subqueries Correlacionadas (`whereExists`, `notExists` e Projeção Escalar)"
                 mkCode """
 // 4.1 Clientes que realizaram pedidos concluídos, projetando contagem correlacionada de pedidos
 fsql {
@@ -1340,10 +1557,10 @@ fsql {
 }
 """
                 mkCode """
-// 4.2 Clientes sem pedidos pendentes usando whereNotExists
+// 4.2 Clientes sem pedidos pendentes usando notExists
 fsql {
     for c in Connections.sql.PostgreSQL_Advanced.customers do
-    whereNotExists (fsql { for o in Connections.sql.PostgreSQL_Advanced.orders do where (o.customer_id = c.id && o.status = "Pending") })
+    where (notExists (fsql { for o in Connections.sql.PostgreSQL_Advanced.orders do where (o.customer_id = c.id && o.status = "Pending") }))
     select {|
         Customer = c.first_name + " " + c.last_name
         City = c.city
@@ -1582,6 +1799,37 @@ let diag = fsql.explain complexQuery
 printfn "Dialeto: %A" diag.Dialect
 printfn "%s" diag.PlanText
 """
+                mkMarkdown "## 14. 🛡️ Filtros `isNotNull`, `isNotEmpty` e `isNotNullOrEmpty`"
+                mkCode """
+// 14. Filtra colunas não nulas e não vazias com pushdown SQL completo no PostgreSQL
+fsql {
+    for c in Connections.sql.PostgreSQL_Advanced.customers do
+    where (isNotNull c.email && isNotEmpty c.city && isNotNullOrEmpty c.country)
+    select {|
+        Id = c.id
+        Customer = c.first_name + " " + c.last_name
+        Email = c.email
+        City = c.city
+        Country = c.country
+    |}
+}
+"""
+                mkMarkdown "## 15. 🌳 Mapeamento Hierárquico Multi-Database em Árvore (`Connections.sql.<Conn>.<Database>.<Table>`)"
+                mkCode """
+// 15. Consulta tabelas diretamente pela hierarquia em árvore do database descoberto (fsqs_demo)
+fsql {
+    for p in Connections.sql.PostgreSQL_Advanced.fsqs_demo.products do
+    join c in Connections.sql.PostgreSQL_Advanced.fsqs_demo.categories on (p.category_id = c.id)
+    where (isNotEmpty p.sku)
+    sortByDescending p.price
+    select {|
+        Sku = p.sku
+        Product = p.name
+        Category = c.name
+        Price = p.price
+    |}
+}
+"""
             ]
         serializeNotebook cells
 
@@ -1596,7 +1844,7 @@ Este notebook demonstra todo o poder do **FSQL** com pushdown no **SQL Server 20
 - **Mitigação T-SQL 412** (`ORDER BY (SELECT NULL)` seguro injetado automaticamente quando necessário)
 - **Funções Posicionais e de Valor** (`lag`, `lead`, `firstValue`, `lastValue`, `avg` e `max` acumulados)
 - **Navegação em JSON Semi-Estruturado** (`fsql.jsonValue` -> `JSON_VALUE`)
-- **Subqueries Correlacionadas** (`whereExists`, `whereNotExists`, subqueries escalares na projeção)
+- **Subqueries Correlacionadas** (`whereExists`, `notExists`, subqueries escalares na projeção)
 - **Agrupamentos com Filtro de Agregação** (`groupBy` + `having`)
 - **Common Table Expressions** (Composição multivariável, `withCte` transparente sem nome, recursiva com `withRecursiveCteSql`)
 - **Operações de Conjunto** (`union`, `unionAll`, `intersect`, `except`)
@@ -1674,7 +1922,7 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 4. 🎯 Subqueries Correlacionadas (`whereExists`, `whereNotExists` e Projeção Escalar)"
+                mkMarkdown "## 4. 🎯 Subqueries Correlacionadas (`whereExists`, `notExists` e Projeção Escalar)"
                 mkCode """
 // 4.1 Clientes que realizaram pedidos de alto valor, projetando contagem correlacionada de pedidos
 fsql {
@@ -1688,10 +1936,10 @@ fsql {
 }
 """
                 mkCode """
-// 4.2 Clientes sem pedidos pendentes usando whereNotExists
+// 4.2 Clientes sem pedidos pendentes usando notExists
 fsql {
     for c in Connections.sql.SqlServer_Advanced.Customers do
-    whereNotExists (fsql { for o in Connections.sql.SqlServer_Advanced.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") })
+    where (notExists (fsql { for o in Connections.sql.SqlServer_Advanced.Orders do where (o.CustomerId = c.Id && o.Status = "Pending") }))
     select {|
         Customer = c.FirstName + " " + c.LastName
         City = c.City
@@ -1923,10 +2171,42 @@ let diag = fsql.explain complexQuery
 printfn "Dialeto: %A" diag.Dialect
 printfn "%s" diag.PlanText
 """
+                mkMarkdown "## 14. 🛡️ Filtros `isNotNull`, `isNotEmpty` e `isNotNullOrEmpty`"
+                mkCode """
+// 14. Filtra colunas não nulas e não vazias com pushdown SQL completo no SQL Server
+fsql {
+    for c in Connections.sql.SqlServer_Advanced.Customers do
+    where (isNotNull c.Email && isNotEmpty c.City && isNotNullOrEmpty c.Country)
+    select {|
+        Id = c.Id
+        Customer = c.FirstName + " " + c.LastName
+        Email = c.Email
+        City = c.City
+        Country = c.Country
+    |}
+}
+"""
+                mkMarkdown "## 15. 🌳 Mapeamento Hierárquico Multi-Database em Árvore (`Connections.sql.<Conn>.<Database>.<Table>`)"
+                mkCode """
+// 15. Consulta tabelas diretamente pela hierarquia em árvore do database descoberto (master)
+fsql {
+    for p in Connections.sql.SqlServer_Advanced.master.Products do
+    join c in Connections.sql.SqlServer_Advanced.master.Categories on (p.CategoryId = c.Id)
+    where (isNotEmpty p.Sku)
+    sortByDescending p.Price
+    select {|
+        Sku = p.Sku
+        Product = p.Name
+        Category = c.Name
+        Price = p.Price
+    |}
+}
+"""
             ]
         serializeNotebook cells
 
     let private buildEngineNotebook (engineDisplayName: string) (connName: string) (isUpper: bool) (dockerService: string) (icon: string) (isPt: bool) : string =
+        let defaultDb = if isUpper then "SYSTEM" else "fsqs_demo"
         let tblProd = if isUpper then "PRODUCTS" else "products"
         let tblOrd = if isUpper then "ORDERS" else "orders"
         let tblCat = if isUpper then "CATEGORIES" else "categories"
@@ -1952,7 +2232,7 @@ This notebook demonstrates the full power of **FSQL** pushed down to **{engineDi
 - **Analytical Window Functions** (`OVER (PARTITION BY ... ORDER BY ...)`, `rowNumber`, `rank`, `denseRank`, running aggregates)
 - **Positional & Value Window Functions** (`lag`, `lead`, `firstValue`, `lastValue`, running `avg`, `max`)
 - **Semi-Structured JSON Navigation** (`fsql.jsonValue`)
-- **Correlated Subqueries & Existence Predicates** (`whereExists`, `whereNotExists`, scalar projection subqueries)
+- **Correlated Subqueries & Existence Predicates** (`whereExists`, `notExists`, scalar projection subqueries)
 - **Aggregation with Group Filtering** (`groupBy` + `having`)
 - **Common Table Expressions** (Multi-variable composition, transparent CTEs)
 - **Set Operations** (`union`, `unionAll`, `intersect`, `except`)
@@ -2025,7 +2305,7 @@ fsql {{
     |}}
 }}
 """
-                    mkMarkdown "## 4. 🎯 Correlated Subqueries & Existence Predicates (`whereExists` / `whereNotExists`)"
+                    mkMarkdown "## 4. 🎯 Correlated Subqueries & Existence Predicates (`whereExists` / `notExists`)"
                     mkCode $"""
 // 4.1 Finding customers who placed high-value orders (>= $200) with correlated order count
 fsql {{
@@ -2042,7 +2322,7 @@ fsql {{
 // 4.2 Finding customers with no pending orders
 fsql {{
     for c in Connections.sql.{connName}.{tblCust} do
-    whereNotExists (fsql {{ for o in Connections.sql.{connName}.{tblOrd} do where (o.{colCustId} = c.{colId} && o.{colStatus} = "Pending") }})
+    where (notExists (fsql {{ for o in Connections.sql.{connName}.{tblOrd} do where (o.{colCustId} = c.{colId} && o.{colStatus} = "Pending") }}))
     select {{|
         CustomerId = c.{colId}
         Customer = c.{colFirstName}
@@ -2114,6 +2394,33 @@ let diag = fsql.explain sampleQuery
 printfn "Dialect: %%A" diag.Dialect
 printfn "%%s" diag.PlanText
 """
+                    mkMarkdown "## 8. 🛡️ Null & Empty Filtering (`isNotNull`, `isNotEmpty`, `isNotNullOrEmpty`)"
+                    mkCode $"""
+// 8. Filter non-null and non-empty columns with full SQL pushdown in {engineDisplayName}
+fsql {{
+    for c in Connections.sql.{connName}.{tblCust} do
+    where (isNotNull c.{colFirstName} && isNotEmpty c.{colFirstName} && isNotNullOrEmpty c.{colFirstName})
+    select {{|
+        CustomerId = c.{colId}
+        Customer = c.{colFirstName}
+    |}}
+}}
+"""
+                    mkMarkdown "## 9. 🌳 Multi-Database Hierarchical Tree Mapping (`Connections.sql.<Conn>.<Database>.<Table>`)"
+                    mkCode $"""
+// 9. Query tables directly via the discovered database tree hierarchy ({defaultDb})
+fsql {{
+    for p in Connections.sql.{connName}.{defaultDb}.{tblProd} do
+    join c in Connections.sql.{connName}.{defaultDb}.{tblCat} on (p.{colCatId} = c.{colId})
+    where (isNotEmpty p.{colName})
+    sortByDescending p.{colPrice}
+    select {{|
+        Product = p.{colName}
+        Category = c.{colName}
+        Price = p.{colPrice}
+    |}}
+}}
+"""
                 ]
             else
                 [
@@ -2124,7 +2431,7 @@ Este caderno demonstra todo o poder do **FSQL** com pushdown completo para o **{
 - **Funções de Janela Analíticas** (`OVER (PARTITION BY ... ORDER BY ...)`, `rowNumber`, `rank`, `denseRank`, agregações acumuladas)
 - **Funções Posicionais e de Valor** (`lag`, `lead`, `firstValue`, `lastValue`, `avg` e `max` acumulados)
 - **Navegação em JSON Semi-Estruturado** (`fsql.jsonValue`)
-- **Subqueries Correlacionadas** (`whereExists`, `whereNotExists`, subqueries escalares na projeção)
+- **Subqueries Correlacionadas** (`whereExists`, `notExists`, subqueries escalares na projeção)
 - **Agrupamentos com Filtro de Agregação** (`groupBy` + `having`)
 - **Common Table Expressions** (Composição e CTEs transparentes)
 - **Operações de Conjunto** (`union`, `unionAll`, `intersect`, `except`)
@@ -2197,7 +2504,7 @@ fsql {{
     |}}
 }}
 """
-                    mkMarkdown "## 4. 🎯 Subqueries Correlacionadas e Predicados de Existência (`whereExists` / `whereNotExists`)"
+                    mkMarkdown "## 4. 🎯 Subqueries Correlacionadas e Predicados de Existência (`whereExists` / `notExists`)"
                     mkCode $"""
 // 4.1 Clientes com pedidos de alto valor (>= R$ 200) e contagem correlacionada
 fsql {{
@@ -2214,7 +2521,7 @@ fsql {{
 // 4.2 Clientes sem pedidos pendentes
 fsql {{
     for c in Connections.sql.{connName}.{tblCust} do
-    whereNotExists (fsql {{ for o in Connections.sql.{connName}.{tblOrd} do where (o.{colCustId} = c.{colId} && o.{colStatus} = "Pending") }})
+    where (notExists (fsql {{ for o in Connections.sql.{connName}.{tblOrd} do where (o.{colCustId} = c.{colId} && o.{colStatus} = "Pending") }}))
     select {{|
         CustomerId = c.{colId}
         Customer = c.{colFirstName}
@@ -2285,6 +2592,33 @@ let consultaComplexa =
 let diag = fsql.explain consultaComplexa
 printfn "Dialeto: %%A" diag.Dialect
 printfn "%%s" diag.PlanText
+"""
+                    mkMarkdown "## 8. 🛡️ Filtros `isNotNull`, `isNotEmpty` e `isNotNullOrEmpty`"
+                    mkCode $"""
+// 8. Filtra colunas não nulas e não vazias com pushdown SQL completo no {engineDisplayName}
+fsql {{
+    for c in Connections.sql.{connName}.{tblCust} do
+    where (isNotNull c.{colFirstName} && isNotEmpty c.{colFirstName} && isNotNullOrEmpty c.{colFirstName})
+    select {{|
+        CustomerId = c.{colId}
+        Customer = c.{colFirstName}
+    |}}
+}}
+"""
+                    mkMarkdown "## 9. 🌳 Mapeamento Hierárquico Multi-Database em Árvore (`Connections.sql.<Conn>.<Database>.<Table>`)"
+                    mkCode $"""
+// 9. Consulta tabelas diretamente pela hierarquia em árvore do database descoberto ({defaultDb})
+fsql {{
+    for p in Connections.sql.{connName}.{defaultDb}.{tblProd} do
+    join c in Connections.sql.{connName}.{defaultDb}.{tblCat} on (p.{colCatId} = c.{colId})
+    where (isNotEmpty p.{colName})
+    sortByDescending p.{colPrice}
+    select {{|
+        Product = p.{colName}
+        Category = c.{colName}
+        Price = p.{colPrice}
+    |}}
+}}
 """
                 ]
         serializeNotebook cells

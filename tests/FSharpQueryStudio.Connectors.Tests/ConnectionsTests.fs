@@ -1867,6 +1867,254 @@ let ``ConnectionStringSecrets, ConnectorRegistry, Descriptor, TabularDataMapping
     finally
         try Directory.Delete(tmpWs, true) with _ -> ()
 
+[<Fact>]
+let ``Direct SQLite queries work on mapped CSV and XML connections without prior LINQ staging using connection, file, or element names`` () =
+    BuiltinConnectors.registerDefaults ()
+    let tmpWs = Path.Combine(Path.GetTempPath(), $"fqs_direct_sqlite_{Guid.NewGuid():N}")
+    Directory.CreateDirectory tmpWs |> ignore
+    try
+        let csvPath = Path.Combine(tmpWs, "sales_feed.csv")
+        File.WriteAllLines(csvPath, [|
+            "OrderId,Customer,Amount"
+            "10,Alice,250.50"
+            "20,Bob,99.00"
+        |])
+
+        let xmlPath = Path.Combine(tmpWs, "logistics_hub.xml")
+        File.WriteAllText(xmlPath, """<?xml version="1.0" encoding="utf-8"?>
+<LogisticsHub>
+  <Carriers>
+    <Carrier CarrierId="1" Name="FastExpress" Country="Brazil" />
+    <Carrier CarrierId="2" Name="SkyCargo" Country="USA" />
+  </Carriers>
+  <Shipments>
+    <Shipment ShipmentId="100" CarrierId="1" Destination="Sao Paulo" Cost="45.00" />
+    <Shipment ShipmentId="200" CarrierId="2" Destination="Miami" Cost="120.00" />
+  </Shipments>
+</LogisticsHub>""")
+
+        let sqlitePath = Path.Combine(tmpWs, "local_store.db")
+        do
+            use sConn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={sqlitePath}")
+            sConn.Open()
+            use sCmd = sConn.CreateCommand()
+            sCmd.CommandText <- "CREATE TABLE StoreCustomers (Name TEXT PRIMARY KEY, Tier TEXT); INSERT INTO StoreCustomers VALUES ('Alice', 'Gold');"
+            sCmd.ExecuteNonQuery() |> ignore
+
+        let csvDef: ConnectionDefinition =
+            { Id = Guid.NewGuid()
+              Name = "SalesFeed"
+              Kind = ConnectorKind.Csv
+              Configuration = System.Text.Json.JsonDocument.Parse($"""{{"filePath":"{csvPath.Replace("\\", "/")}"}}""").RootElement
+              SecretReference = None
+              IsTrusted = true }
+
+        let xmlDef: ConnectionDefinition =
+            { Id = Guid.NewGuid()
+              Name = "LogisticsHub"
+              Kind = ConnectorKind.Xml
+              Configuration = System.Text.Json.JsonDocument.Parse($"""{{"filePath":"{xmlPath.Replace("\\", "/")}","includeAttributes":true,"flattenNested":true}}""").RootElement
+              SecretReference = None
+              IsTrusted = true }
+
+        let sqliteDef: ConnectionDefinition =
+            { Id = Guid.NewGuid()
+              Name = "LocalStore"
+              Kind = ConnectorKind.Sqlite
+              Configuration = System.Text.Json.JsonDocument.Parse($"""{{"filePath":"{sqlitePath.Replace("\\", "/")}"}}""").RootElement
+              SecretReference = None
+              IsTrusted = true }
+
+        let store = FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
+        Connections.configure (WorkspaceConnectionResolver([ csvDef; xmlDef; sqliteDef ], store, tmpWs))
+
+        // 1. Direct SQLite query via Connections.sql.rawQuery on CSV by file base name ('sales_feed') and connection name ('SalesFeed') BEFORE any LINQ query
+        let resCsvByFile = Connections.sql.rawQuery("SELECT Customer, Amount FROM sales_feed WHERE OrderId = 10")
+        Assert.Equal(1, resCsvByFile.Rows |> Seq.length)
+        Assert.Equal("Alice", string (resCsvByFile.Rows |> Seq.head).[0])
+
+        let resCsvByConn = Connections.sql.query("SELECT Customer FROM SalesFeed WHERE OrderId = 20")
+        Assert.Equal("Bob", string (resCsvByConn.Rows |> Seq.head).[0])
+
+        // 2. Direct SQLite query via Connections.sql.rawQuery on XML by element table name ('Carriers', 'Shipments'), prefixed name ('LogisticsHub_Carriers'), and connection name ('LogisticsHub')
+        let resXmlCarriers = Connections.sql.rawQuery("SELECT Name, Country FROM Carriers ORDER BY CarrierId")
+        Assert.Equal(2, resXmlCarriers.Rows |> Seq.length)
+        Assert.Equal("FastExpress", string (resXmlCarriers.Rows |> Seq.head).[0])
+
+        let resXmlShipments = Connections.queryEngine("SELECT Destination FROM Shipments WHERE ShipmentId = 200")
+        Assert.Equal("Miami", string (resXmlShipments.Rows |> Seq.head).[0])
+
+        let resXmlConnName = Connections.queryEngineWith "SELECT Name FROM LogisticsHub WHERE CarrierId = @id" [ "@id", box 2 ]
+        Assert.Equal("SkyCargo", string (resXmlConnName.Rows |> Seq.head).[0])
+
+        // 3. Direct SQLite query via CsvConnection.rawQuery and XmlConnection.rawQuery
+        let csvConn = Connections.getCsvConnection "SalesFeed"
+        let resCsvDirect = csvConn.rawQuery("SELECT COUNT(*) FROM sales_feed")
+        Assert.Equal(2L, Convert.ToInt64((resCsvDirect.Rows |> Seq.head).[0]))
+
+        let xmlConn = Connections.getXmlConnection "LogisticsHub"
+        let resXmlDirect = xmlConn.rawQuery("SELECT s.Destination, c.Name FROM Shipments s JOIN Carriers c ON s.CarrierId = c.CarrierId ORDER BY s.ShipmentId")
+        Assert.Equal(2, resXmlDirect.Rows |> Seq.length)
+
+        // 4. Direct SQLite query on a registered SQLite connection (LocalStore) joining its own table with mapped CSV and XML tables!
+        let dbConn = Connections.getDatabaseConnection "LocalStore"
+        let resCrossJoin = dbConn.rawQuery("SELECT sc.Name, sc.Tier, sf.Amount, c.Name AS Carrier FROM StoreCustomers sc JOIN sales_feed sf ON sc.Name = sf.Customer JOIN Carriers c ON c.CarrierId = 1")
+        let crossRows = resCrossJoin.Rows |> Seq.toList
+        Assert.Single(crossRows) |> ignore
+        Assert.Equal("Alice", string crossRows.[0].[0])
+        Assert.Equal("Gold", string crossRows.[0].[1])
+        Assert.Equal("FastExpress", string crossRows.[0].[3])
+    finally
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+        try Directory.Delete(tmpWs, true) with _ -> ()
+
+[<Fact>]
+let ``DatabaseConnection.GenerateEntities maps multi-database and multi-schema tables into hierarchical tree structure while preserving default database top-level access`` () =
+    let fakeMultiDbConnector =
+        { new IQueryableConnector with
+            member _.ConnectionString = "Server=localhost;Database=EcommerceDb;User Id=sa;Password=secret;"
+            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+          interface IConnector with
+            member _.Kind = ConnectorKind.SqlServer
+            member _.TestConnectionAsync _ = System.Threading.Tasks.Task.FromResult true
+            member _.DiscoverSchemaAsync _ =
+                System.Threading.Tasks.Task.FromResult [
+                    { Name = "EcommerceDb.Customers"
+                      Columns = [ { Name = "Id"; DataType = "int" }; { Name = "Email"; DataType = "nvarchar" } ] }
+                    { Name = "EcommerceDb.Orders"
+                      Columns = [ { Name = "OrderId"; DataType = "int" }; { Name = "Total"; DataType = "decimal" } ] }
+                    { Name = "EcommerceDb.sales.Invoices"
+                      Columns = [ { Name = "InvoiceId"; DataType = "int" }; { Name = "Amount"; DataType = "decimal" } ] }
+                    { Name = "AnalyticsDb.Events"
+                      Columns = [ { Name = "EventId"; DataType = "bigint" }; { Name = "Payload"; DataType = "nvarchar" } ] }
+                    { Name = "AnalyticsDb.reporting.DailyMetrics"
+                      Columns = [ { Name = "MetricDate"; DataType = "date" }; { Name = "Visits"; DataType = "int" } ] }
+                ] }
+
+    let dbConn = Connections.DatabaseConnection("EnterpriseServer", fakeMultiDbConnector)
+    let code = dbConn.GenerateEntities()
+
+    // 1. Both databases have their own modules and nested schema modules
+    Assert.Contains("module EcommerceDb =", code)
+    Assert.Contains("module AnalyticsDb =", code)
+    Assert.Contains("module sales =", code)
+    Assert.Contains("module reporting =", code)
+
+    // 2. Default database ('EcommerceDb') tables are exposed at top level for backwards compatibility
+    Assert.Contains("member _.Customers : FSharpQueryStudio.Connectors.SqlPushdownQueryable<EcommerceDb.Customers> = conn.Table<EcommerceDb.Customers>(\"Customers\")", code)
+    Assert.Contains("member _.Orders : FSharpQueryStudio.Connectors.SqlPushdownQueryable<EcommerceDb.Orders> = conn.Table<EcommerceDb.Orders>(\"Orders\")", code)
+
+    // 3. Tree structure on Database: conn.EcommerceDb.Customers, conn.EcommerceDb.sales.Invoices, conn.AnalyticsDb.Events, conn.AnalyticsDb.reporting.DailyMetrics
+    Assert.Contains("member _.EcommerceDb =", code)
+    Assert.Contains("Customers = conn.Table<EcommerceDb.Customers>(\"EcommerceDb.dbo.Customers\")", code)
+    Assert.Contains("Invoices = conn.Table<EcommerceDb.sales.Invoices>(\"EcommerceDb.sales.Invoices\")", code)
+    Assert.Contains("member _.AnalyticsDb =", code)
+    Assert.Contains("Events = conn.Table<AnalyticsDb.Events>(\"AnalyticsDb.dbo.Events\")", code)
+    Assert.Contains("DailyMetrics = conn.Table<AnalyticsDb.reporting.DailyMetrics>(\"AnalyticsDb.reporting.DailyMetrics\")", code)
+
+[<Fact>]
+let ``Direct SQLite queries via pivot, query, and generated entity code work for mapped CSV, XML, JSON and Excel connections`` () =
+    BuiltinConnectors.registerDefaults ()
+    let tmpWs = Path.Combine(Path.GetTempPath(), $"fqs_direct_sqlite2_{Guid.NewGuid():N}")
+    Directory.CreateDirectory tmpWs |> ignore
+    try
+        let csvPath = Path.Combine(tmpWs, "customers_feed.csv")
+        File.WriteAllLines(csvPath, [|
+            "CustomerId,Region,Spend"
+            "1,North,100"
+            "2,South,200"
+            "3,North,150"
+        |])
+
+        let xmlPath = Path.Combine(tmpWs, "catalog_items.xml")
+        File.WriteAllText(xmlPath, """<?xml version="1.0" encoding="utf-8"?>
+<Catalog>
+  <Products>
+    <Product Sku="P1" Category="Tech" Price="50" />
+    <Product Sku="P2" Category="Home" Price="30" />
+  </Products>
+</Catalog>""")
+
+        let csvDef: ConnectionDefinition =
+            { Id = Guid.NewGuid()
+              Name = "CustomersFeed"
+              Kind = ConnectorKind.Csv
+              Configuration = System.Text.Json.JsonDocument.Parse($"""{{"filePath":"{csvPath.Replace("\\", "/")}"}}""").RootElement
+              SecretReference = None
+              IsTrusted = true }
+
+        let xmlDef: ConnectionDefinition =
+            { Id = Guid.NewGuid()
+              Name = "CatalogXml"
+              Kind = ConnectorKind.Xml
+              Configuration = System.Text.Json.JsonDocument.Parse($"""{{"filePath":"{xmlPath.Replace("\\", "/")}","includeAttributes":true,"flattenNested":true}}""").RootElement
+              SecretReference = None
+              IsTrusted = true }
+
+        let store = FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
+        Connections.configure (WorkspaceConnectionResolver([ csvDef; xmlDef ], store, tmpWs))
+
+        // 1. Pivot directly on unstaged CSV by file base name ('customers_feed')
+        let pivotRes = Connections.sql.pivot("customers_feed", [ "Region" ], "CustomerId", "Spend")
+        Assert.Equal(2, pivotRes.Rows |> Seq.length)
+
+        // 2. Query XML and CSV via .query and .Execute methods on CsvConnection and XmlConnection
+        let csvConn = Connections.getCsvConnection "CustomersFeed"
+        let qCsv = csvConn.query("SELECT SUM(Spend) FROM customers_feed WHERE Region = @r", [ "@r", box "North" ])
+        Assert.Equal(250L, Convert.ToInt64((qCsv.Rows |> Seq.head).[0]))
+
+        let xmlConn = Connections.getXmlConnection "CatalogXml"
+        let qXml = xmlConn. query("SELECT Sku FROM Products WHERE Category = @c", [ "@c", box "Tech" ])
+        Assert.Equal("P1", string (qXml.Rows |> Seq.head).[0])
+
+        // 3. Verify generated entities include rawQuery, query, Execute, ISqlPushdownQueryable, and file base name property
+        let _ = (EntityBackgroundGenerator.generateForConnectionsAsync tmpWs [ csvDef; xmlDef ] store).Result
+        let genCode = File.ReadAllText(EntityBackgroundGenerator.generatedFilePath tmpWs)
+        Assert.Contains("member _.rawQuery(", genCode)
+        Assert.Contains("member _.customers_feed : FSharpQueryStudio.Connectors.SqlPushdownQueryable<Row> = queryable", genCode)
+        Assert.Contains("interface FSharpQueryStudio.Connectors.ISqlPushdownQueryable with", genCode)
+    finally
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+        try Directory.Delete(tmpWs, true) with _ -> ()
+
+[<Fact>]
+let ``DatabaseConnection.GenerateEntities supports PostgreSQL, MySQL, MariaDB and Oracle multi-database schemas`` () =
+    let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
+        { new IQueryableConnector with
+            member _.ConnectionString = connStr
+            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+          interface IConnector with
+            member _.Kind = kind
+            member _.TestConnectionAsync _ = System.Threading.Tasks.Task.FromResult true
+            member _.DiscoverSchemaAsync _ = System.Threading.Tasks.Task.FromResult tables }
+
+    let pgTables = [
+        { Name = "fsqs_demo.products"; Columns = [ { Name = "id"; DataType = "int4" }; { Name = "name"; DataType = "text" } ] }
+        { Name = "fsqs_demo.audit.logs"; Columns = [ { Name = "id"; DataType = "int8" } ] }
+        { Name = "warehouse_db.inventory"; Columns = [ { Name = "sku"; DataType = "varchar" } ] }
+    ]
+    let pgConn = Connections.DatabaseConnection("PgCluster", makeConnector ConnectorKind.PostgreSql "Host=localhost;Database=fsqs_demo;Username=postgres;" pgTables)
+    let pgCode = pgConn.GenerateEntities()
+
+    Assert.Contains("module fsqs_demo =", pgCode)
+    Assert.Contains("module warehouse_db =", pgCode)
+    Assert.Contains("member _.products : FSharpQueryStudio.Connectors.SqlPushdownQueryable<fsqs_demo.products> = conn.Table<fsqs_demo.products>(\"products\")", pgCode)
+    Assert.Contains("inventory = conn.Table<warehouse_db.inventory>(\"warehouse_db.inventory\")", pgCode)
+
+    let myTables = [
+        { Name = "shop_db.users"; Columns = [ { Name = "id"; DataType = "int" } ] }
+        { Name = "billing_db.payments"; Columns = [ { Name = "id"; DataType = "bigint" } ] }
+    ]
+    let myConn = Connections.DatabaseConnection("MyCluster", makeConnector ConnectorKind.MySql "Server=localhost;Database=shop_db;Uid=root;" myTables)
+    let myCode = myConn.GenerateEntities()
+
+    Assert.Contains("module shop_db =", myCode)
+    Assert.Contains("module billing_db =", myCode)
+    Assert.Contains("member _.users : FSharpQueryStudio.Connectors.SqlPushdownQueryable<shop_db.users> = conn.Table<shop_db.users>(\"users\")", myCode)
+    Assert.Contains("payments = conn.Table<billing_db.payments>(\"billing_db.payments\")", myCode)
+
+
+
 
 
 

@@ -88,7 +88,7 @@ export const commands = {
   },
 };
 
-export const env = { openExternal: async (_uri: unknown) => true };
+export const env = { language: "en", openExternal: async (_uri: unknown) => true };
 export const Uri = {
   parse: (s: string) => {
     const scheme = s.includes(":") ? s.substring(0, s.indexOf(":")) : "file";

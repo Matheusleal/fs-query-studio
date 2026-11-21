@@ -31,33 +31,53 @@ open FSharpQueryStudio.Connectors
 open FSharpQueryStudio.Generated
 ```
 
-### Padrão de Resolução de Tabelas: `Connections.sql`
-Bancos configurados no workspace são tipados e expostos através de `Connections.sql.<NomeDaConexao>.<NomeDaTabela>`:
+### Padrão de Resolução de Databases e Tabelas: `Connections.sql`
+Bancos configurados no workspace descobrem automaticamente todos os databases acessíveis no servidor e os mapeiam em estrutura de árvore (`Connections.sql.<NomeDaConexao>.<NomeDoDatabase>.[<Schema>.]<NomeDaTabela>`), mantendo também o acesso direto às tabelas do database padrão no topo (`Connections.sql.<NomeDaConexao>.<NomeDaTabela>`):
 
 ```fsharp
-// SQL Server
+// Acesso direto no database padrão
 let mssqlProducts = Connections.sql.SqlServer_Demo.Products
 let mssqlOrders   = Connections.sql.SqlServer_Demo.Orders
 
+// Acesso em árvore multi-database (Conexão -> Database -> [Schema ->] Tabela)
+let analyticsEvents = Connections.sql.SqlServer_Demo.AnalyticsDb.Events
+let salesInvoices   = Connections.sql.SqlServer_Demo.EcommerceDb.sales.Invoices
+
 // PostgreSQL (respeita convenções minúsculas do Postgres)
 let pgProducts = Connections.sql.PostgreSQL_Demo.products
-let pgOrders   = Connections.sql.PostgreSQL_Demo.orders
+let pgOrders   = Connections.sql.PostgreSQL_Demo.fsqs_demo.orders
 
 // SQLite
 let sqliteProducts = Connections.sql.SQLite_Demo.Products
 let sqliteOrders   = Connections.sql.SQLite_Demo.Orders
+
+// Conexões de Arquivos Mapeadas (CSV, XML, JSON, Excel) com auto-staging SQLite (.fsqs/cache/engine.db)
+let csvSales     = Connections.csv.SalesFeed
+let xmlShipments = Connections.xml.LogisticsHub.Shipments
+
+// Consultas SQLite diretas e parametrizadas sobre fontes CSV/XML/JSON/Excel mapeadas
+let directCsvRows =
+    Connections.csv.SalesFeed.rawQuery(
+        "SELECT OrderId, Customer, TotalAmount FROM sales_feed WHERE TotalAmount >= @min",
+        [ "@min", box 100.0 ]
+    )
+let directXmlRows =
+    Connections.xml.LogisticsHub.rawQuery(
+        "SELECT ShipmentId, Destination, ShippingCost FROM Shipments WHERE ShippingCost >= @min",
+        [ "@min", box 50.0 ]
+    )
 ```
 
 ---
 
 ## 3. Catálogo Completo da Sintaxe `fsql`
 
-### 3.1 Consultas Básicas, Filtros, Ordenação e Paginação
+### 3.1 Consultas Básicas, Filtros, Condições Null/Empty, Ordenação e Paginação
 ```fsharp
 let paginaDeProdutos =
     fsql {
         for p in mssqlProducts do
-        where (p.Price >= 50.0M && p.InStock)
+        where (p.Price >= 50.0M && p.InStock && isNotNull p.Category && isNotEmpty p.Name && isNotNullOrEmpty p.Category)
         sortByDescending p.Price
         thenBy p.Name
         skip 10
@@ -65,6 +85,11 @@ let paginaDeProdutos =
         select {| Id = p.Id; Name = p.Name; Price = p.Price |}
     } |> Seq.toList
 ```
+
+Condições dedicadas para `not null` e `not empty` suportadas no `fsql` (compiladas para SQL nativo em todos os dialetos):
+- **`isNotNull x.Col`**: Compila para `(x.Col IS NOT NULL)`.
+- **`isNotEmpty x.Col`** / **`isNotNullOrEmpty x.Col`**: Compila para `(x.Col IS NOT NULL AND x.Col <> '')` (ou `LENGTH(x.Col) > 0` no Oracle).
+- **`isNull x.Col`** / **`not (isNull x.Col)`**: Compila para `(x.Col IS NULL)` e `(x.Col IS NOT NULL)`.
 
 ### 3.2 Agregações (Pushdown para `COUNT`, `MAX`, `MIN`, `SUM`, `AVG`)
 ```fsharp
@@ -102,8 +127,8 @@ let produtosComGrandesPedidos =
     }
 ```
 
-### 3.4 Subqueries Correlacionadas (`whereExists` e `whereNotExists`)
-Agentes devem preferir `whereExists` / `whereNotExists` em vez de comparações manuais de contagem:
+### 3.4 Subqueries Correlacionadas (`whereExists` e `notExists`)
+Agentes devem preferir `whereExists` / `where (notExists ...)` em vez de comparações manuais de contagem:
 
 ```fsharp
 // Compila para: WHERE EXISTS (SELECT 1 FROM Orders _sub WHERE _sub.ProductId = _t0.Id)
@@ -118,7 +143,7 @@ let produtosAtivos =
 let produtosSemPedidos =
     fsql {
         for p in mssqlProducts do
-        whereNotExists (fsql { for o in mssqlOrders do where (o.ProductId = p.Id) })
+        where (notExists (fsql { for o in mssqlOrders do where (o.ProductId = p.Id) }))
         select {| Id = p.Id; Name = p.Name |}
     }
 ```

@@ -2138,6 +2138,300 @@ let ``SqlPushdownQuery translates JSON extraction according to target dialect`` 
     let pgSql = (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.PostgreSql).BuildSql(SqlDialect.PostgreSql)
     Assert.Contains("->>", pgSql)
 
+[<Fact>]
+let ``fsql translates where (not (isNull col)) and where (isNull col) to IS NOT NULL and IS NULL`` () =
+    use db = new TempSqliteDb()
+    use rawConn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path}")
+    rawConn.Open()
+    use insertCmd = rawConn.CreateCommand()
+    insertCmd.CommandText <- "INSERT INTO Products (Id, Name, Price, Category, InStock) VALUES (99, 'NullCatItem', 10.00, NULL, 1);"
+    insertCmd.ExecuteNonQuery() |> ignore
+
+    let conn = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
+
+    // 1. where (not (isNull p.Category))
+    let qNotNull =
+        fsql {
+            for p in products do
+            where (not (isNull p.Category))
+            select p.Name
+        }
+    let sqlNotNull = toRawSql qNotNull
+    Assert.Contains("Category IS NOT NULL", sqlNotNull)
+    let notNullRows = qNotNull |> Seq.toList
+    Assert.Equal(5, notNullRows.Length)
+    Assert.DoesNotContain("NullCatItem", notNullRows)
+
+    // 2. where (isNull p.Category)
+    let qIsNull =
+        fsql {
+            for p in products do
+            where (isNull p.Category)
+            select p.Name
+        }
+    let sqlIsNull = toRawSql qIsNull
+    Assert.Contains("Category IS NULL", sqlIsNull)
+    let isNullRows = qIsNull |> Seq.toList
+    Assert.Equal<string list>([ "NullCatItem" ], isNullRows)
+
+[<Fact>]
+let ``fsql translates double negation and compound boolean negations with isNull in where`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
+
+    // 1. Double negation: not (not (isNull p.Category)) -> IS NULL
+    let qDoubleNeg =
+        fsql {
+            for p in products do
+            where (not (not (isNull p.Category)))
+            select p.Name
+        }
+    Assert.Contains("Category IS NULL", toRawSql qDoubleNeg)
+
+    // 2. Negation of ReferenceEquals / equality with null
+    let qNotRefEq =
+        fsql {
+            for p in products do
+            where (not (obj.ReferenceEquals(p.Category, null)))
+            select p.Name
+        }
+    Assert.Contains("Category IS NOT NULL", toRawSql qNotRefEq)
+
+    // 3. Compound boolean negation: not (isNull p.Category || p.Price < 20.0M)
+    let qCompound =
+        fsql {
+            for p in products do
+            where (not (isNull p.Category || p.Price < 20.0M))
+            select p.Name
+        }
+    let sqlCompound = toRawSql qCompound
+    Assert.Contains("NOT", sqlCompound)
+    Assert.Contains("Category IS NULL", sqlCompound)
+    let rows = qCompound |> Seq.toList
+    Assert.Equal(3, rows.Length)
+
+[<Fact>]
+let ``fsql translates dedicated isNotNull, isNotEmpty, and isNotNullOrEmpty predicates`` () =
+    use db = new TempSqliteDb()
+    use rawConn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path}")
+    rawConn.Open()
+    use insertCmd = rawConn.CreateCommand()
+    insertCmd.CommandText <- """
+    INSERT INTO Products (Id, Name, Price, Category, InStock) VALUES (101, 'NullCat', 12.00, NULL, 1);
+    INSERT INTO Products (Id, Name, Price, Category, InStock) VALUES (102, 'EmptyCat', 15.00, '', 1);
+    INSERT INTO Products (Id, Name, Price, Category, InStock) VALUES (103, 'SpaceCat', 18.00, '   ', 1);
+    """
+    insertCmd.ExecuteNonQuery() |> ignore
+
+    let conn = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
+
+    // 1. isNotNull
+    let q1 = fsql { for p in products do where (isNotNull p.Category && isNotNull p.Name); select p.Name }
+    let sql1 = toRawSql q1
+    Assert.Contains("(Category IS NOT NULL)", sql1)
+    Assert.Contains("(Name IS NOT NULL)", sql1)
+    let r1 = q1 |> Seq.toList
+    Assert.DoesNotContain("NullCat", r1)
+    Assert.Contains("EmptyCat", r1)
+
+    // 2. isNotEmpty / isNotNullOrEmpty
+    let q2 = fsql { for p in products do where (isNotEmpty p.Category && isNotNullOrEmpty p.Name); select p.Name }
+    let sql2 = toRawSql q2
+    Assert.Contains("(Category IS NOT NULL AND Category <> '')", sql2)
+    let r2 = q2 |> Seq.toList
+    Assert.DoesNotContain("NullCat", r2)
+    Assert.DoesNotContain("EmptyCat", r2)
+    Assert.Contains("SpaceCat", r2)
+
+[<Fact>]
+let ``fsql builder methods isNotNull, isNotEmpty, isNotNullOrEmpty and conditional CASE WHEN projections work across dialects`` () =
+    use db = new TempSqliteDb()
+    use rawConn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path}")
+    rawConn.Open()
+    use insertCmd = rawConn.CreateCommand()
+    insertCmd.CommandText <- """
+    INSERT INTO Products (Id, Name, Price, Category, InStock) VALUES (201, 'NullCat', 12.00, NULL, 1);
+    INSERT INTO Products (Id, Name, Price, Category, InStock) VALUES (202, 'EmptyCat', 15.00, '', 1);
+    INSERT INTO Products (Id, Name, Price, Category, InStock) VALUES (203, 'SpaceCat', 18.00, '   ', 1);
+    """
+    insertCmd.ExecuteNonQuery() |> ignore
+
+    let conn = SqliteConnector(db.Path)
+    let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
+
+    // Builder method variants + Oracle dialect
+    let qBuilder =
+        fsql {
+            for p in products do
+            where (fsql.isNotNull p.Category && fsql.isNotEmpty p.Category && fsql.isNotNullOrEmpty p.Name)
+            select p.Name
+        }
+    Assert.Equal(6, qBuilder |> Seq.length)
+
+    let exprOracle = (qBuilder :> IQueryable).Expression
+    let oracleSql = (ExpressionPushdownTranslator.extractPlanFromExpression exprOracle "Products" [] SqlDialect.Oracle).BuildSql(SqlDialect.Oracle)
+    Assert.Contains("LENGTH(Category) > 0", oracleSql)
+
+    // Conditional CASE WHEN with isNull / isNotNull / isNotEmpty / isNotNullOrEmpty in SELECT projection
+    let qCase =
+        fsql {
+            for p in products do
+            select {|
+                Name = p.Name
+                CatStatus = if isNotEmpty p.Category then p.Category elif isNull p.Category then "Missing" else "Empty"
+                CoalescedCat = if isNotNull p.Category then p.Category else "DefaultCat"
+            |}
+        }
+    let sqlCase = toRawSql qCase
+    Assert.Contains("CASE WHEN", sqlCase)
+    Assert.Contains("COALESCE(Category, 'DefaultCat')", sqlCase)
+    Assert.Equal(8, qCase |> Seq.length)
+
+    // In-memory evaluation of isNotNull, isNotEmpty, isNotNullOrEmpty
+    Assert.True(isNotNull "abc")
+    Assert.False(isNotNull (null: string))
+    Assert.True(isNotEmpty "abc")
+    Assert.True(isNotEmpty 123)
+    Assert.False(isNotEmpty "")
+    Assert.False(isNotEmpty (null: string))
+    Assert.True(isNotNullOrEmpty "abc")
+    Assert.False(isNotNullOrEmpty "")
+    Assert.False(isNotNullOrEmpty (null: string))
+
+[<Fact>]
+let ``verify only requested methods isNotNull, isNotEmpty, and isNotNullOrEmpty exist and redundant operations are removed`` () =
+    let builderType = typeof<FSqlQueryBuilder>
+    let queryableType = typeof<SqlPushdownQueryable<TestProduct>>
+
+    // 1. Assert requested methods exist on builder
+    Assert.NotNull(builderType.GetMethod("isNotNull"))
+    Assert.NotNull(builderType.GetMethod("isNotEmpty"))
+    Assert.NotNull(builderType.GetMethod("isNotNullOrEmpty"))
+
+    // 2. Assert removed custom operations / builder methods do NOT exist
+    let disallowedBuilderMethods = [
+        "whereNotNull"
+        "whereNotEmpty"
+        "whereNotNullOrEmpty"
+        "whereIsNull"
+        "whereIsEmpty"
+        "whereNotNullOrWhiteSpace"
+        "notNull"
+        "notEmpty"
+        "notNullOrEmpty"
+    ]
+    for m in disallowedBuilderMethods do
+        Assert.Null(builderType.GetMethod(m))
+
+    // 3. Assert removed fluent methods on SqlPushdownQueryable do NOT exist
+    let disallowedQueryableMethods = [
+        "WhereNotNull"
+        "WhereNotEmpty"
+        "WhereNotNullOrEmpty"
+        "WhereIsNull"
+        "WhereIsEmpty"
+        "WhereNotNullOrWhiteSpace"
+        "NotNull"
+        "NotEmpty"
+        "NotNullOrEmpty"
+    ]
+    for m in disallowedQueryableMethods do
+        Assert.Null(queryableType.GetMethod(m))
+
+[<Fact>]
+let ``fsql where notExists filters entities without matching records`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let customers = SqlPushdownQueryable<TestCustomer>(conn, "Customers")
+    let orders = SqlPushdownQueryable<TestOrder>(conn, "Orders")
+
+    let customersWithoutOrders =
+        fsql {
+            for c in customers do
+            where (notExists (fsql { for o in orders do where (o.CustomerId = c.CustomerId) }))
+            select c.CustomerName
+        }
+        |> Seq.toList
+
+    Assert.Equal<string list>([ "Charlie" ], customersWithoutOrders)
+
+[<Fact>]
+let ``fsql where fsql.notExists method syntax filters entities without matching records`` () =
+    use db = new TempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let customers = SqlPushdownQueryable<TestCustomer>(conn, "Customers")
+    let orders = SqlPushdownQueryable<TestOrder>(conn, "Orders")
+
+    let customersWithoutOrders =
+        fsql {
+            for c in customers do
+            where (fsql.notExists (fsql { for o in orders do where (o.CustomerId = c.CustomerId) }))
+            select c.CustomerName
+        }
+        |> Seq.toList
+
+    Assert.Equal<string list>([ "Charlie" ], customersWithoutOrders)
+
+[<Fact>]
+let ``fsql jsonValue normalizes bare path to dollar prefix for SQL Server dialect`` () =
+    let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
+    let products = SqlPushdownQueryable<TestProduct>(dummyConn, "Products")
+
+    let q =
+        fsql {
+            for p in products do
+            where (fsql.jsonValue(p.Category, "type") = "Gadget")
+            select p.Name
+        }
+    let sql = toRawSql q
+    Assert.Contains("JSON_VALUE(Category, '$.type')", sql)
+
+[<Fact>]
+let ``fsql jsonValue preserves existing dollar prefix path without duplicate prefix`` () =
+    let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
+    let products = SqlPushdownQueryable<TestProduct>(dummyConn, "Products")
+
+    let q =
+        fsql {
+            for p in products do
+            where (fsql.jsonValue(p.Category, "$.wireless") = "true")
+            select p.Name
+        }
+    let sql = toRawSql q
+    Assert.Contains("JSON_VALUE(Category, '$.wireless')", sql)
+
+[<Fact>]
+let ``Oracle pushdown plan sanitizes aliases so no identifier starts with underscore`` () =
+    let dummyConn = OracleConnector("User Id=dummy;Password=dummy;Data Source=dummy;")
+    let customers = SqlPushdownQueryable<TestCustomer>(dummyConn, "CUSTOMERS")
+    let orders = SqlPushdownQueryable<TestOrder>(dummyConn, "ORDERS")
+
+    let q =
+        fsql {
+            for c in customers do
+            join o in orders on (c.CustomerId = o.CustomerId)
+            select {| Customer = c.CustomerName; OrderId = o.OrderId |}
+        }
+    let sql = toRawSql q
+    Assert.DoesNotContain(" _t0", sql)
+    Assert.DoesNotContain(" _t1", sql)
+    Assert.Contains(" t0", sql)
+    Assert.Contains(" t1", sql)
+
+[<Fact>]
+let ``OracleConnector PrepareSql strips leading underscore from unquoted aliases`` () =
+    let rawSql = "SELECT _t0.ID, _t1.NAME FROM CUSTOMERS _t0 JOIN ORDERS _t1 ON _t0.ID = _t1.CUST_ID"
+    let prepared = OracleConnector.PrepareSql(rawSql)
+    Assert.DoesNotContain("_t0", prepared)
+    Assert.DoesNotContain("_t1", prepared)
+    Assert.Contains("t0.ID", prepared)
+    Assert.Contains("t1.NAME", prepared)
+
+
+
 
 
 

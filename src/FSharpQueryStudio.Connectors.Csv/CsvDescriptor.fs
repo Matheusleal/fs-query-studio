@@ -67,13 +67,28 @@ type CsvEntityGenerator() =
             sb.AppendLine("        }") |> ignore
             sb.AppendLine() |> ignore
             sb.AppendLine("    type Data(conn: FSharpQueryStudio.Connectors.Connections.CsvConnection) =") |> ignore
-            sb.AppendLine("        let queryable = conn.Queryable<Row>()") |> ignore
+            sb.AppendLine("        let queryable = conn.PushdownQueryable<Row>()") |> ignore
             sb.AppendLine($"        new(name: string) = Data(FSharpQueryStudio.Connectors.Connections.getCsvConnection(name))") |> ignore
             sb.AppendLine($"        new() = Data(\"{connectionName}\")") |> ignore
-            sb.AppendLine("        member _.Rows : System.Linq.IQueryable<Row> = queryable") |> ignore
-            sb.AppendLine("        member _.Queryable : System.Linq.IQueryable<Row> = queryable") |> ignore
+            sb.AppendLine("        member _.Rows : System.Linq.IQueryable<Row> = queryable :> System.Linq.IQueryable<Row>") |> ignore
+            sb.AppendLine("        member _.Queryable : System.Linq.IQueryable<Row> = queryable :> System.Linq.IQueryable<Row>") |> ignore
+            sb.AppendLine("        member _.Plan = queryable.Plan") |> ignore
+            sb.AppendLine("        member _.Connector = (queryable :> FSharpQueryStudio.Connectors.ISqlPushdownQueryable).Connector") |> ignore
+            sb.AppendLine("        member _.Explain() : FSharpQueryStudio.Connectors.ExecutionPlanReport = queryable.Explain()") |> ignore
+            sb.AppendLine("        member _.rawQuery(sqlText: string, ?parameters: (string * obj) list) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.rawQuery(sqlText, ?parameters = parameters)") |> ignore
+            sb.AppendLine("        member _.rawQuery(sqlText: string) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.rawQuery(sqlText)") |> ignore
+            sb.AppendLine("        member _.query(sqlText: string, ?parameters: (string * obj) list) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.query(sqlText, ?parameters = parameters)") |> ignore
+            sb.AppendLine("        member _.Execute(sqlText: string, ?parameters: (string * obj) list) : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.Execute(sqlText, ?parameters = parameters)") |> ignore
             sb.AppendLine("        member _.Raw() : FSharpQueryStudio.Connectors.ConnectorQueryResult = conn.Raw()") |> ignore
             sb.AppendLine("        member _.Connection : FSharpQueryStudio.Connectors.Connections.CsvConnection = conn") |> ignore
+            let fileBaseName = CodeGenerationHelpers.cleanIdentifier (System.IO.Path.GetFileNameWithoutExtension(cc.FilePath))
+            let reservedCsvProps = set [ "Rows"; "Queryable"; "Plan"; "Connector"; "Explain"; "rawQuery"; "query"; "Execute"; "Raw"; "Connection"; "Data" ]
+            if not (String.IsNullOrWhiteSpace fileBaseName) && not (reservedCsvProps |> Set.exists (fun r -> String.Equals(r, fileBaseName, StringComparison.OrdinalIgnoreCase))) then
+                sb.AppendLine($"        member _.{CodeGenerationHelpers.escapeIdent fileBaseName} : FSharpQueryStudio.Connectors.SqlPushdownQueryable<Row> = queryable") |> ignore
+            sb.AppendLine("        interface FSharpQueryStudio.Connectors.ISqlPushdownQueryable with") |> ignore
+            sb.AppendLine("            member _.Plan = queryable.Plan") |> ignore
+            sb.AppendLine("            member _.Connector = (queryable :> FSharpQueryStudio.Connectors.ISqlPushdownQueryable).Connector") |> ignore
+            sb.AppendLine("            member _.Explain() = queryable.Explain()") |> ignore
             sb.AppendLine("        interface System.Linq.IQueryable<Row> with") |> ignore
             sb.AppendLine("            member _.ElementType = (queryable :> System.Linq.IQueryable).ElementType") |> ignore
             sb.AppendLine("            member _.Expression = (queryable :> System.Linq.IQueryable).Expression") |> ignore

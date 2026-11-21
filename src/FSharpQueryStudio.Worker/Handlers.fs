@@ -194,6 +194,51 @@ module Handlers =
                 None)
         |> Option.defaultValue (workspaceDir ())
 
+    let private cleanLeakedGlobalSampleConnections (globalWs: string) : ConnectionDefinition list =
+        let conns = Workspace.readConnections globalWs
+        let sampleNames = set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "ProductCatalog"; "LogisticsHub"; "GitHubFSharp" ]
+        let isLeakedSample (c: ConnectionDefinition) =
+            sampleNames.Contains c.Name && (
+                try
+                    let doc = JsonDocument.Parse(c.Configuration.GetRawText())
+                    let mutable fpProp = Unchecked.defaultof<JsonElement>
+                    if doc.RootElement.ValueKind = JsonValueKind.Object && doc.RootElement.TryGetProperty("filePath", &fpProp) && fpProp.ValueKind = JsonValueKind.String then
+                        let fp = fpProp.GetString()
+                        let fullFp = if Path.IsPathRooted fp then fp else Path.Combine(globalWs, fp)
+                        not (File.Exists fullFp) || not (fullFp.StartsWith(globalWs, StringComparison.OrdinalIgnoreCase))
+                    else
+                        false
+                with _ -> false
+            )
+        let leaked = conns |> List.filter isLeakedSample
+        if not (List.isEmpty leaked) then
+            let cleaned = conns |> List.filter (fun c -> not (isLeakedSample c))
+            Workspace.writeConnections globalWs cleaned
+            cleaned
+        else
+            conns
+
+    let private readEffectiveConnections (targetWs: string) (includeGlobalForTemp: bool) : ConnectionDefinition list =
+        let wsConns = Workspace.readConnections targetWs
+        let globalWs = workspaceDir ()
+        if targetWs <> globalWs then
+            let isTempTarget =
+                try
+                    let fullTarget = Path.GetFullPath(targetWs)
+                    let fullTemp = Path.GetFullPath(Path.GetTempPath())
+                    fullTarget.StartsWith(fullTemp, StringComparison.OrdinalIgnoreCase)
+                with _ -> false
+            if isTempTarget && workspaceDirOverride.IsNone && not includeGlobalForTemp then
+                wsConns
+            else
+                let globalConns = cleanLeakedGlobalSampleConnections globalWs
+                let localNames = wsConns |> List.map (fun c -> c.Name) |> Set.ofList
+                let localIds = wsConns |> List.map (fun c -> c.Id) |> Set.ofList
+                let filteredGlobal = globalConns |> List.filter (fun c -> not (Set.contains c.Name localNames) && not (Set.contains c.Id localIds))
+                wsConns @ filteredGlobal
+        else
+            cleanLeakedGlobalSampleConnections targetWs
+
     let ensureSampleFilesHealed (targetWs: string) (connections: ConnectionDefinition list) : unit =
         for def in connections do
             try
@@ -221,6 +266,11 @@ module Handlers =
                                     SampleDataGenerator.createSampleJsonFile fullFp
                                 elif String.Equals(def.Name, "LogisticsHub", StringComparison.OrdinalIgnoreCase) then
                                     SampleDataGenerator.createSampleXmlFile fullFp
+                            else
+                                if String.Equals(def.Name, "SampleStore", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.ensureSampleStoreIndexes fullFp
+                                elif String.Equals(def.Name, "InventoryStore", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.ensureInventoryIndexes fullFp
             with _ -> ()
 
     let runEvaluate (request: WorkerRequestFrame) (workDir: string) : WorkerResponseFrame =
@@ -235,10 +285,28 @@ module Handlers =
             let stopwatch = Stopwatch.StartNew()
 
             let targetWs = resolveWorkspaceForDocument evalParams.DocumentUri
-            let connections = Workspace.readConnections targetWs
+            let connections = readEffectiveConnections targetWs false
             ensureSampleFilesHealed targetWs connections
             Connections.configure (WorkspaceConnectionResolver(connections, secretStore, targetWs))
-            EntityBackgroundGenerator.ensureGenerated targetWs connections secretStore
+
+            let wsFile = Workspace.workspaceFilePath targetWs
+            let genFile = EntityBackgroundGenerator.generatedFilePath targetWs
+            let wsTimestamp = if File.Exists wsFile then File.GetLastWriteTimeUtc wsFile else DateTime.MinValue
+            let genTimestamp = if File.Exists genFile then File.GetLastWriteTimeUtc genFile else DateTime.MinValue
+
+            let isEntitiesVerified =
+                match verifiedWorkspaceEntities.TryGetValue(targetWs) with
+                | true, cached when cached.WorkspaceFileTimestamp = wsTimestamp
+                                    && cached.GeneratedFileTimestamp = genTimestamp
+                                    && genTimestamp <> DateTime.MinValue
+                                    && not (EntityBackgroundGenerator.needsSynchronousGeneration genFile connections) ->
+                    true
+                | _ -> false
+
+            if not isEntitiesVerified then
+                EntityBackgroundGenerator.ensureGenerated targetWs connections secretStore
+                let newGenTimestamp = if File.Exists genFile then File.GetLastWriteTimeUtc genFile else DateTime.MinValue
+                verifiedWorkspaceEntities.[targetWs] <- { WorkspaceFileTimestamp = wsTimestamp; GeneratedFileTimestamp = newGenTimestamp }
 
             let effectiveWorkDir =
                 if not (String.IsNullOrEmpty targetWs) && Directory.Exists targetWs then
@@ -378,9 +446,12 @@ module Handlers =
             try
                 Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
             with _ -> ()
-            GC.Collect()
-            GC.WaitForPendingFinalizers()
-            GC.Collect()
+            let currentMemory = GC.GetTotalMemory(false)
+            if currentMemory > 200_000_000L then
+                System.Runtime.GCSettings.LargeObjectHeapCompactionMode <- System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce
+                GC.Collect(2, GCCollectionMode.Forced, true, true)
+            else
+                GC.Collect(1, GCCollectionMode.Optimized)
 
 
     /// Convenience wrapper (reserve, then run, both synchronous) for
@@ -455,7 +526,7 @@ module Handlers =
                 // Both files exist and neither has been modified since our last verification.
                 ()
             | _ ->
-                let connections = Workspace.readConnections ws
+                let connections = readEffectiveConnections ws false
                 EntityBackgroundGenerator.ensureGenerated ws connections secretStore
                 let newGenTimestamp = if File.Exists genFile then File.GetLastWriteTimeUtc genFile else DateTime.MinValue
                 verifiedWorkspaceEntities.[ws] <- { WorkspaceFileTimestamp = wsTimestamp; GeneratedFileTimestamp = newGenTimestamp }
@@ -752,46 +823,13 @@ module Handlers =
           Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
           Error = None }
 
-    let private cleanLeakedGlobalSampleConnections (globalWs: string) : ConnectionDefinition list =
-        let conns = Workspace.readConnections globalWs
-        let sampleNames = set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "ProductCatalog"; "LogisticsHub"; "GitHubFSharp" ]
-        let isLeakedSample (c: ConnectionDefinition) =
-            sampleNames.Contains c.Name && (
-                try
-                    let doc = JsonDocument.Parse(c.Configuration.GetRawText())
-                    let mutable fpProp = Unchecked.defaultof<JsonElement>
-                    if doc.RootElement.ValueKind = JsonValueKind.Object && doc.RootElement.TryGetProperty("filePath", &fpProp) && fpProp.ValueKind = JsonValueKind.String then
-                        let fp = fpProp.GetString()
-                        let fullFp = if Path.IsPathRooted fp then fp else Path.Combine(globalWs, fp)
-                        not (File.Exists fullFp) || not (fullFp.StartsWith(globalWs, StringComparison.OrdinalIgnoreCase))
-                    else
-                        false
-                with _ -> false
-            )
-        let leaked = conns |> List.filter isLeakedSample
-        if not (List.isEmpty leaked) then
-            let cleaned = conns |> List.filter (fun c -> not (isLeakedSample c))
-            Workspace.writeConnections globalWs cleaned
-            cleaned
-        else
-            conns
-
     /// `connection/list` — the read-only companion to `connection/register` /
     /// `connection/remove` (F5). Neither of those returns the registry without
     /// mutating it, and the extension's connections TreeView needs the list on
     /// notebook/view open. A thin projection of `Workspace.readConnections`.
     let handleConnectionList (request: WorkerRequestFrame) : WorkerResponseFrame =
         let targetWs = tryGetWorkspaceDir request.Params
-        let connections =
-            let wsConns = Workspace.readConnections targetWs
-            if targetWs <> (workspaceDir ()) then
-                let globalConns = cleanLeakedGlobalSampleConnections (workspaceDir ())
-                let localNames = wsConns |> List.map (fun c -> c.Name) |> Set.ofList
-                let localIds = wsConns |> List.map (fun c -> c.Id) |> Set.ofList
-                let filteredGlobal = globalConns |> List.filter (fun c -> not (Set.contains c.Name localNames) && not (Set.contains c.Id localIds))
-                wsConns @ filteredGlobal
-            else
-                cleanLeakedGlobalSampleConnections targetWs
+        let connections = readEffectiveConnections targetWs true
 
         { Id = request.Id
           Result = Some(JsonSerializer.SerializeToElement({| connections = connections |}, Serialization.options))
@@ -1038,7 +1076,7 @@ module Handlers =
         task {
             try
                 let targetDir = tryGetWorkspaceDir request.Params
-                let connections = Workspace.readConnections targetDir
+                let connections = readEffectiveConnections targetDir false
                 let! summary = Connections.syncDataSources targetDir connections secretStore
                 EntityBackgroundGenerator.triggerBackgroundGeneration targetDir connections secretStore
                 let result : SyncDataSourcesResult =
@@ -1097,6 +1135,28 @@ module Handlers =
 
             | "connection/register" -> return handleConnectionRegister request
             | "connection/remove" -> return handleConnectionRemove request
+            | "connection/refresh" | "workspace/refreshEntities" ->
+                Connections.clearSchemaCache ()
+                EntityBackgroundGenerator.resetCache ()
+                verifiedWorkspaceEntities.Clear ()
+                let defaultDir = Directory.GetCurrentDirectory()
+                let targetWs =
+                    try
+                        let doc = JsonDocument.Parse(request.Params.GetRawText())
+                        let root = doc.RootElement
+                        let mutable prop = Unchecked.defaultof<JsonElement>
+                        if root.TryGetProperty("workspaceDir", &prop) || root.TryGetProperty("workspaceDirectory", &prop) || root.TryGetProperty("targetDir", &prop) then
+                            prop.GetString()
+                        else defaultDir
+                    with _ -> defaultDir
+                if not (String.IsNullOrEmpty targetWs) && Directory.Exists targetWs then
+                    let connections = readEffectiveConnections targetWs false
+                    try
+                        (EntityBackgroundGenerator.generateForConnectionsAsync targetWs connections secretStore).GetAwaiter().GetResult() |> ignore
+                    with ex ->
+                        Log.Warning("FS Query Studio: Forced entity regeneration failed: {Error}", ex.Message)
+                SessionStore.resetAll ()
+                return { Id = request.Id; Result = Some(JsonSerializer.SerializeToElement({| ok = true |}, Serialization.options)); Error = None }
             | "connection/schema" -> return! handleConnectionSchema request
             | "workspace/createSampleData" -> return handleCreateSampleData request
             | "workspace/createAdvancedSamples" -> return handleCreateAdvancedSamples request

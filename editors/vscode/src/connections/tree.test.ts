@@ -106,4 +106,70 @@ describe("ConnectionsTreeProvider", () => {
     const coreTables = await p.getChildren(coreSchema);
     expect(coreTables.map((n) => (n.t === "table" ? n.displayName : n.t))).toEqual(["users", "tenants"]);
   });
+
+  it("maps multiple databases and nested schemas into a hierarchical tree structure", async () => {
+    const send = vi.fn(async (req: { id: string; method: string; params: unknown }) => {
+      if (req.method === "connection/schema") {
+        return {
+          id: req.id,
+          result: {
+            tables: [
+              { name: "EcommerceDb.Customers", columns: [{ name: "Id", dataType: "int" }, { name: "Email", dataType: "nvarchar" }] },
+              { name: "EcommerceDb.sales.Invoices", columns: [{ name: "InvoiceId", dataType: "int" }] },
+              { name: "AnalyticsDb.Events", columns: [{ name: "EventId", dataType: "bigint" }] },
+            ],
+          },
+        };
+      }
+      return { id: req.id, result: { connections: [] } };
+    });
+    const { p } = provider(send);
+    const connectionNode = { t: "connection" as const, def: conn("1", "ServerCluster") };
+    const dbNodes = await p.getChildren(connectionNode);
+
+    expect(dbNodes.map((n) => (n.t === "schema" ? n.schemaName : n.t))).toEqual(["AnalyticsDb", "EcommerceDb"]);
+
+    const ecommerceChildren = await p.getChildren(dbNodes[1]);
+    expect(ecommerceChildren.map((n) => (n.t === "schema" ? `schema:${n.schemaName}` : n.t === "table" ? `table:${n.displayName}` : n.t))).toEqual([
+      "schema:sales",
+      "table:Customers",
+    ]);
+
+    const salesSchemaTables = await p.getChildren(ecommerceChildren[0]);
+    expect(salesSchemaTables.map((n) => (n.t === "table" ? n.displayName : n.t))).toEqual(["Invoices"]);
+
+    const invoiceCols = await p.getChildren(salesSchemaTables[0]);
+    expect(invoiceCols.map((n) => (n.t === "column" ? `${n.column.name}:${n.column.dataType}` : n.t))).toEqual([
+      "InvoiceId:int",
+    ]);
+  });
+
+  it("maps multiple databases with default-schema tables into database folder nodes and table children", async () => {
+    const send = vi.fn(async (req: { id: string; method: string; params: unknown }) => {
+      if (req.method === "connection/schema") {
+        return {
+          id: req.id,
+          result: {
+            tables: [
+              { name: "fsqs_demo.categories", columns: [{ name: "id", dataType: "int" }] },
+              { name: "fsqs_demo.products", columns: [{ name: "id", dataType: "int" }, { name: "name", dataType: "varchar" }] },
+              { name: "warehouse_db.stock_levels", columns: [{ name: "sku", dataType: "varchar" }] },
+            ],
+          },
+        };
+      }
+      return { id: req.id, result: { connections: [] } };
+    });
+    const { p } = provider(send);
+    const connectionNode = { t: "connection" as const, def: conn("2", "PgServer") };
+    const dbNodes = await p.getChildren(connectionNode);
+
+    expect(dbNodes.map((n) => (n.t === "schema" ? n.schemaName : n.t))).toEqual(["fsqs_demo", "warehouse_db"]);
+
+    const demoTables = await p.getChildren(dbNodes[0]);
+    expect(demoTables.map((n) => (n.t === "table" ? n.displayName : n.t))).toEqual(["categories", "products"]);
+
+    const whTables = await p.getChildren(dbNodes[1]);
+    expect(whTables.map((n) => (n.t === "table" ? n.displayName : n.t))).toEqual(["stock_levels"]);
+  });
 });

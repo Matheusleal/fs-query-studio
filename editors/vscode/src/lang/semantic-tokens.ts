@@ -47,6 +47,7 @@ export const QUERY_KEYWORDS = new Set([
   "except",
   "fullOuterJoin",
   "rightOuterJoin",
+  "leftOuterJoin",
   "crossJoin",
   "partitionBy",
 ]);
