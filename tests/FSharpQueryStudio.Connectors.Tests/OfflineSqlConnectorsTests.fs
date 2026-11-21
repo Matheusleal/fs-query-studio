@@ -471,6 +471,7 @@ let private testSqlDescriptor
 
     let dummyStore = { new FSharpQueryStudio.Security.ISecretStore with
         member _.TryRead(_) = Some "resolvedPass"
+        member _.TryReadAsync(_, _) = System.Threading.Tasks.Task.FromResult(Some "resolvedPass")
         member _.Save _ _ = ()
         member _.Delete _ = ()
     }

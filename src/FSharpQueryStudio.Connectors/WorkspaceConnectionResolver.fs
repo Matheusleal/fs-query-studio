@@ -1,5 +1,7 @@
 namespace FSharpQueryStudio.Connectors
 
+open System.Threading
+open System.Threading.Tasks
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Security
 
@@ -30,11 +32,23 @@ type WorkspaceConnectionResolver(connections: ConnectionDefinition list, secretS
     /// The registered connection definitions known to this resolver.
     member _.Connections = connections
 
+    member this.ResolveAsync(name: string, ?cancellationToken: CancellationToken) : Task<IConnector> =
+        let ct = defaultArg cancellationToken CancellationToken.None
+        task {
+            ct.ThrowIfCancellationRequested()
+            match connections |> List.tryFindBack (fun c -> System.String.Equals(c.Name, name, System.StringComparison.OrdinalIgnoreCase)) with
+            | Some definition -> return build definition
+            | None -> return failwith $"No connection named '{name}' is registered."
+        }
+
     interface IConnectionResolver with
         member _.Resolve(name: string) : IConnector =
             match connections |> List.tryFindBack (fun c -> System.String.Equals(c.Name, name, System.StringComparison.OrdinalIgnoreCase)) with
             | Some definition -> build definition
             | None -> failwith $"No connection named '{name}' is registered."
+
+        member this.ResolveAsync(name: string, cancellationToken: CancellationToken) : Task<IConnector> =
+            this.ResolveAsync(name, cancellationToken)
 
     interface IWorkspaceAwareResolver with
         member _.BaseDirectory = baseDirectory

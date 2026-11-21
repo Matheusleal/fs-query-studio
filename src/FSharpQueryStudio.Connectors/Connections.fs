@@ -18,6 +18,7 @@ open Microsoft.FSharp.Reflection
 /// Resolves a named, configured connection to its live connector instance.
 type IConnectionResolver =
     abstract Resolve: name: string -> IConnector
+    abstract ResolveAsync: name: string * cancellationToken: CancellationToken -> Task<IConnector>
 
 /// Optional interface implemented by resolvers that know their project root folder.
 type IWorkspaceAwareResolver =

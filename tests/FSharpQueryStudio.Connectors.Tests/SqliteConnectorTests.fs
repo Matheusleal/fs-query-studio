@@ -127,3 +127,69 @@ let ``ExecuteQuery rows sequence can be enumerated multiple times without throwi
         |> Seq.toList
     Assert.Equal<int list>([ 1; 2 ], streamResult)
 
+[<Fact>]
+let ``ExecuteQuery executes query only once on first enumeration without duplicate execution`` () =
+    use file = new TempSqliteFile()
+    use connection = new SqliteConnection(SqliteConnectionStringBuilder(DataSource = file.Path).ToString())
+    connection.Open()
+    use create = connection.CreateCommand()
+    create.CommandText <- "create table ExecAudit (Id integer primary key autoincrement, Val text)"
+    create.ExecuteNonQuery() |> ignore
+    SqliteConnection.ClearAllPools()
+
+    let connector = SqliteConnector(file.Path)
+    let result =
+        connector.ExecuteQuery
+            "insert into ExecAudit (Val) values ('hit') returning Id, Val"
+            []
+
+    Assert.Equal<string list>([ "Id"; "Val" ], result.Columns)
+
+    // Primeira enumeração dos rows deve consumir o leitor inicial já aberto sem re-executar a query
+    let rowsFirst = result.Rows |> Seq.toArray
+    Assert.Equal(1, rowsFirst.Length)
+    Assert.Equal(box 1L, rowsFirst.[0].[0])
+    Assert.Equal(box "hit", rowsFirst.[0].[1])
+
+    // Verifica no banco que a query rodou exatamente 1 vez
+    use verifyConn = new SqliteConnection(SqliteConnectionStringBuilder(DataSource = file.Path).ToString())
+    verifyConn.Open()
+    use countCmd = verifyConn.CreateCommand()
+    countCmd.CommandText <- "select count(*) from ExecAudit"
+    let totalExecutions = Convert.ToInt32(countCmd.ExecuteScalar())
+    Assert.Equal(1, totalExecutions)
+
+[<Fact>]
+let ``ExecuteQuery supports multiple re-enumerations of Rows returning identical data without error`` () =
+    use file = new TempSqliteFile()
+    let connector = SqliteConnector(file.Path)
+
+    let result = connector.ExecuteQuery "select 1 as A, 2 as B union all select 3, 4" []
+
+    Assert.Equal<string list>([ "A"; "B" ], result.Columns)
+
+    // Iteração 1 (usa firstRun)
+    let firstPass = result.Rows |> Seq.toArray
+    Assert.Equal(2, firstPass.Length)
+    Assert.Equal<obj list>([ box 1L; box 2L ], firstPass.[0] |> Array.toList)
+    Assert.Equal<obj list>([ box 3L; box 4L ], firstPass.[1] |> Array.toList)
+
+    // Iteração 2 (re-executa nova conexão em None)
+    let secondPass = result.Rows |> Seq.toArray
+    Assert.Equal(2, secondPass.Length)
+    Assert.Equal<obj list>([ box 1L; box 2L ], secondPass.[0] |> Array.toList)
+    Assert.Equal<obj list>([ box 3L; box 4L ], secondPass.[1] |> Array.toList)
+
+    // Iteração 3 (garante estabilidade em múltiplas re-enumerações)
+    let thirdPass = result.Rows |> Seq.map (fun r -> r.[0]) |> Seq.toList
+    Assert.Equal<obj list>([ box 1L; box 3L ], thirdPass)
+
+[<Fact>]
+let ``ExecuteQuery with zero fieldCount immediately disposes and returns empty rows`` () =
+    use file = new TempSqliteFile()
+    let connector = SqliteConnector(file.Path)
+    let result = connector.ExecuteQuery "create table EmptyTest (Id int)" []
+    Assert.Empty(result.Columns)
+    Assert.Empty(result.Rows)
+
+

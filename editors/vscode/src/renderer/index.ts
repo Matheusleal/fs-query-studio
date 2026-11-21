@@ -77,8 +77,26 @@ const STYLE = `
   border: 1px solid var(--vscode-inputValidation-warningBorder, var(--fsq-border)); }
 `;
 
+export const STYLE_ID = "fsq-grid-style";
+
+function ensureStyles(targetDocument: Document = document): void {
+  if (!targetDocument || typeof targetDocument.getElementById !== "function") {
+    return;
+  }
+  if (!targetDocument.getElementById(STYLE_ID)) {
+    const style = targetDocument.createElement("style");
+    style.id = STYLE_ID;
+    style.textContent = STYLE;
+    const parent = targetDocument.head || targetDocument.body || targetDocument.documentElement;
+    if (parent) {
+      parent.appendChild(style);
+    }
+  }
+}
+
 interface Grid {
   id: string;
+  abortController: AbortController;
   payload: TablePayload;
   rows: unknown[][];
   token: string | null;
@@ -236,9 +254,7 @@ export function activate(context: RendererContextLike): {
     const payload = item.json() as TablePayload;
     element.textContent = "";
 
-    const style = document.createElement("style");
-    style.textContent = STYLE;
-    element.appendChild(style);
+    ensureStyles(element.ownerDocument || document);
 
     const root = document.createElement("div");
     root.className = "fsq-grid";
@@ -339,8 +355,12 @@ export function activate(context: RendererContextLike): {
       notice.hidden = false;
     }
 
+    const abortController = new AbortController();
+    const { signal } = abortController;
+
     const grid: Grid = {
       id: item.id,
+      abortController,
       payload,
       rows: payload.rows.slice(),
       token: payload.continuationToken,
@@ -354,15 +374,15 @@ export function activate(context: RendererContextLike): {
 
     count.textContent = countLabel(grid.rows.length, materializedTruncated);
     dataBtn.classList.add("active");
-    dataBtn.addEventListener("click", () => setView(grid, "data"));
-    schemaBtn.addEventListener("click", () => setView(grid, "schema"));
+    dataBtn.addEventListener("click", () => setView(grid, "data"), { signal });
+    schemaBtn.addEventListener("click", () => setView(grid, "schema"), { signal });
     exportBtn.addEventListener("click", () => {
       context.postMessage?.({
         type: "exportCsv",
         outputId: grid.id,
         documentUri: grid.payload.documentUri,
       });
-    });
+    }, { signal });
     loadMore.addEventListener("click", () => {
       if (!grid.token) {
         return;
@@ -374,11 +394,11 @@ export function activate(context: RendererContextLike): {
         documentUri: grid.payload.documentUri,
         token: grid.token,
       });
-    });
+    }, { signal });
 
     viewport.addEventListener("scroll", () => {
       raf(() => renderWindow(grid));
-    });
+    }, { signal });
 
     renderWindow(grid);
     return grid;
@@ -386,10 +406,18 @@ export function activate(context: RendererContextLike): {
 
   return {
     renderOutputItem(item, element) {
+      const existing = grids.get(item.id);
+      if (existing) {
+        existing.abortController.abort();
+      }
       grids.set(item.id, build(item, element));
     },
     disposeOutputItem(id) {
-      grids.delete(id);
+      const grid = grids.get(id);
+      if (grid) {
+        grid.abortController.abort();
+        grids.delete(id);
+      }
     },
   };
 }

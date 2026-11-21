@@ -70,9 +70,9 @@ describe("Results Grid UI Elements & Interactivity", () => {
       expect(grid?.contains(panel)).toBe(true);
     });
 
-    it("injects component stylesheet into element", () => {
+    it("injects component stylesheet into document", () => {
       host.renderOutputItem(createItem("out-1", samplePayload()), container);
-      const style = container.querySelector("style");
+      const style = container.querySelector("style") ?? document.getElementById("fsq-grid-style");
       expect(style).toBeTruthy();
       expect(style?.textContent).toContain(".fsq-grid");
       expect(style?.textContent).toContain(".fsq-toolbar");
@@ -222,7 +222,7 @@ describe("Results Grid UI Elements & Interactivity", () => {
     it("ensures .fsq-head has sticky positioning, high z-index, and solid background to prevent bleed-through", () => {
       host.renderOutputItem(createItem("out-1", samplePayload()), container);
 
-      const style = container.querySelector("style")?.textContent ?? "";
+      const style = (document.getElementById("fsq-grid-style") ?? container.querySelector("style"))?.textContent ?? "";
       expect(style).toContain(".fsq-head");
       expect(style).toContain("position: sticky");
       expect(style).toContain("z-index: 10");

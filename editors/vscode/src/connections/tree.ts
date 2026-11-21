@@ -10,12 +10,13 @@ import {
   type WorkerResponseFrame,
 } from "../protocol";
 import type { SchemaCache } from "./schema-cache";
+import { ConnectionHealthService, type ConnectionStatus } from "./health";
+
+export { ConnectionStatus } from "./health";
 
 export type WorkerLike = {
   send(req: { id: string; method: string; params: unknown }): Promise<WorkerResponseFrame>;
 };
-
-export type ConnectionStatus = "connected" | "disconnected" | "connecting";
 
 export type ConnNode =
   | { t: "connection"; def: ConnectionDefinition }
@@ -32,27 +33,46 @@ export interface ConnectionsTreeDeps {
   extensionUri?: vscode.Uri;
   retryDelayMs?: number;
   notify?: (type: "warning" | "error" | "info", message: string) => void;
+  healthService?: ConnectionHealthService;
 }
 
 export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode> {
   private readonly changed = new vscode.EventEmitter<ConnNode | void>();
   readonly onDidChangeTreeData = this.changed.event;
 
-  private readonly connectionStatus = new Map<string, ConnectionStatus>();
-  private readonly retryCounts = new Map<string, number>();
-  private readonly retryTimers = new Map<string, NodeJS.Timeout>();
+  readonly healthService: ConnectionHealthService;
   private readonly connNodes = new Map<string, ConnNode>();
+  private readonly disposables: vscode.Disposable[] = [];
   private lastSchemaError: string | undefined;
 
-  constructor(private readonly deps: ConnectionsTreeDeps) { }
+  constructor(private readonly deps: ConnectionsTreeDeps) {
+    this.healthService =
+      deps.healthService ??
+      new ConnectionHealthService({
+        retryDelayMs: deps.retryDelayMs,
+        log: deps.log,
+      });
+
+    this.disposables.push(
+      this.healthService.onStatusChanged(({ id }) => {
+        this.fireNodeChanged(id);
+      }),
+      this.healthService.onNotify(({ type, message }) => {
+        this.notify(type, message);
+      }),
+    );
+  }
 
   getConnectionStatus(id: string): ConnectionStatus {
-    return this.connectionStatus.get(id) ?? "connecting";
+    return this.healthService.getConnectionStatus(id);
   }
 
   setConnectionStatus(id: string, status: ConnectionStatus): void {
-    this.connectionStatus.set(id, status);
-    this.fireNodeChanged(id);
+    this.healthService.setConnectionStatus(id, status);
+  }
+
+  cancelRetries(connId: string): void {
+    this.healthService.cancelRetries(connId);
   }
 
   private fireNodeChanged(id?: string): void {
@@ -69,21 +89,16 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
   }
 
   refresh(): void {
-    for (const timer of this.retryTimers.values()) {
-      clearTimeout(timer);
-    }
-    this.retryTimers.clear();
-    this.retryCounts.clear();
-    this.connectionStatus.clear();
+    this.healthService.clear();
     this.connNodes.clear();
     this.changed.fire();
   }
 
   dispose(): void {
-    for (const timer of this.retryTimers.values()) {
-      clearTimeout(timer);
+    this.healthService.dispose();
+    for (const d of this.disposables) {
+      d.dispose();
     }
-    this.retryTimers.clear();
     this.changed.dispose();
   }
 
@@ -205,66 +220,18 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
   ): Promise<SchemaTable[] | undefined> {
     const existing = this.deps.schemaCache.get(def.id);
     if (existing !== undefined) {
-      this.connectionStatus.set(def.id, "connected");
-      this.retryCounts.delete(def.id);
-      this.fireNodeChanged(def.id);
+      this.healthService.setConnectionStatus(def.id, "connected");
+      this.healthService.cancelRetries(def.id);
       return existing;
     }
 
-    this.connectionStatus.set(def.id, "connecting");
-    this.fireNodeChanged(def.id);
-
-    const tables = await this.fetchSchema(def);
-    if (tables !== undefined) {
-      const hadPreviousRetries = (this.retryCounts.get(def.id) ?? 0) > 0;
-      this.connectionStatus.set(def.id, "connected");
-      this.retryCounts.delete(def.id);
-      const activeTimer = this.retryTimers.get(def.id);
-      if (activeTimer) {
-        clearTimeout(activeTimer);
-        this.retryTimers.delete(def.id);
-      }
-      if (hadPreviousRetries) {
-        const isPt = vscode.env?.language?.startsWith("pt");
-        const msg = isPt
-          ? `Conexão com '${def.name}' estabelecida com sucesso.`
-          : `Connection to '${def.name}' established successfully.`;
-        this.notify("info", msg);
-      }
-      this.fireNodeChanged(def.id);
-      return tables;
-    }
-
-    const currentAttempt = (this.retryCounts.get(def.id) ?? 0) + 1;
-    const isPt = vscode.env?.language?.startsWith("pt");
-    const errMsg = this.lastSchemaError ?? "Connection error";
-
-    if (currentAttempt <= maxRetries) {
-      this.retryCounts.set(def.id, currentAttempt);
-      this.connectionStatus.set(def.id, "connecting");
-      const warnMsg = isPt
-        ? `A conexão com '${def.name}' não foi estabelecida (${errMsg}). Tentando reconectar (tentativa ${currentAttempt} de ${maxRetries})...`
-        : `Connection to '${def.name}' could not be established (${errMsg}). Retrying (attempt ${currentAttempt} of ${maxRetries})...`;
-      this.notify("warning", warnMsg);
-      this.fireNodeChanged(def.id);
-
-      const delay = this.deps.retryDelayMs ?? 3000;
-      const timer = setTimeout(() => {
-        this.retryTimers.delete(def.id);
-        void this.checkConnectionWithRetry(def, maxRetries);
-      }, delay);
-      this.retryTimers.set(def.id, timer);
-      return undefined;
-    } else {
-      this.retryCounts.delete(def.id);
-      this.connectionStatus.set(def.id, "disconnected");
-      const failMsg = isPt
-        ? `Não foi possível estabelecer conexão com '${def.name}' após ${maxRetries} tentativas. Verifique se o serviço está em execução.`
-        : `Could not establish connection to '${def.name}' after ${maxRetries} attempts. Please verify if the database service is running.`;
-      this.notify("error", failMsg);
-      this.fireNodeChanged(def.id);
-      return undefined;
-    }
+    return this.healthService.checkWithRetry({
+      connId: def.id,
+      connName: def.name,
+      maxRetries,
+      checkFn: () => this.fetchSchema(def),
+      getErrorMessage: () => this.lastSchemaError,
+    });
   }
 
   private async listConnections(): Promise<ConnNode[]> {
@@ -287,7 +254,7 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
         this.connNodes.set(def.id, node);
         nodes.push(node);
         if (this.deps.schemaCache.get(def.id)) {
-          this.connectionStatus.set(def.id, "connected");
+          this.healthService.setConnectionStatus(def.id, "connected");
         }
       }
 
@@ -312,11 +279,9 @@ export class ConnectionsTreeProvider implements vscode.TreeDataProvider<ConnNode
     if (tables === undefined) {
       tables = await this.fetchSchema(def);
       if (tables !== undefined) {
-        this.connectionStatus.set(def.id, "connected");
-        this.fireNodeChanged(def.id);
+        this.healthService.setConnectionStatus(def.id, "connected");
       } else {
-        this.connectionStatus.set(def.id, "disconnected");
-        this.fireNodeChanged(def.id);
+        this.healthService.setConnectionStatus(def.id, "disconnected");
       }
     }
     if (tables === undefined) {

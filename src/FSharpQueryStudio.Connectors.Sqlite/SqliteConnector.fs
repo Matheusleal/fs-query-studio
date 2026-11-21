@@ -68,60 +68,79 @@ type SqliteConnector(filePath: string) =
         let initialConn = new SqliteConnection(connectionString)
         initialConn.Open()
         let mutable attachedStaged = false
-        let initialCmd = initialConn.CreateCommand()
-        initialCmd.CommandText <- sql
-        SqliteConnector.BindParameters(initialCmd, parameters)
+        let mutable activeCmd = initialConn.CreateCommand()
+        activeCmd.CommandText <- sql
+        SqliteConnector.BindParameters(activeCmd, parameters)
         let initialReader =
             try
-                initialCmd.ExecuteReader(CommandBehavior.CloseConnection)
+                activeCmd.ExecuteReader(CommandBehavior.CloseConnection)
             with
             | :? SqliteException as ex when ex.Message.IndexOf("no such table", StringComparison.OrdinalIgnoreCase) >= 0 ->
-                initialCmd.Dispose()
+                activeCmd.Dispose()
                 if tryEnsureAndAttachStagedEngine initialConn then
                     attachedStaged <- true
                     let retryCmd = initialConn.CreateCommand()
                     retryCmd.CommandText <- sql
                     SqliteConnector.BindParameters(retryCmd, parameters)
+                    activeCmd <- retryCmd
                     retryCmd.ExecuteReader(CommandBehavior.CloseConnection)
                 else
                     initialConn.Dispose()
                     reraise ()
             | _ ->
-                initialCmd.Dispose()
+                activeCmd.Dispose()
                 initialConn.Dispose()
                 reraise ()
         let columns = [ for i in 0 .. initialReader.FieldCount - 1 -> initialReader.GetName(i) ]
         let fieldCount = initialReader.FieldCount
-        initialReader.Dispose()
-        initialCmd.Dispose()
-        initialConn.Dispose()
 
         let rows =
             if fieldCount = 0 then
+                initialReader.Dispose()
+                activeCmd.Dispose()
+                initialConn.Dispose()
                 Seq.empty
             else
+                let firstRunLock = obj ()
+                let mutable firstRun = Some (initialConn, activeCmd, initialReader)
                 Seq.delay (fun () ->
-                    let conn = new SqliteConnection(connectionString)
-                    conn.Open()
-                    if attachedStaged then
-                        tryEnsureAndAttachStagedEngine conn |> ignore
-                    let cmd = conn.CreateCommand()
-                    cmd.CommandText <- sql
-                    SqliteConnector.BindParameters(cmd, parameters)
-                    let reader =
-                        try
-                            cmd.ExecuteReader(CommandBehavior.CloseConnection)
-                        with
-                        | :? SqliteException as ex when not attachedStaged && ex.Message.IndexOf("no such table", StringComparison.OrdinalIgnoreCase) >= 0 ->
-                            cmd.Dispose()
-                            if tryEnsureAndAttachStagedEngine conn then
-                                let retryCmd = conn.CreateCommand()
-                                retryCmd.CommandText <- sql
-                                SqliteConnector.BindParameters(retryCmd, parameters)
-                                retryCmd.ExecuteReader(CommandBehavior.CloseConnection)
-                            else
-                                conn.Dispose()
-                                reraise ()
+                    let conn, cmd, reader =
+                        let existing =
+                            lock firstRunLock (fun () ->
+                                match firstRun with
+                                | Some state ->
+                                    firstRun <- None
+                                    Some state
+                                | None -> None)
+                        match existing with
+                        | Some (c, cm, r) -> c, cm, r
+                        | None ->
+                            let conn = new SqliteConnection(connectionString)
+                            conn.Open()
+                            if attachedStaged then
+                                tryEnsureAndAttachStagedEngine conn |> ignore
+                            let cmd = conn.CreateCommand()
+                            cmd.CommandText <- sql
+                            SqliteConnector.BindParameters(cmd, parameters)
+                            let reader =
+                                try
+                                    cmd.ExecuteReader(CommandBehavior.CloseConnection)
+                                with
+                                | :? SqliteException as ex when not attachedStaged && ex.Message.IndexOf("no such table", StringComparison.OrdinalIgnoreCase) >= 0 ->
+                                    cmd.Dispose()
+                                    if tryEnsureAndAttachStagedEngine conn then
+                                        let retryCmd = conn.CreateCommand()
+                                        retryCmd.CommandText <- sql
+                                        SqliteConnector.BindParameters(retryCmd, parameters)
+                                        retryCmd.ExecuteReader(CommandBehavior.CloseConnection)
+                                    else
+                                        conn.Dispose()
+                                        reraise ()
+                                | _ ->
+                                    cmd.Dispose()
+                                    conn.Dispose()
+                                    reraise ()
+                            conn, cmd, reader
                     seq {
                         use _c = conn
                         use _cmd = cmd

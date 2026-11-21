@@ -32,6 +32,8 @@ type private FakeQueryableConnector(rows: obj array list) =
 type private FakeResolver(connector: IConnector) =
     interface IConnectionResolver with
         member _.Resolve(_name: string) = connector
+        member this.ResolveAsync(_name: string, _ct: System.Threading.CancellationToken) =
+            System.Threading.Tasks.Task.FromResult(connector)
 
 [<Fact>]
 let ``Connections.sql logs one event with Kind, ElapsedMs, and RowCount, and never the parameter values`` () =

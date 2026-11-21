@@ -15,6 +15,9 @@ import { getWorkerSession, disposeWorkerSession } from "./worker/session";
 import { registerLanguageFeatures } from "./lang/providers";
 import { registerConnectionFeatures, type ConnectionsApi } from "./connections/commands";
 import { registerSecretBridge, type StagingProgressEvent } from "./secrets/bridge";
+import { registerSampleDataCommands } from "./commands/sample-data";
+import { DataSourcesWatcher } from "./services/data-sources-watcher";
+import { BackgroundOrchestrator } from "./services/background-orchestrator";
 
 export interface HealthCheckDeps {
   extensionRoot: string;
@@ -268,271 +271,38 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     }
   };
 
-  let resetSyncStatusTimer: NodeJS.Timeout | undefined;
-  const runSyncDataSources = async (targetDir?: string, silent = false): Promise<void> => {
-    try {
-      if (resetSyncStatusTimer) {
-        clearTimeout(resetSyncStatusTimer);
-        resetSyncStatusTimer = undefined;
-      }
-      statusBar.text = "$(sync~spin) Syncing data sources...";
-      statusBar.tooltip = "F# Query Studio: Pre-staging CSV and Excel data into SQLite cache...";
-      statusBar.show();
-
-      const worker = await getWorker();
-      const res = await worker.send({
-        id: randomUUID(),
-        method: "workspace/syncDataSources",
-        params: { targetDir },
-      });
-
-      if (res.error) {
-        log(`[Workspace] Sync data sources failed: ${res.error.message}`);
-        statusBar.text = "$(error) Data sync failed";
-        statusBar.tooltip = `F# Query Studio: Data sources sync failed: ${res.error.message}`;
-        resetSyncStatusTimer = setTimeout(() => {
-          statusBar.text = "$(database) F# Query Studio";
-          statusBar.tooltip = "F# Query Studio: Show Output Logs";
-        }, 5000);
-        if (!silent) {
-          void vscode.window.showErrorMessage(`Data sources sync failed: ${res.error.message}`);
-        }
-        return;
-      }
-
-      const summary = res.result as {
-        targetDir: string;
-        stagedCount: number;
-        skippedCount: number;
-        total: number;
-        elapsedMs: number;
-      };
-
-      log(
-        `[Workspace] Data sources synced: ${summary.stagedCount} staged, ${summary.skippedCount} up-to-date (total ${summary.total}) in ${summary.elapsedMs}ms`,
-      );
-
-      statusBar.text = "$(database) Data sources ready";
-      statusBar.tooltip = `F# Query Studio: ${summary.total} sources synced (${summary.stagedCount} new/updated, ${summary.skippedCount} cached) in ${summary.elapsedMs}ms`;
-      resetSyncStatusTimer = setTimeout(() => {
-        statusBar.text = "$(database) F# Query Studio";
-        statusBar.tooltip = "F# Query Studio: Show Output Logs";
-      }, 4000);
-
-      if (!silent) {
-        const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
-        const msg = isPt
-          ? `Sincronização concluída: ${summary.stagedCount} arquivo(s) carregados, ${summary.skippedCount} já atualizados em cache (${summary.elapsedMs}ms).`
-          : `Sync completed: ${summary.stagedCount} file(s) staged, ${summary.skippedCount} up-to-date in disk cache (${summary.elapsedMs}ms).`;
-        void vscode.window.showInformationMessage(msg);
-      }
-    } catch (err) {
-      const msg = (err as Error).message;
-      log(`[Workspace] Error during sync: ${msg}`);
-      statusBar.text = "$(error) Data sync error";
-      resetSyncStatusTimer = setTimeout(() => {
-        statusBar.text = "$(database) F# Query Studio";
-        statusBar.tooltip = "F# Query Studio: Show Output Logs";
-      }, 5000);
-      if (!silent) {
-        void vscode.window.showErrorMessage(`Error syncing data sources: ${msg}`);
-      }
-    }
-  };
-
-  const autoImportAndSyncDataSources = async (targetDir: string, silent = true): Promise<void> => {
-    try {
-      const worker = await getWorker();
-      const res = await worker.send({
-        id: randomUUID(),
-        method: "workspace/autoImportDataSources",
-        params: { targetDir },
-      });
-
-      if (res.error) {
-        log(`[Watcher] Auto-import error: ${res.error.message}`);
-        return;
-      }
-
-      const data = res.result as {
-        targetDir: string;
-        dataSourcesDir: string;
-        folderCreated: boolean;
-        foundFilesCount: number;
-        importedCount: number;
-        imported: Array<{ name: string; kind: string; filePath: string; relativePath: string }>;
-        removedCount?: number;
-        skippedCount: number;
-      };
-
-      const changesDetected = data.importedCount > 0 || (data.removedCount ?? 0) > 0;
-      if (changesDetected) {
-        log(
-          `[Watcher] data_sources updated: ${data.importedCount} imported, ${data.removedCount ?? 0} removed in ${data.dataSourcesDir}`,
-        );
-        await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
-
-        if (!silent) {
-          const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
-          const msg = isPt
-            ? `${data.importedCount} fonte(s) importada(s) automaticamente da pasta 'data_sources'.`
-            : `Auto-imported ${data.importedCount} data source(s) from 'data_sources'.`;
-          void vscode.window.showInformationMessage(msg);
-        }
-      }
-
-      // Always trigger cache sync on file change/creation/deletion
-      await runSyncDataSources(targetDir, true);
-    } catch (err) {
-      log(`[Watcher] Error auto-syncing data sources: ${(err as Error).message}`);
-    }
-  };
-
-  let isPaused = false;
-  let dataSourcesWatcherActive = false;
-  let dataSourcesWatcher: vscode.Disposable | undefined;
   let lastRegisteredClient: unknown = undefined;
 
-  void vscode.commands.executeCommand("setContext", "fs-query-studio.isPaused", false);
+  const dataSourcesWatcher = new DataSourcesWatcher({
+    getWorker: () => getWorker(),
+    log,
+    isPaused: () => backgroundOrchestrator.isPaused(),
+    statusBar,
+  });
 
-  const isDataSourcesCandidate = (filePath: string): boolean => {
-    const baseName = path.basename(filePath);
-    if (baseName.startsWith(".") || baseName.startsWith("~$") || baseName.toLowerCase() === "readme.txt") {
-      return false;
-    }
-    const ext = path.extname(filePath).toLowerCase();
-    return [".csv", ".xlsx", ".xls", ".json", ".xml", ".sqlite", ".sqlite3", ".db"].includes(ext);
-  };
-
-  let dataSourcesDebounceTimer: NodeJS.Timeout | undefined;
-  const onDataSourcesFileChanged = (uri: vscode.Uri) => {
-    if (isPaused) {
-      return;
-    }
-    if (!isDataSourcesCandidate(uri.fsPath)) {
-      return;
-    }
-    if (dataSourcesDebounceTimer) {
-      clearTimeout(dataSourcesDebounceTimer);
-    }
-    dataSourcesDebounceTimer = setTimeout(async () => {
-      dataSourcesDebounceTimer = undefined;
-      if (isPaused) {
-        return;
-      }
-      const wsFolder = vscode.workspace.getWorkspaceFolder(uri);
-      let targetDir = wsFolder?.uri.fsPath;
-      if (!targetDir) {
-        const parts = uri.fsPath.split(/[/\\]/);
-        const dsIdx = parts.lastIndexOf("data_sources");
-        if (dsIdx > 0) {
-          targetDir = parts.slice(0, dsIdx).join(path.sep);
-        } else {
-          targetDir = path.dirname(uri.fsPath);
+  const backgroundOrchestrator = new BackgroundOrchestrator({
+    log,
+    statusBar,
+    onPause: async () => {
+      dataSourcesWatcher.stop();
+      disposeWorkerSession();
+      lastRegisteredClient = undefined;
+    },
+    onResume: async () => {
+      if (dataSourcesWatcher.isActive()) {
+        dataSourcesWatcher.start();
+        for (const folder of vscode.workspace.workspaceFolders ?? []) {
+          void dataSourcesWatcher.autoImportAndSyncDataSources(folder.uri.fsPath, true);
         }
       }
-      log(`[Watcher] Change detected in data_sources (${path.basename(uri.fsPath)}). Auto-syncing: ${targetDir}`);
-      await autoImportAndSyncDataSources(targetDir, true);
-    }, 600);
-  };
-
-  const startDataSourcesWatcher = () => {
-    if (dataSourcesWatcher) {
-      return;
-    }
-    dataSourcesWatcherActive = true;
-    const watcher = vscode.workspace.createFileSystemWatcher("**/data_sources/**");
-    const d1 = watcher.onDidCreate(onDataSourcesFileChanged);
-    const d2 = watcher.onDidChange(onDataSourcesFileChanged);
-    const d3 = watcher.onDidDelete(onDataSourcesFileChanged);
-    dataSourcesWatcher = {
-      dispose() {
-        d1.dispose();
-        d2.dispose();
-        d3.dispose();
-        watcher.dispose();
-      },
-    };
-    log("[Watcher] Automatic detection for 'data_sources' initialized and active.");
-  };
-
-  const stopDataSourcesWatcher = () => {
-    if (dataSourcesDebounceTimer) {
-      clearTimeout(dataSourcesDebounceTimer);
-      dataSourcesDebounceTimer = undefined;
-    }
-    if (dataSourcesWatcher) {
-      dataSourcesWatcher.dispose();
-      dataSourcesWatcher = undefined;
-      log("[Watcher] Automatic detection for 'data_sources' stopped.");
-    }
-  };
-
-  const pauseWatchersAndWorkers = async (silent = false): Promise<void> => {
-    if (isPaused) return;
-    isPaused = true;
-    await vscode.commands.executeCommand("setContext", "fs-query-studio.isPaused", true);
-    stopDataSourcesWatcher();
-    disposeWorkerSession();
-    lastRegisteredClient = undefined;
-    log("[Host] Watchers and workers paused; worker session disposed and RAM/CPU released.");
-
-    statusBar.text = "$(play) F# Query: Paused";
-    statusBar.tooltip = "F# Query Studio: Watchers and workers paused (RAM and CPU released). Click to resume.";
-    statusBar.command = "fs-query-studio.resumeWatchersAndWorkers";
-    statusBar.show();
-
-    if (!silent) {
-      const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
-      const msg = isPt
-        ? "F# Query Studio: Watchers e workers pausados. O processo em background foi encerrado e a memória liberada."
-        : "F# Query Studio: Watchers and workers paused. Background process terminated and memory released.";
-      void vscode.window.showInformationMessage(msg);
-    }
-  };
-
-  const resumeWatchersAndWorkers = async (silent = false): Promise<void> => {
-    if (!isPaused) return;
-    isPaused = false;
-    await vscode.commands.executeCommand("setContext", "fs-query-studio.isPaused", false);
-
-    statusBar.text = "$(database) F# Query Studio";
-    statusBar.tooltip = "F# Query Studio: Show Output Logs";
-    statusBar.command = "fs-query-studio.showOutput";
-    statusBar.show();
-
-    log("[Host] Watchers and workers resumed.");
-
-    if (dataSourcesWatcherActive) {
-      startDataSourcesWatcher();
-      for (const folder of vscode.workspace.workspaceFolders ?? []) {
-        void autoImportAndSyncDataSources(folder.uri.fsPath, true);
-      }
-    }
-
-    await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
-
-    if (!silent) {
-      const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
-      const msg = isPt
-        ? "F# Query Studio: Watchers e workers retomados com sucesso."
-        : "F# Query Studio: Watchers and workers resumed successfully.";
-      void vscode.window.showInformationMessage(msg);
-    }
-  };
-
-  const togglePauseResume = async (): Promise<void> => {
-    if (isPaused) {
-      await resumeWatchersAndWorkers();
-    } else {
-      await pauseWatchersAndWorkers();
-    }
-  };
+      await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
+    },
+  });
 
   const getWorker = async () => {
-    if (isPaused) {
+    if (backgroundOrchestrator.isPaused()) {
       log("[Host] Resuming paused worker for incoming request.");
-      await resumeWatchersAndWorkers(true);
+      await backgroundOrchestrator.resume(true);
     }
     const session = await getWorkerSession({
       extensionRoot: context.extensionPath,
@@ -563,7 +333,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     getWorker,
     secrets: context.secrets,
     log,
-    isPaused: () => isPaused,
+    isPaused: () => backgroundOrchestrator.isPaused(),
     extensionUri: context.extensionUri,
   });
 
@@ -696,273 +466,13 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     },
   );
 
-  const createSampleDataCommand = vscode.commands.registerCommand(
-    "fs-query-studio.createSampleData",
-    async () => {
-      let targetDir: string | undefined;
-      const wsFolders = vscode.workspace.workspaceFolders;
-      if (wsFolders && wsFolders.length === 1) {
-        targetDir = wsFolders[0].uri.fsPath;
-      } else if (wsFolders && wsFolders.length > 1) {
-        const pick = await vscode.window.showQuickPick(
-          wsFolders.map((f) => ({ label: f.name, description: f.uri.fsPath, uri: f.uri })),
-          { placeHolder: "Select a workspace folder for sample demo" },
-        );
-        if (!pick) return;
-        targetDir = pick.uri.fsPath;
-      } else {
-        const picked = await vscode.window.showOpenDialog({
-          canSelectFiles: false,
-          canSelectFolders: true,
-          canSelectMany: false,
-          openLabel: "Select Folder for Sample Demo",
-        });
-        if (!picked || picked.length === 0) return;
-        targetDir = picked[0].fsPath;
-      }
-
-      const isPt = vscode.env.language?.toLowerCase().startsWith("pt") ?? false;
-
-      interface DemoOption extends vscode.QuickPickItem {
-        id: "standard" | "postgresql" | "sqlserver" | "mysql" | "mariadb" | "oracle";
-      }
-
-      const demoOptions: DemoOption[] = [
-        {
-          label: "$(database) Standard Multi-Source Demo (SQLite, CSV, Excel & REST)",
-          description: isPt
-            ? "Demonstração completa em inglês com todas as fontes de dados originais e sample_demo.fsqnb"
-            : "Complete demo in English with all original data sources and sample_demo.fsqnb",
-          id: "standard",
-          picked: true,
-        },
-        {
-          label: "$(server) PostgreSQL Advanced Demo (Docker & FSQL)",
-          description: isPt
-            ? "Container Docker postgres:16-alpine (JSONB, CTEs recursivas, LATERAL e sample_postgresql.fsqnb)"
-            : "Docker container postgres:16-alpine (JSONB, recursive CTEs, LATERAL and sample_postgresql.fsqnb)",
-          id: "postgresql",
-          picked: false,
-        },
-        {
-          label: "$(server-process) SQL Server Advanced Demo (Docker & FSQL)",
-          description: isPt
-            ? "Container Docker MSSQL 2022 (T-SQL, SHOWPLAN, CROSS APPLY, CTEs e sample_sqlserver.fsqnb)"
-            : "Docker container MSSQL 2022 (T-SQL, SHOWPLAN, CROSS APPLY, CTEs and sample_sqlserver.fsqnb)",
-          id: "sqlserver",
-          picked: false,
-        },
-        {
-          label: "$(database) MySQL Advanced Demo (Docker & FSQL)",
-          description: isPt
-            ? "Container Docker mysql:8.4 (JSON, CTEs, LATERAL e sample_mysql.fsqnb)"
-            : "Docker container mysql:8.4 (JSON, CTEs, LATERAL and sample_mysql.fsqnb)",
-          id: "mysql",
-          picked: false,
-        },
-        {
-          label: "$(database) MariaDB Advanced Demo (Docker & FSQL)",
-          description: isPt
-            ? "Container Docker mariadb:11.4 (JSON, CTEs, LATERAL e sample_mariadb.fsqnb)"
-            : "Docker container mariadb:11.4 (JSON, CTEs, LATERAL and sample_mariadb.fsqnb)",
-          id: "mariadb",
-          picked: false,
-        },
-        {
-          label: "$(database) Oracle Advanced Demo (Docker & FSQL)",
-          description: isPt
-            ? "Container Docker Oracle Free 23 (JSON_VALUE, CROSS APPLY, CTEs e sample_oracle.fsqnb)"
-            : "Docker container Oracle Free 23 (JSON_VALUE, CROSS APPLY, CTEs and sample_oracle.fsqnb)",
-          id: "oracle",
-          picked: false,
-        },
-      ];
-
-      const selected = await vscode.window.showQuickPick(demoOptions, {
-        canPickMany: true,
-        title: isPt
-          ? "Selecione as Demonstrações do F# Query Studio"
-          : "Select F# Query Studio Sample Demos",
-        placeHolder: isPt
-          ? "Escolha uma ou mais demonstrações para gerar arquivos, conexões e notebooks"
-          : "Choose one or more sample demos to generate files, connections and notebooks",
-      });
-
-      if (!selected || selected.length === 0) {
-        return;
-      }
-
-      interface LanguageOption extends vscode.QuickPickItem {
-        lang?: "en" | "pt" | "all";
-      }
-
-      const defaultLang = isPt ? "pt" : "en";
-      const languageOptions: LanguageOption[] = [
-        {
-          label: "$(globe) English",
-          description: isPt
-            ? "Gerar cadernos de demonstração em inglês (*.fsqnb)"
-            : "Generate demo notebooks in English (*.fsqnb)",
-          lang: "en",
-        },
-        {
-          label: "$(globe) Português (Brasil)",
-          description: isPt
-            ? "Gerar cadernos de demonstração em português (*_pt.fsqnb)"
-            : "Generate demo notebooks in Portuguese (*_pt.fsqnb)",
-          lang: "pt",
-        },
-        {
-          label: "$(files) Both / Ambos",
-          description: isPt
-            ? "Gerar demonstrações em inglês e português"
-            : "Generate demos in both English and Portuguese",
-          lang: "all",
-        },
-      ];
-
-      const selectedLangItem = await vscode.window.showQuickPick(languageOptions, {
-        title: isPt
-          ? "Passo 2 de 2: Selecione o Idioma das Demonstrações (Opcional)"
-          : "Step 2 of 2: Select Demo Language (Optional)",
-        placeHolder: isPt
-          ? "Escolha o idioma dos cadernos (pressione Esc para usar o padrão)"
-          : "Choose notebook language (press Esc for default)",
-      });
-
-      const chosenLang = selectedLangItem ? selectedLangItem.lang : defaultLang;
-      const langParam = chosenLang === "all" ? undefined : chosenLang;
-
-      const hasStandard = selected.some((s) => s.id === "standard");
-      const advancedEngines = selected
-        .filter((s) => s.id === "postgresql" || s.id === "sqlserver" || s.id === "mysql" || s.id === "mariadb" || s.id === "oracle")
-        .map((s) => s.id);
-
-      log(`[Workspace] Creating demos (standard=${hasStandard}, advanced=[${advancedEngines.join(", ")}], lang=${chosenLang}) in directory: ${targetDir}`);
-
-      try {
-        const openedNotebooks: string[] = [];
-
-        if (hasStandard) {
-          log(`[Workspace] Creating standard multi-source sample data in directory: ${targetDir}`);
-          const worker = await getWorker();
-          const res = await worker.send({
-            id: randomUUID(),
-            method: "workspace/createSampleData",
-            params: {
-              targetDir,
-              targetDirectory: targetDir,
-              ...(langParam ? { language: langParam } : {}),
-            },
-          });
-
-          if (res.error) {
-            log(`[Workspace] Failed to create standard sample data: ${res.error.message}`);
-            throw new Error(res.error.message);
-          }
-
-          const data = res.result as {
-            sqlitePath: string;
-            sqlite2Path?: string;
-            csvPath: string;
-            csv2Path?: string;
-            excelPath?: string;
-            excel2Path?: string;
-            notebookPath: string;
-            notebookPtPath?: string;
-          };
-
-          const primaryNotebook =
-            chosenLang === "pt" && data.notebookPtPath
-              ? data.notebookPtPath
-              : data.notebookPath;
-          log(`[Workspace] Standard sample data created: Notebook=${primaryNotebook}`);
-          openedNotebooks.push(primaryNotebook);
-          startDataSourcesWatcher();
-          void runSyncDataSources(targetDir, true);
-        }
-
-        if (advancedEngines.length > 0) {
-          log(`[Workspace] Creating advanced database samples for [${advancedEngines.join(", ")}] in directory: ${targetDir}`);
-          const worker = await getWorker();
-          const res = await worker.send({
-            id: randomUUID(),
-            method: "workspace/createAdvancedSamples",
-            params: {
-              targetDir,
-              targetDirectory: targetDir,
-              engines: advancedEngines,
-              selectedEngines: advancedEngines,
-              ...(langParam ? { language: langParam } : {}),
-            },
-          });
-
-          if (res.error) {
-            log(`[Workspace] Failed to create advanced database samples: ${res.error.message}`);
-            throw new Error(res.error.message);
-          }
-
-          const data = res.result as {
-            targetDir: string;
-            selectedEngines: string[];
-            dockerComposePath?: string;
-            initScripts: string[];
-            notebooksGenerated: string[];
-            registeredConnections: string[];
-          };
-
-          log(`[Workspace] Advanced database samples generated: Notebooks=${data.notebooksGenerated.join(", ")}`);
-          if (data.notebooksGenerated) {
-            openedNotebooks.push(...data.notebooksGenerated);
-          }
-
-          if (data.dockerComposePath) {
-            const composeName = data.dockerComposePath.split(/[\\/]/).pop();
-            const dockerNotice = isPt
-              ? `Para iniciar os bancos no Docker: 'docker compose -f ${composeName} up -d'.`
-              : `To start containers with Docker: 'docker compose -f ${composeName} up -d'.`;
-            void vscode.window.showInformationMessage(dockerNotice);
-          }
-        }
-
-        await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
-
-        if (openedNotebooks.length > 0) {
-          try {
-            const doc = await vscode.workspace.openNotebookDocument(
-              vscode.Uri.file(openedNotebooks[0]),
-            );
-            await vscode.window.showNotebookDocument(doc);
-          } catch {
-            // ignore error if notebook viewer fails to open immediately
-          }
-        }
-
-        const successMsg = isPt
-          ? "Demonstrações e conexões criadas com sucesso!"
-          : "Sample demos and connections created successfully!";
-        void vscode.window.showInformationMessage(successMsg);
-      } catch (err) {
-        const msg = (err as Error).message;
-        log(`[Workspace] Error creating sample demos: ${msg}`);
-        outputChannel?.show(true);
-        const choice = await vscode.window.showErrorMessage(
-          `Error creating sample demos: ${msg}`,
-          "Show Logs",
-        );
-        if (choice === "Show Logs") {
-          outputChannel?.show(true);
-        }
-      }
-    },
-  );
-
-  const createAdvancedSamplesCommand = vscode.commands.registerCommand(
-    "fs-query-studio.createAdvancedSamples",
-    async () => {
-      await vscode.commands.executeCommand("fs-query-studio.createSampleData");
-    },
-  );
+  const sampleDataCommands = registerSampleDataCommands(context, {
+    getWorker,
+    log,
+    startDataSourcesWatcher: () => dataSourcesWatcher.start(),
+    runSyncDataSources: (targetDir, silent) => dataSourcesWatcher.runSyncDataSources(targetDir, silent),
+    outputChannel,
+  });
 
   const openDocsCommand = vscode.commands.registerCommand(
     "fs-query-studio.openDocs",
@@ -1171,7 +681,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
         );
 
         // Start real-time automatic detection watcher for data_sources
-        startDataSourcesWatcher();
+        dataSourcesWatcher.start();
 
         await vscode.commands.executeCommand("fs-query-studio.connections.refresh");
 
@@ -1181,7 +691,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
           const msg = isPt
             ? `${data.importedCount} fonte(s) de dados importada(s) automaticamente da pasta 'data_sources': ${names}. Detecção automática em tempo real ativada.`
             : `Auto-imported ${data.importedCount} data source(s) from 'data_sources': ${names}. Real-time automatic detection is now active.`;
-          void runSyncDataSources(targetDir, true);
+          void dataSourcesWatcher.runSyncDataSources(targetDir, true);
           void vscode.window.showInformationMessage(msg);
         } else {
           const msg = isPt
@@ -1295,23 +805,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
           targetDir = picked[0].fsPath;
         }
       }
-      await runSyncDataSources(targetDir, false);
+      await dataSourcesWatcher.runSyncDataSources(targetDir, false);
     },
-  );
-
-  const pauseCommand = vscode.commands.registerCommand(
-    "fs-query-studio.pauseWatchersAndWorkers",
-    () => pauseWatchersAndWorkers(),
-  );
-
-  const resumeCommand = vscode.commands.registerCommand(
-    "fs-query-studio.resumeWatchersAndWorkers",
-    () => resumeWatchersAndWorkers(),
-  );
-
-  const togglePauseResumeCommand = vscode.commands.registerCommand(
-    "fs-query-studio.togglePauseResume",
-    () => togglePauseResume(),
   );
 
   context.subscriptions.push(
@@ -1323,37 +818,30 @@ export async function activate(context: vscode.ExtensionContext): Promise<FsQuer
     newNotebookCommand,
     newNotebookHereCommand,
     restartCommand,
-    createSampleDataCommand,
-    createAdvancedSamplesCommand,
+    ...sampleDataCommands,
     autoImportFolderCommand,
     syncDataSourcesCommand,
     initEmptyProjectCommand,
     upgradeProjectCommand,
     openDocsCommand,
-    pauseCommand,
-    resumeCommand,
-    togglePauseResumeCommand,
+    backgroundOrchestrator,
+    dataSourcesWatcher,
     languageFeatures,
     connections.disposable,
     outputChannel,
     statusBar,
-    {
-      dispose: () => {
-        stopDataSourcesWatcher();
-      },
-    },
   );
 
   return {
     connections: connections.api,
     background: {
-      isPaused: () => isPaused,
-      isDataSourcesWatcherActive: () => dataSourcesWatcherActive,
-      pause: pauseWatchersAndWorkers,
-      resume: resumeWatchersAndWorkers,
-      toggle: togglePauseResume,
-      startDataSourcesWatcher,
-      stopDataSourcesWatcher,
+      isPaused: () => backgroundOrchestrator.isPaused(),
+      isDataSourcesWatcherActive: () => dataSourcesWatcher.isActive(),
+      pause: (silent) => backgroundOrchestrator.pause(silent),
+      resume: (silent) => backgroundOrchestrator.resume(silent),
+      toggle: () => backgroundOrchestrator.toggle(),
+      startDataSourcesWatcher: () => dataSourcesWatcher.start(),
+      stopDataSourcesWatcher: () => dataSourcesWatcher.stop(),
     },
   };
 }

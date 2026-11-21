@@ -10,6 +10,8 @@ type private SingleConnectionResolver(name: string, connector: IConnector) =
                 connector
             else
                 failwith $"No connection named '{requested}' is configured."
+        member this.ResolveAsync(requested: string, _ct: System.Threading.CancellationToken) =
+            System.Threading.Tasks.Task.FromResult((this :> IConnectionResolver).Resolve requested)
 
 [<Collection("SqlServer container")>]
 [<Trait("Category", "RequiresDocker")>]

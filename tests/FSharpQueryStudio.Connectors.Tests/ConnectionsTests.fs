@@ -4,6 +4,7 @@ open System
 open System.IO
 open System.Text
 open System.Threading
+open System.Threading.Tasks
 open Xunit
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Connectors
@@ -14,6 +15,8 @@ type private FakeResolver(connections: Map<string, IConnector>) =
             match connections.TryFind name with
             | Some connector -> connector
             | None -> failwith $"No connection named '{name}' is configured."
+        member this.ResolveAsync(name: string, _ct: CancellationToken) =
+            Task.FromResult((this :> IConnectionResolver).Resolve name)
 
 let private withTempSqlite (action: SqliteConnector -> string -> unit) =
     let path = Path.Combine(Path.GetTempPath(), "fqs-connections-" + Guid.NewGuid().ToString("N") + ".db")
@@ -1365,6 +1368,8 @@ type private TestWorkspaceResolver(baseDir: string option, connections: Map<stri
             match connections.TryFind name with
             | Some c -> c
             | None -> failwith $"No connection named '{name}' is configured."
+        member this.ResolveAsync(name: string, _ct: CancellationToken) =
+            Task.FromResult((this :> IConnectionResolver).Resolve name)
     interface IWorkspaceAwareResolver with
         member _.BaseDirectory = baseDir
 

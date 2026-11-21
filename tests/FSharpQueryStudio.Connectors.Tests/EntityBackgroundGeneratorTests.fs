@@ -220,6 +220,7 @@ let ``generateForConnectionsAsync with empty connections overwrites existing Gen
     let secretStore =
         { new ISecretStore with
             member _.TryRead _ = None
+            member _.TryReadAsync(_, _) = System.Threading.Tasks.Task.FromResult None
             member _.Save _ _ = ()
             member _.Delete _ = () }
 

@@ -171,6 +171,7 @@ let ``RestDescriptor and RestConnectorFactory coverage`` () =
     let factory = descriptor.Factory
     let dummyStore = { new FSharpQueryStudio.Security.ISecretStore with
         member _.TryRead(_) = None
+        member _.TryReadAsync(_, _) = System.Threading.Tasks.Task.FromResult None
         member _.Save _ _ = ()
         member _.Delete _ = ()
     }

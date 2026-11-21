@@ -1,6 +1,8 @@
 namespace FSharpQueryStudio.Security
 
 open System.Collections.Concurrent
+open System.Threading
+open System.Threading.Tasks
 
 /// A process-local `ISecretStore` — the fake every test suite drives
 /// instead of the real OS credential store, and a non-Windows
@@ -16,5 +18,11 @@ type InMemorySecretStore() =
             match secrets.TryGetValue reference with
             | true, secret -> Some secret
             | false, _ -> None
+
+        member this.TryReadAsync(reference: string, cancellationToken: CancellationToken) =
+            if cancellationToken.IsCancellationRequested then
+                Task.FromCanceled<string option>(cancellationToken)
+            else
+                Task.FromResult((this :> ISecretStore).TryRead reference)
 
         member _.Delete(reference: string) = secrets.TryRemove reference |> ignore

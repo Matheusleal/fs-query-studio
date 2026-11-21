@@ -20,6 +20,8 @@ type private InMemoryResolver(map: Map<string, IConnector>) =
             match Map.tryFind name map with
             | Some c -> c
             | None -> failwith $"Connection '{name}' not found."
+        member this.ResolveAsync(name: string, _ct: System.Threading.CancellationToken) =
+            System.Threading.Tasks.Task.FromResult((this :> IConnectionResolver).Resolve name)
 
 module SqliteLocalIntegrationTests =
 

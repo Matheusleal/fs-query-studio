@@ -1354,9 +1354,11 @@ let ``connection/schema reads {password} from the store configured via configure
             let mutable askedFor: string option = None
             let spy =
                 { new FSharpQueryStudio.Security.ISecretStore with
-                    member _.TryRead reference =
+                    member this.TryRead reference =
                         askedFor <- Some reference
                         Some "s3cr3t"
+                    member this.TryReadAsync(reference, _) =
+                        System.Threading.Tasks.Task.FromResult(this.TryRead reference)
                     member _.Save _ _ = ()
                     member _.Delete _ = () }
             Handlers.configureSecretStore spy
