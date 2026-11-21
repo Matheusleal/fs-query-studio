@@ -266,6 +266,11 @@ module Handlers =
                                     SampleDataGenerator.createSampleJsonFile fullFp
                                 elif String.Equals(def.Name, "LogisticsHub", StringComparison.OrdinalIgnoreCase) then
                                     SampleDataGenerator.createSampleXmlFile fullFp
+                            else
+                                if String.Equals(def.Name, "SampleStore", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.ensureSampleStoreIndexes fullFp
+                                elif String.Equals(def.Name, "InventoryStore", StringComparison.OrdinalIgnoreCase) then
+                                    SampleDataGenerator.ensureInventoryIndexes fullFp
             with _ -> ()
 
     let runEvaluate (request: WorkerRequestFrame) (workDir: string) : WorkerResponseFrame =
@@ -283,7 +288,22 @@ module Handlers =
             let connections = readEffectiveConnections targetWs false
             ensureSampleFilesHealed targetWs connections
             Connections.configure (WorkspaceConnectionResolver(connections, secretStore, targetWs))
-            EntityBackgroundGenerator.ensureGenerated targetWs connections secretStore
+
+            let wsFile = Workspace.workspaceFilePath targetWs
+            let genFile = EntityBackgroundGenerator.generatedFilePath targetWs
+            let wsTimestamp = if File.Exists wsFile then File.GetLastWriteTimeUtc wsFile else DateTime.MinValue
+            let genTimestamp = if File.Exists genFile then File.GetLastWriteTimeUtc genFile else DateTime.MinValue
+
+            let isEntitiesVerified =
+                match verifiedWorkspaceEntities.TryGetValue(targetWs) with
+                | true, cached when cached.WorkspaceFileTimestamp = wsTimestamp && cached.GeneratedFileTimestamp = genTimestamp && genTimestamp <> DateTime.MinValue ->
+                    true
+                | _ -> false
+
+            if not isEntitiesVerified then
+                EntityBackgroundGenerator.ensureGenerated targetWs connections secretStore
+                let newGenTimestamp = if File.Exists genFile then File.GetLastWriteTimeUtc genFile else DateTime.MinValue
+                verifiedWorkspaceEntities.[targetWs] <- { WorkspaceFileTimestamp = wsTimestamp; GeneratedFileTimestamp = newGenTimestamp }
 
             let effectiveWorkDir =
                 if not (String.IsNullOrEmpty targetWs) && Directory.Exists targetWs then
@@ -423,9 +443,12 @@ module Handlers =
             try
                 Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
             with _ -> ()
-            GC.Collect()
-            GC.WaitForPendingFinalizers()
-            GC.Collect()
+            let currentMemory = GC.GetTotalMemory(false)
+            if currentMemory > 200_000_000L then
+                System.Runtime.GCSettings.LargeObjectHeapCompactionMode <- System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce
+                GC.Collect(2, GCCollectionMode.Forced, true, true)
+            else
+                GC.Collect(1, GCCollectionMode.Optimized)
 
 
     /// Convenience wrapper (reserve, then run, both synchronous) for

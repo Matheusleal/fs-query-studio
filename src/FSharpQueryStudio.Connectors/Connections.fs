@@ -59,7 +59,16 @@ module Connections =
             engine <- Some e
             e
 
+    type private CachedSchemaEntry =
+        { Timestamp: DateTime; Tables: ConnectorTable list }
+
+    let private schemaCache = System.Collections.Concurrent.ConcurrentDictionary<string, CachedSchemaEntry>()
+
+    let internal clearSchemaCache () : unit =
+        schemaCache.Clear()
+
     let configure (newResolver: IConnectionResolver) =
+        clearSchemaCache ()
         resolver <- Some newResolver
         match box newResolver with
         | :? IWorkspaceAwareResolver as war when war.BaseDirectory.IsSome ->
@@ -69,6 +78,7 @@ module Connections =
             engine <- None
 
     let internal reset () =
+        clearSchemaCache ()
         resolver <- None
         engine <- None
 
@@ -887,7 +897,20 @@ module Connections =
 
         member _.DiscoverSchemaAsync(?ct: CancellationToken) =
             let token = defaultArg ct CancellationToken.None
-            connector.DiscoverSchemaAsync(token)
+            let cacheKey = $"{name}@@{connector.ConnectionString}"
+            match schemaCache.TryGetValue(cacheKey) with
+            | true, cached when (DateTime.UtcNow - cached.Timestamp).TotalSeconds < 120.0 ->
+                Task.FromResult(cached.Tables)
+            | _ ->
+                task {
+                    try
+                        let! tables = connector.DiscoverSchemaAsync(token)
+                        schemaCache.[cacheKey] <- { Timestamp = DateTime.UtcNow; Tables = tables }
+                        return tables
+                    with ex ->
+                        schemaCache.[cacheKey] <- { Timestamp = DateTime.UtcNow.AddSeconds(-90.0); Tables = [] }
+                        return raise ex
+                }
         member this.Tables : string list =
             this.DiscoverSchemaAsync().Result |> List.map (fun t -> t.Name)
         member this.Schema : ConnectorTable list =
@@ -949,12 +972,20 @@ module Connections =
             sb.AppendLine() |> ignore
 
             let tables =
-                try
-                    use cts = new CancellationTokenSource(TimeSpan.FromSeconds(20.0))
-                    (connector.DiscoverSchemaAsync(cts.Token)).GetAwaiter().GetResult()
-                with ex ->
-                    Log.Warning("FS Query Studio: Schema discovery timed out or failed during entity generation for '{Name}': {Error}", name, ex.Message)
-                    []
+                let cacheKey = $"{name}@@{connector.ConnectionString}"
+                match schemaCache.TryGetValue(cacheKey) with
+                | true, cached when (DateTime.UtcNow - cached.Timestamp).TotalSeconds < 120.0 ->
+                    cached.Tables
+                | _ ->
+                    try
+                        use cts = new CancellationTokenSource(TimeSpan.FromSeconds(3.0))
+                        let t = (connector.DiscoverSchemaAsync(cts.Token)).GetAwaiter().GetResult()
+                        schemaCache.[cacheKey] <- { Timestamp = DateTime.UtcNow; Tables = t }
+                        t
+                    with ex ->
+                        Log.Warning("FS Query Studio: Schema discovery timed out or failed during entity generation for '{Name}': {Error}", name, ex.Message)
+                        schemaCache.[cacheKey] <- { Timestamp = DateTime.UtcNow.AddSeconds(-90.0); Tables = [] }
+                        []
             let parsedTables =
                 tables
                 |> List.map (fun t ->
