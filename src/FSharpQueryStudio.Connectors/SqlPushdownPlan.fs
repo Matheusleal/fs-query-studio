@@ -240,13 +240,18 @@ type PushdownQueryPlan = {
                     $"{j.JoinType} {tbl} ON {onPart}"
             )
             |> String.concat " "
+        let aliasNoUnderscore = this.BaseAlias.TrimStart('_')
+        let containsAlias (s: string) =
+            s.Contains(this.BaseAlias)
+            || (not (String.IsNullOrEmpty aliasNoUnderscore) && s.Contains(aliasNoUnderscore))
+
         let requiresBaseAlias =
             this.BaseAlias <> "_t0"
-            || (this.WhereClauses |> Seq.exists (fun w -> w.Contains(this.BaseAlias)))
-            || (this.Having |> Seq.exists (fun h -> h.Contains(this.BaseAlias)))
-            || (match this.Projection with Some p -> p.Contains(this.BaseAlias) | None -> false)
-            || (this.OrderBy |> Seq.exists (fun o -> o.ColumnName.Contains(this.BaseAlias)))
-            || (this.Joins |> Seq.exists (fun j -> j.SourceTable.Contains(this.BaseAlias)))
+            || (this.WhereClauses |> Seq.exists containsAlias)
+            || (this.Having |> Seq.exists containsAlias)
+            || (match this.Projection with Some p -> containsAlias p | None -> false)
+            || (this.OrderBy |> Seq.exists (fun o -> containsAlias o.ColumnName))
+            || (this.Joins |> Seq.exists (fun j -> containsAlias j.SourceTable))
 
         let fromSource =
             if this.Joins.Count > 0 then
@@ -370,11 +375,18 @@ type PushdownQueryPlan = {
             else
                 rawSelect
 
-        if this.Ctes.Count > 0 then
-            let cteParts = this.Ctes |> Seq.map (fun c -> $"{c.Name} AS ({c.SubquerySql})") |> String.concat ", "
-            let hasRecursive = this.Ctes |> Seq.exists (fun c -> c.IsRecursive)
-            let withKw = if hasRecursive && dialect <> SqlDialect.SqlServer && dialect <> SqlDialect.Oracle then "WITH RECURSIVE " else "WITH "
-            $"{withKw}{cteParts} {withSetOps}"
+        let finalSql =
+            if this.Ctes.Count > 0 then
+                let cteParts = this.Ctes |> Seq.map (fun c -> $"{c.Name} AS ({c.SubquerySql})") |> String.concat ", "
+                let hasRecursive = this.Ctes |> Seq.exists (fun c -> c.IsRecursive)
+                let withKw = if hasRecursive && dialect <> SqlDialect.SqlServer && dialect <> SqlDialect.Oracle then "WITH RECURSIVE " else "WITH "
+                $"{withKw}{cteParts} {withSetOps}"
+            else
+                withSetOps
+
+        if dialect = SqlDialect.Oracle then
+            // In Oracle SQL, unquoted identifiers cannot begin with an underscore '_'
+            System.Text.RegularExpressions.Regex.Replace(finalSql, @"\b_([a-zA-Z0-9_]+)\b", "$1")
         else
-            withSetOps
+            finalSql
 

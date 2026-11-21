@@ -349,4 +349,71 @@ let ``generateForConnectionsAsync emits Json and Xml connections as schema conta
     finally
         try Directory.Delete(tempDir, true) with _ -> ()
 
+[<Fact>]
+let ``tryGetKnownSampleTables returns expected schemas for all 5 sample databases and None for unknown`` () =
+    let knownDbs = [ "PostgreSQL_Advanced"; "SqlServer_Advanced"; "MySQL_Advanced"; "MariaDB_Advanced"; "Oracle_Advanced" ]
+    for db in knownDbs do
+        match AdvancedSampleGenerator.tryGetKnownSampleTables db with
+        | None -> Assert.Fail($"Expected known sample tables for {db}")
+        | Some tables ->
+            Assert.Equal(5, tables.Length)
+            let tableNames = tables |> List.map (fun t -> (t.Name.Split('.') |> Array.last).ToLowerInvariant().Replace("_", ""))
+            Assert.Contains("categories", tableNames)
+            Assert.Contains("products", tableNames)
+            Assert.Contains("customers", tableNames)
+            Assert.Contains("orders", tableNames)
+            Assert.Contains("orderitems", tableNames)
+
+    Assert.True((AdvancedSampleGenerator.tryGetKnownSampleTables "UnknownDb").IsNone)
+
+[<Fact>]
+let ``offline sample database connections generate typed table accessors and case tolerant properties`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fqs-offline-db-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(tempDir) |> ignore
+    try
+        let connPg =
+            { Id = Guid.NewGuid()
+              Name = "PostgreSQL_Advanced"
+              Kind = ConnectorKind.PostgreSql
+              Configuration = JsonSerializer.SerializeToElement({| connectionString = "Host=127.0.0.1;Port=54329;Database=fsqs_test;Username=postgres;Password=invalid" |})
+              SecretReference = None
+              IsTrusted = true }
+
+        let secretStore = InMemorySecretStore()
+        let result =
+            (EntityBackgroundGenerator.generateForConnectionsAsync tempDir [ connPg ] secretStore)
+                .GetAwaiter()
+                .GetResult()
+
+        Assert.True(result)
+        let generatedFile = EntityBackgroundGenerator.generatedFilePath tempDir
+        let code = File.ReadAllText(generatedFile)
+
+        // Database module generated with tables even when offline
+        Assert.Contains("module PostgreSQL_AdvancedDb =", code)
+        Assert.Contains("member _.products : FSharpQueryStudio.Connectors.SqlPushdownQueryable<", code)
+        Assert.Contains("member _.categories : FSharpQueryStudio.Connectors.SqlPushdownQueryable<", code)
+        // Case-tolerant top-level accessors
+        Assert.Contains("member _.Products : FSharpQueryStudio.Connectors.SqlPushdownQueryable<", code)
+        Assert.Contains("member _.PRODUCTS : FSharpQueryStudio.Connectors.SqlPushdownQueryable<", code)
+    finally
+        try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+let ``isModuleIncomplete and needsSynchronousGeneration detect empty database stubs and trigger regeneration`` () =
+    let emptyStub =
+        "module PostgreSQL_AdvancedDb =\n" +
+        "    type Database(conn: FSharpQueryStudio.Connectors.IConnector) =\n" +
+        "        class end\n"
+    Assert.True(EntityBackgroundGenerator.isModuleIncomplete emptyStub "PostgreSQL_Advanced")
+
+    let completeModule =
+        "module PostgreSQL_AdvancedDb =\n" +
+        "    module categories =\n" +
+        "        type Row = { id: int }\n" +
+        "    type Database(conn: FSharpQueryStudio.Connectors.IConnector) =\n" +
+        "        member _.categories = ()\n"
+    Assert.False(EntityBackgroundGenerator.isModuleIncomplete completeModule "PostgreSQL_Advanced")
+
+
 

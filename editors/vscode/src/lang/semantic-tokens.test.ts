@@ -86,9 +86,23 @@ describe("FSharpQuerySemanticTokensProvider", () => {
       "unionAll",
       "intersect",
       "except",
+      "notExists",
+      "isNotNull",
+      "isNotEmpty",
+      "isNotNullOrEmpty",
+      "isNull",
+      "explain",
     ];
     for (const fn of newFunctions) {
       expect(functionsRegex.test(fn)).toBe(true);
     }
+  });
+
+  it("verifies leftOuterJoin and query keywords are recognized in semantic tokens provider", () => {
+    expect(QUERY_KEYWORDS.has("leftOuterJoin")).toBe(true);
+    expect(QUERY_KEYWORDS.has("where")).toBe(true);
+    expect(QUERY_KEYWORDS.has("crossApply")).toBe(true);
+    expect(QUERY_KEYWORDS.has("fullOuterJoin")).toBe(true);
+    expect(QUERY_KEYWORDS.has("rightOuterJoin")).toBe(true);
   });
 });

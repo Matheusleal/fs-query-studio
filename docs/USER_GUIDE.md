@@ -134,6 +134,27 @@ Click the **`Create Sample Data & Demo Notebooks`** button (`$(database)`) on th
 
 Passwords are **never stored in plaintext** on disk. When you register a connection with `{password}`, credentials are encrypted and stored in your operating system's native secure credential vault via VS Code's `SecretStorage`.
 
+### Multi-Database Discovery & Hierarchical Tree Mapping
+
+When you add or inspect a server-based database connection (**SQL Server**, **PostgreSQL**, **MySQL**, **MariaDB**, **Oracle**), F# Query Studio automatically queries the server for **all accessible databases** and maps them in a clean tree hierarchy:
+- **In the Connections Sidebar Explorer**: `Connection -> Database -> [Schema ->] Table -> Column`.
+- **In Strongly-Typed F# Code (`Connections.sql`)**:
+  ```fsharp
+  // 1. Hierarchical database & schema navigation across any database on the server
+  fsql {
+      for p in Connections.sql.PostgreSQL_Advanced.fsqs_demo.products do
+      join c in Connections.sql.PostgreSQL_Advanced.fsqs_demo.categories on (p.category_id = c.id)
+      where (isNotEmpty p.sku)
+      select {| Sku = p.sku; Product = p.name; Category = c.name; Price = p.price |}
+  }
+
+  // 2. Top-level shortcut for tables in the connection's default database
+  fsql {
+      for p in Connections.sql.PostgreSQL_Advanced.products do
+      select p
+  }
+  ```
+
 ---
 
 ## 5. Smart Connection Autocomplete & Type Badges
@@ -183,7 +204,7 @@ Rather than executing naive `SELECT *` queries and filtering records in client m
 - **Parameterized Filters**: `where (o.TotalAmount >= 100.0f)` translates to `WHERE (_t0.TotalAmount >= @p0)`
 - **Sorting & Slicing**: `sortBy`, `sortByDescending`, `take N`, `skip M` translate directly to `ORDER BY ... LIMIT N OFFSET M` (or `OFFSET N ROWS FETCH NEXT M ROWS ONLY` on SQL Server)
 - **Server-Side Aggregations**: `count` (both table-level and column-level), `maxBy`, `minBy`, `sumBy`, `averageBy` translate directly to `COUNT(*)`, `MAX(...)`, `MIN(...)`, `SUM(...)`, `AVG(...)`
-- **Correlated Subqueries**: `whereExists (fsql { ... })` and `whereNotExists (fsql { ... })` translate to `WHERE EXISTS (SELECT 1 ...)`
+- **Correlated Subqueries**: `whereExists (fsql { ... })` and `where (notExists (fsql { ... }))` translate to `WHERE EXISTS (SELECT 1 ...)` and `WHERE NOT EXISTS (SELECT 1 ...)`
 - **Correlated Joins**: `crossApply (fsql { ... })` (SQL Server) and `lateral (fsql { ... })` (PostgreSQL)
 - **Grouping & Having**: `groupBy ... into g; having (fsql { for item in g do count } >= n)` translates to `GROUP BY ... HAVING (COUNT(*) >= @p0)`
 
@@ -307,7 +328,7 @@ fsql {
 }
 ```
 
-#### 4. Subqueries and Subselects (`WHERE col IN (SELECT ...)`, `whereExists`, `whereNotExists`)
+#### 4. Subqueries and Subselects (`WHERE col IN (SELECT ...)`, `whereExists`, `notExists`)
 You can compose strongly-typed subqueries that translate directly to native SQL subselects (`IN` and `EXISTS`):
 
 ```fsharp
@@ -450,10 +471,37 @@ printfn "Plan:\n%s" planReport.PlanText
       |> Seq.pivot (fun r -> r.Year) (fun r -> r.Product) (fun r -> r.Amount) Seq.sum
   ```
 
-### Persistent SQLite Disk Cache for CSV & Excel
+#### 9. Null & Empty Conditions (`isNotNull`, `isNotEmpty`, `isNotNullOrEmpty`)
+Filter non-null and non-empty fields with full SQL pushdown (`IS NOT NULL` and `<> ''`) inside `where (...)`:
 
-When you register or auto-import flat files (`.csv`, `.xlsx`), F# Query Studio immediately and asynchronously pre-stages them into a persistent local SQLite database located at:
+```fsharp
+fsql {
+    for o in Connections.sql.SampleStore.Orders do
+    where (isNotNull o.Notes && isNotEmpty o.Status && isNotNullOrEmpty o.PaymentMethod && o.TotalAmount >= 150.0f)
+    select {| OrderId = o.Id; OrderNumber = o.OrderNumber; Status = o.Status; Total = o.TotalAmount |}
+}
+```
+
+### Persistent SQLite Disk Cache & Direct SQLite Queries for CSV, XML, JSON & Excel
+
+When you register or auto-import flat files (`.csv`, `.xlsx`, `.xml`, `.json`), F# Query Studio stages them into a persistent local SQLite database located at:
 `<workspace>/.fsqs/cache/engine.db`
+
+- **Automatic Alias Views**: Every mapped file automatically creates SQLite `VIEW` aliases matching its connection name, file base name, and collection/sheet name (`SalesFeed`, `sales_feed`, `LogisticsHub`, `Shipments`, `Carriers`).
+- **On-Demand Staging for Direct SQLite Queries**: Running `Connections.sql.rawQuery`, `Connections.sql.query<'T>`, `Connections.queryEngine<'T>`, `Connections.csv.<Conn>.rawQuery`, or `Connections.xml.<Conn>.rawQuery` automatically ensures all workspace files are staged before executing the SQL query:
+  ```fsharp
+  // Direct SQLite query joining XML elements (Shipments & Carriers)
+  Connections.xml.LogisticsHub.rawQuery(
+      "SELECT s.ShipmentId, c.Name AS Carrier, s.Destination, s.ShippingCost FROM Shipments s JOIN Carriers c ON s.CarrierId = c.CarrierId WHERE s.ShippingCost >= @minCost",
+      [ "@minCost", box 100.0 ]
+  )
+
+  // Direct SQLite query on a mapped CSV file (using either connection name SalesFeed or file name sales_feed)
+  Connections.sql.rawQuery(
+      "SELECT OrderId, Customer, Product, TotalAmount FROM sales_feed WHERE Category = @cat LIMIT 10",
+      [ "@cat", box "Electronics" ]
+  )
+  ```
 
 - **Smart Cache Validation**: The engine inspects each file's last modified timestamp (`mtime`) and byte length. Unchanged files are reused instantaneously with zero loading lag on subsequent runs.
 - **Immediate Async Pre-warming**: Staging starts automatically in the background upon connection registration or workspace open.

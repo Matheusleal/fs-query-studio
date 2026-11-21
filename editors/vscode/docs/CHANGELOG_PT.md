@@ -6,6 +6,17 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ## [Não Lançado]
 
+### Adicionado
+
+- **Condições Dedicadas `isNotNull`, `isNotEmpty` e `isNotNullOrEmpty`** — Filtragem de valores não nulos e não vazios em cláusulas `where (...)` no `fsql` com pushdown para SQL nativo (`IS NOT NULL` e `<> ''` / `LENGTH(...) > 0` no Oracle).
+- **Descoberta Multi-Database e Mapeamento em Árvore (`Conexão -> Database -> [Schema ->] Tabela -> Coluna`)** — Conectores SQL de servidor (`SqlServer`, `PostgreSql`, `MySql`, `MariaDb`, `Oracle`) agora descobrem todos os databases acessíveis na instância e os mapeiam em estrutura de árvore tanto na TreeView do VS Code (`tree.ts`) quanto nas entidades F# geradas (`Connections.sql.<Conn>.<Database>.[<Schema>.]<Table>`), mantendo atalhos na raiz (`Connections.sql.<Conn>.<Table>`) para o database padrão.
+- **Consultas SQLite Diretas em Conexões CSV, XML, JSON e Excel Mapeadas** — Adicionados `.rawQuery`, `.query<'T>` e `.Execute` diretamente em `Connections.csv.<Conn>`, `Connections.xml.<Conn>`, `Connections.json.<Conn>` e `Connections.excel.<Conn>`, com auto-staging sob demanda em `.fsqs/cache/engine.db` e `VIEW`s de alias no SQLite (`<FileBaseName>`, `<TableName>`, `<Conn>_<TableName>`, `<Conn>`).
+
+### Corrigido
+
+- **Tradução de `not` e `isNull` na Cláusula `where`** — Corrigido `ExpressionPushdownTranslator` (`SqlPushdownQuery.fs`) para traduzir `Operators.not` (`op_BooleanNot`), `Operators.isNull`, `Object.ReferenceEquals`, `BlockExpression` e `ConditionalExpression` booleanas para que expressões como `where (not (isNull tabela.Coluna))` gerem pushdown SQL nativo (`WHERE (tabela.Coluna IS NOT NULL)`).
+- **Queries Diretas no SQLite para Fontes XML e CSV Mapeadas** — Corrigido erro `no such table` ao executar `Connections.sql.rawQuery`, `Connections.sql.query`, `Connections.queryEngine` ou `Connections.sql.<SqliteConn>.rawQuery` sobre tabelas mapeadas de CSV e XML antes de uma consulta LINQ realizar o staging.
+
 ## [0.7.0] — 2026-11-16
 
 ### Adicionado

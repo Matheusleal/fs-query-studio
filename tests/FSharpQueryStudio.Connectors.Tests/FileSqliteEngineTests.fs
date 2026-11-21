@@ -933,5 +933,70 @@ let ``FileSqliteEngine EnsureStaged handles empty columns, inferred affinities, 
     finally
         try if File.Exists tmpFile then File.Delete tmpFile with _ -> ()
 
+[<Fact>]
+let ``FileSqliteEngine EnsureAliasView creates view aliases and never overwrites physical tables`` () =
+    use db = new TempDb()
+    let engine = FileSqliteEngine(db.Path)
+    let tmpFile = Path.Combine(Path.GetTempPath(), $"fqs-alias-{Guid.NewGuid():N}.csv")
+    try
+        File.WriteAllLines(tmpFile, [| "Id,Name"; "1,Alice"; "2,Bob" |])
+        let connector = CsvConnector(tmpFile)
+        let staged = engine.EnsureStaged("SalesFeed", tmpFile, (fun () -> connector.ReadRows()))
+        Assert.Equal("SalesFeed", staged)
+
+        // Create view alias 'sales_feed' pointing to 'SalesFeed'
+        engine.EnsureAliasView("sales_feed", "SalesFeed")
+        let aliasRes = engine.ExecuteQuery("SELECT Name FROM sales_feed ORDER BY Id;")
+        let names = aliasRes.Rows |> Seq.map (fun r -> string r.[0]) |> Seq.toList
+        Assert.Equal<string list>([ "Alice"; "Bob" ], names)
+
+        // Attempting to create an alias view with the same name as a physical table ('SalesFeed') is a safe no-op
+        engine.EnsureAliasView("SalesFeed", "sales_feed")
+        Assert.True(engine.IsStagedAndCurrent("SalesFeed", tmpFile))
+
+        // If a physical table is later staged over 'sales_feed', EnsureStaged drops the view cleanly and creates the table
+        let stagedOverView = engine.EnsureStaged("sales_feed", tmpFile, (fun () -> connector.ReadRows()))
+        Assert.Equal("sales_feed", stagedOverView)
+        Assert.True(engine.IsStagedAndCurrent("sales_feed", tmpFile))
+    finally
+        try if File.Exists tmpFile then File.Delete tmpFile with _ -> ()
+
+[<Fact>]
+let ``FileSqliteEngine EnsureAliasView handles blank identifiers, self-aliases, and view updates cleanly`` () =
+    use db = new TempDb()
+    let engine = FileSqliteEngine(db.Path)
+    let tmpFile = Path.Combine(Path.GetTempPath(), $"fqs-alias2-{Guid.NewGuid():N}.csv")
+    try
+        File.WriteAllLines(tmpFile, [| "Code,Val"; "A,10"; "B,20"; "C,30" |])
+        let connector = CsvConnector(tmpFile)
+        engine.EnsureStaged("TableOne", tmpFile, (fun () -> connector.ReadRows())) |> ignore
+
+        // Blank view name or self-alias are safe no-ops
+        engine.EnsureAliasView("", "TableOne")
+        engine.EnsureAliasView("   ", "TableOne")
+        engine.EnsureAliasView("TableOne", "")
+        engine.EnsureAliasView("TableOne", "TableOne")
+
+        // Create view alias with special characters that get sanitized
+        engine.EnsureAliasView("my-alias.view", "TableOne")
+        let res1 = engine.ExecuteQuery("SELECT COUNT(*) FROM my_alias_view;")
+        Assert.Equal(3L, Convert.ToInt64((res1.Rows |> Seq.head).[0]))
+
+        // Re-pointing an existing view to another staged table updates the view
+        let tmpFile2 = Path.Combine(Path.GetTempPath(), $"fqs-alias3-{Guid.NewGuid():N}.csv")
+        try
+            File.WriteAllLines(tmpFile2, [| "Code,Val"; "Z,99" |])
+            let conn2 = CsvConnector(tmpFile2)
+            engine.EnsureStaged("TableTwo", tmpFile2, (fun () -> conn2.ReadRows())) |> ignore
+            engine.EnsureAliasView("my_alias_view", "TableTwo")
+            let res2 = engine.ExecuteQuery("SELECT Code FROM my_alias_view;")
+            Assert.Equal("Z", string (res2.Rows |> Seq.head).[0])
+        finally
+            try if File.Exists tmpFile2 then File.Delete tmpFile2 with _ -> ()
+    finally
+        try if File.Exists tmpFile then File.Delete tmpFile with _ -> ()
+
+
+
 
 

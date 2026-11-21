@@ -27,6 +27,9 @@ type WorkspaceConnectionResolver(connections: ConnectionDefinition list, secretS
     /// The project root used to resolve relative file paths, if any.
     member _.BaseDirectory = baseDirectory
 
+    /// The registered connection definitions known to this resolver.
+    member _.Connections = connections
+
     interface IConnectionResolver with
         member _.Resolve(name: string) : IConnector =
             match connections |> List.tryFindBack (fun c -> System.String.Equals(c.Name, name, System.StringComparison.OrdinalIgnoreCase)) with
@@ -35,3 +38,7 @@ type WorkspaceConnectionResolver(connections: ConnectionDefinition list, secretS
 
     interface IWorkspaceAwareResolver with
         member _.BaseDirectory = baseDirectory
+
+    interface IWorkspaceConnectionsProvider with
+        member _.BaseDirectory = baseDirectory
+        member _.Connections = connections

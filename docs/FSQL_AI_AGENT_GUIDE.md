@@ -23,7 +23,7 @@ In F# Query Studio, **`fsql`** (**F# Query Language**) is the unified, first-cla
 ## 2. Standard Session Imports & Connection Access
 
 When writing scripts or notebook cells, agents must include:
-
+Ç
 ```fsharp
 open System
 open System.Linq
@@ -31,33 +31,53 @@ open FSharpQueryStudio.Connectors
 open FSharpQueryStudio.Generated
 ```
 
-### Table Resolution Pattern: `Connections.sql`
-Databases configured in `.fsqs/workspace.json` are typed and exposed through `Connections.sql.<ConnectionName>.<TableName>`:
+### Table & Database Resolution Pattern: `Connections.sql`
+Databases configured in `.fsqs/workspace.json` discover all accessible databases on the server and map them in a hierarchical tree (`Connections.sql.<ConnectionName>.<DatabaseName>.[<SchemaName>.]<TableName>`), while also exposing the default database's tables at the top level (`Connections.sql.<ConnectionName>.<TableName>`):
 
 ```fsharp
-// SQL Server
+// Default database top-level access
 let mssqlProducts = Connections.sql.SqlServer_Demo.Products
 let mssqlOrders   = Connections.sql.SqlServer_Demo.Orders
 
+// Multi-database hierarchical tree access (Connection -> Database -> [Schema ->] Table)
+let analyticsEvents = Connections.sql.SqlServer_Demo.AnalyticsDb.Events
+let salesInvoices   = Connections.sql.SqlServer_Demo.EcommerceDb.sales.Invoices
+
 // PostgreSQL (table and column names respect Postgres lower_case conventions)
 let pgProducts = Connections.sql.PostgreSQL_Demo.products
-let pgOrders   = Connections.sql.PostgreSQL_Demo.orders
+let pgOrders   = Connections.sql.PostgreSQL_Demo.fsqs_demo.orders
 
 // SQLite
 let sqliteProducts = Connections.sql.SQLite_Demo.Products
 let sqliteOrders   = Connections.sql.SQLite_Demo.Orders
+
+// Mapped Flat-File Connections (CSV, XML, JSON, Excel) with automatic SQLite staging (.fsqs/cache/engine.db)
+let csvSales     = Connections.csv.SalesFeed
+let xmlShipments = Connections.xml.LogisticsHub.Shipments
+
+// Direct parameterized SQLite queries against mapped CSV/XML/JSON/Excel sources
+let directCsvRows =
+    Connections.csv.SalesFeed.rawQuery(
+        "SELECT OrderId, Customer, TotalAmount FROM sales_feed WHERE TotalAmount >= @min",
+        [ "@min", box 100.0 ]
+    )
+let directXmlRows =
+    Connections.xml.LogisticsHub.rawQuery(
+        "SELECT ShipmentId, Destination, ShippingCost FROM Shipments WHERE ShippingCost >= @min",
+        [ "@min", box 50.0 ]
+    )
 ```
 
 ---
 
 ## 3. Comprehensive `fsql` Syntax Catalog
 
-### 3.1 Basic Queries, Filtering, Sorting & Pagination
+### 3.1 Basic Queries, Filtering, Null/Empty Conditions, Sorting & Pagination
 ```fsharp
 let pageOfProducts =
     fsql {
         for p in mssqlProducts do
-        where (p.Price >= 50.0M && p.InStock)
+        where (p.Price >= 50.0M && p.InStock && isNotNull p.Category && isNotEmpty p.Name && isNotNullOrEmpty p.Category)
         sortByDescending p.Price
         thenBy p.Name
         skip 10
@@ -65,6 +85,11 @@ let pageOfProducts =
         select {| Id = p.Id; Name = p.Name; Price = p.Price |}
     } |> Seq.toList
 ```
+
+Supported null & empty conditions in `fsql` (pushed down to native SQL across all dialects):
+- **`isNotNull x.Col`**: Translates to `(x.Col IS NOT NULL)`.
+- **`isNotEmpty x.Col`** / **`isNotNullOrEmpty x.Col`**: Translates to `(x.Col IS NOT NULL AND x.Col <> '')` (or `LENGTH(x.Col) > 0` on Oracle).
+- **`isNull x.Col`** / **`not (isNull x.Col)`**: Translates to `(x.Col IS NULL)` and `(x.Col IS NOT NULL)`.
 
 ### 3.2 Aggregations (Pushdown to `COUNT`, `MAX`, `MIN`, `SUM`, `AVG`)
 ```fsharp
@@ -102,8 +127,8 @@ let productsWithLargeOrders =
     }
 ```
 
-### 3.4 Correlated Subqueries (`whereExists` & `whereNotExists`)
-Agents must prefer `whereExists` / `whereNotExists` over manual count comparisons:
+### 3.4 Correlated Subqueries (`whereExists` & `notExists`)
+Agents must prefer `whereExists` / `where (notExists ...)` over manual count comparisons:
 
 ```fsharp
 // Transpiles to: WHERE EXISTS (SELECT 1 FROM Orders _sub WHERE _sub.ProductId = _t0.Id)
@@ -118,7 +143,7 @@ let activeProducts =
 let abandonedProducts =
     fsql {
         for p in mssqlProducts do
-        whereNotExists (fsql { for o in mssqlOrders do where (o.ProductId = p.Id) })
+        where (notExists (fsql { for o in mssqlOrders do where (o.ProductId = p.Id) }))
         select {| Id = p.Id; Name = p.Name |}
     }
 ```

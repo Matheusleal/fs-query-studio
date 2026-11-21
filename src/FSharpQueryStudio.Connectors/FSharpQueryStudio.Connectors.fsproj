@@ -8,6 +8,9 @@
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>FSharpQueryStudio.Connectors.Tests</_Parameter1>
     </AssemblyAttribute>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>FSharpQueryStudio.Worker</_Parameter1>
+    </AssemblyAttribute>
   </ItemGroup>
 
   <ItemGroup>
@@ -16,13 +19,13 @@
     <Compile Include="RecordReaders.fs" />
     <Compile Include="SqlPushdownQuery.fs" />
     <Compile Include="FileSqliteEngine.fs" />
+    <Compile Include="AdvancedSampleGenerator.fs" />
     <Compile Include="Connections.fs" />
     <Compile Include="ModularEntityGenerators.fs" />
     <Compile Include="BuiltinConnectors.fs" />
     <Compile Include="WorkspaceConnectionResolver.fs" />
     <Compile Include="EntityBackgroundGenerator.fs" />
     <Compile Include="SampleDataGenerator.fs" />
-    <Compile Include="AdvancedSampleGenerator.fs" />
   </ItemGroup>
 
   <ItemGroup>

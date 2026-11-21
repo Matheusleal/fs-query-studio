@@ -82,9 +82,9 @@ type PostgreSqlLocalIntegrationTests(fixture: PostgreSqlContainerFixture) =
             let! schema = asInterface.DiscoverSchemaAsync(CancellationToken.None)
 
             let tableNames = schema |> List.map (fun t -> t.Name)
-            Assert.Contains("dbo.connections", tableNames)
+            Assert.Contains("postgres.dbo.connections", tableNames)
 
-            let dboConnTable = schema |> List.find (fun t -> t.Name = "dbo.connections")
+            let dboConnTable = schema |> List.find (fun t -> t.Name = "postgres.dbo.connections" || t.Name = "dbo.connections")
             let colNames = dboConnTable.Columns |> List.map (fun c -> c.Name) |> List.sort
             Assert.Equal<string list>([ "active"; "id"; "name" ], colNames)
 
@@ -111,7 +111,7 @@ type PostgreSqlLocalIntegrationTests(fixture: PostgreSqlContainerFixture) =
             Assert.Contains("Host=", connStr)
 
             let dbConn = Connections.getDatabaseConnection "TestPgDb"
-            Assert.Contains("dbo.connections", dbConn.Tables)
+            Assert.Contains("postgres.dbo.connections", dbConn.Tables)
             let typedItems = dbConn.Query<LocalPgConnection>("select id, name, active from dbo.connections where id = 1")
             let namesFromConn =
                 query {
@@ -142,7 +142,7 @@ type SqlServerLocalIntegrationTests(fixture: MsSqlContainerFixture) =
             let! schema = asInterface.DiscoverSchemaAsync(CancellationToken.None)
 
             let tableNames = schema |> List.map (fun t -> t.Name)
-            Assert.Contains("sales.orders", tableNames)
+            Assert.Contains("master.sales.orders", tableNames)
 
             // 2. Validate typed LINQ query
             Connections.configure (InMemoryResolver(Map.ofList [ "SalesDb", connector :> IConnector ]))

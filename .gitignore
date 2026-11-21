@@ -456,3 +456,5 @@ editors/vscode/dist/
 editors/vscode/out/
 editors/vscode/.vite/
 *.vsix
+
+.fake

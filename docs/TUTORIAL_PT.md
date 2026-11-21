@@ -123,10 +123,10 @@ No notebook, você pode escrever consultas puramente funcionais com segurança d
 ```fsharp
 fsql {
     for t in Connections.sql.Chinook.Track do
-    where (t.Milliseconds > 300000)
+    where (t.Milliseconds > 300000 && isNotNull t.Composer && isNotEmpty t.Name)
     sortByDescending t.Milliseconds
     take 20
-    select {| Titulo = t.Name; DuracaoMs = t.Milliseconds; PrecoUnitario = t.UnitPrice |}
+    select {| Titulo = t.Name; Compositor = t.Composer; DuracaoMs = t.Milliseconds; PrecoUnitario = t.UnitPrice |}
 }
 ```
 

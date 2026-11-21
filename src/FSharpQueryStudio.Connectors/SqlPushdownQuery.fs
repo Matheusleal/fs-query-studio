@@ -13,6 +13,12 @@ open Microsoft.FSharp.Reflection
 open FSharpQueryStudio.Protocol
 open Serilog
 
+/// Marker interface allowing non-generic access to pushdown query metadata and plan diagnostics.
+type ISqlPushdownQueryable =
+    abstract member Plan: PushdownQueryPlan
+    abstract member Connector: IQueryableConnector
+    abstract member Explain: unit -> ExecutionPlanReport
+
 type ParameterMemberReplacer(param: ParameterExpression, memberMap: Map<string, Expression>) =
     inherit ExpressionVisitor()
     override this.VisitMember(m: MemberExpression) =
@@ -43,20 +49,29 @@ module ExpressionPushdownTranslator =
         | other ->
             other, acc
 
-    let unwrapBlock (expr: Expression) : Expression =
-        let targetExpr, assignments = collectBlockAssignments expr []
-        if List.isEmpty assignments then targetExpr
+    let rec unwrapBlock (expr: Expression) : Expression =
+        if isNull expr then null
         else
-            let varMap = assignments |> Map.ofList
-            let replacer =
+            let targetExpr, assignments = collectBlockAssignments expr []
+            let resolvedTarget =
+                if List.isEmpty assignments then targetExpr
+                else
+                    let varMap = assignments |> Map.ofList
+                    let replacer =
+                        { new ExpressionVisitor() with
+                            override this.VisitParameter(p: ParameterExpression) =
+                                if not (isNull p) && not (isNull p.Name) && varMap.ContainsKey p.Name then
+                                    varMap.[p.Name]
+                                else
+                                    base.VisitParameter(p)
+                        }
+                    replacer.Visit(targetExpr)
+            let nestedUnwrapper =
                 { new ExpressionVisitor() with
-                    override this.VisitParameter(p: ParameterExpression) =
-                        if not (isNull p) && not (isNull p.Name) && varMap.ContainsKey p.Name then
-                            varMap.[p.Name]
-                        else
-                            base.VisitParameter(p)
+                    override _.VisitBlock(node: BlockExpression) =
+                        unwrapBlock (node :> Expression)
                 }
-            replacer.Visit(targetExpr)
+            nestedUnwrapper.Visit(resolvedTarget)
 
     let extractMemberMap (body: Expression) : Map<string, Expression> =
         let unwrapped = unwrapBlock body
@@ -93,6 +108,14 @@ module ExpressionPushdownTranslator =
         | :? BinaryExpression as b -> dependsOnParameter param b.Left || dependsOnParameter param b.Right
         | :? UnaryExpression as u -> dependsOnParameter param u.Operand
         | :? LambdaExpression as l -> dependsOnParameter param l.Body
+        | :? ConditionalExpression as c ->
+            dependsOnParameter param c.Test || dependsOnParameter param c.IfTrue || dependsOnParameter param c.IfFalse
+        | :? BlockExpression as be ->
+            be.Expressions |> Seq.exists (dependsOnParameter param)
+        | :? NewExpression as ne ->
+            ne.Arguments |> Seq.exists (dependsOnParameter param)
+        | :? InvocationExpression as ie ->
+            dependsOnParameter param ie.Expression || (ie.Arguments |> Seq.exists (dependsOnParameter param))
         | :? MethodCallExpression as mc ->
             dependsOnParameter param mc.Object || (mc.Arguments |> Seq.exists (dependsOnParameter param))
         | _ -> false
@@ -105,6 +128,14 @@ module ExpressionPushdownTranslator =
         | :? BinaryExpression as b -> hasAnyParameter b.Left || hasAnyParameter b.Right
         | :? UnaryExpression as u -> hasAnyParameter u.Operand
         | :? LambdaExpression as l -> hasAnyParameter l.Body
+        | :? ConditionalExpression as c ->
+            hasAnyParameter c.Test || hasAnyParameter c.IfTrue || hasAnyParameter c.IfFalse
+        | :? BlockExpression as be ->
+            be.Expressions |> Seq.exists hasAnyParameter
+        | :? NewExpression as ne ->
+            ne.Arguments |> Seq.exists hasAnyParameter
+        | :? InvocationExpression as ie ->
+            hasAnyParameter ie.Expression || (ie.Arguments |> Seq.exists hasAnyParameter)
         | :? MethodCallExpression as mc ->
             hasAnyParameter mc.Object || (mc.Arguments |> Seq.exists hasAnyParameter)
         | _ -> false
@@ -270,6 +301,8 @@ module ExpressionPushdownTranslator =
     let rec unwrapOptionOrNullableMember (expr: Expression) : Expression =
         match expr with
         | null -> null
+        | :? BlockExpression as be ->
+            unwrapOptionOrNullableMember (unwrapBlock be)
         | :? MemberExpression as m when
             not (isNull m.Expression)
             && (m.Member.Name = "Value" || m.Member.Name = "get_Value")
@@ -283,9 +316,8 @@ module ExpressionPushdownTranslator =
             ) ->
             let target = if not (isNull mc.Object) then mc.Object else mc.Arguments.[0]
             unwrapOptionOrNullableMember target
-        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ->
-            let inner = unwrapOptionOrNullableMember u.Operand
-            if inner <> u.Operand then inner else expr
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert || u.NodeType = ExpressionType.ConvertChecked || u.NodeType = ExpressionType.TypeAs ->
+            unwrapOptionOrNullableMember u.Operand
         | other -> other
 
     let isGroupingType (t: Type) : bool =
@@ -301,6 +333,14 @@ module ExpressionPushdownTranslator =
         | :? MemberExpression as m -> exprHasParamName paramName m.Expression
         | :? BinaryExpression as b -> exprHasParamName paramName b.Left || exprHasParamName paramName b.Right
         | :? UnaryExpression as u -> exprHasParamName paramName u.Operand
+        | :? ConditionalExpression as c ->
+            exprHasParamName paramName c.Test || exprHasParamName paramName c.IfTrue || exprHasParamName paramName c.IfFalse
+        | :? BlockExpression as be ->
+            be.Expressions |> Seq.exists (exprHasParamName paramName)
+        | :? NewExpression as ne ->
+            ne.Arguments |> Seq.exists (exprHasParamName paramName)
+        | :? InvocationExpression as ie ->
+            exprHasParamName paramName ie.Expression || (ie.Arguments |> Seq.exists (exprHasParamName paramName))
         | :? MethodCallExpression as mc ->
             exprHasParamName paramName mc.Object || (mc.Arguments |> Seq.exists (exprHasParamName paramName))
         | :? LambdaExpression as l -> exprHasParamName paramName l.Body
@@ -511,11 +551,16 @@ module ExpressionPushdownTranslator =
         if isNull value then None
         else
             let valType = value.GetType()
-            let isPushdown = valType.Name.StartsWith("SqlPushdownQueryable")
+            let isPushdown = valType.Name.StartsWith("SqlPushdownQueryable") || typeof<ISqlPushdownQueryable>.IsAssignableFrom(valType)
             if isPushdown then
                 let planProp = valType.GetProperty("Plan")
                 let connProp = valType.GetProperty("Connector")
-                let elemType = if valType.IsGenericType then Some (valType.GetGenericArguments().[0]) else None
+                let elemType =
+                    if valType.IsGenericType then Some (valType.GetGenericArguments().[0])
+                    else
+                        valType.GetInterfaces()
+                        |> Array.tryFind (fun i -> i.IsGenericType && i.GetGenericTypeDefinition() = typedefof<IQueryable<_>>)
+                        |> Option.map (fun i -> i.GetGenericArguments().[0])
                 if not (isNull planProp) && not (isNull connProp) then
                     let p = planProp.GetValue(value) :?> PushdownQueryPlan
                     let conn = connProp.GetValue(value) :?> IQueryableConnector
@@ -636,15 +681,25 @@ module ExpressionPushdownTranslator =
         collect rootExpr
         if methodCalls.Count = 0 then true
         else
+            let isSameOrStagedSqlite (c1: IQueryableConnector) (c2: IQueryableConnector) =
+                obj.ReferenceEquals(c1, c2)
+                || (
+                    (c1 :> IConnector).Kind = (c2 :> IConnector).Kind
+                    && (
+                        String.Equals(c1.ConnectionString, c2.ConnectionString, StringComparison.OrdinalIgnoreCase)
+                        || (
+                            (c1 :> IConnector).Kind = ConnectorKind.Sqlite
+                            && not (isNull c1.ConnectionString)
+                            && not (isNull c2.ConnectionString)
+                            && (c1.ConnectionString.IndexOf("engine.db", StringComparison.OrdinalIgnoreCase) >= 0
+                                || c2.ConnectionString.IndexOf("engine.db", StringComparison.OrdinalIgnoreCase) >= 0)
+                        )
+                    )
+                )
             methodCalls |> Seq.forall (fun mc ->
                 if (mc.Method.Name = "Join" || mc.Method.Name = "GroupJoin") && mc.Arguments.Count >= 5 then
                     match tryExtractQueryableInfo mc.Arguments.[1] with
-                    | Some (_, innerConn, _) ->
-                        obj.ReferenceEquals(outerConn, innerConn)
-                        || (
-                            (outerConn :> IConnector).Kind = (innerConn :> IConnector).Kind
-                            && String.Equals(outerConn.ConnectionString, innerConn.ConnectionString, StringComparison.OrdinalIgnoreCase)
-                        )
+                    | Some (_, innerConn, _) -> isSameOrStagedSqlite outerConn innerConn
                     | None | _ -> false
                 elif mc.Method.Name = "SelectMany" && mc.Arguments.Count >= 2 then
                     let innerArg = unwrapQuote mc.Arguments.[1]
@@ -660,12 +715,7 @@ module ExpressionPushdownTranslator =
                         false
                     else
                         match tryExtractQueryableInfo innerExpr with
-                        | Some (_, innerConn, _) ->
-                            obj.ReferenceEquals(outerConn, innerConn)
-                            || (
-                                (outerConn :> IConnector).Kind = (innerConn :> IConnector).Kind
-                                && String.Equals(outerConn.ConnectionString, innerConn.ConnectionString, StringComparison.OrdinalIgnoreCase)
-                            )
+                        | Some (_, innerConn, _) -> isSameOrStagedSqlite outerConn innerConn
                         | None | _ ->
                             isDefaultIfEmptyFlattening innerExpr
                 else false
@@ -814,9 +864,73 @@ module ExpressionPushdownTranslator =
         | _, Some ("Count", subMc) -> checkSubquery subMc b.Left false
         | _ -> None
 
+    and negateSqlPredicate (inner: string) : string =
+        let trimmed = inner.Trim()
+        if trimmed.StartsWith("(") && trimmed.EndsWith(" IS NULL)") && not (trimmed.Contains(" AND ")) && not (trimmed.Contains(" OR ")) then
+            trimmed.Substring(0, trimmed.Length - 9) + " IS NOT NULL)"
+        elif trimmed.StartsWith("(") && trimmed.EndsWith(" IS NOT NULL)") && not (trimmed.Contains(" AND ")) && not (trimmed.Contains(" OR ")) then
+            trimmed.Substring(0, trimmed.Length - 13) + " IS NULL)"
+        else
+            $"(NOT {inner})"
+
+    and formatNotEmptySql (dialect: SqlDialect) (col: string) : string =
+        if dialect = SqlDialect.Oracle then
+            $"({col} IS NOT NULL AND LENGTH({col}) > 0)"
+        else
+            $"({col} IS NOT NULL AND {col} <> '')"
+
+    and formatIsEmptySql (dialect: SqlDialect) (col: string) : string =
+        if dialect = SqlDialect.Oracle then
+            $"({col} IS NULL OR LENGTH({col}) = 0)"
+        else
+            $"({col} IS NULL OR {col} = '')"
+
+    and tryExtractBoolConstant (expr: Expression) : bool option =
+        match unwrapQuote expr |> unwrapBlock with
+        | :? ConstantExpression as ce when ce.Type = typeof<bool> && not (isNull ce.Value) ->
+            Some (ce.Value :?> bool)
+        | _ -> None
+
+    and isNullConstantExpr (expr: Expression) : bool =
+        match unwrapQuote expr |> unwrapBlock with
+        | null -> true
+        | :? ConstantExpression as ce -> isNull ce.Value
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert || u.NodeType = ExpressionType.ConvertChecked || u.NodeType = ExpressionType.TypeAs ->
+            isNullConstantExpr u.Operand
+        | :? DefaultExpression as de -> not de.Type.IsValueType || isOptionOrNullableType de.Type
+        | _ -> false
+
     and translatePredicate (param: ParameterExpression) (plan: PushdownQueryPlan) (dialect: SqlDialect) (expr: Expression) : string option =
-        match expr with
+        let unwrapped = unwrapQuote expr |> unwrapBlock
+        match unwrapped with
         | null -> None
+        | :? BlockExpression as be ->
+            translatePredicate param plan dialect (unwrapBlock be)
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert || u.NodeType = ExpressionType.ConvertChecked || u.NodeType = ExpressionType.TypeAs ->
+            translatePredicate param plan dialect u.Operand
+        | :? ConditionalExpression as c ->
+            match tryExtractBoolConstant c.IfTrue, tryExtractBoolConstant c.IfFalse with
+            | Some true, Some false ->
+                translatePredicate param plan dialect c.Test
+            | Some false, Some true ->
+                translatePredicate param plan dialect c.Test |> Option.map negateSqlPredicate
+            | None, Some false ->
+                match translatePredicate param plan dialect c.Test, translatePredicate param plan dialect c.IfTrue with
+                | Some l, Some r -> Some $"({l} AND {r})"
+                | _ -> None
+            | Some true, None ->
+                match translatePredicate param plan dialect c.Test, translatePredicate param plan dialect c.IfFalse with
+                | Some l, Some r -> Some $"({l} OR {r})"
+                | _ -> None
+            | Some false, None ->
+                match translatePredicate param plan dialect c.Test, translatePredicate param plan dialect c.IfFalse with
+                | Some l, Some r -> Some $"({negateSqlPredicate l} AND {r})"
+                | _ -> None
+            | None, Some true ->
+                match translatePredicate param plan dialect c.Test, translatePredicate param plan dialect c.IfTrue with
+                | Some l, Some r -> Some $"({negateSqlPredicate l} OR {r})"
+                | _ -> None
+            | _ -> None
         | :? BinaryExpression as b ->
             match b.NodeType with
             | ExpressionType.AndAlso ->
@@ -845,68 +959,56 @@ module ExpressionPushdownTranslator =
                     | ExpressionType.LessThanOrEqual -> "<="
                     | _ -> "="
 
-                match tryTranslateSubqueryPredicate param plan dialect b with
+                let isBooleanPredicateComparison =
+                    if op = "=" || op = "<>" then
+                        let isCompoundBoolExpr (e: Expression) =
+                            match unwrapQuote e |> unwrapBlock with
+                            | :? MethodCallExpression | :? UnaryExpression | :? ConditionalExpression | :? BinaryExpression -> true
+                            | _ -> false
+                        match tryExtractBoolConstant b.Right with
+                        | Some boolConst when isCompoundBoolExpr b.Left ->
+                            match translatePredicate param plan dialect b.Left with
+                            | Some predSql ->
+                                let effectiveTrue = (op = "=" && boolConst) || (op = "<>" && not boolConst)
+                                Some (if effectiveTrue then predSql else negateSqlPredicate predSql)
+                            | None -> None
+                        | _ ->
+                            match tryExtractBoolConstant b.Left with
+                            | Some boolConst when isCompoundBoolExpr b.Right ->
+                                match translatePredicate param plan dialect b.Right with
+                                | Some predSql ->
+                                    let effectiveTrue = (op = "=" && boolConst) || (op = "<>" && not boolConst)
+                                    Some (if effectiveTrue then predSql else negateSqlPredicate predSql)
+                                | None -> None
+                            | _ -> None
+                    else None
+
+                match isBooleanPredicateComparison with
                 | Some sql -> Some sql
                 | None ->
-                    let leftHasParam = dependsOnParameter param b.Left
-                    let rightHasParam = dependsOnParameter param b.Right
-                    let leftHasOuter = hasAnyOuterParam plan b.Left || (hasAnyParameter b.Left && not leftHasParam)
-                    let rightHasOuter = hasAnyOuterParam plan b.Right || (hasAnyParameter b.Right && not rightHasParam)
+                    match tryTranslateSubqueryPredicate param plan dialect b with
+                    | Some sql -> Some sql
+                    | None ->
+                        let leftHasParam = dependsOnParameter param b.Left
+                        let rightHasParam = dependsOnParameter param b.Right
+                        let leftHasOuter = hasAnyOuterParam plan b.Left || (hasAnyParameter b.Left && not leftHasParam)
+                        let rightHasOuter = hasAnyOuterParam plan b.Right || (hasAnyParameter b.Right && not rightHasParam)
 
-                    match translateScalarExpr dialect plan b.Left with
-                    | Some lSql when not rightHasParam && not rightHasOuter ->
-                        let rawVal = evaluateClientValue b.Right
-                        let clientVal = unwrapClientOption rawVal
-                        if isNull clientVal then
-                            if op = "=" then Some $"({lSql} IS NULL)"
-                            elif op = "<>" then Some $"({lSql} IS NOT NULL)"
-                            else None
-                        else
-                            let pName = $"@p{plan.Parameters.Count}"
-                            plan.Parameters.Add(pName, clientVal)
-                            Some $"({lSql} {op} {pName})"
-                    | _ ->
-                        match translateScalarExpr dialect plan b.Right with
-                        | Some rSql when not leftHasParam && not leftHasOuter ->
-                            let rawVal = evaluateClientValue b.Left
+                        match translateScalarExpr dialect plan b.Left with
+                        | Some lSql when not rightHasParam && not rightHasOuter ->
+                            let rawVal = evaluateClientValue b.Right
                             let clientVal = unwrapClientOption rawVal
-                            let invOp =
-                                match op with
-                                | ">" -> "<"
-                                | ">=" -> "<="
-                                | "<" -> ">"
-                                | "<=" -> ">="
-                                | other -> other
                             if isNull clientVal then
-                                if invOp = "=" then Some $"({rSql} IS NULL)"
-                                elif invOp = "<>" then Some $"({rSql} IS NOT NULL)"
+                                if op = "=" then Some $"({lSql} IS NULL)"
+                                elif op = "<>" then Some $"({lSql} IS NOT NULL)"
                                 else None
                             else
                                 let pName = $"@p{plan.Parameters.Count}"
                                 plan.Parameters.Add(pName, clientVal)
-                                Some $"({rSql} {invOp} {pName})"
+                                Some $"({lSql} {op} {pName})"
                         | _ ->
-                            if (leftHasParam || leftHasOuter) && (rightHasParam || rightHasOuter) then
-                                let leftCol = match translateScalarExpr dialect plan b.Left with Some s -> s | None -> extractColumnNameWithAlias plan b.Left
-                                let rightCol = match translateScalarExpr dialect plan b.Right with Some s -> s | None -> extractColumnNameWithAlias plan b.Right
-                                if not (String.IsNullOrWhiteSpace leftCol) && not (String.IsNullOrWhiteSpace rightCol) then
-                                    Some $"({leftCol} {op} {rightCol})"
-                                else
-                                    None
-                            elif (leftHasParam || leftHasOuter) && not (rightHasParam || rightHasOuter) then
-                                let col = extractColumnNameWithAlias plan b.Left
-                                let rawVal = evaluateClientValue b.Right
-                                let clientVal = unwrapClientOption rawVal
-                                if isNull clientVal then
-                                    if op = "=" then Some $"({col} IS NULL)"
-                                    elif op = "<>" then Some $"({col} IS NOT NULL)"
-                                    else None
-                                else
-                                    let pName = $"@p{plan.Parameters.Count}"
-                                    plan.Parameters.Add(pName, clientVal)
-                                    Some $"({col} {op} {pName})"
-                            elif not (leftHasParam || leftHasOuter) && (rightHasParam || rightHasOuter) then
-                                let col = extractColumnNameWithAlias plan b.Right
+                            match translateScalarExpr dialect plan b.Right with
+                            | Some rSql when not leftHasParam && not leftHasOuter ->
                                 let rawVal = evaluateClientValue b.Left
                                 let clientVal = unwrapClientOption rawVal
                                 let invOp =
@@ -917,22 +1019,104 @@ module ExpressionPushdownTranslator =
                                     | "<=" -> ">="
                                     | other -> other
                                 if isNull clientVal then
-                                    if invOp = "=" then Some $"({col} IS NULL)"
-                                    elif invOp = "<>" then Some $"({col} IS NOT NULL)"
+                                    if invOp = "=" then Some $"({rSql} IS NULL)"
+                                    elif invOp = "<>" then Some $"({rSql} IS NOT NULL)"
                                     else None
                                 else
                                     let pName = $"@p{plan.Parameters.Count}"
                                     plan.Parameters.Add(pName, clientVal)
-                                    Some $"({col} {invOp} {pName})"
-                            else
-                                None
+                                    Some $"({rSql} {invOp} {pName})"
+                            | _ ->
+                                if (leftHasParam || leftHasOuter) && (rightHasParam || rightHasOuter) then
+                                    let leftCol = match translateScalarExpr dialect plan b.Left with Some s -> s | None -> extractColumnNameWithAlias plan b.Left
+                                    let rightCol = match translateScalarExpr dialect plan b.Right with Some s -> s | None -> extractColumnNameWithAlias plan b.Right
+                                    if not (String.IsNullOrWhiteSpace leftCol) && not (String.IsNullOrWhiteSpace rightCol) then
+                                        Some $"({leftCol} {op} {rightCol})"
+                                    else
+                                        None
+                                elif (leftHasParam || leftHasOuter) && not (rightHasParam || rightHasOuter) then
+                                    let col = extractColumnNameWithAlias plan b.Left
+                                    let rawVal = evaluateClientValue b.Right
+                                    let clientVal = unwrapClientOption rawVal
+                                    if isNull clientVal then
+                                        if op = "=" then Some $"({col} IS NULL)"
+                                        elif op = "<>" then Some $"({col} IS NOT NULL)"
+                                        else None
+                                    else
+                                        let pName = $"@p{plan.Parameters.Count}"
+                                        plan.Parameters.Add(pName, clientVal)
+                                        Some $"({col} {op} {pName})"
+                                elif not (leftHasParam || leftHasOuter) && (rightHasParam || rightHasOuter) then
+                                    let col = extractColumnNameWithAlias plan b.Right
+                                    let rawVal = evaluateClientValue b.Left
+                                    let clientVal = unwrapClientOption rawVal
+                                    let invOp =
+                                        match op with
+                                        | ">" -> "<"
+                                        | ">=" -> "<="
+                                        | "<" -> ">"
+                                        | "<=" -> ">="
+                                        | other -> other
+                                    if isNull clientVal then
+                                        if invOp = "=" then Some $"({col} IS NULL)"
+                                        elif invOp = "<>" then Some $"({col} IS NOT NULL)"
+                                        else None
+                                    else
+                                        let pName = $"@p{plan.Parameters.Count}"
+                                        plan.Parameters.Add(pName, clientVal)
+                                        Some $"({col} {invOp} {pName})"
+                                else
+                                    None
             | _ -> None
-        | :? UnaryExpression as u when u.NodeType = ExpressionType.Not ->
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Not || u.NodeType = ExpressionType.OnesComplement ->
             match translatePredicate param plan dialect u.Operand with
-            | Some inner -> Some $"(NOT {inner})"
+            | Some inner -> Some (negateSqlPredicate inner)
             | None | _ -> None
         | :? MethodCallExpression as mc ->
-            if mc.Method.Name = "Contains" then
+            let resolveColArg (arg: Expression) : string =
+                match translateScalarExpr dialect plan arg with
+                | Some s -> s
+                | None -> extractColumnNameWithAlias plan arg
+            let argDependsOnQuery (arg: Expression) : bool =
+                dependsOnParameter param arg || hasAnyOuterParam plan arg || hasAnyParameter arg
+            let effectiveSingleArg =
+                if mc.Arguments.Count = 1 then Some mc.Arguments.[0]
+                elif mc.Arguments.Count = 2 && not (isNull mc.Object) then Some mc.Arguments.[1]
+                elif mc.Arguments.Count = 2 && mc.Arguments.[0].Type.Name.Contains("FSqlQueryBuilder") then Some mc.Arguments.[1]
+                else None
+
+            if (mc.Method.Name = "Not" || mc.Method.Name = "not" || mc.Method.Name = "op_BooleanNot") && mc.Arguments.Count = 1 then
+                match translatePredicate param plan dialect mc.Arguments.[0] with
+                | Some inner -> Some (negateSqlPredicate inner)
+                | None -> None
+            elif (mc.Method.Name = "IsNull" || mc.Method.Name = "isNull") && effectiveSingleArg.IsSome && argDependsOnQuery effectiveSingleArg.Value then
+                let col = resolveColArg effectiveSingleArg.Value
+                Some $"({col} IS NULL)"
+            elif (mc.Method.Name = "isNotNull" || mc.Method.Name = "IsNotNull") && effectiveSingleArg.IsSome && argDependsOnQuery effectiveSingleArg.Value then
+                let col = resolveColArg effectiveSingleArg.Value
+                Some $"({col} IS NOT NULL)"
+            elif (mc.Method.Name = "isNotEmpty" || mc.Method.Name = "IsNotEmpty" || mc.Method.Name = "isNotNullOrEmpty" || mc.Method.Name = "IsNotNullOrEmpty") && effectiveSingleArg.IsSome && argDependsOnQuery effectiveSingleArg.Value then
+                let col = resolveColArg effectiveSingleArg.Value
+                Some (formatNotEmptySql dialect col)
+            elif mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "IsNullOrEmpty" && mc.Arguments.Count = 1 && argDependsOnQuery mc.Arguments.[0] then
+                let col = resolveColArg mc.Arguments.[0]
+                Some (formatIsEmptySql dialect col)
+            elif mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "IsNullOrWhiteSpace" && mc.Arguments.Count = 1 && argDependsOnQuery mc.Arguments.[0] then
+                let col = resolveColArg mc.Arguments.[0]
+                Some $"({col} IS NULL OR TRIM({col}) = '')"
+            elif (mc.Method.Name = "ReferenceEquals" || mc.Method.Name = "Equals" || mc.Method.Name = "op_Equality") && mc.Arguments.Count = 2 && (isNullConstantExpr mc.Arguments.[0] || isNullConstantExpr mc.Arguments.[1]) then
+                let colExpr = if isNullConstantExpr mc.Arguments.[0] then mc.Arguments.[1] else mc.Arguments.[0]
+                if argDependsOnQuery colExpr then
+                    let col = resolveColArg colExpr
+                    Some $"({col} IS NULL)"
+                else None
+            elif mc.Method.Name = "op_Inequality" && mc.Arguments.Count = 2 && (isNullConstantExpr mc.Arguments.[0] || isNullConstantExpr mc.Arguments.[1]) then
+                let colExpr = if isNullConstantExpr mc.Arguments.[0] then mc.Arguments.[1] else mc.Arguments.[0]
+                if argDependsOnQuery colExpr then
+                    let col = resolveColArg colExpr
+                    Some $"({col} IS NOT NULL)"
+                else None
+            elif mc.Method.Name = "Contains" then
                 let sourceExpr, itemExpr =
                     if mc.Method.IsStatic && mc.Arguments.Count >= 2 then
                         mc.Arguments.[0], mc.Arguments.[1]
@@ -1007,7 +1191,7 @@ module ExpressionPushdownTranslator =
                     None
             elif mc.Method.Name = "Any" || mc.Method.Name = "exists" || mc.Method.Name = "Exists" || mc.Method.Name = "whereExists" then
                 let sourceExpr =
-                    if mc.Method.IsStatic && mc.Arguments.Count >= 1 then mc.Arguments.[0]
+                    if mc.Arguments.Count >= 1 then mc.Arguments.[0]
                     elif not (isNull mc.Object) then mc.Object
                     else null
                 if not (isNull sourceExpr) then
@@ -1058,7 +1242,7 @@ module ExpressionPushdownTranslator =
                 else None
             elif mc.Method.Name = "notExists" || mc.Method.Name = "NotExists" || mc.Method.Name = "whereNotExists" then
                 let sourceExpr =
-                    if mc.Method.IsStatic && mc.Arguments.Count >= 1 then mc.Arguments.[0]
+                    if mc.Arguments.Count >= 1 then mc.Arguments.[0]
                     elif not (isNull mc.Object) then mc.Object
                     else null
                 if not (isNull sourceExpr) then
@@ -1389,15 +1573,23 @@ module ExpressionPushdownTranslator =
                 let colSql = defaultArg (translateScalarExpr dialect plan mc.Arguments.[0]) (extractColumnNameWithAlias plan mc.Arguments.[0])
                 let rawPath = evaluateClientValue mc.Arguments.[1]
                 let pathStr = if isNull rawPath then "$" else string rawPath
+                let normalizedPath =
+                    if String.IsNullOrEmpty pathStr || pathStr = "$" then "$"
+                    elif not (pathStr.StartsWith("$")) then
+                        if pathStr.StartsWith(".") then "$" + pathStr else "$." + pathStr
+                    else pathStr
                 match dialect with
                 | SqlDialect.SqlServer | SqlDialect.Oracle ->
-                    Some $"JSON_VALUE({colSql}, '{pathStr}')"
+                    Some $"JSON_VALUE({colSql}, '{normalizedPath}')"
                 | SqlDialect.Sqlite ->
-                    Some $"json_extract({colSql}, '{pathStr}')"
+                    Some $"json_extract({colSql}, '{normalizedPath}')"
                 | SqlDialect.MySql | SqlDialect.MariaDb ->
-                    Some $"JSON_UNQUOTE(JSON_EXTRACT({colSql}, '{pathStr}'))"
+                    Some $"JSON_UNQUOTE(JSON_EXTRACT({colSql}, '{normalizedPath}'))"
                 | SqlDialect.PostgreSql ->
-                    let trimmed = if pathStr.StartsWith("$.") then pathStr.Substring(2) else pathStr
+                    let trimmed =
+                        if normalizedPath.StartsWith("$.") then normalizedPath.Substring(2)
+                        elif normalizedPath.StartsWith("$") then normalizedPath.Substring(1)
+                        else normalizedPath
                     if trimmed.Contains(".") then
                         let parts = trimmed.Split('.') |> String.concat "', '"
                         Some $"({colSql} #>> '{{{parts}}}')"
@@ -1407,7 +1599,7 @@ module ExpressionPushdownTranslator =
         else None
 
     and translateScalarCondition (dialect: SqlDialect) (plan: PushdownQueryPlan) (expr: Expression) : string option =
-        let unwrapped = unwrapQuote expr
+        let unwrapped = unwrapBlock (unwrapQuote expr)
         match unwrapped with
         | :? BinaryExpression as b when b.NodeType = ExpressionType.AndAlso ->
             match translateScalarCondition dialect plan b.Left, translateScalarCondition dialect plan b.Right with
@@ -1440,8 +1632,26 @@ module ExpressionPushdownTranslator =
             | _ -> None
         | :? UnaryExpression as u when u.NodeType = ExpressionType.Not ->
             match translateScalarCondition dialect plan u.Operand with
-            | Some inner -> Some $"(NOT {inner})"
+            | Some inner -> Some (negateSqlPredicate inner)
             | None | _ -> None
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert || u.NodeType = ExpressionType.ConvertChecked || u.NodeType = ExpressionType.TypeAs ->
+            translateScalarCondition dialect plan u.Operand
+        | :? ConditionalExpression as ce ->
+            let isConstTrue (e: Expression) =
+                match unwrapBlock (unwrapQuote e) with
+                | :? ConstantExpression as c when c.Type = typeof<bool> -> (c.Value :?> bool) = true
+                | _ -> false
+            let isConstFalse (e: Expression) =
+                match unwrapBlock (unwrapQuote e) with
+                | :? ConstantExpression as c when c.Type = typeof<bool> -> (c.Value :?> bool) = false
+                | _ -> false
+            if isConstTrue ce.IfTrue && isConstFalse ce.IfFalse then
+                translateScalarCondition dialect plan ce.Test
+            elif isConstFalse ce.IfTrue && isConstTrue ce.IfFalse then
+                match translateScalarCondition dialect plan ce.Test with
+                | Some inner -> Some (negateSqlPredicate inner)
+                | None -> None
+            else None
         | :? MemberExpression as m when not (isNull m.Expression) && isOptionOrNullableType m.Expression.Type && (m.Member.Name = "HasValue" || m.Member.Name = "IsSome") ->
             match translateScalarExpr dialect plan m.Expression with
             | Some s -> Some $"({s} IS NOT NULL)"
@@ -1460,9 +1670,21 @@ module ExpressionPushdownTranslator =
                 if dialect = SqlDialect.PostgreSql then Some $"({s} = TRUE)"
                 else Some $"({s} = 1)"
             | None | _ -> None
+        | :? MethodCallExpression as mc when (mc.Method.Name = "IsNull" || mc.Method.Name = "isNull") && mc.Arguments.Count = 1 ->
+            match translateScalarExpr dialect plan mc.Arguments.[0] with
+            | Some s -> Some $"({s} IS NULL)"
+            | None -> None
+        | :? MethodCallExpression as mc when (mc.Method.Name = "isNotNull" || mc.Method.Name = "IsNotNull") && mc.Arguments.Count = 1 ->
+            match translateScalarExpr dialect plan mc.Arguments.[0] with
+            | Some s -> Some $"({s} IS NOT NULL)"
+            | None -> None
+        | :? MethodCallExpression as mc when (mc.Method.Name = "isNotEmpty" || mc.Method.Name = "isNotNullOrEmpty" || mc.Method.Name = "IsNotEmpty" || mc.Method.Name = "IsNotNullOrEmpty") && mc.Arguments.Count = 1 ->
+            match translateScalarExpr dialect plan mc.Arguments.[0] with
+            | Some s -> Some (formatNotEmptySql dialect s)
+            | None -> None
         | :? MethodCallExpression as mc when mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "IsNullOrEmpty" && mc.Arguments.Count = 1 ->
             match translateScalarExpr dialect plan mc.Arguments.[0] with
-            | Some s -> Some $"({s} IS NULL OR {s} = '')"
+            | Some s -> Some (formatIsEmptySql dialect s)
             | None | _ -> None
         | :? MethodCallExpression as mc when mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "IsNullOrWhiteSpace" && mc.Arguments.Count = 1 ->
             match translateScalarExpr dialect plan mc.Arguments.[0] with
@@ -1480,7 +1702,7 @@ module ExpressionPushdownTranslator =
         | _ -> None
 
     and translateScalarExpr (dialect: SqlDialect) (plan: PushdownQueryPlan) (expr: Expression) : string option =
-        let unwrapped = unwrapQuote expr
+        let unwrapped = unwrapBlock (unwrapQuote expr)
         match unwrapped with
         | null -> None
         | :? ConstantExpression as c when not (isNull c.Value) && typeof<IQueryable>.IsAssignableFrom(c.Type) ->
@@ -1588,8 +1810,12 @@ module ExpressionPushdownTranslator =
                         Some $"{plan.BaseAlias}.{colName}"
                     else
                         Some colName
-        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert ->
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert || u.NodeType = ExpressionType.ConvertChecked || u.NodeType = ExpressionType.TypeAs ->
             translateScalarExpr dialect plan u.Operand
+        | :? UnaryExpression as u when u.NodeType = ExpressionType.Not ->
+            match translateScalarCondition dialect plan u.Operand with
+            | Some inner -> Some (negateSqlPredicate inner)
+            | None -> None
         | :? BinaryExpression as b ->
             match b.NodeType with
             | ExpressionType.Add ->
@@ -1628,23 +1854,44 @@ module ExpressionPushdownTranslator =
         | :? DefaultExpression as de when isOptionOrNullableType de.Type ->
             Some "NULL"
         | :? ConditionalExpression as c ->
-            let isNullCheck (e: Expression) : bool =
-                match unwrapQuote e with
-                | :? MethodCallExpression as mc when mc.Method.Name = "IsNull" || mc.Method.Name = "ReferenceEquals" || mc.Method.Name = "isNull" -> true
+            let rec isNullCheck (e: Expression) : bool =
+                match unwrapBlock (unwrapQuote e) with
+                | :? MethodCallExpression as mc when mc.Method.Name = "IsNull" || mc.Method.Name = "ReferenceEquals" || mc.Method.Name = "isNull" || mc.Method.Name = "whereIsNull" -> true
+                | :? ConditionalExpression as ce ->
+                    let isConstTrue (x: Expression) =
+                        match unwrapBlock (unwrapQuote x) with
+                        | :? ConstantExpression as k when k.Type = typeof<bool> -> (k.Value :?> bool) = true
+                        | _ -> false
+                    let isConstFalse (x: Expression) =
+                        match unwrapBlock (unwrapQuote x) with
+                        | :? ConstantExpression as k when k.Type = typeof<bool> -> (k.Value :?> bool) = false
+                        | _ -> false
+                    isConstTrue ce.IfTrue && isConstFalse ce.IfFalse && isNullCheck ce.Test
                 | :? BinaryExpression as b when b.NodeType = ExpressionType.Equal ->
                     let isNullConst (x: Expression) =
-                        match unwrapQuote x with
+                        match unwrapBlock (unwrapQuote x) with
                         | :? ConstantExpression as ce -> isNull ce.Value
                         | _ -> false
                     isNullConst b.Left || isNullConst b.Right
                 | _ -> false
 
-            let isNotNullCheck (e: Expression) : bool =
-                match unwrapQuote e with
+            let rec isNotNullCheck (e: Expression) : bool =
+                match unwrapBlock (unwrapQuote e) with
                 | :? UnaryExpression as u when u.NodeType = ExpressionType.Not -> isNullCheck u.Operand
+                | :? MethodCallExpression as mc when mc.Method.Name = "isNotNull" || mc.Method.Name = "IsNotNull" -> true
+                | :? ConditionalExpression as ce ->
+                    let isConstTrue (x: Expression) =
+                        match unwrapBlock (unwrapQuote x) with
+                        | :? ConstantExpression as k when k.Type = typeof<bool> -> (k.Value :?> bool) = true
+                        | _ -> false
+                    let isConstFalse (x: Expression) =
+                        match unwrapBlock (unwrapQuote x) with
+                        | :? ConstantExpression as k when k.Type = typeof<bool> -> (k.Value :?> bool) = false
+                        | _ -> false
+                    isConstFalse ce.IfTrue && isConstTrue ce.IfFalse && isNullCheck ce.Test
                 | :? BinaryExpression as b when b.NodeType = ExpressionType.NotEqual ->
                     let isNullConst (x: Expression) =
-                        match unwrapQuote x with
+                        match unwrapBlock (unwrapQuote x) with
                         | :? ConstantExpression as ce -> isNull ce.Value
                         | _ -> false
                     isNullConst b.Left || isNullConst b.Right
@@ -2689,12 +2936,6 @@ module LinqInMemoryFallback =
             let fn = lambda.Compile()
             fn.DynamicInvoke()
 
-/// Marker interface allowing non-generic access to pushdown query metadata and plan diagnostics.
-type ISqlPushdownQueryable =
-    abstract member Plan: PushdownQueryPlan
-    abstract member Connector: IQueryableConnector
-    abstract member Explain: unit -> ExecutionPlanReport
-
 /// LINQ Query Provider that inspects expression trees and executes parameterized SQL pushdown queries.
 type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, baseParameters: (string * obj) list) =
     let dialect = SqlDialect.fromConnectorKind (connector :> IConnector).Kind
@@ -3725,6 +3966,19 @@ module SqlComputationExtensions =
     /// Marker function declaring an explicit correlated CROSS JOIN LATERAL in F# queries.
     let lateral (subquery: #seq<'T>) : #seq<'T> = subquery
 
+    /// Checks whether a column or value is NOT NULL (translates to `col IS NOT NULL` in SQL pushdown).
+    let isNotNull (value: 'T) : bool = not (isNull (box value))
+
+    /// Checks whether a string or value is NOT NULL and NOT empty (`""`) (translates to `(col IS NOT NULL AND col <> '')` in SQL pushdown).
+    let isNotEmpty (value: 'T) : bool =
+        match box value with
+        | null -> false
+        | :? string as s -> not (String.IsNullOrEmpty(s))
+        | other -> not (String.IsNullOrEmpty(string other))
+
+    /// Checks whether a string or value is NOT NULL and NOT empty (`""`) (translates to `(col IS NOT NULL AND col <> '')` in SQL pushdown).
+    let isNotNullOrEmpty (value: 'T) : bool = isNotEmpty value
+
     /// Strongly-typed F# computation expression builder providing dedicated keywords
     /// for subqueries, EXISTS, NOT EXISTS, CROSS APPLY / LATERAL, HAVING, CTEs, and Set Operations.
     type FSqlQueryBuilder() =
@@ -3904,6 +4158,21 @@ module SqlComputationExtensions =
 
         /// Semi-structured JSON navigation pushdown (JSON_VALUE / ->> / json_extract).
         member inline _.jsonValue(column: obj, path: string) : string = ""
+
+        /// Checks whether a column or value is NOT NULL (translates to `col IS NOT NULL` in SQL pushdown).
+        member inline _.isNotNull(value: 'T) : bool = isNotNull value
+
+        /// Checks whether a string or value is NOT NULL and NOT empty (`""`) (translates to `(col IS NOT NULL AND col <> '')` in SQL pushdown).
+        member inline _.isNotEmpty(value: 'T) : bool = isNotEmpty value
+
+        /// Checks whether a string or value is NOT NULL and NOT empty (`""`) (translates to `(col IS NOT NULL AND col <> '')` in SQL pushdown).
+        member inline _.isNotNullOrEmpty(value: 'T) : bool = isNotNullOrEmpty value
+
+        /// Declares a correlated subquery existence check in F# queries.
+        member inline _.exists(subquery: #seq<'T>) : bool = true
+
+        /// Declares a correlated subquery non-existence check in F# queries.
+        member inline _.notExists(subquery: #seq<'T>) : bool = false
 
         /// Declares a Common Table Expression (CTE) in the current query.
         member inline _.withCte(name: string, cteQuery: #seq<'U>) : unit = ()

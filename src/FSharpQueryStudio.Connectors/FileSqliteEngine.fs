@@ -201,14 +201,53 @@ type FileSqliteEngine(dbPath: string) =
                         || (try String.Equals(Path.GetFullPath(cachedPath), Path.GetFullPath(filePath), StringComparison.OrdinalIgnoreCase) with _ -> false)
 
                 if shouldDrop then
+                    use typeCmd = conn.CreateCommand()
+                    typeCmd.CommandText <- "SELECT type FROM sqlite_master WHERE lower(name) = lower(@t);"
+                    typeCmd.Parameters.AddWithValue("@t", cleanTableName) |> ignore
+                    let objType = typeCmd.ExecuteScalar()
+                    let isView = not (isNull objType) && not (Convert.IsDBNull(objType)) && String.Equals(string objType, "view", StringComparison.OrdinalIgnoreCase)
                     use dropCmd = conn.CreateCommand()
-                    dropCmd.CommandText <- $"DROP TABLE IF EXISTS \"{cleanTableName}\"; DELETE FROM _fqs_file_cache WHERE table_name = @t;"
+                    if isView then
+                        dropCmd.CommandText <- $"DROP VIEW IF EXISTS \"{cleanTableName}\"; DELETE FROM _fqs_file_cache WHERE table_name = @t;"
+                    else
+                        dropCmd.CommandText <- $"DROP TABLE IF EXISTS \"{cleanTableName}\"; DELETE FROM _fqs_file_cache WHERE table_name = @t;"
                     dropCmd.Parameters.AddWithValue("@t", cleanTableName) |> ignore
                     dropCmd.ExecuteNonQuery() |> ignore
             with ex ->
                 Log.Warning("FS Query Studio: Could not drop stale table {Table}: {Error}", cleanTableName, ex.Message)
         finally
             sem.Release() |> ignore
+
+    /// Creates a SQLite VIEW alias `viewName` pointing to `SELECT * FROM targetTableName` if no physical table with `viewName` exists.
+    member this.EnsureAliasView(viewName: string, targetTableName: string) : unit =
+        let cleanView = CodeGenerationHelpers.cleanIdentifier viewName
+        let cleanTarget = CodeGenerationHelpers.cleanIdentifier targetTableName
+        if not (String.IsNullOrWhiteSpace cleanView)
+           && not (String.IsNullOrWhiteSpace cleanTarget)
+           && not (String.Equals(cleanView, cleanTarget, StringComparison.OrdinalIgnoreCase)) then
+            let sem = getDbLock dbPath
+            sem.Wait()
+            try
+                try
+                    use conn = new SqliteConnection(connStr)
+                    conn.Open()
+                    use pragmaCmd = conn.CreateCommand()
+                    pragmaCmd.CommandText <- "PRAGMA busy_timeout = 60000;"
+                    pragmaCmd.ExecuteNonQuery() |> ignore
+
+                    use checkTableCmd = conn.CreateCommand()
+                    checkTableCmd.CommandText <- "SELECT count(*) FROM sqlite_master WHERE type = 'table' AND lower(name) = lower(@v);"
+                    checkTableCmd.Parameters.AddWithValue("@v", cleanView) |> ignore
+                    let tableExists = Convert.ToInt64(checkTableCmd.ExecuteScalar()) > 0L
+
+                    if not tableExists then
+                        use viewCmd = conn.CreateCommand()
+                        viewCmd.CommandText <- $"DROP VIEW IF EXISTS \"{cleanView}\"; CREATE VIEW IF NOT EXISTS \"{cleanView}\" AS SELECT * FROM \"{cleanTarget}\";"
+                        viewCmd.ExecuteNonQuery() |> ignore
+                with ex ->
+                    Log.Warning("FS Query Studio: Could not create alias view {View} -> {Target}: {Error}", cleanView, cleanTarget, ex.Message)
+            finally
+                sem.Release() |> ignore
 
     /// Ensures that the specified CSV or Excel file is staged into the SQLite database as `tableName`.
     /// If the table is already staged and the file on disk has not changed, this returns immediately (0ms).
@@ -312,10 +351,18 @@ type FileSqliteEngine(dbPath: string) =
 
                             use tx = conn.BeginTransaction()
 
-                            // Drop table if exists
+                            // Drop view or table if exists
+                            use typeCmd = conn.CreateCommand()
+                            typeCmd.Transaction <- tx
+                            typeCmd.CommandText <- "SELECT type FROM sqlite_master WHERE lower(name) = lower(@t);"
+                            typeCmd.Parameters.AddWithValue("@t", cleanTableName) |> ignore
+                            let objType = typeCmd.ExecuteScalar()
+                            let isView = not (isNull objType) && not (Convert.IsDBNull(objType)) && String.Equals(string objType, "view", StringComparison.OrdinalIgnoreCase)
                             use dropCmd = conn.CreateCommand()
                             dropCmd.Transaction <- tx
-                            dropCmd.CommandText <- $"DROP TABLE IF EXISTS \"{cleanTableName}\";"
+                            dropCmd.CommandText <-
+                                if isView then $"DROP VIEW IF EXISTS \"{cleanTableName}\";"
+                                else $"DROP TABLE IF EXISTS \"{cleanTableName}\";"
                             dropCmd.ExecuteNonQuery() |> ignore
 
                             let effectiveCols =
