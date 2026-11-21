@@ -2301,6 +2301,46 @@ let ``fsql builder methods isNotNull, isNotEmpty, isNotNullOrEmpty and condition
     Assert.False(isNotNullOrEmpty "")
     Assert.False(isNotNullOrEmpty (null: string))
 
+[<Fact>]
+let ``verify only requested methods isNotNull, isNotEmpty, and isNotNullOrEmpty exist and redundant operations are removed`` () =
+    let builderType = typeof<FSqlQueryBuilder>
+    let queryableType = typeof<SqlPushdownQueryable<TestProduct>>
+
+    // 1. Assert requested methods exist on builder
+    Assert.NotNull(builderType.GetMethod("isNotNull"))
+    Assert.NotNull(builderType.GetMethod("isNotEmpty"))
+    Assert.NotNull(builderType.GetMethod("isNotNullOrEmpty"))
+
+    // 2. Assert removed custom operations / builder methods do NOT exist
+    let disallowedBuilderMethods = [
+        "whereNotNull"
+        "whereNotEmpty"
+        "whereNotNullOrEmpty"
+        "whereIsNull"
+        "whereIsEmpty"
+        "whereNotNullOrWhiteSpace"
+        "notNull"
+        "notEmpty"
+        "notNullOrEmpty"
+    ]
+    for m in disallowedBuilderMethods do
+        Assert.Null(builderType.GetMethod(m))
+
+    // 3. Assert removed fluent methods on SqlPushdownQueryable do NOT exist
+    let disallowedQueryableMethods = [
+        "WhereNotNull"
+        "WhereNotEmpty"
+        "WhereNotNullOrEmpty"
+        "WhereIsNull"
+        "WhereIsEmpty"
+        "WhereNotNullOrWhiteSpace"
+        "NotNull"
+        "NotEmpty"
+        "NotNullOrEmpty"
+    ]
+    for m in disallowedQueryableMethods do
+        Assert.Null(queryableType.GetMethod(m))
+
 
 
 
