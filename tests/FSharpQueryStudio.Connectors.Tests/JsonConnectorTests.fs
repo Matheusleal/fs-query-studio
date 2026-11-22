@@ -249,7 +249,9 @@ let ``JsonDescriptor properties and validation scenario 1`` () =
     Assert.True(Option.isNone desc.EntityGenerator)
     Assert.NotEmpty(desc.FormFields)
 
-    use doc = System.Text.Json.JsonDocument.Parse("""{"filePath": "/path/to/data.json"}""")
+    use doc =
+        System.Text.Json.JsonDocument.Parse("""{"filePath": "/path/to/data.json"}""")
+
     let validRes = desc.ValidateConfiguration doc.RootElement
     Assert.True(Result.isOk validRes)
 
@@ -264,7 +266,9 @@ let ``JsonDescriptor properties and validation scenario 2`` () =
 let ``JsonConnectorFactory creates connector from string or raw text scenario 1`` () =
     let desc = JsonDescriptor.Instance :> IConnectorDescriptor
     let factory = desc.Factory
-    let secretStore = FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
+
+    let secretStore =
+        FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
 
     use docStr = System.Text.Json.JsonDocument.Parse("\"/my/file.json\"")
     let conn = factory.Create(docStr.RootElement, secretStore, None)
@@ -274,12 +278,16 @@ let ``JsonConnectorFactory creates connector from string or raw text scenario 1`
 [<Fact>]
 let ``JsonConnectorFactory creates connector from empty or object configuration scenario 2`` () =
     let factory = JsonConnectorFactory() :> IConnectorFactory
-    let secretStore = FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
+
+    let secretStore =
+        FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
 
     use docEmptyStr = System.Text.Json.JsonDocument.Parse("\"\"")
     let conn1 = factory.Create(docEmptyStr.RootElement, secretStore, None)
     Assert.NotNull(conn1)
 
-    use docObj = System.Text.Json.JsonDocument.Parse("{\"filePath\": \"/data/test.json\", \"flattenNested\": false}")
+    use docObj =
+        System.Text.Json.JsonDocument.Parse("{\"filePath\": \"/data/test.json\", \"flattenNested\": false}")
+
     let conn2 = factory.Create(docObj.RootElement, secretStore, None)
     Assert.NotNull(conn2)

@@ -335,8 +335,11 @@ let ``createSampleData and createAdvancedSamples wrappers use the default langua
 let ``dispatch connection/refresh with workspaceDir clears caches and returns ok scenario 1`` () =
     task {
         let dir = tempDir "refresh1"
+
         try
-            let request = req "ref1" "connection/refresh" $"{{\"workspaceDir\": \"{jsonPath dir}\"}}"
+            let request =
+                req "ref1" "connection/refresh" $"{{\"workspaceDir\": \"{jsonPath dir}\"}}"
+
             let! response = Handlers.dispatch request
             Assert.Equal("ref1", response.Id)
             Assert.True(response.Error.IsNone)
@@ -349,8 +352,11 @@ let ``dispatch connection/refresh with workspaceDir clears caches and returns ok
 let ``dispatch workspace/refreshEntities with workspaceDirectory clears caches scenario 2`` () =
     task {
         let dir = tempDir "refresh2"
+
         try
-            let request = req "ref2" "workspace/refreshEntities" $"{{\"workspaceDirectory\": \"{jsonPath dir}\"}}"
+            let request =
+                req "ref2" "workspace/refreshEntities" $"{{\"workspaceDirectory\": \"{jsonPath dir}\"}}"
+
             let! response = Handlers.dispatch request
             Assert.Equal("ref2", response.Id)
             Assert.True(response.Error.IsNone)
@@ -363,8 +369,11 @@ let ``dispatch workspace/refreshEntities with workspaceDirectory clears caches s
 let ``dispatch connection/refresh with targetDir and without params scenario 3`` () =
     task {
         let dir = tempDir "refresh3"
+
         try
-            let request1 = req "ref3" "connection/refresh" $"{{\"targetDir\": \"{jsonPath dir}\"}}"
+            let request1 =
+                req "ref3" "connection/refresh" $"{{\"targetDir\": \"{jsonPath dir}\"}}"
+
             let! response1 = Handlers.dispatch request1
             Assert.Equal("ref3", response1.Id)
             Assert.True(response1.Error.IsNone)

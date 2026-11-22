@@ -19,6 +19,7 @@ type DummyExplainConnector(dialectRows: obj array array) =
         member _.ConnectionString = "Data Source=:memory:"
         member _.TestConnectionAsync(_: CancellationToken) = Task.FromResult true
         member _.DiscoverSchemaAsync(_: CancellationToken) = Task.FromResult []
+
         member _.ExecuteQuery (sql: string) (_: (string * obj) list) : ConnectorQueryResult =
             {
                 Columns = [ "PlanOutput" ]
@@ -30,11 +31,19 @@ type MockProviderConnector() =
         member _.Kind = ConnectorKind.SqlServer
         member _.TestConnectionAsync(_) = Task.FromResult true
         member _.DiscoverSchemaAsync(_) = Task.FromResult []
+
     interface ISqlDialectProvider with
         member _.Dialect = SqlServerDialect.Instance
 
-type TestPersonRecord = { Id: int; Name: string; Score: double }
-type TestSaleRecord = { Region: string; Month: string; Amount: decimal }
+type TestPersonRecord =
+    { Id: int; Name: string; Score: double }
+
+type TestSaleRecord =
+    {
+        Region: string
+        Month: string
+        Amount: decimal
+    }
 
 module DialectAndExtensionsFullCoverageTests =
 
@@ -99,7 +108,10 @@ module DialectAndExtensionsFullCoverageTests =
         for dialect in allDialects do
             let crossApply = dialect.FormatApplyJoin(false, "subTable")
             let outerApply = dialect.FormatOuterApplyJoin("subTable", Some "1=1")
-            let outerApplyCustomOn = dialect.FormatOuterApplyJoin("subTable", Some "t.id = subTable.id")
+
+            let outerApplyCustomOn =
+                dialect.FormatOuterApplyJoin("subTable", Some "t.id = subTable.id")
+
             let outerApplyNoneOn = dialect.FormatOuterApplyJoin("subTable", None)
 
             Assert.NotEmpty(crossApply)
@@ -121,6 +133,7 @@ module DialectAndExtensionsFullCoverageTests =
     [<Fact>]
     let ``Dialects TranslateDatePart handles all standard parts and unknown parts`` () =
         let parts = [ "year"; "month"; "day"; "hour"; "minute"; "second"; "date" ]
+
         for dialect in allDialects do
             for part in parts do
                 let translated = dialect.TranslateDatePart(part, "created_at")
@@ -148,6 +161,7 @@ module DialectAndExtensionsFullCoverageTests =
         for dialect in allDialects do
             let explain = dialect.FormatExplain(mockConn, "SELECT * FROM users", [])
             Assert.NotEmpty(explain)
+
             Assert.True(
                 explain.Contains("PLAN", StringComparison.OrdinalIgnoreCase)
                 || explain.Contains("EXPLAIN", StringComparison.OrdinalIgnoreCase)
@@ -166,8 +180,12 @@ module DialectAndExtensionsFullCoverageTests =
     let ``Dialects FormatSqlTarget produces appropriate schema and table identifiers`` () =
         for dialect in allDialects do
             let targetSimple = dialect.FormatSqlTarget("main", None, "orders", "orders", true)
-            let targetWithSub = dialect.FormatSqlTarget("main", Some "sales", "orders", "sales.orders", false)
-            let targetDefault = dialect.FormatSqlTarget("public", Some "public", "orders", "orders", true)
+
+            let targetWithSub =
+                dialect.FormatSqlTarget("main", Some "sales", "orders", "sales.orders", false)
+
+            let targetDefault =
+                dialect.FormatSqlTarget("public", Some "public", "orders", "orders", true)
 
             Assert.NotEmpty(targetSimple)
             Assert.NotEmpty(targetWithSub)
@@ -218,7 +236,9 @@ module DialectAndExtensionsFullCoverageTests =
             Assert.Contains("name", notEmptyCheck)
 
     [<Fact>]
-    let ``Dialects String operations TranslateStringLength, FormatConcat, CastToString, Substring, Ceiling, IndexOf`` () =
+    let ``Dialects String operations TranslateStringLength, FormatConcat, CastToString, Substring, Ceiling, IndexOf``
+        ()
+        =
         for dialect in allDialects do
             let lenSql = dialect.TranslateStringLength "col"
             Assert.NotEmpty(lenSql)
@@ -256,40 +276,60 @@ module DialectAndExtensionsFullCoverageTests =
         Assert.Equal("CROSS APPLY sub", SqlServerDialect.Instance.FormatApplyJoin(false, "sub"))
 
         // SqlServer skip only with and without order
-        let ssSkipNoOrder = SqlServerDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, Some 5)
+        let ssSkipNoOrder =
+            SqlServerDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, Some 5)
+
         Assert.Contains("ORDER BY (SELECT NULL) OFFSET 5 ROWS", ssSkipNoOrder)
 
-        let ssSkipWithOrder = SqlServerDialect.Instance.FormatSelect(false, "*", "T", "", "", "", " ORDER BY id", None, Some 5)
+        let ssSkipWithOrder =
+            SqlServerDialect.Instance.FormatSelect(false, "*", "T", "", "", "", " ORDER BY id", None, Some 5)
+
         Assert.Contains("ORDER BY id OFFSET 5 ROWS", ssSkipWithOrder)
 
         // SqlServer take only without order -> TOP
-        let ssTakeNoOrder = SqlServerDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", Some 10, None)
+        let ssTakeNoOrder =
+            SqlServerDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", Some 10, None)
+
         Assert.Contains("TOP (10)", ssTakeNoOrder)
 
         // SqlServer FormatSqlTarget schema prefixes
-        let ssTargetCustom = SqlServerDialect.Instance.FormatSqlTarget("sales_db", None, "orders", "sales_db.orders", false)
+        let ssTargetCustom =
+            SqlServerDialect.Instance.FormatSqlTarget("sales_db", None, "orders", "sales_db.orders", false)
+
         Assert.Equal("sales_db.dbo.orders", ssTargetCustom)
 
-        let ssTargetDbo = SqlServerDialect.Instance.FormatSqlTarget("dbo", None, "orders", "dbo.orders", true)
+        let ssTargetDbo =
+            SqlServerDialect.Instance.FormatSqlTarget("dbo", None, "orders", "dbo.orders", true)
+
         Assert.Equal("dbo.orders", ssTargetDbo)
 
         // Postgres JSON single field extract
-        let pgJsonSingle = PostgreSqlDialect.Instance.TranslateJsonExtract("metadata", "status")
+        let pgJsonSingle =
+            PostgreSqlDialect.Instance.TranslateJsonExtract("metadata", "status")
+
         Assert.Equal(Some "(metadata ->> 'status')", pgJsonSingle)
 
         // Postgres skip only
-        let pgSkipOnly = PostgreSqlDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, Some 5)
+        let pgSkipOnly =
+            PostgreSqlDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, Some 5)
+
         Assert.Contains("OFFSET 5", pgSkipOnly)
 
         // MySQL / MariaDB skip only
-        let mySkipOnly = MySqlDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, Some 5)
+        let mySkipOnly =
+            MySqlDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, Some 5)
+
         Assert.Contains("LIMIT 18446744073709551615 OFFSET 5", mySkipOnly)
 
-        let mariaSkipOnly = MariaDbDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, Some 5)
+        let mariaSkipOnly =
+            MariaDbDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, Some 5)
+
         Assert.Contains("LIMIT 18446744073709551615 OFFSET 5", mariaSkipOnly)
 
         // Oracle skip only
-        let oraSkipOnly = OracleDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, Some 5)
+        let oraSkipOnly =
+            OracleDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, Some 5)
+
         Assert.Contains("OFFSET 5 ROWS", oraSkipOnly)
 
         // Dialects SupportsRecursiveCteKeyword and ApplyJoins
@@ -307,83 +347,114 @@ module DialectAndExtensionsFullCoverageTests =
         Assert.Equal("LEFT JOIN LATERAL T ON true", MariaDbDialect.Instance.FormatApplyJoin(true, "T"))
 
         // Additional FormatSelect variations
-        let oraTakeOnly = OracleDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", Some 10, None)
+        let oraTakeOnly =
+            OracleDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", Some 10, None)
+
         Assert.Equal("SELECT * FROM T OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY", oraTakeOnly)
 
-        let oraNone = OracleDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, None)
+        let oraNone =
+            OracleDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, None)
+
         Assert.Equal("SELECT * FROM T", oraNone)
 
-        let oraPostProcess = OracleDialect.Instance.PostProcessSql("SELECT _id, _name FROM T")
+        let oraPostProcess =
+            OracleDialect.Instance.PostProcessSql("SELECT _id, _name FROM T")
+
         Assert.Equal("SELECT id, name FROM T", oraPostProcess)
 
-        let myTakeOnly = MySqlDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", Some 10, None)
+        let myTakeOnly =
+            MySqlDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", Some 10, None)
+
         Assert.Equal("SELECT * FROM T LIMIT 10", myTakeOnly)
 
-        let myNone = MySqlDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, None)
+        let myNone =
+            MySqlDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, None)
+
         Assert.Equal("SELECT * FROM T", myNone)
 
-        let mariaTakeOnly = MariaDbDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", Some 10, None)
+        let mariaTakeOnly =
+            MariaDbDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", Some 10, None)
+
         Assert.Equal("SELECT * FROM T LIMIT 10", mariaTakeOnly)
 
-        let mariaNone = MariaDbDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, None)
+        let mariaNone =
+            MariaDbDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, None)
+
         Assert.Equal("SELECT * FROM T", mariaNone)
 
         let sqliteSkipOnly = SqliteDialect.Instance.FormatLimitOffset(None, Some 5, false)
         Assert.Equal(" LIMIT -1 OFFSET 5", sqliteSkipOnly)
 
-        let sqliteNone = SqliteDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, None)
+        let sqliteNone =
+            SqliteDialect.Instance.FormatSelect(false, "*", "T", "", "", "", "", None, None)
+
         Assert.Equal("SELECT * FROM T", sqliteNone)
 
         // SQLite FormatExplain fallback when empty rows or single column rows
-        let mockEmptyExplainConn = { new IQueryableConnector with
-            member _.Kind = ConnectorKind.Sqlite
-            member _.ConnectionString = "Data Source=:memory:"
-            member _.TestConnectionAsync(_) = Task.FromResult true
-            member _.DiscoverSchemaAsync(_) = Task.FromResult []
-            member _.ExecuteQuery _ _ = { Columns = ["Plan"]; Rows = [] }
-        }
-        let explainEmpty = SqliteDialect.Instance.FormatExplain(mockEmptyExplainConn, "SELECT 1", [])
+        let mockEmptyExplainConn =
+            { new IQueryableConnector with
+                member _.Kind = ConnectorKind.Sqlite
+                member _.ConnectionString = "Data Source=:memory:"
+                member _.TestConnectionAsync(_) = Task.FromResult true
+                member _.DiscoverSchemaAsync(_) = Task.FromResult []
+                member _.ExecuteQuery _ _ = { Columns = [ "Plan" ]; Rows = [] }
+            }
+
+        let explainEmpty =
+            SqliteDialect.Instance.FormatExplain(mockEmptyExplainConn, "SELECT 1", [])
+
         Assert.Equal("-- SQLite EXPLAIN: Plan generated successfully.", explainEmpty)
 
-        let mockSingleColExplainConn = { new IQueryableConnector with
-            member _.Kind = ConnectorKind.Sqlite
-            member _.ConnectionString = "Data Source=:memory:"
-            member _.TestConnectionAsync(_) = Task.FromResult true
-            member _.DiscoverSchemaAsync(_) = Task.FromResult []
-            member _.ExecuteQuery _ _ = { Columns = ["Detail"]; Rows = [ [| box "SCAN TABLE users" |] ] }
-        }
-        let explainSingleCol = SqliteDialect.Instance.FormatExplain(mockSingleColExplainConn, "SELECT 1", [])
+        let mockSingleColExplainConn =
+            { new IQueryableConnector with
+                member _.Kind = ConnectorKind.Sqlite
+                member _.ConnectionString = "Data Source=:memory:"
+                member _.TestConnectionAsync(_) = Task.FromResult true
+                member _.DiscoverSchemaAsync(_) = Task.FromResult []
+
+                member _.ExecuteQuery _ _ =
+                    {
+                        Columns = [ "Detail" ]
+                        Rows = [ [| box "SCAN TABLE users" |] ]
+                    }
+            }
+
+        let explainSingleCol =
+            SqliteDialect.Instance.FormatExplain(mockSingleColExplainConn, "SELECT 1", [])
+
         Assert.Equal("-- SQLite EXPLAIN QUERY PLAN:\nSCAN TABLE users", explainSingleCol)
 
         // SqlDialect with null Name
-        let mockNullNameDialect = { new ISqlDialect with
-            member _.Name = null
-            member _.QuoteIdentifier(n) = n
-            member _.FormatLimitOffset(_, _, _) = ""
-            member _.FormatApplyJoin(_, s) = s
-            member _.SupportsRecursiveCteKeyword = false
-            member _.DualTable = None
-            member _.TranslateDatePart(_, _) = None
-            member _.TranslateDateTrunc(_) = None
-            member _.TranslateJsonExtract(_, _) = None
-            member _.FormatExplain(_, _, _) = ""
-            member _.FormatSqlTarget(_, _, r, _, _) = r
-            member _.SqlProviderType = ""
-            member _.FormatOuterApplyJoin(s, _) = s
-            member _.FormatSelect(_, _, _, _, _, _, _, _, _) = ""
-            member _.PostProcessSql(s) = s
-            member _.FormatBooleanLiteral(_) = ""
-            member _.FormatIsEmpty(_) = ""
-            member _.FormatIsNotEmpty(_) = ""
-            member _.DefaultWindowOrder = None
-            member _.TranslateStringLength(_) = ""
-            member _.FormatConcat(_) = ""
-            member _.TranslateDateFormat(_, _) = None
-            member _.TranslateCastToString(_) = ""
-            member _.TranslateSubstring(_, _, _) = ""
-            member _.TranslateCeiling(_) = ""
-            member _.TranslateIndexOf(_, _) = ""
-        }
+        let mockNullNameDialect =
+            { new ISqlDialect with
+                member _.Name = null
+                member _.QuoteIdentifier(n) = n
+                member _.FormatLimitOffset(_, _, _) = ""
+                member _.FormatApplyJoin(_, s) = s
+                member _.SupportsRecursiveCteKeyword = false
+                member _.DualTable = None
+                member _.TranslateDatePart(_, _) = None
+                member _.TranslateDateTrunc(_) = None
+                member _.TranslateJsonExtract(_, _) = None
+                member _.FormatExplain(_, _, _) = ""
+                member _.FormatSqlTarget(_, _, r, _, _) = r
+                member _.SqlProviderType = ""
+                member _.FormatOuterApplyJoin(s, _) = s
+                member _.FormatSelect(_, _, _, _, _, _, _, _, _) = ""
+                member _.PostProcessSql(s) = s
+                member _.FormatBooleanLiteral(_) = ""
+                member _.FormatIsEmpty(_) = ""
+                member _.FormatIsNotEmpty(_) = ""
+                member _.DefaultWindowOrder = None
+                member _.TranslateStringLength(_) = ""
+                member _.FormatConcat(_) = ""
+                member _.TranslateDateFormat(_, _) = None
+                member _.TranslateCastToString(_) = ""
+                member _.TranslateSubstring(_, _, _) = ""
+                member _.TranslateCeiling(_) = ""
+                member _.TranslateIndexOf(_, _) = ""
+            }
+
         Assert.Equal(SqlDialect.Sqlite, SqlDialect.fromDialect mockNullNameDialect)
 
     // -------------------------------------------------------------------------
@@ -411,43 +482,47 @@ module DialectAndExtensionsFullCoverageTests =
         Assert.Equal(SqlDialect.Sqlite, SqlDialect.fromDialect SqliteDialect.Instance)
 
         // Mock dialect with mssql or other names
-        let mockMssql = { new ISqlDialect with
-            member _.Name = "Microsoft SQL Server"
-            member _.QuoteIdentifier(n) = n
-            member _.FormatLimitOffset(_, _, _) = ""
-            member _.FormatApplyJoin(_, s) = s
-            member _.SupportsRecursiveCteKeyword = false
-            member _.DualTable = None
-            member _.TranslateDatePart(_, _) = None
-            member _.TranslateDateTrunc(_) = None
-            member _.TranslateJsonExtract(_, _) = None
-            member _.FormatExplain(_, _, _) = ""
-            member _.FormatSqlTarget(_, _, r, _, _) = r
-            member _.SqlProviderType = ""
-            member _.FormatOuterApplyJoin(s, _) = s
-            member _.FormatSelect(_, _, _, _, _, _, _, _, _) = ""
-            member _.PostProcessSql(s) = s
-            member _.FormatBooleanLiteral(_) = ""
-            member _.FormatIsEmpty(_) = ""
-            member _.FormatIsNotEmpty(_) = ""
-            member _.DefaultWindowOrder = None
-            member _.TranslateStringLength(_) = ""
-            member _.FormatConcat(_) = ""
-            member _.TranslateDateFormat(_, _) = None
-            member _.TranslateCastToString(_) = ""
-            member _.TranslateSubstring(_, _, _) = ""
-            member _.TranslateCeiling(_) = ""
-            member _.TranslateIndexOf(_, _) = ""
-        }
+        let mockMssql =
+            { new ISqlDialect with
+                member _.Name = "Microsoft SQL Server"
+                member _.QuoteIdentifier(n) = n
+                member _.FormatLimitOffset(_, _, _) = ""
+                member _.FormatApplyJoin(_, s) = s
+                member _.SupportsRecursiveCteKeyword = false
+                member _.DualTable = None
+                member _.TranslateDatePart(_, _) = None
+                member _.TranslateDateTrunc(_) = None
+                member _.TranslateJsonExtract(_, _) = None
+                member _.FormatExplain(_, _, _) = ""
+                member _.FormatSqlTarget(_, _, r, _, _) = r
+                member _.SqlProviderType = ""
+                member _.FormatOuterApplyJoin(s, _) = s
+                member _.FormatSelect(_, _, _, _, _, _, _, _, _) = ""
+                member _.PostProcessSql(s) = s
+                member _.FormatBooleanLiteral(_) = ""
+                member _.FormatIsEmpty(_) = ""
+                member _.FormatIsNotEmpty(_) = ""
+                member _.DefaultWindowOrder = None
+                member _.TranslateStringLength(_) = ""
+                member _.FormatConcat(_) = ""
+                member _.TranslateDateFormat(_, _) = None
+                member _.TranslateCastToString(_) = ""
+                member _.TranslateSubstring(_, _, _) = ""
+                member _.TranslateCeiling(_) = ""
+                member _.TranslateIndexOf(_, _) = ""
+            }
+
         Assert.Equal(SqlDialect.SqlServer, SqlDialect.fromDialect mockMssql)
 
     [<Fact>]
     let ``SqlDialect fromConnector and fromConnectorToDialect with ISqlDialectProvider and plain IConnector`` () =
-        let mockPlainConnector = { new IConnector with
-            member _.Kind = ConnectorKind.PostgreSql
-            member _.TestConnectionAsync(_) = Task.FromResult true
-            member _.DiscoverSchemaAsync(_) = Task.FromResult []
-        }
+        let mockPlainConnector =
+            { new IConnector with
+                member _.Kind = ConnectorKind.PostgreSql
+                member _.TestConnectionAsync(_) = Task.FromResult true
+                member _.DiscoverSchemaAsync(_) = Task.FromResult []
+            }
+
         let dialectFromPlain = SqlDialect.fromConnector mockPlainConnector
         let dialectEnumFromPlain = SqlDialect.fromConnectorToDialect mockPlainConnector
         Assert.Equal(SqlDialect.PostgreSql, dialectEnumFromPlain)
@@ -476,8 +551,10 @@ module DialectAndExtensionsFullCoverageTests =
                 match dict.TryGetValue ref with
                 | true, v -> Some v
                 | false, _ -> None
+
             member this.TryReadAsync(ref, _) =
                 Task.FromResult((this :> ISecretStore).TryRead ref)
+
             member _.Save ref sec = dict.[ref] <- sec
             member _.Delete ref = dict.Remove ref |> ignore
 
@@ -518,7 +595,9 @@ module DialectAndExtensionsFullCoverageTests =
         Assert.Contains("Password=secret123", resMalformedAdo)
 
     [<Fact>]
-    let ``ConnectionStringSecrets resolve and resolveAsync handle None reference, missing secret, and valid secret`` () =
+    let ``ConnectionStringSecrets resolve and resolveAsync handle None reference, missing secret, and valid secret``
+        ()
+        =
         let dict = Dictionary<string, string>()
         dict.["ref-valid"] <- "mysecret"
         dict.["ref-empty"] <- ""
@@ -531,7 +610,9 @@ module DialectAndExtensionsFullCoverageTests =
         // Empty secret
         Assert.Equal("template", ConnectionStringSecrets.resolve store (Some "ref-empty") "template")
         // Valid secret
-        let res = ConnectionStringSecrets.resolve store (Some "ref-valid") "Server=127.0.0.1;Password={password};"
+        let res =
+            ConnectionStringSecrets.resolve store (Some "ref-valid") "Server=127.0.0.1;Password={password};"
+
         Assert.Equal("Server=127.0.0.1;Password=mysecret;", res)
 
     [<Fact>]
@@ -541,13 +622,23 @@ module DialectAndExtensionsFullCoverageTests =
             dict.["ref-valid"] <- "mysecret"
             let store = SimpleMemorySecretStore(dict)
 
-            let! resNone = ConnectionStringSecrets.resolveAsync store None "template" CancellationToken.None
+            let! resNone =
+                ConnectionStringSecrets.resolveAsync store None "template" CancellationToken.None
+
             Assert.Equal("template", resNone)
 
-            let! resMissing = ConnectionStringSecrets.resolveAsync store (Some "ref-missing") "template" CancellationToken.None
+            let! resMissing =
+                ConnectionStringSecrets.resolveAsync store (Some "ref-missing") "template" CancellationToken.None
+
             Assert.Equal("template", resMissing)
 
-            let! resValid = ConnectionStringSecrets.resolveAsync store (Some "ref-valid") "Server=127.0.0.1;Password={password};" CancellationToken.None
+            let! resValid =
+                ConnectionStringSecrets.resolveAsync
+                    store
+                    (Some "ref-valid")
+                    "Server=127.0.0.1;Password={password};"
+                    CancellationToken.None
+
             Assert.Equal("Server=127.0.0.1;Password=mysecret;", resValid)
         }
 
@@ -569,9 +660,11 @@ module DialectAndExtensionsFullCoverageTests =
 
     [<Fact>]
     let ``ConnectionExtensions toRawSql with mock object returning SQL`` () =
-        let mockQuery = { new obj() with
-            member _.ToString() = "SELECT id, title FROM Articles"
-        }
+        let mockQuery =
+            { new obj() with
+                member _.ToString() = "SELECT id, title FROM Articles"
+            }
+
         Assert.Equal("SELECT id, title FROM Articles", toRawSql mockQuery)
         let formatted = toRawQuery mockQuery
         Assert.Contains("SELECT id, title", formatted)
@@ -582,11 +675,7 @@ module DialectAndExtensionsFullCoverageTests =
         let result: ConnectorQueryResult =
             {
                 Columns = [ "Id"; "Name"; "Score" ]
-                Rows =
-                    [|
-                        [| box 1; box "Alice"; box 95.5 |]
-                        [| box 2; box "Bob"; box 88.0 |]
-                    |]
+                Rows = [| [| box 1; box "Alice"; box 95.5 |]; [| box 2; box "Bob"; box 88.0 |] |]
             }
 
         let people = result.As<TestPersonRecord>() |> Seq.toList
@@ -618,11 +707,31 @@ module DialectAndExtensionsFullCoverageTests =
     let ``ConnectionExtensions Seq pivot performs cross-tabulation and aggregation`` () =
         let sales =
             [
-                { Region = "North"; Month = "Jan"; Amount = 100M }
-                { Region = "North"; Month = "Feb"; Amount = 150M }
-                { Region = "North"; Month = "Jan"; Amount = 50M }
-                { Region = "South"; Month = "Jan"; Amount = 200M }
-                { Region = "South"; Month = "Feb"; Amount = 300M }
+                {
+                    Region = "North"
+                    Month = "Jan"
+                    Amount = 100M
+                }
+                {
+                    Region = "North"
+                    Month = "Feb"
+                    Amount = 150M
+                }
+                {
+                    Region = "North"
+                    Month = "Jan"
+                    Amount = 50M
+                }
+                {
+                    Region = "South"
+                    Month = "Jan"
+                    Amount = 200M
+                }
+                {
+                    Region = "South"
+                    Month = "Feb"
+                    Amount = 300M
+                }
             ]
 
         let pivoted =
@@ -643,6 +752,7 @@ module DialectAndExtensionsFullCoverageTests =
     [<Fact>]
     let ``ConnectionExtensions Seq pivot with empty sequence and count aggregator`` () =
         let emptySales = Seq.empty<TestSaleRecord>
+
         let pivotedEmpty =
             emptySales
             |> Seq.pivot (fun s -> s.Region) (fun s -> s.Month) (fun s -> s.Amount) Seq.length
@@ -657,41 +767,56 @@ module DialectAndExtensionsFullCoverageTests =
     [<Fact>]
     let ``FSqlQueryBuilder isNotNull and isNotEmpty direct invocation scenario 1`` () =
         let b = FSqlQueryBuilder()
-        Assert.True(b.isNotNull(42))
-        Assert.False(b.isNotNull(null))
-        Assert.True(b.isNotEmpty("abc"))
-        Assert.False(b.isNotEmpty(""))
-        Assert.False(b.isNotEmpty(null))
-        Assert.True(b.isNotNullOrEmpty("valid"))
-        Assert.False(b.isNotNullOrEmpty(""))
-        Assert.False(b.isNotNullOrEmpty(null))
+        Assert.True(b.isNotNull (42))
+        Assert.False(b.isNotNull (null))
+        Assert.True(b.isNotEmpty ("abc"))
+        Assert.False(b.isNotEmpty (""))
+        Assert.False(b.isNotEmpty (null))
+        Assert.True(b.isNotNullOrEmpty ("valid"))
+        Assert.False(b.isNotNullOrEmpty (""))
+        Assert.False(b.isNotNullOrEmpty (null))
 
     [<Fact>]
     let ``FSqlQueryBuilder exists and notExists direct invocation scenario 2`` () =
         let b = FSqlQueryBuilder()
-        Assert.True(b.exists([ 10; 20 ]))
-        Assert.False(b.notExists([ 10; 20 ]))
-        Assert.True(b.exists([]))
-        Assert.False(b.notExists([]))
+        Assert.True(b.exists ([ 10; 20 ]))
+        Assert.False(b.notExists ([ 10; 20 ]))
+        Assert.True(b.exists ([]))
+        Assert.False(b.notExists ([]))
 
     [<Fact>]
     let ``FSqlQueryBuilder WhereExists and WhereNotExists throw markers scenario 1`` () =
         let b = FSqlQueryBuilder()
         let dummySource: QuerySource<int, System.Linq.IQueryable> = Unchecked.defaultof<_>
-        let ex1 = Assert.Throws<Exception>(fun () -> b.WhereExists(dummySource, fun (x: int) -> [ x ]) |> ignore)
+
+        let ex1 =
+            Assert.Throws<Exception>(fun () -> b.WhereExists(dummySource, fun (x: int) -> [ x ]) |> ignore)
+
         Assert.Contains("whereExists marker", ex1.Message)
-        let ex2 = Assert.Throws<Exception>(fun () -> b.WhereExistsPred(dummySource, fun (x: int) -> true) |> ignore)
+
+        let ex2 =
+            Assert.Throws<Exception>(fun () -> b.WhereExistsPred(dummySource, fun (x: int) -> true) |> ignore)
+
         Assert.Contains("whereExists marker", ex2.Message)
 
     [<Fact>]
     let ``FSqlQueryBuilder WhereNotExists and Having throw markers scenario 2`` () =
         let b = FSqlQueryBuilder()
         let dummySource: QuerySource<int, System.Linq.IQueryable> = Unchecked.defaultof<_>
-        let ex1 = Assert.Throws<Exception>(fun () -> b.WhereNotExists(dummySource, fun (x: int) -> [ x ]) |> ignore)
+
+        let ex1 =
+            Assert.Throws<Exception>(fun () -> b.WhereNotExists(dummySource, fun (x: int) -> [ x ]) |> ignore)
+
         Assert.Contains("whereNotExists marker", ex1.Message)
-        let ex2 = Assert.Throws<Exception>(fun () -> b.WhereNotExistsPred(dummySource, fun (x: int) -> false) |> ignore)
+
+        let ex2 =
+            Assert.Throws<Exception>(fun () -> b.WhereNotExistsPred(dummySource, fun (x: int) -> false) |> ignore)
+
         Assert.Contains("whereNotExists marker", ex2.Message)
-        let ex3 = Assert.Throws<Exception>(fun () -> b.Having(dummySource, fun (x: int) -> true) |> ignore)
+
+        let ex3 =
+            Assert.Throws<Exception>(fun () -> b.Having(dummySource, fun (x: int) -> true) |> ignore)
+
         Assert.Contains("having marker", ex3.Message)
 
     [<Fact>]
@@ -700,14 +825,20 @@ module DialectAndExtensionsFullCoverageTests =
         let dummySource: QuerySource<int, System.Linq.IQueryable> = Unchecked.defaultof<_>
         let ex1 = Assert.Throws<Exception>(fun () -> b.Union(dummySource, [ 1 ]) |> ignore)
         Assert.Contains("union marker", ex1.Message)
-        let ex2 = Assert.Throws<Exception>(fun () -> b.UnionAll(dummySource, [ 1 ]) |> ignore)
+
+        let ex2 =
+            Assert.Throws<Exception>(fun () -> b.UnionAll(dummySource, [ 1 ]) |> ignore)
+
         Assert.Contains("unionAll marker", ex2.Message)
 
     [<Fact>]
     let ``FSqlQueryBuilder intersect and except markers throw expected exceptions scenario 2`` () =
         let b = FSqlQueryBuilder()
         let dummySource: QuerySource<int, System.Linq.IQueryable> = Unchecked.defaultof<_>
-        let ex1 = Assert.Throws<Exception>(fun () -> b.Intersect(dummySource, [ 1 ]) |> ignore)
+
+        let ex1 =
+            Assert.Throws<Exception>(fun () -> b.Intersect(dummySource, [ 1 ]) |> ignore)
+
         Assert.Contains("intersect marker", ex1.Message)
         let ex2 = Assert.Throws<Exception>(fun () -> b.Except(dummySource, [ 1 ]) |> ignore)
         Assert.Contains("except marker", ex2.Message)
@@ -716,79 +847,178 @@ module DialectAndExtensionsFullCoverageTests =
     let ``FSqlQueryBuilder withCte markers throw expected exceptions scenario 1`` () =
         let b = FSqlQueryBuilder()
         let dummySource: QuerySource<int, System.Linq.IQueryable> = Unchecked.defaultof<_>
-        let ex1 = Assert.Throws<Exception>(fun () -> b.WithCte(dummySource, "cte1", [ 1 ]) |> ignore)
+
+        let ex1 =
+            Assert.Throws<Exception>(fun () -> b.WithCte(dummySource, "cte1", [ 1 ]) |> ignore)
+
         Assert.Contains("withCte marker", ex1.Message)
-        let ex2 = Assert.Throws<Exception>(fun () -> b.WithCte(dummySource, [ 1 ]) |> ignore)
+
+        let ex2 =
+            Assert.Throws<Exception>(fun () -> b.WithCte(dummySource, [ 1 ]) |> ignore)
+
         Assert.Contains("withCte marker", ex2.Message)
-        let ex3 = Assert.Throws<Exception>(fun () -> b.WithCteSql(dummySource, "cte1", "SELECT 1") |> ignore)
+
+        let ex3 =
+            Assert.Throws<Exception>(fun () -> b.WithCteSql(dummySource, "cte1", "SELECT 1") |> ignore)
+
         Assert.Contains("withCte marker", ex3.Message)
-        let ex4 = Assert.Throws<Exception>(fun () -> b.WithCteSql(dummySource, "SELECT 1") |> ignore)
+
+        let ex4 =
+            Assert.Throws<Exception>(fun () -> b.WithCteSql(dummySource, "SELECT 1") |> ignore)
+
         Assert.Contains("withCte marker", ex4.Message)
-        let ex5 = Assert.Throws<Exception>(fun () -> b.WithCteSqlAlt(dummySource, "cte1", "SELECT 1") |> ignore)
+
+        let ex5 =
+            Assert.Throws<Exception>(fun () -> b.WithCteSqlAlt(dummySource, "cte1", "SELECT 1") |> ignore)
+
         Assert.Contains("withCteSql marker", ex5.Message)
-        let ex6 = Assert.Throws<Exception>(fun () -> b.WithCteSqlAlt(dummySource, "SELECT 1") |> ignore)
+
+        let ex6 =
+            Assert.Throws<Exception>(fun () -> b.WithCteSqlAlt(dummySource, "SELECT 1") |> ignore)
+
         Assert.Contains("withCteSql marker", ex6.Message)
 
     [<Fact>]
     let ``FSqlQueryBuilder withRecursiveCte markers throw expected exceptions scenario 2`` () =
         let b = FSqlQueryBuilder()
         let dummySource: QuerySource<int, System.Linq.IQueryable> = Unchecked.defaultof<_>
-        let ex1 = Assert.Throws<Exception>(fun () -> b.WithRecursiveCte(dummySource, "rcte", [ 1 ]) |> ignore)
+
+        let ex1 =
+            Assert.Throws<Exception>(fun () -> b.WithRecursiveCte(dummySource, "rcte", [ 1 ]) |> ignore)
+
         Assert.Contains("withRecursiveCte marker", ex1.Message)
-        let ex2 = Assert.Throws<Exception>(fun () -> b.WithRecursiveCte(dummySource, [ 1 ]) |> ignore)
+
+        let ex2 =
+            Assert.Throws<Exception>(fun () -> b.WithRecursiveCte(dummySource, [ 1 ]) |> ignore)
+
         Assert.Contains("withRecursiveCte marker", ex2.Message)
-        let ex3 = Assert.Throws<Exception>(fun () -> b.WithRecursiveCte(dummySource, "rcte", "SELECT 1") |> ignore)
+
+        let ex3 =
+            Assert.Throws<Exception>(fun () -> b.WithRecursiveCte(dummySource, "rcte", "SELECT 1") |> ignore)
+
         Assert.Contains("withRecursiveCte marker", ex3.Message)
-        let ex4 = Assert.Throws<Exception>(fun () -> b.WithRecursiveCte(dummySource, "SELECT 1") |> ignore)
+
+        let ex4 =
+            Assert.Throws<Exception>(fun () -> b.WithRecursiveCte(dummySource, "SELECT 1") |> ignore)
+
         Assert.Contains("withRecursiveCte marker", ex4.Message)
-        let ex5 = Assert.Throws<Exception>(fun () -> b.WithRecursiveCteSql(dummySource, "rcte", "SELECT 1") |> ignore)
+
+        let ex5 =
+            Assert.Throws<Exception>(fun () -> b.WithRecursiveCteSql(dummySource, "rcte", "SELECT 1") |> ignore)
+
         Assert.Contains("withRecursiveCteSql marker", ex5.Message)
-        let ex6 = Assert.Throws<Exception>(fun () -> b.WithRecursiveCteSql(dummySource, "SELECT 1") |> ignore)
+
+        let ex6 =
+            Assert.Throws<Exception>(fun () -> b.WithRecursiveCteSql(dummySource, "SELECT 1") |> ignore)
+
         Assert.Contains("withRecursiveCteSql marker", ex6.Message)
 
     [<Fact>]
     let ``FSqlQueryBuilder full and right outer join markers throw expected exceptions scenario 1`` () =
         let b = FSqlQueryBuilder()
         let dummySource: QuerySource<int, System.Linq.IQueryable> = Unchecked.defaultof<_>
-        let ex1 = Assert.Throws<Exception>(fun () ->
-            b.FullOuterJoin(dummySource, dummySource, (fun (x: int) -> x), (fun (x: int) -> x), (fun (x: int) (ys: seq<int>) -> x)) |> ignore)
+
+        let ex1 =
+            Assert.Throws<Exception>(fun () ->
+                b.FullOuterJoin(
+                    dummySource,
+                    dummySource,
+                    (fun (x: int) -> x),
+                    (fun (x: int) -> x),
+                    (fun (x: int) (ys: seq<int>) -> x)
+                )
+                |> ignore)
+
         Assert.Contains("fullOuterJoin marker", ex1.Message)
-        let ex2 = Assert.Throws<Exception>(fun () ->
-            b.RightOuterJoin(dummySource, dummySource, (fun (x: int) -> x), (fun (x: int) -> x), (fun (x: int) (y: int) -> x)) |> ignore)
+
+        let ex2 =
+            Assert.Throws<Exception>(fun () ->
+                b.RightOuterJoin(
+                    dummySource,
+                    dummySource,
+                    (fun (x: int) -> x),
+                    (fun (x: int) -> x),
+                    (fun (x: int) (y: int) -> x)
+                )
+                |> ignore)
+
         Assert.Contains("rightOuterJoin marker", ex2.Message)
-        let ex3 = Assert.Throws<Exception>(fun () ->
-            b.RightOuterJoinGroup(dummySource, dummySource, (fun (x: int) -> x), (fun (x: int) -> x), (fun (x: int) (ys: seq<int>) -> x)) |> ignore)
+
+        let ex3 =
+            Assert.Throws<Exception>(fun () ->
+                b.RightOuterJoinGroup(
+                    dummySource,
+                    dummySource,
+                    (fun (x: int) -> x),
+                    (fun (x: int) -> x),
+                    (fun (x: int) (ys: seq<int>) -> x)
+                )
+                |> ignore)
+
         Assert.Contains("rightOuterJoin marker", ex3.Message)
 
     [<Fact>]
     let ``FSqlQueryBuilder raw join and cross join markers throw expected exceptions scenario 2`` () =
         let b = FSqlQueryBuilder()
         let dummySource: QuerySource<int, System.Linq.IQueryable> = Unchecked.defaultof<_>
-        let ex1 = Assert.Throws<Exception>(fun () -> b.FullOuterJoinRaw(dummySource, "OtherTable", "ot", "ot.Id = 1") |> ignore)
+
+        let ex1 =
+            Assert.Throws<Exception>(fun () ->
+                b.FullOuterJoinRaw(dummySource, "OtherTable", "ot", "ot.Id = 1") |> ignore)
+
         Assert.Contains("fullOuterJoin marker", ex1.Message)
-        let ex2 = Assert.Throws<Exception>(fun () -> b.RightOuterJoinRaw(dummySource, "OtherTable", "ot", "ot.Id = 1") |> ignore)
+
+        let ex2 =
+            Assert.Throws<Exception>(fun () ->
+                b.RightOuterJoinRaw(dummySource, "OtherTable", "ot", "ot.Id = 1") |> ignore)
+
         Assert.Contains("rightOuterJoin marker", ex2.Message)
-        let ex3 = Assert.Throws<Exception>(fun () -> b.CrossJoin(dummySource, "OtherTable", "ot") |> ignore)
+
+        let ex3 =
+            Assert.Throws<Exception>(fun () -> b.CrossJoin(dummySource, "OtherTable", "ot") |> ignore)
+
         Assert.Contains("crossJoin marker", ex3.Message)
 
     type private TempExtDb() =
         let path = Path.Combine(Path.GetTempPath(), $"ext_cov_test_{Guid.NewGuid():N}.db")
+
         do
             use conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={path}")
             conn.Open()
             use cmd = conn.CreateCommand()
-            cmd.CommandText <- "CREATE TABLE Products (Id INT, Name TEXT, Price NUMERIC); CREATE TABLE Orders (OrderId INT, CustomerId INT, Amount NUMERIC);"
+
+            cmd.CommandText <-
+                "CREATE TABLE Products (Id INT, Name TEXT, Price NUMERIC); CREATE TABLE Orders (OrderId INT, CustomerId INT, Amount NUMERIC);"
+
             cmd.ExecuteNonQuery() |> ignore
+
         member _.Path = path
+
         interface IDisposable with
             member _.Dispose() =
                 Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
-                try if File.Exists path then File.Delete path with _ -> ()
+
+                try
+                    if File.Exists path then
+                        File.Delete path
+                with _ ->
+                    ()
 
     [<CLIMutable>]
-    type TestProductRow = { Id: int; Name: string; Price: decimal }
+    type TestProductRow =
+        {
+            Id: int
+            Name: string
+            Price: decimal
+        }
+
     [<CLIMutable>]
-    type TestOrderRow = { OrderId: int; CustomerId: int; Amount: decimal }
+    type TestOrderRow =
+        {
+            OrderId: int
+            CustomerId: int
+            Amount: decimal
+        }
 
     [<Fact>]
     let ``fsql with whereExists and whereNotExists compiles and generates SQL scenario 1`` () =
@@ -796,27 +1026,37 @@ module DialectAndExtensionsFullCoverageTests =
         let conn = SqliteConnector(tempDb.Path)
         let products = SqlPushdownQueryable<TestProductRow>(conn, "Products")
         let orders = SqlPushdownQueryable<TestOrderRow>(conn, "Orders")
+
         let qExists =
             fsql {
                 for p in products do
-                    whereExists (fsql {
-                        for o in orders do
-                            where (o.CustomerId = p.Id)
-                            select o.OrderId
-                    })
+                    whereExists (
+                        fsql {
+                            for o in orders do
+                                where (o.CustomerId = p.Id)
+                                select o.OrderId
+                        }
+                    )
+
                     select p.Id
             }
+
         Assert.NotNull(qExists)
+
         let qNotExists =
             fsql {
                 for p in products do
-                    whereNotExists (fsql {
-                        for o in orders do
-                            where (o.CustomerId = p.Id)
-                            select o.OrderId
-                    })
+                    whereNotExists (
+                        fsql {
+                            for o in orders do
+                                where (o.CustomerId = p.Id)
+                                select o.OrderId
+                        }
+                    )
+
                     select p.Id
             }
+
         Assert.NotNull(qNotExists)
 
     [<Fact>]
@@ -824,12 +1064,14 @@ module DialectAndExtensionsFullCoverageTests =
         use tempDb = new TempExtDb()
         let conn = SqliteConnector(tempDb.Path)
         let products = SqlPushdownQueryable<TestProductRow>(conn, "Products")
+
         let qHaving =
             fsql {
                 for p in products do
                     having (p.Price > 10.0M)
                     select p.Id
             }
+
         Assert.NotNull(qHaving)
 
     [<Fact>]
@@ -838,13 +1080,21 @@ module DialectAndExtensionsFullCoverageTests =
         let conn = SqliteConnector(tempDb.Path)
         let products = SqlPushdownQueryable<TestProductRow>(conn, "Products")
         let orders = SqlPushdownQueryable<TestOrderRow>(conn, "Orders")
+
         let qAnonCte =
             fsql {
                 for p in products do
-                    withCte (fsql { for o in orders do select o.OrderId })
+                    withCte (
+                        fsql {
+                            for o in orders do
+                                select o.OrderId
+                        }
+                    )
+
                     withCteSql "SELECT 1 AS N"
                     select p.Id
             }
+
         let sql = (qAnonCte :?> SqlPushdownQueryable<int>).ToRawSql()
         Assert.Contains("WITH cte_1 AS (SELECT 1 AS N)", sql)
         Assert.Contains("cte_2 AS", sql)
@@ -855,13 +1105,21 @@ module DialectAndExtensionsFullCoverageTests =
         let conn = SqliteConnector(tempDb.Path)
         let products = SqlPushdownQueryable<TestProductRow>(conn, "Products")
         let orders = SqlPushdownQueryable<TestOrderRow>(conn, "Orders")
+
         let qAnonRec =
             fsql {
                 for p in products do
-                    withRecursiveCte (fsql { for o in orders do select o.OrderId })
+                    withRecursiveCte (
+                        fsql {
+                            for o in orders do
+                                select o.OrderId
+                        }
+                    )
+
                     withRecursiveCteSql "SELECT 2 AS M"
                     select p.Id
             }
+
         let sql = (qAnonRec :?> SqlPushdownQueryable<int>).ToRawSql()
         Assert.Contains("WITH RECURSIVE cte_1 AS (SELECT 2 AS M)", sql)
         Assert.Contains("cte_2 AS", sql)
@@ -871,17 +1129,20 @@ module DialectAndExtensionsFullCoverageTests =
         use tempDb = new TempExtDb()
         let conn = SqliteConnector(tempDb.Path)
         let orders = SqlPushdownQueryable<TestOrderRow>(conn, "Orders")
+
         let cteOrderQuery =
             fsql {
                 for o in orders do
                     select o.OrderId
             }
+
         let qFromCte =
             fsql {
                 for x in cteOrderQuery do
                     withCte "my_orders_cte" cteOrderQuery
                     select x
             }
+
         let sql = (qFromCte :?> SqlPushdownQueryable<int>).ToRawSql()
         Assert.Contains("WITH my_orders_cte AS", sql)
         Assert.Contains("FROM my_orders_cte", sql)
@@ -891,17 +1152,20 @@ module DialectAndExtensionsFullCoverageTests =
         use tempDb = new TempExtDb()
         let conn = SqliteConnector(tempDb.Path)
         let orders = SqlPushdownQueryable<TestOrderRow>(conn, "Orders")
+
         let cteOrderQuery =
             fsql {
                 for o in orders do
                     select o.OrderId
             }
+
         let qFromAnonCte =
             fsql {
                 for x in cteOrderQuery do
                     withCte cteOrderQuery
                     select x
             }
+
         let sql = (qFromAnonCte :?> SqlPushdownQueryable<int>).ToRawSql()
         Assert.Contains("WITH cte_1 AS", sql)
         Assert.Contains("FROM cte_1", sql)
@@ -912,12 +1176,14 @@ module DialectAndExtensionsFullCoverageTests =
         let conn = SqliteConnector(tempDb.Path)
         let products = SqlPushdownQueryable<TestProductRow>(conn, "Products")
         let orders = SqlPushdownQueryable<TestOrderRow>(conn, "Orders")
+
         let qRight =
             fsql {
                 for p in products do
                     rightOuterJoin o in orders on (p.Id = o.CustomerId)
                     select (p.Id, o.OrderId)
             }
+
         let sql = (qRight :?> SqlPushdownQueryable<int * int>).ToRawSql()
         Assert.Contains("RIGHT OUTER JOIN Orders", sql)
 
@@ -927,13 +1193,16 @@ module DialectAndExtensionsFullCoverageTests =
         let conn = SqliteConnector(tempDb.Path)
         let products = SqlPushdownQueryable<TestProductRow>(conn, "Products")
         let orders = SqlPushdownQueryable<TestOrderRow>(conn, "Orders")
+
         let qFull =
             fsql {
                 for p in products do
                     fullOuterJoin o in orders on (p.Id = o.CustomerId) into g
+
                     for o in g do
                         select (p.Id, o.OrderId)
             }
+
         let sql = (qFull :?> SqlPushdownQueryable<int * int>).ToRawSql()
         Assert.Contains("FULL OUTER JOIN Orders", sql)
 
@@ -943,12 +1212,20 @@ module DialectAndExtensionsFullCoverageTests =
         let conn = SqliteConnector(tempDb.Path)
         let products = SqlPushdownQueryable<TestProductRow>(conn, "Products")
         let orders = SqlPushdownQueryable<TestOrderRow>(conn, "Orders")
+
         let qUnion =
             fsql {
                 for p in products do
                     select p.Id
-                    union (fsql { for o in orders do select o.OrderId })
+
+                    union (
+                        fsql {
+                            for o in orders do
+                                select o.OrderId
+                        }
+                    )
             }
+
         let sql = (qUnion :?> SqlPushdownQueryable<int>).ToRawSql()
         Assert.Contains("UNION", sql)
 
@@ -958,12 +1235,20 @@ module DialectAndExtensionsFullCoverageTests =
         let conn = SqliteConnector(tempDb.Path)
         let products = SqlPushdownQueryable<TestProductRow>(conn, "Products")
         let orders = SqlPushdownQueryable<TestOrderRow>(conn, "Orders")
+
         let qIntersect =
             fsql {
                 for p in products do
                     select p.Id
-                    intersect (fsql { for o in orders do select o.OrderId })
+
+                    intersect (
+                        fsql {
+                            for o in orders do
+                                select o.OrderId
+                        }
+                    )
             }
+
         let sql = (qIntersect :?> SqlPushdownQueryable<int>).ToRawSql()
         Assert.Contains("INTERSECT", sql)
 
@@ -971,8 +1256,15 @@ module DialectAndExtensionsFullCoverageTests =
             fsql {
                 for p in products do
                     select p.Id
-                    except (fsql { for o in orders do select o.OrderId })
+
+                    except (
+                        fsql {
+                            for o in orders do
+                                select o.OrderId
+                        }
+                    )
             }
+
         let sql2 = (qExcept :?> SqlPushdownQueryable<int>).ToRawSql()
         Assert.Contains("EXCEPT", sql2)
 
@@ -1013,7 +1305,9 @@ module DialectAndExtensionsFullCoverageTests =
         Assert.NotNull(u4)
 
         // WithCte on wrapped IQueryable with parameters
-        let ordersWithParams = SqlPushdownQueryable<TestOrderRow>(conn, "Orders", [ ("@customParam", box 42) ])
+        let ordersWithParams =
+            SqlPushdownQueryable<TestOrderRow>(conn, "Orders", [ ("@customParam", box 42) ])
+
         let subWithParam = ordersWithParams.Where(fun o -> o.Amount > 10.0M)
         let cte1 = pIq.WithCte(subWithParam)
         Assert.NotNull(cte1)
@@ -1025,11 +1319,13 @@ module DialectAndExtensionsFullCoverageTests =
         use tempDb = new TempExtDb()
         let conn = SqliteConnector(tempDb.Path)
         let products = SqlPushdownQueryable<TestProductRow>(conn, "Products")
+
         let q1 =
             fsql {
                 for p in products do
                     select p
             }
+
         Assert.NotNull(q1)
 
     [<Fact>]
@@ -1037,11 +1333,13 @@ module DialectAndExtensionsFullCoverageTests =
         use tempDb = new TempExtDb()
         let conn = SqliteConnector(tempDb.Path)
         let products = SqlPushdownQueryable<TestProductRow>(conn, "Products")
+
         let q2 =
             fsql {
                 for p in products do
                     yield p
             }
+
         Assert.NotNull(q2)
 
     [<Fact>]
@@ -1050,22 +1348,31 @@ module DialectAndExtensionsFullCoverageTests =
         let conn = SqliteConnector(tempDb.Path)
         let products = SqlPushdownQueryable<TestProductRow>(conn, "Products")
         let plan = products.Plan.Clone()
-        plan.Joins.Add({
-            JoinType = "INNER JOIN"
-            SourceTable = "Orders"
-            Alias = "o"
-            OnClause = "1=1"
-            RowType = None
-        })
+
+        plan.Joins.Add(
+            {
+                JoinType = "INNER JOIN"
+                SourceTable = "Orders"
+                Alias = "o"
+                OnClause = "1=1"
+                RowType = None
+            }
+        )
+
         let pIq = products :> System.Linq.IQueryable<TestProductRow>
-        let spqWithJoin = SqlPushdownQueryable<TestProductRow>(pIq.Provider, pIq.Expression, products.Connector, "Products", [], plan)
+
+        let spqWithJoin =
+            SqlPushdownQueryable<TestProductRow>(pIq.Provider, pIq.Expression, products.Connector, "Products", [], plan)
+
         let orders = SqlPushdownQueryable<TestOrderRow>(conn, "Orders")
+
         let q =
             fsql {
                 for p in spqWithJoin do
                     rightOuterJoin o in orders on (p.Id = o.CustomerId)
                     select p.Id
             }
+
         Assert.NotNull(q)
 
     [<Fact>]
@@ -1074,23 +1381,33 @@ module DialectAndExtensionsFullCoverageTests =
         let conn = SqliteConnector(tempDb.Path)
         let products = SqlPushdownQueryable<TestProductRow>(conn, "Products")
         let plan = products.Plan.Clone()
-        plan.Joins.Add({
-            JoinType = "INNER JOIN"
-            SourceTable = "Orders"
-            Alias = "o"
-            OnClause = "1=1"
-            RowType = None
-        })
+
+        plan.Joins.Add(
+            {
+                JoinType = "INNER JOIN"
+                SourceTable = "Orders"
+                Alias = "o"
+                OnClause = "1=1"
+                RowType = None
+            }
+        )
+
         let pIq = products :> System.Linq.IQueryable<TestProductRow>
-        let spqWithJoin = SqlPushdownQueryable<TestProductRow>(pIq.Provider, pIq.Expression, products.Connector, "Products", [], plan)
+
+        let spqWithJoin =
+            SqlPushdownQueryable<TestProductRow>(pIq.Provider, pIq.Expression, products.Connector, "Products", [], plan)
+
         let orders = SqlPushdownQueryable<TestOrderRow>(conn, "Orders")
+
         let q =
             fsql {
                 for p in spqWithJoin do
                     fullOuterJoin o in orders on (p.Id = o.CustomerId) into g
+
                     for o in g do
                         select p.Id
             }
+
         Assert.NotNull(q)
 
     [<Fact>]
@@ -1103,43 +1420,55 @@ module DialectAndExtensionsFullCoverageTests =
         let qUnion =
             fsql {
                 for p in products do
-                select p
-                union inMemSeq
+                    select p
+                    union inMemSeq
             }
+
         Assert.NotNull(qUnion)
 
         let qUnionAll =
             fsql {
                 for p in products do
-                select p
-                unionAll inMemSeq
+                    select p
+                    unionAll inMemSeq
             }
+
         Assert.NotNull(qUnionAll)
 
         let qIntersect =
             fsql {
                 for p in products do
-                select p
-                intersect inMemSeq
+                    select p
+                    intersect inMemSeq
             }
+
         Assert.NotNull(qIntersect)
 
         let qExcept =
             fsql {
                 for p in products do
-                select p
-                except inMemSeq
+                    select p
+                    except inMemSeq
             }
+
         Assert.NotNull(qExcept)
 
     [<Fact>]
     let ``fsql builder direct set operations scenario 2`` () =
         use tempDb = new TempExtDb()
         let conn = SqliteConnector(tempDb.Path)
-        let products1 = SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
-        let products2 = SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
-        let inMemIq1 = ([ { Id = 2; Name = "B"; Score = 20.0 } ] : TestPersonRecord list).AsQueryable()
-        let inMemIq2 = ([ { Id = 3; Name = "C"; Score = 30.0 } ] : TestPersonRecord list).AsQueryable()
+
+        let products1 =
+            SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
+
+        let products2 =
+            SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
+
+        let inMemIq1 =
+            ([ { Id = 2; Name = "B"; Score = 20.0 } ]: TestPersonRecord list).AsQueryable()
+
+        let inMemIq2 =
+            ([ { Id = 3; Name = "C"; Score = 30.0 } ]: TestPersonRecord list).AsQueryable()
 
         let uSpq = fsql.union products1 products2
         Assert.NotNull(uSpq)
@@ -1183,8 +1512,13 @@ module DialectAndExtensionsFullCoverageTests =
     let ``IQueryable extension methods Union UnionAll Intersect Except on wrapped queryable scenario 1`` () =
         use tempDb = new TempExtDb()
         let conn = SqliteConnector(tempDb.Path)
-        let p1 = SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
-        let p2 = SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
+
+        let p1 =
+            SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
+
+        let p2 =
+            SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
+
         let wrapped1 = p1.Where(fun p -> p.Score > 10.0)
         let wrapped2 = p2.Where(fun p -> p.Score < 100.0)
 
@@ -1199,8 +1533,11 @@ module DialectAndExtensionsFullCoverageTests =
 
     [<Fact>]
     let ``IQueryable extension methods Union UnionAll Intersect Except on in-memory queryable scenario 2`` () =
-        let mem1 = ([ { Id = 1; Name = "A"; Score = 1.0 } ] : TestPersonRecord list).AsQueryable()
-        let mem2 = ([ { Id = 2; Name = "B"; Score = 2.0 } ] : TestPersonRecord list).AsQueryable()
+        let mem1 =
+            ([ { Id = 1; Name = "A"; Score = 1.0 } ]: TestPersonRecord list).AsQueryable()
+
+        let mem2 =
+            ([ { Id = 2; Name = "B"; Score = 2.0 } ]: TestPersonRecord list).AsQueryable()
 
         let u = mem1.Union(mem2)
         Assert.Equal(2, u |> Seq.length)
@@ -1215,8 +1552,13 @@ module DialectAndExtensionsFullCoverageTests =
     let ``IQueryable extension methods WithCte on wrapped queryable scenario 1`` () =
         use tempDb = new TempExtDb()
         let conn = SqliteConnector(tempDb.Path)
-        let p1 = SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
-        let cteIq = SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
+
+        let p1 =
+            SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
+
+        let cteIq =
+            SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
+
         let wrapped1 = p1.Where(fun p -> p.Score > 10.0)
 
         let withCteAuto = wrapped1.WithCte(cteIq)
@@ -1230,8 +1572,11 @@ module DialectAndExtensionsFullCoverageTests =
 
     [<Fact>]
     let ``IQueryable extension methods WithCte on in-memory queryable scenario 2`` () =
-        let mem1 = ([ { Id = 1; Name = "A"; Score = 1.0 } ] : TestPersonRecord list).AsQueryable()
-        let cteMem = ([ { Id = 2; Name = "B"; Score = 2.0 } ] : TestPersonRecord list).AsQueryable()
+        let mem1 =
+            ([ { Id = 1; Name = "A"; Score = 1.0 } ]: TestPersonRecord list).AsQueryable()
+
+        let cteMem =
+            ([ { Id = 2; Name = "B"; Score = 2.0 } ]: TestPersonRecord list).AsQueryable()
 
         let withCteAuto = mem1.WithCte(cteMem)
         Assert.Equal(1, withCteAuto |> Seq.length)
@@ -1247,27 +1592,30 @@ module DialectAndExtensionsFullCoverageTests =
         let qRightRaw =
             fsql {
                 for p in products do
-                rightOuterJoinRaw "Orders" "o" "p.Id = o.CustomerId"
-                select p.Id
+                    rightOuterJoinRaw "Orders" "o" "p.Id = o.CustomerId"
+                    select p.Id
             }
+
         let rawSqlRight = toRawSql qRightRaw
         Assert.Contains("RIGHT OUTER JOIN", rawSqlRight)
 
         let qFullRaw =
             fsql {
                 for p in products do
-                fullOuterJoinRaw "Orders" "o" "p.Id = o.CustomerId"
-                select p.Id
+                    fullOuterJoinRaw "Orders" "o" "p.Id = o.CustomerId"
+                    select p.Id
             }
+
         let rawSqlFull = toRawSql qFullRaw
         Assert.Contains("FULL OUTER JOIN", rawSqlFull)
 
         let qCross =
             fsql {
                 for p in products do
-                crossJoin "Orders" "o"
-                select p.Id
+                    crossJoin "Orders" "o"
+                    select p.Id
             }
+
         let rawSqlCross = toRawSql qCross
         Assert.Contains("CROSS JOIN", rawSqlCross)
 
@@ -1280,27 +1628,30 @@ module DialectAndExtensionsFullCoverageTests =
         let qRight =
             fsql {
                 for p in products do
-                rightOuterJoinRaw "Suppliers" "s" "p.Id = s.Id"
-                select p.Price
+                    rightOuterJoinRaw "Suppliers" "s" "p.Id = s.Id"
+                    select p.Price
             }
+
         let rawSql = toRawSql qRight
         Assert.Contains("RIGHT OUTER JOIN", rawSql)
 
         let qFull =
             fsql {
                 for p in products do
-                fullOuterJoinRaw "Inventory" "inv" "p.Id = inv.ProductId"
-                select p.Price
+                    fullOuterJoinRaw "Inventory" "inv" "p.Id = inv.ProductId"
+                    select p.Price
             }
+
         let rawSqlFull = toRawSql qFull
         Assert.Contains("FULL OUTER JOIN", rawSqlFull)
 
         let qCross =
             fsql {
                 for p in products do
-                crossJoin "Categories" "c"
-                select p.Price
+                    crossJoin "Categories" "c"
+                    select p.Price
             }
+
         let rawSqlCross = toRawSql qCross
         Assert.Contains("CROSS JOIN", rawSqlCross)
 
@@ -1313,27 +1664,30 @@ module DialectAndExtensionsFullCoverageTests =
         let qCteSql =
             fsql {
                 for p in products do
-                withCteSql "cte_raw" "SELECT 1 AS num"
-                select p.Id
+                    withCteSql "cte_raw" "SELECT 1 AS num"
+                    select p.Id
             }
+
         let rawSql = toRawSql qCteSql
         Assert.Contains("cte_raw AS (SELECT 1 AS num)", rawSql)
 
         let qCteSqlAlt =
             fsql {
                 for p in products do
-                withCteSql "cte_raw_alt" "SELECT 2 AS num"
-                select p.Id
+                    withCteSql "cte_raw_alt" "SELECT 2 AS num"
+                    select p.Id
             }
+
         let rawSqlAlt = toRawSql qCteSqlAlt
         Assert.Contains("cte_raw_alt AS (SELECT 2 AS num)", rawSqlAlt)
 
         let qRecCteSql =
             fsql {
                 for p in products do
-                withRecursiveCteSql "cte_rec_raw" "SELECT 1 UNION ALL SELECT 2"
-                select p.Id
+                    withRecursiveCteSql "cte_rec_raw" "SELECT 1 UNION ALL SELECT 2"
+                    select p.Id
             }
+
         let rawSqlRec = toRawSql qRecCteSql
         Assert.Contains("cte_rec_raw AS (SELECT 1 UNION ALL SELECT 2)", rawSqlRec)
 
@@ -1346,10 +1700,11 @@ module DialectAndExtensionsFullCoverageTests =
         let qMulti =
             fsql {
                 for p in products do
-                withCteSql "cte_a" "SELECT * FROM A"
-                withRecursiveCteSql "cte_b" "SELECT * FROM B"
-                select p.Id
+                    withCteSql "cte_a" "SELECT * FROM A"
+                    withRecursiveCteSql "cte_b" "SELECT * FROM B"
+                    select p.Id
             }
+
         let rawSql = toRawSql qMulti
         Assert.Contains("cte_a", rawSql)
         Assert.Contains("cte_b", rawSql)
@@ -1364,40 +1719,45 @@ module DialectAndExtensionsFullCoverageTests =
         let qExists =
             fsql {
                 for p in products do
-                whereExists (
-                    fsql {
-                        for o in orders do
-                        where (o.CustomerId = p.Id)
-                        select o.OrderId
-                    }
-                )
-                select p.Id
+                    whereExists (
+                        fsql {
+                            for o in orders do
+                                where (o.CustomerId = p.Id)
+                                select o.OrderId
+                        }
+                    )
+
+                    select p.Id
             }
+
         let sqlExists = toRawSql qExists
         Assert.Contains("WHERE", sqlExists)
 
         let qNotExists =
             fsql {
                 for p in products do
-                whereNotExists (
-                    fsql {
-                        for o in orders do
-                        where (o.CustomerId = p.Id)
-                        select o.OrderId
-                    }
-                )
-                select p.Id
+                    whereNotExists (
+                        fsql {
+                            for o in orders do
+                                where (o.CustomerId = p.Id)
+                                select o.OrderId
+                        }
+                    )
+
+                    select p.Id
             }
+
         let sqlNotExists = toRawSql qNotExists
         Assert.Contains("WHERE", sqlNotExists)
 
         let qHaving =
             fsql {
                 for p in products do
-                groupBy p.Name into g
-                having (g.Count() > 1)
-                select g.Key
+                    groupBy p.Name into g
+                    having (g.Count() > 1)
+                    select g.Key
             }
+
         let sqlHaving = toRawSql qHaving
         Assert.Contains("HAVING", sqlHaving)
 
@@ -1411,28 +1771,31 @@ module DialectAndExtensionsFullCoverageTests =
         let qExists2 =
             fsql {
                 for p in products do
-                whereExists (orders.Where(fun o -> o.CustomerId = p.Id))
-                select p.Price
+                    whereExists (orders.Where(fun o -> o.CustomerId = p.Id))
+                    select p.Price
             }
+
         let sqlExists2 = toRawSql qExists2
         Assert.Contains("WHERE", sqlExists2)
 
         let qNotExists2 =
             fsql {
                 for p in products do
-                whereNotExists (orders.Where(fun o -> o.CustomerId = p.Id))
-                select p.Price
+                    whereNotExists (orders.Where(fun o -> o.CustomerId = p.Id))
+                    select p.Price
             }
+
         let sqlNotExists2 = toRawSql qNotExists2
         Assert.Contains("WHERE", sqlNotExists2)
 
         let qHaving2 =
             fsql {
                 for p in products do
-                groupBy p.Id into g
-                having (g.Sum(fun x -> x.Price) > 100.0M)
-                select g.Key
+                    groupBy p.Id into g
+                    having (g.Sum(fun x -> x.Price) > 100.0M)
+                    select g.Key
             }
+
         let sqlHaving2 = toRawSql qHaving2
         Assert.Contains("HAVING", sqlHaving2)
 
@@ -1446,18 +1809,20 @@ module DialectAndExtensionsFullCoverageTests =
         let q1 =
             fsql {
                 for p in cteQuery do
-                withCte "HighValue" cteQuery
-                select p.Id
+                    withCte "HighValue" cteQuery
+                    select p.Id
             }
+
         let sql1 = toRawSql q1
         Assert.Contains("HighValue", sql1)
 
         let qAuto =
             fsql {
                 for p in cteQuery do
-                withCte cteQuery
-                select p.Id
+                    withCte cteQuery
+                    select p.Id
             }
+
         let sqlAuto = toRawSql qAuto
         Assert.Contains("cte_1", sqlAuto)
 
@@ -1471,18 +1836,20 @@ module DialectAndExtensionsFullCoverageTests =
         let qNamed =
             fsql {
                 for o in cteOrder do
-                withRecursiveCte "BigOrders" cteOrder
-                select o.OrderId
+                    withRecursiveCte "BigOrders" cteOrder
+                    select o.OrderId
             }
+
         let sql = toRawSql qNamed
         Assert.Contains("BigOrders", sql)
 
         let qAuto =
             fsql {
                 for o in cteOrder do
-                withRecursiveCte cteOrder
-                select o.OrderId
+                    withRecursiveCte cteOrder
+                    select o.OrderId
             }
+
         let sqlAuto = toRawSql qAuto
         Assert.Contains("cte_1", sqlAuto)
 
@@ -1492,14 +1859,17 @@ module DialectAndExtensionsFullCoverageTests =
         let conn = SqliteConnector(tempDb.Path)
         let products = SqlPushdownQueryable<TestProductRow>(conn, "Products")
         let orders = SqlPushdownQueryable<TestOrderRow>(conn, "Orders")
-        let ordersWrapped = (orders :> System.Linq.IQueryable<TestOrderRow>).Where(fun o -> o.CustomerId > 0)
+
+        let ordersWrapped =
+            (orders :> System.Linq.IQueryable<TestOrderRow>).Where(fun o -> o.CustomerId > 0)
 
         let qRight =
             fsql {
                 for p in products do
-                rightOuterJoin o in ordersWrapped on (p.Id = o.CustomerId)
-                select p.Id
+                    rightOuterJoin o in ordersWrapped on (p.Id = o.CustomerId)
+                    select p.Id
             }
+
         let sqlRight = toRawSql qRight
         Assert.NotEmpty(sqlRight)
         Assert.Contains("cte_1", sqlRight)
@@ -1510,15 +1880,19 @@ module DialectAndExtensionsFullCoverageTests =
         let conn = SqliteConnector(tempDb.Path)
         let products = SqlPushdownQueryable<TestProductRow>(conn, "Products")
         let orders = SqlPushdownQueryable<TestOrderRow>(conn, "Orders")
-        let ordersWrapped = (orders :> System.Linq.IQueryable<TestOrderRow>).Where(fun o -> o.CustomerId > 0)
+
+        let ordersWrapped =
+            (orders :> System.Linq.IQueryable<TestOrderRow>).Where(fun o -> o.CustomerId > 0)
 
         let qFull =
             fsql {
                 for p in products do
-                fullOuterJoin o in ordersWrapped on (p.Id = o.CustomerId) into g
-                for o in g do
-                    select p.Id
+                    fullOuterJoin o in ordersWrapped on (p.Id = o.CustomerId) into g
+
+                    for o in g do
+                        select p.Id
             }
+
         let sqlFull = toRawSql qFull
         Assert.NotEmpty(sqlFull)
         Assert.Contains("cte_1", sqlFull)
@@ -1528,9 +1902,21 @@ module DialectAndExtensionsFullCoverageTests =
         use tempDb = new TempExtDb()
         let conn = SqliteConnector(tempDb.Path)
         let p1 = SqlPushdownQueryable<TestPersonRecord>(conn, "Person")
-        p1.Plan.Ctes.Add({ Name = "custom_seed_cte"; SubquerySql = "SELECT 1"; IsRecursive = false; SourceQuery = None })
-        let wrapped1 = (p1 :> System.Linq.IQueryable<TestPersonRecord>).Where(fun p -> p.Score > 10.0)
-        let p2 = SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
+
+        p1.Plan.Ctes.Add(
+            {
+                Name = "custom_seed_cte"
+                SubquerySql = "SELECT 1"
+                IsRecursive = false
+                SourceQuery = None
+            }
+        )
+
+        let wrapped1 =
+            (p1 :> System.Linq.IQueryable<TestPersonRecord>).Where(fun p -> p.Score > 10.0)
+
+        let p2 =
+            SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
 
         let u = wrapped1.Union(p2)
         Assert.NotNull(u)
@@ -1546,9 +1932,21 @@ module DialectAndExtensionsFullCoverageTests =
         use tempDb = new TempExtDb()
         let conn = SqliteConnector(tempDb.Path)
         let p1 = SqlPushdownQueryable<TestPersonRecord>(conn, "Person")
-        p1.Plan.Ctes.Add({ Name = "seed_cte_alt"; SubquerySql = "SELECT 2"; IsRecursive = true; SourceQuery = None })
-        let wrapped1 = (p1 :> System.Linq.IQueryable<TestPersonRecord>).Where(fun p -> p.Score < 100.0)
-        let p2 = SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
+
+        p1.Plan.Ctes.Add(
+            {
+                Name = "seed_cte_alt"
+                SubquerySql = "SELECT 2"
+                IsRecursive = true
+                SourceQuery = None
+            }
+        )
+
+        let wrapped1 =
+            (p1 :> System.Linq.IQueryable<TestPersonRecord>).Where(fun p -> p.Score < 100.0)
+
+        let p2 =
+            SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
 
         let u = wrapped1.Union(p2)
         Assert.NotNull(u)
@@ -1563,8 +1961,13 @@ module DialectAndExtensionsFullCoverageTests =
     let ``IQueryable extension methods WithCte with parameterized subquery scenario 1`` () =
         use tempDb = new TempExtDb()
         let conn = SqliteConnector(tempDb.Path)
-        let p1 = SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
-        let pParam = SqlPushdownQueryable<TestPersonRecord>(conn, "Person").Where(fun p -> p.Score > 50.0)
+
+        let p1 =
+            SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
+
+        let pParam =
+            SqlPushdownQueryable<TestPersonRecord>(conn, "Person").Where(fun p -> p.Score > 50.0)
+
         let wrapped1 = p1.Where(fun p -> p.Score > 10.0)
 
         let withCteAuto = wrapped1.WithCte(pParam)
@@ -1576,8 +1979,13 @@ module DialectAndExtensionsFullCoverageTests =
     let ``IQueryable extension methods WithCte with parameterized subquery scenario 2`` () =
         use tempDb = new TempExtDb()
         let conn = SqliteConnector(tempDb.Path)
-        let p1 = SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
-        let pParam = SqlPushdownQueryable<TestPersonRecord>(conn, "Person").Where(fun p -> p.Score < 0.0)
+
+        let p1 =
+            SqlPushdownQueryable<TestPersonRecord>(conn, "Person") :> System.Linq.IQueryable<TestPersonRecord>
+
+        let pParam =
+            SqlPushdownQueryable<TestPersonRecord>(conn, "Person").Where(fun p -> p.Score < 0.0)
+
         let wrapped1 = p1.Where(fun p -> p.Score > 0.0)
 
         let withCteAutoRec = wrapped1.WithCte(pParam, isRecursive = true)
@@ -1587,111 +1995,144 @@ module DialectAndExtensionsFullCoverageTests =
 
     [<Fact>]
     let ``fsql set operations doUnionAll doIntersect doExcept with IQueryable and non-enumerable scenario 1`` () =
-        let mem1 = ([ { Id = 1; Name = "A"; Score = 1.0 } ] : TestPersonRecord list).AsQueryable()
-        let mem2 = ([ { Id = 2; Name = "B"; Score = 2.0 } ] : TestPersonRecord list).AsQueryable()
+        let mem1 =
+            ([ { Id = 1; Name = "A"; Score = 1.0 } ]: TestPersonRecord list).AsQueryable()
+
+        let mem2 =
+            ([ { Id = 2; Name = "B"; Score = 2.0 } ]: TestPersonRecord list).AsQueryable()
 
         let qUnionAllIq =
             fsql {
                 for p in mem1 do
-                select p
-                unionAll mem2
+                    select p
+                    unionAll mem2
             }
+
         Assert.Equal(2, qUnionAllIq |> Seq.length)
 
         let qIntersectIq =
             fsql {
                 for p in mem1 do
-                select p
-                intersect mem2
+                    select p
+                    intersect mem2
             }
+
         Assert.Equal(0, qIntersectIq |> Seq.length)
 
         let qExceptIq =
             fsql {
                 for p in mem1 do
-                select p
-                except mem2
+                    select p
+                    except mem2
             }
+
         Assert.Equal(1, qExceptIq |> Seq.length)
 
     [<Fact>]
     let ``fsql set operations doUnionAll doIntersect doExcept with IQueryable and non-enumerable scenario 2`` () =
-        let mem1 = ([ { Id = 10; Name = "X"; Score = 10.0 } ] : TestPersonRecord list).AsQueryable()
-        let mem2 = ([ { Id = 10; Name = "X"; Score = 10.0 } ] : TestPersonRecord list).AsQueryable()
+        let mem1 =
+            ([ { Id = 10; Name = "X"; Score = 10.0 } ]: TestPersonRecord list).AsQueryable()
+
+        let mem2 =
+            ([ { Id = 10; Name = "X"; Score = 10.0 } ]: TestPersonRecord list).AsQueryable()
 
         let qUnionAllIq =
             fsql {
                 for p in mem1 do
-                select p
-                unionAll mem2
+                    select p
+                    unionAll mem2
             }
+
         Assert.Equal(2, qUnionAllIq |> Seq.length)
 
         let qIntersectIq =
             fsql {
                 for p in mem1 do
-                select p
-                intersect mem2
+                    select p
+                    intersect mem2
             }
+
         Assert.Equal(1, qIntersectIq |> Seq.length)
 
         let qExceptIq =
             fsql {
                 for p in mem1 do
-                select p
-                except mem2
+                    select p
+                    except mem2
             }
+
         Assert.Equal(0, qExceptIq |> Seq.length)
 
     [<Fact>]
-    let ``attachToPlan updates join type when table name matches fullOuterJoinTables or rightOuterJoinTables scenario 1`` () =
+    let ``attachToPlan updates join type when table name matches fullOuterJoinTables or rightOuterJoinTables scenario 1``
+        ()
+        =
         use tempDb = new TempExtDb()
         let conn = SqliteConnector(tempDb.Path)
         let products = SqlPushdownQueryable<TestProductRow>(conn, "Products")
         let plan = products.Plan.Clone()
-        plan.Joins.Add({
-            JoinType = "INNER JOIN"
-            SourceTable = "Orders"
-            Alias = "o"
-            OnClause = "1=1"
-            RowType = None
-        })
+
+        plan.Joins.Add(
+            {
+                JoinType = "INNER JOIN"
+                SourceTable = "Orders"
+                Alias = "o"
+                OnClause = "1=1"
+                RowType = None
+            }
+        )
+
         let pIq = products :> System.Linq.IQueryable<TestProductRow>
-        let spqWithJoin = SqlPushdownQueryable<TestProductRow>(pIq.Provider, pIq.Expression, products.Connector, "Products", [], plan)
+
+        let spqWithJoin =
+            SqlPushdownQueryable<TestProductRow>(pIq.Provider, pIq.Expression, products.Connector, "Products", [], plan)
+
         let orders = SqlPushdownQueryable<TestOrderRow>(conn, "Orders")
 
         let qRight =
             fsql {
                 for p in spqWithJoin do
-                rightOuterJoin o in orders on (p.Id = o.CustomerId)
-                select p.Id
+                    rightOuterJoin o in orders on (p.Id = o.CustomerId)
+                    select p.Id
             }
+
         let sqlRight = toRawSql qRight
         Assert.NotEmpty(sqlRight)
 
     [<Fact>]
-    let ``attachToPlan updates join type when table name matches fullOuterJoinTables or rightOuterJoinTables scenario 2`` () =
+    let ``attachToPlan updates join type when table name matches fullOuterJoinTables or rightOuterJoinTables scenario 2``
+        ()
+        =
         use tempDb = new TempExtDb()
         let conn = SqliteConnector(tempDb.Path)
         let products = SqlPushdownQueryable<TestProductRow>(conn, "Products")
         let plan = products.Plan.Clone()
-        plan.Joins.Add({
-            JoinType = "INNER JOIN"
-            SourceTable = "Orders"
-            Alias = "o"
-            OnClause = "1=1"
-            RowType = None
-        })
+
+        plan.Joins.Add(
+            {
+                JoinType = "INNER JOIN"
+                SourceTable = "Orders"
+                Alias = "o"
+                OnClause = "1=1"
+                RowType = None
+            }
+        )
+
         let pIq = products :> System.Linq.IQueryable<TestProductRow>
-        let spqWithJoin = SqlPushdownQueryable<TestProductRow>(pIq.Provider, pIq.Expression, products.Connector, "Products", [], plan)
+
+        let spqWithJoin =
+            SqlPushdownQueryable<TestProductRow>(pIq.Provider, pIq.Expression, products.Connector, "Products", [], plan)
+
         let orders = SqlPushdownQueryable<TestOrderRow>(conn, "Orders")
 
         let qFull =
             fsql {
                 for p in spqWithJoin do
-                fullOuterJoin o in orders on (p.Id = o.CustomerId) into g
-                for o in g do
-                    select p.Id
+                    fullOuterJoin o in orders on (p.Id = o.CustomerId) into g
+
+                    for o in g do
+                        select p.Id
             }
+
         let sqlFull = toRawSql qFull
         Assert.NotEmpty(sqlFull)

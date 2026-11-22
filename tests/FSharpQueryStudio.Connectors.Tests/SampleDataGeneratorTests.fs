@@ -211,13 +211,11 @@ module SampleDataGeneratorTests =
 
         try
             Directory.CreateDirectory tempDir |> ignore
+
             let res =
                 AdvancedSampleGenerator.generateAdvancedSamplesWithLanguage tempDir [ "all" ] (Some "en")
 
-            Assert.Equal<string list>(
-                [ "postgresql"; "sqlserver"; "mysql"; "mariadb"; "oracle" ],
-                res.SelectedEngines
-            )
+            Assert.Equal<string list>([ "postgresql"; "sqlserver"; "mysql"; "mariadb"; "oracle" ], res.SelectedEngines)
             Assert.True(Option.isSome res.DockerComposePath)
             let composeContent = File.ReadAllText(Option.get res.DockerComposePath)
             Assert.Contains("postgres:16-alpine", composeContent)
@@ -228,16 +226,32 @@ module SampleDataGeneratorTests =
 
             // Assert 5 init scripts generated
             Assert.Equal(5, res.InitScripts.Length)
+
             let expectedScripts =
-                [ "init_postgres.sql"; "init_sqlserver.sql"; "init_mysql.sql"; "init_mariadb.sql"; "init_oracle.sql" ]
+                [
+                    "init_postgres.sql"
+                    "init_sqlserver.sql"
+                    "init_mysql.sql"
+                    "init_mariadb.sql"
+                    "init_oracle.sql"
+                ]
+
             for s in expectedScripts do
                 let full = Path.Combine(tempDir, "init-scripts", s)
                 Assert.True(File.Exists full, $"Init script should exist at {full}")
 
             // Assert 5 English notebooks generated, no Portuguese notebooks
             Assert.Equal(5, res.NotebooksGenerated.Length)
+
             let expectedNbs =
-                [ "sample_postgresql.fsqnb"; "sample_sqlserver.fsqnb"; "sample_mysql.fsqnb"; "sample_mariadb.fsqnb"; "sample_oracle.fsqnb" ]
+                [
+                    "sample_postgresql.fsqnb"
+                    "sample_sqlserver.fsqnb"
+                    "sample_mysql.fsqnb"
+                    "sample_mariadb.fsqnb"
+                    "sample_oracle.fsqnb"
+                ]
+
             for nb in expectedNbs do
                 let full = Path.Combine(tempDir, nb)
                 Assert.True(File.Exists full, $"English notebook should exist at {full}")
@@ -246,7 +260,14 @@ module SampleDataGeneratorTests =
                 Assert.Equal(1, doc.RootElement.GetProperty("version").GetInt32())
 
             let unexpectedNbs =
-                [ "sample_postgresql_pt.fsqnb"; "sample_sqlserver_pt.fsqnb"; "sample_mysql_pt.fsqnb"; "sample_mariadb_pt.fsqnb"; "sample_oracle_pt.fsqnb" ]
+                [
+                    "sample_postgresql_pt.fsqnb"
+                    "sample_sqlserver_pt.fsqnb"
+                    "sample_mysql_pt.fsqnb"
+                    "sample_mariadb_pt.fsqnb"
+                    "sample_oracle_pt.fsqnb"
+                ]
+
             for nb in unexpectedNbs do
                 let full = Path.Combine(tempDir, nb)
                 Assert.False(File.Exists full, $"Portuguese notebook should not exist when lang is en at {full}")
@@ -260,7 +281,10 @@ module SampleDataGeneratorTests =
             Assert.Contains("Oracle_Advanced", res.RegisteredConnections)
         finally
             if Directory.Exists tempDir then
-                try Directory.Delete(tempDir, true) with _ -> ()
+                try
+                    Directory.Delete(tempDir, true)
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``generateAdvancedSamples with all engines produces all 5 Portuguese notebooks when language is pt`` () =
@@ -269,12 +293,21 @@ module SampleDataGeneratorTests =
 
         try
             Directory.CreateDirectory tempDir |> ignore
+
             let res =
                 AdvancedSampleGenerator.generateAdvancedSamplesWithLanguage tempDir [ "all" ] (Some "pt")
 
             Assert.Equal(5, res.NotebooksGenerated.Length)
+
             let expectedPtNbs =
-                [ "sample_postgresql_pt.fsqnb"; "sample_sqlserver_pt.fsqnb"; "sample_mysql_pt.fsqnb"; "sample_mariadb_pt.fsqnb"; "sample_oracle_pt.fsqnb" ]
+                [
+                    "sample_postgresql_pt.fsqnb"
+                    "sample_sqlserver_pt.fsqnb"
+                    "sample_mysql_pt.fsqnb"
+                    "sample_mariadb_pt.fsqnb"
+                    "sample_oracle_pt.fsqnb"
+                ]
+
             for nb in expectedPtNbs do
                 let full = Path.Combine(tempDir, nb)
                 Assert.True(File.Exists full, $"Portuguese notebook should exist at {full}")
@@ -283,13 +316,23 @@ module SampleDataGeneratorTests =
                 Assert.Equal(1, doc.RootElement.GetProperty("version").GetInt32())
 
             let unexpectedEnNbs =
-                [ "sample_postgresql.fsqnb"; "sample_sqlserver.fsqnb"; "sample_mysql.fsqnb"; "sample_mariadb.fsqnb"; "sample_oracle.fsqnb" ]
+                [
+                    "sample_postgresql.fsqnb"
+                    "sample_sqlserver.fsqnb"
+                    "sample_mysql.fsqnb"
+                    "sample_mariadb.fsqnb"
+                    "sample_oracle.fsqnb"
+                ]
+
             for nb in unexpectedEnNbs do
                 let full = Path.Combine(tempDir, nb)
                 Assert.False(File.Exists full, $"English notebook should not exist at {full}")
         finally
             if Directory.Exists tempDir then
-                try Directory.Delete(tempDir, true) with _ -> ()
+                try
+                    Directory.Delete(tempDir, true)
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``generateAdvancedSamples with default language produces both EN and PT notebooks (10 notebooks)`` () =
@@ -298,24 +341,33 @@ module SampleDataGeneratorTests =
 
         try
             Directory.CreateDirectory tempDir |> ignore
-            let res =
-                AdvancedSampleGenerator.generateAdvancedSamples tempDir [ "all" ]
+            let res = AdvancedSampleGenerator.generateAdvancedSamples tempDir [ "all" ]
 
             Assert.Equal(10, res.NotebooksGenerated.Length)
+
             let allExpected =
                 [
-                    "sample_postgresql.fsqnb"; "sample_postgresql_pt.fsqnb"
-                    "sample_sqlserver.fsqnb"; "sample_sqlserver_pt.fsqnb"
-                    "sample_mysql.fsqnb"; "sample_mysql_pt.fsqnb"
-                    "sample_mariadb.fsqnb"; "sample_mariadb_pt.fsqnb"
-                    "sample_oracle.fsqnb"; "sample_oracle_pt.fsqnb"
+                    "sample_postgresql.fsqnb"
+                    "sample_postgresql_pt.fsqnb"
+                    "sample_sqlserver.fsqnb"
+                    "sample_sqlserver_pt.fsqnb"
+                    "sample_mysql.fsqnb"
+                    "sample_mysql_pt.fsqnb"
+                    "sample_mariadb.fsqnb"
+                    "sample_mariadb_pt.fsqnb"
+                    "sample_oracle.fsqnb"
+                    "sample_oracle_pt.fsqnb"
                 ]
+
             for nb in allExpected do
                 let full = Path.Combine(tempDir, nb)
                 Assert.True(File.Exists full, $"Notebook should exist at {full}")
         finally
             if Directory.Exists tempDir then
-                try Directory.Delete(tempDir, true) with _ -> ()
+                try
+                    Directory.Delete(tempDir, true)
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``generateAdvancedSamples with MySQL and MariaDB produces dedicated scripts and notebooks`` () =
@@ -324,6 +376,7 @@ module SampleDataGeneratorTests =
 
         try
             Directory.CreateDirectory tempDir |> ignore
+
             let res =
                 AdvancedSampleGenerator.generateAdvancedSamplesWithLanguage tempDir [ "mysql"; "mariadb" ] None
 
@@ -352,7 +405,10 @@ module SampleDataGeneratorTests =
             Assert.True(File.Exists mariaNbPt)
         finally
             if Directory.Exists tempDir then
-                try Directory.Delete(tempDir, true) with _ -> ()
+                try
+                    Directory.Delete(tempDir, true)
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``generateAdvancedSamples with Oracle produces dedicated scripts and notebooks`` () =
@@ -361,6 +417,7 @@ module SampleDataGeneratorTests =
 
         try
             Directory.CreateDirectory tempDir |> ignore
+
             let res =
                 AdvancedSampleGenerator.generateAdvancedSamplesWithLanguage tempDir [ "oracle" ] None
 
@@ -380,7 +437,10 @@ module SampleDataGeneratorTests =
             Assert.True(File.Exists oraNbPt)
         finally
             if Directory.Exists tempDir then
-                try Directory.Delete(tempDir, true) with _ -> ()
+                try
+                    Directory.Delete(tempDir, true)
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``generateAdvancedSamples handles engine aliases and whitespace normalization`` () =
@@ -389,6 +449,7 @@ module SampleDataGeneratorTests =
 
         try
             Directory.CreateDirectory tempDir |> ignore
+
             let res =
                 AdvancedSampleGenerator.generateAdvancedSamplesWithLanguage
                     tempDir
@@ -403,7 +464,10 @@ module SampleDataGeneratorTests =
             Assert.Equal(2, res.NotebooksGenerated.Length)
         finally
             if Directory.Exists tempDir then
-                try Directory.Delete(tempDir, true) with _ -> ()
+                try
+                    Directory.Delete(tempDir, true)
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``generateAdvancedSamples with empty or unsupported engines produces empty result safely`` () =
@@ -412,6 +476,7 @@ module SampleDataGeneratorTests =
 
         try
             Directory.CreateDirectory tempDir |> ignore
+
             let res =
                 AdvancedSampleGenerator.generateAdvancedSamplesWithLanguage
                     tempDir
@@ -426,7 +491,10 @@ module SampleDataGeneratorTests =
             Assert.False(Directory.Exists(Path.Combine(tempDir, "init-scripts")))
         finally
             if Directory.Exists tempDir then
-                try Directory.Delete(tempDir, true) with _ -> ()
+                try
+                    Directory.Delete(tempDir, true)
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``tryGetKnownSampleTables returns expected schema definitions for all database connectors`` () =
@@ -480,6 +548,7 @@ module SampleDataGeneratorTests =
     let ``createSampleDemoNotebook and createSampleDemoNotebookPt create missing parent directories`` () =
         let tempDir =
             Path.Combine(Path.GetTempPath(), "fsqs_demo_dir_" + Guid.NewGuid().ToString("N"))
+
         try
             let subDirEn = Path.Combine(tempDir, "nested", "en")
             let nbPathEn = Path.Combine(subDirEn, "demo_en.fsqnb")
@@ -492,7 +561,10 @@ module SampleDataGeneratorTests =
             Assert.True(File.Exists nbPathPt)
         finally
             if Directory.Exists tempDir then
-                try Directory.Delete(tempDir, true) with _ -> ()
+                try
+                    Directory.Delete(tempDir, true)
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``AdvancedSampleNotebookCommon mkMarkdown mkCode and serializeNotebook format correctly`` () =
@@ -521,156 +593,235 @@ module SampleDataGeneratorTests =
 
     [<Fact>]
     let ``SampleDataSqlite ensureSampleStoreIndexes handles non-existent file gracefully scenario 1`` () =
-        let nonExistentPath = Path.Combine(Path.GetTempPath(), $"missing_store_{Guid.NewGuid():N}.db")
+        let nonExistentPath =
+            Path.Combine(Path.GetTempPath(), $"missing_store_{Guid.NewGuid():N}.db")
+
         SampleDataSqlite.ensureSampleStoreIndexes nonExistentPath
         Assert.False(File.Exists nonExistentPath)
 
     [<Fact>]
     let ``SampleDataSqlite ensureSampleStoreIndexes handles non-existent file gracefully scenario 2`` () =
-        let nonExistentPath = Path.Combine(Path.GetTempPath(), $"missing_store_2_{Guid.NewGuid():N}.db")
+        let nonExistentPath =
+            Path.Combine(Path.GetTempPath(), $"missing_store_2_{Guid.NewGuid():N}.db")
+
         SampleDataSqlite.ensureSampleStoreIndexes nonExistentPath
         Assert.False(File.Exists nonExistentPath)
 
     [<Fact>]
     let ``SampleDataSqlite ensureSampleStoreIndexes applies indexes to existing database scenario 1`` () =
-        let tempDir = Path.Combine(Path.GetTempPath(), $"fsqs_test_idx_1_{Guid.NewGuid():N}")
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), $"fsqs_test_idx_1_{Guid.NewGuid():N}")
+
         try
             Directory.CreateDirectory tempDir |> ignore
             let dbPath = Path.Combine(tempDir, "store.db")
             SampleDataSqlite.createSampleStoreDatabase dbPath
             Assert.True(File.Exists dbPath)
             SampleDataSqlite.ensureSampleStoreIndexes dbPath
-            use conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=False")
+
+            use conn =
+                new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=False")
+
             conn.Open()
             use cmd = conn.CreateCommand()
-            cmd.CommandText <- "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'IX_Customers_Country'"
+
+            cmd.CommandText <-
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'IX_Customers_Country'"
+
             let count = Convert.ToInt32(cmd.ExecuteScalar())
             Assert.Equal(1, count)
         finally
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
             if Directory.Exists tempDir then
-                try Directory.Delete(tempDir, true) with _ -> ()
+                try
+                    Directory.Delete(tempDir, true)
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``SampleDataSqlite ensureSampleStoreIndexes applies indexes to existing database scenario 2`` () =
-        let tempDir = Path.Combine(Path.GetTempPath(), $"fsqs_test_idx_2_{Guid.NewGuid():N}")
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), $"fsqs_test_idx_2_{Guid.NewGuid():N}")
+
         try
             Directory.CreateDirectory tempDir |> ignore
             let dbPath = Path.Combine(tempDir, "store2.db")
             SampleDataSqlite.createSampleStoreDatabase dbPath
             Assert.True(File.Exists dbPath)
             SampleDataSqlite.ensureSampleStoreIndexes dbPath
-            use conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=False")
+
+            use conn =
+                new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=False")
+
             conn.Open()
             use cmd = conn.CreateCommand()
-            cmd.CommandText <- "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'IX_Orders_OrderDate'"
+
+            cmd.CommandText <-
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'IX_Orders_OrderDate'"
+
             let count = Convert.ToInt32(cmd.ExecuteScalar())
             Assert.Equal(1, count)
         finally
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
             if Directory.Exists tempDir then
-                try Directory.Delete(tempDir, true) with _ -> ()
+                try
+                    Directory.Delete(tempDir, true)
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``SampleDataSqlite ensureSampleStoreIndexes handles corrupt file gracefully scenario 1`` () =
-        let tempFile = Path.Combine(Path.GetTempPath(), $"corrupt_store_1_{Guid.NewGuid():N}.db")
+        let tempFile =
+            Path.Combine(Path.GetTempPath(), $"corrupt_store_1_{Guid.NewGuid():N}.db")
+
         try
             File.WriteAllText(tempFile, "NOT A VALID SQLITE DATABASE FILE CONTENT")
             SampleDataSqlite.ensureSampleStoreIndexes tempFile
             Assert.True(File.Exists tempFile)
         finally
             if File.Exists tempFile then
-                try File.Delete tempFile with _ -> ()
+                try
+                    File.Delete tempFile
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``SampleDataSqlite ensureSampleStoreIndexes handles corrupt file gracefully scenario 2`` () =
-        let tempFile = Path.Combine(Path.GetTempPath(), $"corrupt_store_2_{Guid.NewGuid():N}.db")
+        let tempFile =
+            Path.Combine(Path.GetTempPath(), $"corrupt_store_2_{Guid.NewGuid():N}.db")
+
         try
             File.WriteAllBytes(tempFile, [| 0uy; 1uy; 2uy; 3uy |])
             SampleDataSqlite.ensureSampleStoreIndexes tempFile
             Assert.True(File.Exists tempFile)
         finally
             if File.Exists tempFile then
-                try File.Delete tempFile with _ -> ()
+                try
+                    File.Delete tempFile
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``SampleDataSqlite ensureInventoryIndexes handles non-existent file gracefully scenario 1`` () =
-        let nonExistentPath = Path.Combine(Path.GetTempPath(), $"missing_inv_{Guid.NewGuid():N}.db")
+        let nonExistentPath =
+            Path.Combine(Path.GetTempPath(), $"missing_inv_{Guid.NewGuid():N}.db")
+
         SampleDataSqlite.ensureInventoryIndexes nonExistentPath
         Assert.False(File.Exists nonExistentPath)
 
     [<Fact>]
     let ``SampleDataSqlite ensureInventoryIndexes handles non-existent file gracefully scenario 2`` () =
-        let nonExistentPath = Path.Combine(Path.GetTempPath(), $"missing_inv_2_{Guid.NewGuid():N}.db")
+        let nonExistentPath =
+            Path.Combine(Path.GetTempPath(), $"missing_inv_2_{Guid.NewGuid():N}.db")
+
         SampleDataSqlite.ensureInventoryIndexes nonExistentPath
         Assert.False(File.Exists nonExistentPath)
 
     [<Fact>]
     let ``SampleDataSqlite ensureInventoryIndexes applies indexes to existing database scenario 1`` () =
-        let tempDir = Path.Combine(Path.GetTempPath(), $"fsqs_test_inv_idx_1_{Guid.NewGuid():N}")
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), $"fsqs_test_inv_idx_1_{Guid.NewGuid():N}")
+
         try
             Directory.CreateDirectory tempDir |> ignore
             let dbPath = Path.Combine(tempDir, "inventory.db")
             SampleDataSqlite.createInventoryDatabase dbPath
             Assert.True(File.Exists dbPath)
             SampleDataSqlite.ensureInventoryIndexes dbPath
-            use conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=False")
+
+            use conn =
+                new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=False")
+
             conn.Open()
             use cmd = conn.CreateCommand()
-            cmd.CommandText <- "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'IX_StockLevels_WarehouseId'"
+
+            cmd.CommandText <-
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'IX_StockLevels_WarehouseId'"
+
             let count = Convert.ToInt32(cmd.ExecuteScalar())
             Assert.Equal(1, count)
         finally
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
             if Directory.Exists tempDir then
-                try Directory.Delete(tempDir, true) with _ -> ()
+                try
+                    Directory.Delete(tempDir, true)
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``SampleDataSqlite ensureInventoryIndexes applies indexes to existing database scenario 2`` () =
-        let tempDir = Path.Combine(Path.GetTempPath(), $"fsqs_test_inv_idx_2_{Guid.NewGuid():N}")
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), $"fsqs_test_inv_idx_2_{Guid.NewGuid():N}")
+
         try
             Directory.CreateDirectory tempDir |> ignore
             let dbPath = Path.Combine(tempDir, "inventory2.db")
             SampleDataSqlite.createInventoryDatabase dbPath
             Assert.True(File.Exists dbPath)
             SampleDataSqlite.ensureInventoryIndexes dbPath
-            use conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=False")
+
+            use conn =
+                new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=False")
+
             conn.Open()
             use cmd = conn.CreateCommand()
-            cmd.CommandText <- "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'IX_Suppliers_Country'"
+
+            cmd.CommandText <-
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'IX_Suppliers_Country'"
+
             let count = Convert.ToInt32(cmd.ExecuteScalar())
             Assert.Equal(1, count)
         finally
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
             if Directory.Exists tempDir then
-                try Directory.Delete(tempDir, true) with _ -> ()
+                try
+                    Directory.Delete(tempDir, true)
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``SampleDataSqlite ensureInventoryIndexes handles corrupt file gracefully scenario 1`` () =
-        let tempFile = Path.Combine(Path.GetTempPath(), $"corrupt_inv_1_{Guid.NewGuid():N}.db")
+        let tempFile =
+            Path.Combine(Path.GetTempPath(), $"corrupt_inv_1_{Guid.NewGuid():N}.db")
+
         try
             File.WriteAllText(tempFile, "MALFORMED SQLITE HEADER")
             SampleDataSqlite.ensureInventoryIndexes tempFile
             Assert.True(File.Exists tempFile)
         finally
             if File.Exists tempFile then
-                try File.Delete tempFile with _ -> ()
+                try
+                    File.Delete tempFile
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``SampleDataSqlite ensureInventoryIndexes handles corrupt file gracefully scenario 2`` () =
-        let tempFile = Path.Combine(Path.GetTempPath(), $"corrupt_inv_2_{Guid.NewGuid():N}.db")
+        let tempFile =
+            Path.Combine(Path.GetTempPath(), $"corrupt_inv_2_{Guid.NewGuid():N}.db")
+
         try
             File.WriteAllBytes(tempFile, [| 255uy; 254uy; 0uy; 0uy |])
             SampleDataSqlite.ensureInventoryIndexes tempFile
             Assert.True(File.Exists tempFile)
         finally
             if File.Exists tempFile then
-                try File.Delete tempFile with _ -> ()
+                try
+                    File.Delete tempFile
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``SampleDataSqlite createSampleStoreDatabase creates missing nested directory scenario 1`` () =
-        let tempDir = Path.Combine(Path.GetTempPath(), $"fsqs_nested_store_1_{Guid.NewGuid():N}", "nested1", "nested2")
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), $"fsqs_nested_store_1_{Guid.NewGuid():N}", "nested1", "nested2")
+
         let dbPath = Path.Combine(tempDir, "sample_store.db")
+
         try
             Assert.False(Directory.Exists tempDir)
             SampleDataSqlite.createSampleStoreDatabase dbPath
@@ -679,12 +830,19 @@ module SampleDataGeneratorTests =
         finally
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
             let root = Path.Combine(Path.GetTempPath(), Path.GetPathRoot(tempDir))
-            try Directory.Delete(Path.GetDirectoryName(Path.GetDirectoryName(tempDir)), true) with _ -> ()
+
+            try
+                Directory.Delete(Path.GetDirectoryName(Path.GetDirectoryName(tempDir)), true)
+            with _ ->
+                ()
 
     [<Fact>]
     let ``SampleDataSqlite createSampleStoreDatabase creates missing nested directory scenario 2`` () =
-        let tempDir = Path.Combine(Path.GetTempPath(), $"fsqs_nested_store_2_{Guid.NewGuid():N}", "deep", "folder")
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), $"fsqs_nested_store_2_{Guid.NewGuid():N}", "deep", "folder")
+
         let dbPath = Path.Combine(tempDir, "sample_store.db")
+
         try
             Assert.False(Directory.Exists tempDir)
             SampleDataSqlite.createSampleStoreDatabase dbPath
@@ -692,12 +850,19 @@ module SampleDataGeneratorTests =
             Assert.True(File.Exists dbPath)
         finally
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
-            try Directory.Delete(Path.GetDirectoryName(Path.GetDirectoryName(tempDir)), true) with _ -> ()
+
+            try
+                Directory.Delete(Path.GetDirectoryName(Path.GetDirectoryName(tempDir)), true)
+            with _ ->
+                ()
 
     [<Fact>]
     let ``SampleDataSqlite createInventoryDatabase creates missing nested directory scenario 1`` () =
-        let tempDir = Path.Combine(Path.GetTempPath(), $"fsqs_nested_inv_1_{Guid.NewGuid():N}", "nested_inv_1")
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), $"fsqs_nested_inv_1_{Guid.NewGuid():N}", "nested_inv_1")
+
         let dbPath = Path.Combine(tempDir, "inventory.db")
+
         try
             Assert.False(Directory.Exists tempDir)
             SampleDataSqlite.createInventoryDatabase dbPath
@@ -705,12 +870,19 @@ module SampleDataGeneratorTests =
             Assert.True(File.Exists dbPath)
         finally
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
-            try Directory.Delete(tempDir, true) with _ -> ()
+
+            try
+                Directory.Delete(tempDir, true)
+            with _ ->
+                ()
 
     [<Fact>]
     let ``SampleDataSqlite createInventoryDatabase creates missing nested directory scenario 2`` () =
-        let tempDir = Path.Combine(Path.GetTempPath(), $"fsqs_nested_inv_2_{Guid.NewGuid():N}", "nested_inv_2")
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), $"fsqs_nested_inv_2_{Guid.NewGuid():N}", "nested_inv_2")
+
         let dbPath = Path.Combine(tempDir, "inventory.db")
+
         try
             Assert.False(Directory.Exists tempDir)
             SampleDataSqlite.createInventoryDatabase dbPath
@@ -718,4 +890,8 @@ module SampleDataGeneratorTests =
             Assert.True(File.Exists dbPath)
         finally
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
-            try Directory.Delete(tempDir, true) with _ -> ()
+
+            try
+                Directory.Delete(tempDir, true)
+            with _ ->
+                ()

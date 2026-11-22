@@ -199,14 +199,21 @@ let ``XmlOptions Default record values scenario 1`` () =
 
 [<Fact>]
 let ``XmlOptions Default copy with modification scenario 2`` () =
-    let custom = { XmlOptions.Default with RowElement = Some "CustomRow"; IncludeAttributes = false }
+    let custom =
+        { XmlOptions.Default with
+            RowElement = Some "CustomRow"
+            IncludeAttributes = false
+        }
+
     Assert.Equal(Some "CustomRow", custom.RowElement)
     Assert.False(custom.IncludeAttributes)
     Assert.True(custom.FlattenNested)
 
 [<Fact>]
 let ``XmlConnector parses element with both attributes and text content scenario 1`` () =
-    let xml = """<Root><Entry id="101" category="general">Important Note</Entry><Entry id="102" category="urgent">Action Required</Entry></Root>"""
+    let xml =
+        """<Root><Entry id="101" category="general">Important Note</Entry><Entry id="102" category="urgent">Action Required</Entry></Root>"""
+
     use f = new TempXmlFile(xml)
     let conn = XmlConnector(f.Path)
     let result = conn.ReadRows()
@@ -244,7 +251,12 @@ let ``XmlConnector handles root element without child elements scenario 1`` () =
 let ``XmlConnector handles root element with empty RowElement and target tag matching root scenario 2`` () =
     let xml = """<Item id="1">Isolated</Item>"""
     use f = new TempXmlFile(xml)
-    let opts = { XmlOptions.Default with RowElement = Some "Item" }
+
+    let opts =
+        { XmlOptions.Default with
+            RowElement = Some "Item"
+        }
+
     let conn = XmlConnector(f.Path, opts)
     let qr = conn.ReadRows()
     Assert.Contains("id", qr.Columns)
@@ -252,7 +264,9 @@ let ``XmlConnector handles root element with empty RowElement and target tag mat
 
 [<Fact>]
 let ``XmlConnector ReadRaw with row limit and without row limit scenario 1`` () =
-    let xml = """<Data><Item><Val>1</Val></Item><Item><Val>2</Val></Item><Item><Val>3</Val></Item></Data>"""
+    let xml =
+        """<Data><Item><Val>1</Val></Item><Item><Val>2</Val></Item><Item><Val>3</Val></Item></Data>"""
+
     use f = new TempXmlFile(xml)
     let conn = XmlConnector(f.Path) :> IStagableConnector
     let rawLimited = conn.ReadRaw(Some 2)
@@ -264,18 +278,30 @@ let ``XmlConnector ReadRaw with row limit and without row limit scenario 1`` () 
 let ``XmlConnector StagePrimaryTable with row element None and Some scenario 2`` () =
     let xml = """<Data><Item><Val>10</Val></Item></Data>"""
     use f = new TempXmlFile(xml)
-    let dbPath = Path.Combine(Path.GetTempPath(), $"fqs-xml-stage-{Guid.NewGuid():N}.db")
+
+    let dbPath =
+        Path.Combine(Path.GetTempPath(), $"fqs-xml-stage-{Guid.NewGuid():N}.db")
+
     try
         let engine = FileSqliteEngine(dbPath) :> IStagingEngine
         let conn1 = XmlConnector(f.Path) :> IStagableConnector
         let tbl1 = conn1.StagePrimaryTable(engine, "conn1")
         Assert.False(String.IsNullOrWhiteSpace tbl1)
 
-        let conn2 = XmlConnector(f.Path, { XmlOptions.Default with RowElement = Some "Item" }) :> IStagableConnector
+        let conn2 =
+            XmlConnector(
+                f.Path,
+                { XmlOptions.Default with
+                    RowElement = Some "Item"
+                }
+            )
+            :> IStagableConnector
+
         let tbl2 = conn2.StagePrimaryTable(engine, "conn2")
         Assert.False(String.IsNullOrWhiteSpace tbl2)
     finally
-        if File.Exists dbPath then File.Delete dbPath
+        if File.Exists dbPath then
+            File.Delete dbPath
 
 [<Fact>]
 let ``XmlDescriptor properties and validation scenario 1`` () =
@@ -287,7 +313,9 @@ let ``XmlDescriptor properties and validation scenario 1`` () =
     Assert.True(Option.isNone desc.EntityGenerator)
     Assert.NotEmpty(desc.FormFields)
 
-    use doc = System.Text.Json.JsonDocument.Parse("""{"filePath": "/path/to/data.xml"}""")
+    use doc =
+        System.Text.Json.JsonDocument.Parse("""{"filePath": "/path/to/data.xml"}""")
+
     let validRes = desc.ValidateConfiguration doc.RootElement
     Assert.True(Result.isOk validRes)
 
@@ -302,7 +330,9 @@ let ``XmlDescriptor properties and validation scenario 2`` () =
 let ``XmlConnectorFactory creates connector from string or raw text scenario 1`` () =
     let desc = XmlDescriptor.Instance :> IConnectorDescriptor
     let factory = desc.Factory
-    let secretStore = FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
+
+    let secretStore =
+        FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
 
     use docStr = System.Text.Json.JsonDocument.Parse("\"/my/file.xml\"")
     let conn = factory.Create(docStr.RootElement, secretStore, None)
@@ -312,12 +342,18 @@ let ``XmlConnectorFactory creates connector from string or raw text scenario 1``
 [<Fact>]
 let ``XmlConnectorFactory creates connector from empty or object configuration scenario 2`` () =
     let factory = XmlConnectorFactory() :> IConnectorFactory
-    let secretStore = FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
+
+    let secretStore =
+        FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
 
     use docEmptyStr = System.Text.Json.JsonDocument.Parse("\"\"")
     let conn1 = factory.Create(docEmptyStr.RootElement, secretStore, None)
     Assert.NotNull(conn1)
 
-    use docObj = System.Text.Json.JsonDocument.Parse("{\"filePath\": \"/data/test.xml\", \"rowElement\": \"Item\", \"includeAttributes\": false}")
+    use docObj =
+        System.Text.Json.JsonDocument.Parse(
+            "{\"filePath\": \"/data/test.xml\", \"rowElement\": \"Item\", \"includeAttributes\": false}"
+        )
+
     let conn2 = factory.Create(docObj.RootElement, secretStore, None)
     Assert.NotNull(conn2)

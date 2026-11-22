@@ -59,10 +59,16 @@ let ``defaultLogsDirectory returns valid path ending in FSharpQueryStudio logs``
     let path = LoggerSetup.defaultLogsDirectory ()
     Assert.False(String.IsNullOrWhiteSpace path)
     let normalized = path.Replace('\\', '/')
-    Assert.True(normalized.EndsWith("/FSharpQueryStudio/logs") || normalized.EndsWith("FSharpQueryStudio/logs"))
+
+    Assert.True(
+        normalized.EndsWith("/FSharpQueryStudio/logs")
+        || normalized.EndsWith("FSharpQueryStudio/logs")
+    )
 
 [<Fact>]
 let ``defaultLogsDirectory uses LocalApplicationData folder path`` () =
-    let expectedBase = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+    let expectedBase =
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+
     let actual = LoggerSetup.defaultLogsDirectory ()
     Assert.StartsWith(expectedBase, actual)

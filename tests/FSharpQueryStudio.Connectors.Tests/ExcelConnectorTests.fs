@@ -316,14 +316,21 @@ let ``ExcelOptions Default record values scenario 1`` () =
 
 [<Fact>]
 let ``ExcelOptions Default copy with modified options scenario 2`` () =
-    let custom = { ExcelOptions.Default with SheetName = Some "CustomSheet"; HasHeader = false }
+    let custom =
+        { ExcelOptions.Default with
+            SheetName = Some "CustomSheet"
+            HasHeader = false
+        }
+
     Assert.Equal(Some "CustomSheet", custom.SheetName)
     Assert.False(custom.HasHeader)
     Assert.True(custom.ColumnTypes.IsEmpty)
 
 [<Fact>]
 let ``ExcelConnector reads boolean, datetime, timespan and blank cell values scenario 1`` () =
-    let path = Path.Combine(Path.GetTempPath(), $"fqs-excel-types-{Guid.NewGuid():N}.xlsx")
+    let path =
+        Path.Combine(Path.GetTempPath(), $"fqs-excel-types-{Guid.NewGuid():N}.xlsx")
+
     try
         do
             use wb = new ClosedXML.Excel.XLWorkbook()
@@ -349,11 +356,14 @@ let ``ExcelConnector reads boolean, datetime, timespan and blank cell values sce
         Assert.Equal(box (TimeSpan.FromHours(2.5).ToString()), rows.[0].[2])
         Assert.Null(rows.[0].[3])
     finally
-        if File.Exists path then File.Delete path
+        if File.Exists path then
+            File.Delete path
 
 [<Fact>]
 let ``ExcelConnector reads false boolean and custom datetime scenario 2`` () =
-    let path = Path.Combine(Path.GetTempPath(), $"fqs-excel-types2-{Guid.NewGuid():N}.xlsx")
+    let path =
+        Path.Combine(Path.GetTempPath(), $"fqs-excel-types2-{Guid.NewGuid():N}.xlsx")
+
     try
         do
             use wb = new ClosedXML.Excel.XLWorkbook()
@@ -371,7 +381,8 @@ let ``ExcelConnector reads false boolean and custom datetime scenario 2`` () =
         Assert.Equal(box false, rows.[0].[0])
         Assert.Equal(box (DateTime(2025, 12, 31, 23, 59, 59)), rows.[0].[1])
     finally
-        if File.Exists path then File.Delete path
+        if File.Exists path then
+            File.Delete path
 
 [<Fact>]
 let ``ExcelConnector ReadRaw and StagePrimaryTable scenario 1`` () =
@@ -385,15 +396,27 @@ let ``ExcelConnector ReadRaw and StagePrimaryTable scenario 1`` () =
 [<Fact>]
 let ``ExcelConnector StagePrimaryTable with specific and default sheet scenario 2`` () =
     use wb = new TempWorkbook()
-    let dbPath = Path.Combine(Path.GetTempPath(), $"fqs-excel-stage-{Guid.NewGuid():N}.db")
+
+    let dbPath =
+        Path.Combine(Path.GetTempPath(), $"fqs-excel-stage-{Guid.NewGuid():N}.db")
+
     try
         let engine = FileSqliteEngine(dbPath) :> IStagingEngine
         let conn1 = ExcelConnector(wb.Path) :> IStagableConnector
         let tbl1 = conn1.StagePrimaryTable(engine, "conn1")
         Assert.False(String.IsNullOrWhiteSpace tbl1)
 
-        let conn2 = ExcelConnector(wb.Path, { ExcelOptions.Default with SheetName = Some "Orders" }) :> IStagableConnector
+        let conn2 =
+            ExcelConnector(
+                wb.Path,
+                { ExcelOptions.Default with
+                    SheetName = Some "Orders"
+                }
+            )
+            :> IStagableConnector
+
         let tbl2 = conn2.StagePrimaryTable(engine, "conn2")
         Assert.False(String.IsNullOrWhiteSpace tbl2)
     finally
-        if File.Exists dbPath then File.Delete dbPath
+        if File.Exists dbPath then
+            File.Delete dbPath

@@ -119,6 +119,7 @@ let ``set and discard with empty or null URI does not throw or corrupt store sce
             Columns = [ "x" ]
             Rows = [| [| box 1 |] |]
         }
+
     ResultRetention.set "" result
     ResultRetention.set null result
     Assert.True((ResultRetention.tryGet "").IsNone)

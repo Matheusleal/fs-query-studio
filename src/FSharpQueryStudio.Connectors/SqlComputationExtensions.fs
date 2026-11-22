@@ -633,10 +633,7 @@ module SqlComputationExtensions =
 
                 if fullOuterJoinTables.Count > 0 then
                     for j in plan.Joins do
-                        if
-                            fullOuterJoinTables.Contains("*")
-                            || fullOuterJoinTables.Contains(j.SourceTable)
-                        then
+                        if fullOuterJoinTables.Contains("*") || fullOuterJoinTables.Contains(j.SourceTable) then
                             j.JoinType <- "FULL OUTER JOIN"
 
                 plan.RightOuterJoinTables.AddRange(rightOuterJoinTables)

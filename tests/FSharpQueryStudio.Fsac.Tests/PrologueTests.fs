@@ -146,7 +146,9 @@ let ``sourceForCheckForDocument and shift offsets for document operate correctly
 let ``buildInWorkspace generates valid references and open declarations`` () =
     let emptyDir =
         System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fqs_empty_ws_" + System.Guid.NewGuid().ToString("N"))
+
     System.IO.Directory.CreateDirectory(emptyDir) |> ignore
+
     try
         let prologueText = Prologue.buildInWorkspace (Some emptyDir)
         Assert.Contains("open FSharpQueryStudio.Protocol", prologueText)
@@ -174,8 +176,12 @@ let ``resolveWorkspaceForDocument handles URI variations and temp root boundary`
     Assert.True(resNonDrive.IsSome || resNonDrive.IsNone)
 
     // Temp folder path returns None (hitting tempRoot check)
-    let tempFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "temp_script.fsx")
-    let resTemp = Prologue.resolveWorkspaceForDocument ($"file:///{tempFile.Replace('\\', '/')}")
+    let tempFile =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), "temp_script.fsx")
+
+    let resTemp =
+        Prologue.resolveWorkspaceForDocument ($"file:///{tempFile.Replace('\\', '/')}")
+
     Assert.True(resTemp.IsSome || resTemp.IsNone)
 
     // Plain custom scheme

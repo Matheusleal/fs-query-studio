@@ -215,11 +215,15 @@ let ``RestDescriptor and RestConnectorFactory coverage`` () =
 
 type private ThrowingHttpMessageHandler() =
     inherit System.Net.Http.HttpMessageHandler()
+
     override _.SendAsync(_, _) =
-        Task.FromException<System.Net.Http.HttpResponseMessage>(System.Net.Http.HttpRequestException("Simulated network failure"))
+        Task.FromException<System.Net.Http.HttpResponseMessage>(
+            System.Net.Http.HttpRequestException("Simulated network failure")
+        )
 
 type private StatusCodeHttpMessageHandler(code: HttpStatusCode) =
     inherit System.Net.Http.HttpMessageHandler()
+
     override _.SendAsync(_, _) =
         let response = new System.Net.Http.HttpResponseMessage(code)
         Task.FromResult response
@@ -228,6 +232,7 @@ type private RecordingHttpMessageHandler(body: string) =
     inherit System.Net.Http.HttpMessageHandler()
     let mutable lastUri: Uri option = None
     member _.LastUri = lastUri
+
     override _.SendAsync(req, _) =
         lastUri <- Some req.RequestUri
         let response = new System.Net.Http.HttpResponseMessage(HttpStatusCode.OK)
@@ -237,7 +242,11 @@ type private RecordingHttpMessageHandler(body: string) =
 [<Fact>]
 let ``RestRequests buildUri merges with existing query params in url scenario 1`` () =
     task {
-        let opt = { RestRequestOptions.Get("http://example.com/api?page=1") with QueryParams = [ ("limit", "20") ] }
+        let opt =
+            { RestRequestOptions.Get("http://example.com/api?page=1") with
+                QueryParams = [ ("limit", "20") ]
+            }
+
         let handler = new RecordingHttpMessageHandler("{}")
         use client = new System.Net.Http.HttpClient(handler)
         let conn = RestConnector(opt, client)
@@ -248,7 +257,11 @@ let ``RestRequests buildUri merges with existing query params in url scenario 1`
 [<Fact>]
 let ``RestRequests buildUri merges with existing query params in url scenario 2`` () =
     task {
-        let opt = { RestRequestOptions.Get("http://example.com/api?a=1&b=2") with QueryParams = [ ("c", "3"); ("d", "4") ] }
+        let opt =
+            { RestRequestOptions.Get("http://example.com/api?a=1&b=2") with
+                QueryParams = [ ("c", "3"); ("d", "4") ]
+            }
+
         let handler = new RecordingHttpMessageHandler("{}")
         use client = new System.Net.Http.HttpClient(handler)
         let conn = RestConnector(opt, client)
@@ -270,8 +283,12 @@ let ``RestConnector SendAsync falls back to sample github json on network error 
 [<Fact>]
 let ``RestConnector SendAsync falls back to sample github json on 500 error scenario 2`` () =
     task {
-        let opt = RestRequestOptions.Get("https://api.github.com/orgs/fsprojects/repos?page=1")
-        use client = new System.Net.Http.HttpClient(new StatusCodeHttpMessageHandler(HttpStatusCode.InternalServerError))
+        let opt =
+            RestRequestOptions.Get("https://api.github.com/orgs/fsprojects/repos?page=1")
+
+        use client =
+            new System.Net.Http.HttpClient(new StatusCodeHttpMessageHandler(HttpStatusCode.InternalServerError))
+
         let conn = RestConnector(opt, client)
         let! json = conn.SendAsync opt CancellationToken.None
         Assert.True(json.ValueKind = System.Text.Json.JsonValueKind.Array)
@@ -299,7 +316,9 @@ let ``RestConnector DiscoverSchemaAsync returns empty list scenario 2`` () =
 
 [<Fact>]
 let ``RestEntityGenerator emits code with JSON properties scenario 1`` () =
-    let json = """[ { "id": 1, "title": "First Item", "price": 49.90, "inStock": true } ]"""
+    let json =
+        """[ { "id": 1, "title": "First Item", "price": 49.90, "inStock": true } ]"""
+
     let handler = new RecordingHttpMessageHandler(json)
     use client = new System.Net.Http.HttpClient(handler)
     let opt = RestRequestOptions.Get("http://example.com/items")
@@ -357,7 +376,9 @@ let ``CustomDescriptorWithGenerator validates configuration and creates factory 
     let gen = RestEntityGenerator() :> IConnectorEntityGenerator
     let custom = CustomDescriptorWithGenerator(baseDesc, gen) :> IConnectorDescriptor
 
-    use doc = System.Text.Json.JsonDocument.Parse("""{"url": "http://example.com/api"}""")
+    use doc =
+        System.Text.Json.JsonDocument.Parse("""{"url": "http://example.com/api"}""")
+
     let valRes = custom.ValidateConfiguration doc.RootElement
     Assert.True(Result.isOk valRes)
     Assert.NotNull(custom.Factory)

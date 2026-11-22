@@ -210,7 +210,9 @@ let ``ExecuteQuery with zero fieldCount immediately disposes and returns empty r
 [<Fact>]
 let ``TestConnectionAsync returns false for invalid connection string scenario 1`` () =
     task {
-        let badConn = SqliteConnector("Data Source=http://invalid-sqlite-path/nonexistent.db;Mode=ReadOnly") :> IConnector
+        let badConn =
+            SqliteConnector("Data Source=http://invalid-sqlite-path/nonexistent.db;Mode=ReadOnly") :> IConnector
+
         let! ok = badConn.TestConnectionAsync(CancellationToken.None)
         Assert.False(ok)
     }
@@ -218,8 +220,12 @@ let ``TestConnectionAsync returns false for invalid connection string scenario 1
 [<Fact>]
 let ``TestConnectionAsync returns false for invalid directory file scenario 2`` () =
     task {
-        let invalidPath = Path.Combine(Path.GetTempPath(), $"fqs-bad-sqlite-{Guid.NewGuid():N}", "nested", "file.db")
-        let badConn = SqliteConnector($"Data Source={invalidPath};Mode=ReadOnly") :> IConnector
+        let invalidPath =
+            Path.Combine(Path.GetTempPath(), $"fqs-bad-sqlite-{Guid.NewGuid():N}", "nested", "file.db")
+
+        let badConn =
+            SqliteConnector($"Data Source={invalidPath};Mode=ReadOnly") :> IConnector
+
         let! ok = badConn.TestConnectionAsync(CancellationToken.None)
         Assert.False(ok)
     }
@@ -227,8 +233,9 @@ let ``TestConnectionAsync returns false for invalid directory file scenario 2`` 
 [<Fact>]
 let ``StagedEngineDatabasePathResolver property get and set scenario 1`` () =
     let prev = SqliteConnector.StagedEngineDatabasePathResolver
+
     try
-        let dummyResolver = Some (fun () -> Some "custom_staged.db")
+        let dummyResolver = Some(fun () -> Some "custom_staged.db")
         SqliteConnector.StagedEngineDatabasePathResolver <- dummyResolver
         Assert.True(SqliteConnector.StagedEngineDatabasePathResolver.IsSome)
     finally
@@ -237,6 +244,7 @@ let ``StagedEngineDatabasePathResolver property get and set scenario 1`` () =
 [<Fact>]
 let ``StagedEngineDatabasePathResolver property reset to None scenario 2`` () =
     let prev = SqliteConnector.StagedEngineDatabasePathResolver
+
     try
         SqliteConnector.StagedEngineDatabasePathResolver <- None
         Assert.True(SqliteConnector.StagedEngineDatabasePathResolver.IsNone)
@@ -247,13 +255,17 @@ let ``StagedEngineDatabasePathResolver property reset to None scenario 2`` () =
 let ``ExecuteQuery throws and disposes on invalid SQL syntax scenario 1`` () =
     use file = new TempSqliteFile()
     let connector = SqliteConnector(file.Path)
-    Assert.ThrowsAny<Exception>(fun () -> connector.ExecuteQuery "SELECT FROM INVALID SYNTAX" [] |> ignore) |> ignore
+
+    Assert.ThrowsAny<Exception>(fun () -> connector.ExecuteQuery "SELECT FROM INVALID SYNTAX" [] |> ignore)
+    |> ignore
 
 [<Fact>]
 let ``ExecuteQuery throws and disposes on missing table without staging engine scenario 2`` () =
     use file = new TempSqliteFile()
     let connector = SqliteConnector(file.Path)
-    Assert.ThrowsAny<Exception>(fun () -> connector.ExecuteQuery "SELECT * FROM NoSuchTableXYZ" [] |> ignore) |> ignore
+
+    Assert.ThrowsAny<Exception>(fun () -> connector.ExecuteQuery "SELECT * FROM NoSuchTableXYZ" [] |> ignore)
+    |> ignore
 
 [<Fact>]
 let ``ConnectorCategory Sql property returns expected id and display name scenario 1`` () =
@@ -270,8 +282,9 @@ let ``ConnectorCategory Sql property matches constant definition scenario 2`` ()
 let ``SqliteConnector tryEnsureAndAttachStagedEngine when same database path scenario 1`` () =
     use file = new TempSqliteFile()
     let prev = SqliteConnector.StagedEngineDatabasePathResolver
+
     try
-        SqliteConnector.StagedEngineDatabasePathResolver <- Some (fun () -> Some file.Path)
+        SqliteConnector.StagedEngineDatabasePathResolver <- Some(fun () -> Some file.Path)
         let connector = SqliteConnector(file.Path)
         let result = connector.ExecuteQuery "SELECT 42 AS Answer" []
         let rows = result.Rows |> Seq.toArray
@@ -284,15 +297,16 @@ let ``SqliteConnector tryEnsureAndAttachStagedEngine when same database path sce
 let ``SqliteConnector tryEnsureAndAttachStagedEngine when resolver returns None or invalid path scenario 2`` () =
     use file = new TempSqliteFile()
     let prev = SqliteConnector.StagedEngineDatabasePathResolver
+
     try
         // Resolver returns None inside closure
-        SqliteConnector.StagedEngineDatabasePathResolver <- Some (fun () -> None)
+        SqliteConnector.StagedEngineDatabasePathResolver <- Some(fun () -> None)
         let connector = SqliteConnector(file.Path)
         let result1 = connector.ExecuteQuery "SELECT 1 AS One" []
         Assert.Single(result1.Rows |> Seq.toArray) |> ignore
 
         // Resolver returns invalid path
-        SqliteConnector.StagedEngineDatabasePathResolver <- Some (fun () -> Some "invalid_db_path::???")
+        SqliteConnector.StagedEngineDatabasePathResolver <- Some(fun () -> Some "invalid_db_path::???")
         let result2 = connector.ExecuteQuery "SELECT 2 AS Two" []
         Assert.Single(result2.Rows |> Seq.toArray) |> ignore
     finally
@@ -315,6 +329,7 @@ let ``SqliteConnector Dialect property can quote identifiers scenario 2`` () =
 let ``SqliteConnector ExecuteReaderStreamWithColumns throws and disposes on invalid SQL scenario 1`` () =
     use file = new TempSqliteFile()
     let connector = SqliteConnector(file.Path) :> IStreamingQueryableConnector
+
     Assert.ThrowsAny<Exception>(fun () ->
         connector.ExecuteReaderStreamWithColumns "SELECT FROM INVALID" [] (fun _ r -> r.GetInt32(0))
         |> Seq.toArray
@@ -325,6 +340,7 @@ let ``SqliteConnector ExecuteReaderStreamWithColumns throws and disposes on inva
 let ``SqliteConnector ExecuteReaderStream throws on missing table without staging scenario 2`` () =
     use file = new TempSqliteFile()
     let connector = SqliteConnector(file.Path) :> IStreamingQueryableConnector
+
     Assert.ThrowsAny<Exception>(fun () ->
         connector.ExecuteReaderStream "SELECT * FROM MissingTableXYZ" [] (fun r -> r.GetInt32(0))
         |> Seq.toArray
@@ -332,12 +348,17 @@ let ``SqliteConnector ExecuteReaderStream throws on missing table without stagin
     |> ignore
 
 [<Fact>]
-let ``SqliteConnector attaches staged engine dynamically on no such table and re-enumerates successfully scenario 1`` () =
-    let mainPath = Path.Combine(Path.GetTempPath(), $"fqs-main-stage-{Guid.NewGuid():N}.db")
+let ``SqliteConnector attaches staged engine dynamically on no such table and re-enumerates successfully scenario 1``
+    ()
+    =
+    let mainPath =
+        Path.Combine(Path.GetTempPath(), $"fqs-main-stage-{Guid.NewGuid():N}.db")
+
     use stagedFile = new TempSqliteFile()
     let prev = SqliteConnector.StagedEngineDatabasePathResolver
+
     try
-        SqliteConnector.StagedEngineDatabasePathResolver <- Some (fun () -> Some stagedFile.Path)
+        SqliteConnector.StagedEngineDatabasePathResolver <- Some(fun () -> Some stagedFile.Path)
         let connector = SqliteConnector(mainPath)
         // Table Orders is inside stagedFile, query triggers attach and retry
         let qr = connector.ExecuteQuery "SELECT Id, CustomerId FROM _fqs_staged.Orders" []
@@ -350,24 +371,39 @@ let ``SqliteConnector attaches staged engine dynamically on no such table and re
     finally
         SqliteConnector.StagedEngineDatabasePathResolver <- prev
         SqliteConnection.ClearAllPools()
-        if File.Exists mainPath then try File.Delete mainPath with _ -> ()
+
+        if File.Exists mainPath then
+            try
+                File.Delete mainPath
+            with _ ->
+                ()
 
 [<Fact>]
 let ``SqliteConnector attaches staged engine dynamically in ExecuteReaderStreamWithColumns scenario 2`` () =
-    let mainPath = Path.Combine(Path.GetTempPath(), $"fqs-main-stream-{Guid.NewGuid():N}.db")
+    let mainPath =
+        Path.Combine(Path.GetTempPath(), $"fqs-main-stream-{Guid.NewGuid():N}.db")
+
     use stagedFile = new TempSqliteFile()
     let prev = SqliteConnector.StagedEngineDatabasePathResolver
+
     try
-        SqliteConnector.StagedEngineDatabasePathResolver <- Some (fun () -> Some stagedFile.Path)
+        SqliteConnector.StagedEngineDatabasePathResolver <- Some(fun () -> Some stagedFile.Path)
         let connector = SqliteConnector(mainPath) :> IStreamingQueryableConnector
+
         let ids =
             connector.ExecuteReaderStreamWithColumns "SELECT Id FROM _fqs_staged.Orders" [] (fun _ r -> r.GetInt64(0))
             |> Seq.toArray
+
         Assert.Equal(2, ids.Length)
     finally
         SqliteConnector.StagedEngineDatabasePathResolver <- prev
         SqliteConnection.ClearAllPools()
-        if File.Exists mainPath then try File.Delete mainPath with _ -> ()
+
+        if File.Exists mainPath then
+            try
+                File.Delete mainPath
+            with _ ->
+                ()
 
 [<Fact>]
 let ``SqliteConnector TestConnectionAsync returns false on canceled token scenario 1`` () =
@@ -408,12 +444,14 @@ let ``SqliteConnector ExecuteQuery handles DDL statement with 0 columns scenario
 [<Fact>]
 let ``SqliteConnector tryEnsureAndAttachStagedEngine handles illegal characters in path scenario 1`` () =
     let prev = SqliteConnector.StagedEngineDatabasePathResolver
+
     try
         let invalidPath = "invalid:\0path.db"
-        SqliteConnector.StagedEngineDatabasePathResolver <- Some (fun () -> Some invalidPath)
+        SqliteConnector.StagedEngineDatabasePathResolver <- Some(fun () -> Some invalidPath)
         let connector = SqliteConnector(invalidPath)
-        Assert.ThrowsAny<Exception>(fun () ->
-            connector.ExecuteQuery "SELECT * FROM MissingTable" [] |> ignore) |> ignore
+
+        Assert.ThrowsAny<Exception>(fun () -> connector.ExecuteQuery "SELECT * FROM MissingTable" [] |> ignore)
+        |> ignore
     finally
         SqliteConnector.StagedEngineDatabasePathResolver <- prev
 
@@ -423,31 +461,50 @@ let ``SqliteConnector tryEnsureAndAttachStagedEngine handles non-database file a
     File.WriteAllText(txtFile, "Not a SQLite file")
     use file = new TempSqliteFile()
     let prev = SqliteConnector.StagedEngineDatabasePathResolver
+
     try
-        SqliteConnector.StagedEngineDatabasePathResolver <- Some (fun () -> Some txtFile)
+        SqliteConnector.StagedEngineDatabasePathResolver <- Some(fun () -> Some txtFile)
         let connector = SqliteConnector(file.Path)
+
         Assert.ThrowsAny<Exception>(fun () ->
-            connector.ExecuteQuery "SELECT * FROM _fqs_staged.MissingTable" [] |> ignore) |> ignore
+            connector.ExecuteQuery "SELECT * FROM _fqs_staged.MissingTable" [] |> ignore)
+        |> ignore
     finally
         SqliteConnector.StagedEngineDatabasePathResolver <- prev
-        if File.Exists txtFile then try File.Delete txtFile with _ -> ()
+
+        if File.Exists txtFile then
+            try
+                File.Delete txtFile
+            with _ ->
+                ()
 
 [<Fact>]
 let ``SqliteConnector ExecuteReaderStreamWithColumns throws when staging fails scenario 1`` () =
-    let txtFile = Path.Combine(Path.GetTempPath(), $"non-db-stream-{Guid.NewGuid():N}.txt")
+    let txtFile =
+        Path.Combine(Path.GetTempPath(), $"non-db-stream-{Guid.NewGuid():N}.txt")
+
     File.WriteAllText(txtFile, "Not a SQLite file")
     use file = new TempSqliteFile()
     let prev = SqliteConnector.StagedEngineDatabasePathResolver
+
     try
-        SqliteConnector.StagedEngineDatabasePathResolver <- Some (fun () -> Some txtFile)
+        SqliteConnector.StagedEngineDatabasePathResolver <- Some(fun () -> Some txtFile)
         let connector = SqliteConnector(file.Path) :> IStreamingQueryableConnector
+
         Assert.ThrowsAny<Exception>(fun () ->
-            connector.ExecuteReaderStreamWithColumns "SELECT * FROM _fqs_staged.MissingTable" [] (fun _ r -> r.GetInt32(0))
+            connector.ExecuteReaderStreamWithColumns "SELECT * FROM _fqs_staged.MissingTable" [] (fun _ r ->
+                r.GetInt32(0))
             |> Seq.toArray
-            |> ignore) |> ignore
+            |> ignore)
+        |> ignore
     finally
         SqliteConnector.StagedEngineDatabasePathResolver <- prev
-        if File.Exists txtFile then try File.Delete txtFile with _ -> ()
+
+        if File.Exists txtFile then
+            try
+                File.Delete txtFile
+            with _ ->
+                ()
 
 [<Fact>]
 let ``SqliteConnector extension ConnectorCategory Sql returns expected properties scenario 1`` () =
@@ -469,34 +526,44 @@ let ``SqliteConnector re-enumeration with temp table triggers second-enumeration
     Assert.Equal(2, rows1.Length)
     // Overwrite the file with a fresh empty sqlite db without Orders table
     SqliteConnection.ClearAllPools()
-    use emptyConn = new SqliteConnection(SqliteConnectionStringBuilder(DataSource = file.Path).ToString())
+
+    use emptyConn =
+        new SqliteConnection(SqliteConnectionStringBuilder(DataSource = file.Path).ToString())
+
     emptyConn.Open()
     use cmd = emptyConn.CreateCommand()
     cmd.CommandText <- "DROP TABLE Orders;"
     cmd.ExecuteNonQuery() |> ignore
     SqliteConnection.ClearAllPools()
     // Second enumeration attempts to query Orders which was dropped
-    Assert.ThrowsAny<Exception>(fun () -> qr.Rows |> Seq.toArray |> ignore) |> ignore
+    Assert.ThrowsAny<Exception>(fun () -> qr.Rows |> Seq.toArray |> ignore)
+    |> ignore
 
 [<Fact>]
 let ``SqliteConnector re-enumeration with missing table when staging returns false scenario 2`` () =
     use file = new TempSqliteFile()
     let prev = SqliteConnector.StagedEngineDatabasePathResolver
+
     try
-        SqliteConnector.StagedEngineDatabasePathResolver <- Some (fun () -> None)
+        SqliteConnector.StagedEngineDatabasePathResolver <- Some(fun () -> None)
         let connector = SqliteConnector(file.Path)
         let qr = connector.ExecuteQuery "SELECT Id, CustomerId FROM Orders" []
         let rows1 = qr.Rows |> Seq.toArray
         Assert.Equal(2, rows1.Length)
         // Drop Orders table
         SqliteConnection.ClearAllPools()
-        use emptyConn = new SqliteConnection(SqliteConnectionStringBuilder(DataSource = file.Path).ToString())
+
+        use emptyConn =
+            new SqliteConnection(SqliteConnectionStringBuilder(DataSource = file.Path).ToString())
+
         emptyConn.Open()
         use cmd = emptyConn.CreateCommand()
         cmd.CommandText <- "DROP TABLE Orders;"
         cmd.ExecuteNonQuery() |> ignore
         SqliteConnection.ClearAllPools()
-        Assert.ThrowsAny<Exception>(fun () -> qr.Rows |> Seq.toArray |> ignore) |> ignore
+
+        Assert.ThrowsAny<Exception>(fun () -> qr.Rows |> Seq.toArray |> ignore)
+        |> ignore
     finally
         SqliteConnector.StagedEngineDatabasePathResolver <- prev
 

@@ -801,8 +801,18 @@ let ``registerSourceCode handles whitespace, empty, and invalid blocks safely sc
 
 [<Fact>]
 let ``sanitizeCell handles float option with NaN and Infinity scenario 1`` () =
-    let r1 = { Id = 1; Value = Some System.Double.NaN }
-    let r2 = { Id = 2; Value = Some System.Double.PositiveInfinity }
+    let r1 =
+        {
+            Id = 1
+            Value = Some System.Double.NaN
+        }
+
+    let r2 =
+        {
+            Id = 2
+            Value = Some System.Double.PositiveInfinity
+        }
+
     let env = envOf (box [ r1; r2 ])
     Assert.Equal(ResultKind.Table, env.Kind)
     Assert.Null(env.Rows.[0].[1])

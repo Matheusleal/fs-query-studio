@@ -22,21 +22,24 @@ type ExtraProduct =
     }
 
 type StaticCteHolder =
-    static member SampleSpq : IQueryable<ExtraProduct> =
+    static member SampleSpq: IQueryable<ExtraProduct> =
         let conn = SqliteConnector("Data Source=:memory:")
         let spq = SqlPushdownQueryable<ExtraProduct>(conn, "Products")
-        spq.Plan.Ctes.Add({
-            Name = "static_cte"
-            SubquerySql = "SELECT 1"
-            IsRecursive = false
-            SourceQuery = None
-        })
+
+        spq.Plan.Ctes.Add(
+            {
+                Name = "static_cte"
+                SubquerySql = "SELECT 1"
+                IsRecursive = false
+                SourceQuery = None
+            }
+        )
+
         spq :> IQueryable<ExtraProduct>
 
-    static member InMemIq : IQueryable<int> =
-        ([ 1; 2 ] : int list).AsQueryable()
+    static member InMemIq: IQueryable<int> = ([ 1; 2 ]: int list).AsQueryable()
 
-    static member ThrowingIq : IQueryable<int> =
+    static member ThrowingIq: IQueryable<int> =
         raise (InvalidOperationException("Forced throwing queryable for test"))
 
 type SpqFieldClass =
@@ -47,10 +50,7 @@ type AnyFieldClass =
     val mutable public AnyField: obj
     new() = { AnyField = null }
 
-type SpqPropHolder =
-    {
-        SpqProp: IQueryable<ExtraProduct>
-    }
+type SpqPropHolder = { SpqProp: IQueryable<ExtraProduct> }
 
 module ExpressionPushdownExtraCoverageTests =
 
@@ -73,12 +73,17 @@ module ExpressionPushdownExtraCoverageTests =
     [<Fact>]
     let ``hasAnyParameter with BlockExpression scenario 1`` () =
         let p = Expression.Parameter(typeof<int>, "x")
-        let blockWithParam = Expression.Block([| p :> Expression; Expression.Add(p, Expression.Constant(1)) :> Expression |])
+
+        let blockWithParam =
+            Expression.Block([| p :> Expression; Expression.Add(p, Expression.Constant(1)) :> Expression |])
+
         Assert.True(ExpressionPushdownTranslator.hasAnyParameter blockWithParam)
 
     [<Fact>]
     let ``hasAnyParameter with BlockExpression scenario 2`` () =
-        let blockWithoutParam = Expression.Block([| Expression.Constant(42) :> Expression |])
+        let blockWithoutParam =
+            Expression.Block([| Expression.Constant(42) :> Expression |])
+
         Assert.False(ExpressionPushdownTranslator.hasAnyParameter blockWithoutParam)
 
     [<Fact>]
@@ -91,13 +96,19 @@ module ExpressionPushdownExtraCoverageTests =
     [<Fact>]
     let ``hasAnyParameter with NewExpression scenario 2`` () =
         let ctor = typeof<Tuple<int>>.GetConstructor([| typeof<int> |])
-        let newWithoutParam = Expression.New(ctor, [| Expression.Constant(10) :> Expression |])
+
+        let newWithoutParam =
+            Expression.New(ctor, [| Expression.Constant(10) :> Expression |])
+
         Assert.False(ExpressionPushdownTranslator.hasAnyParameter newWithoutParam)
 
     [<Fact>]
     let ``hasAnyParameter with InvocationExpression scenario 1`` () =
         let p = Expression.Parameter(typeof<int>, "i")
-        let lambda = Expression.Lambda<Func<int, int>>(Expression.Add(p, Expression.Constant(1)), p)
+
+        let lambda =
+            Expression.Lambda<Func<int, int>>(Expression.Add(p, Expression.Constant(1)), p)
+
         let invWithParam = Expression.Invoke(lambda, p)
         Assert.True(ExpressionPushdownTranslator.hasAnyParameter invWithParam)
 
@@ -111,19 +122,31 @@ module ExpressionPushdownExtraCoverageTests =
     [<Fact>]
     let ``hasAnyParameter with ConditionalExpression scenario 1`` () =
         let p = Expression.Parameter(typeof<bool>, "flag")
-        let condWithParam = Expression.Condition(p, Expression.Constant(1), Expression.Constant(2))
+
+        let condWithParam =
+            Expression.Condition(p, Expression.Constant(1), Expression.Constant(2))
+
         Assert.True(ExpressionPushdownTranslator.hasAnyParameter condWithParam)
 
     [<Fact>]
     let ``hasAnyParameter with ConditionalExpression scenario 2`` () =
-        let condWithoutParam = Expression.Condition(Expression.Constant(true), Expression.Constant(1), Expression.Constant(2))
+        let condWithoutParam =
+            Expression.Condition(Expression.Constant(true), Expression.Constant(1), Expression.Constant(2))
+
         Assert.False(ExpressionPushdownTranslator.hasAnyParameter condWithoutParam)
 
     [<Fact>]
     let ``dependsOnParameter with ConditionalExpression and BlockExpression scenario 1`` () =
         let p = Expression.Parameter(typeof<int>, "target")
         let other = Expression.Parameter(typeof<int>, "other")
-        let cond = Expression.Condition(Expression.Equal(p, Expression.Constant(1)), Expression.Constant(10), Expression.Constant(20))
+
+        let cond =
+            Expression.Condition(
+                Expression.Equal(p, Expression.Constant(1)),
+                Expression.Constant(10),
+                Expression.Constant(20)
+            )
+
         Assert.True(ExpressionPushdownTranslator.dependsOnParameter p cond)
         Assert.False(ExpressionPushdownTranslator.dependsOnParameter other cond)
 
@@ -131,7 +154,15 @@ module ExpressionPushdownExtraCoverageTests =
     let ``dependsOnParameter with ConditionalExpression and BlockExpression scenario 2`` () =
         let p = Expression.Parameter(typeof<string>, "name")
         let other = Expression.Parameter(typeof<string>, "other")
-        let block = Expression.Block([| Expression.Constant("start") :> Expression; Expression.Equal(p, Expression.Constant("test")) :> Expression |])
+
+        let block =
+            Expression.Block(
+                [|
+                    Expression.Constant("start") :> Expression
+                    Expression.Equal(p, Expression.Constant("test")) :> Expression
+                |]
+            )
+
         Assert.True(ExpressionPushdownTranslator.dependsOnParameter p block)
         Assert.False(ExpressionPushdownTranslator.dependsOnParameter other block)
 
@@ -173,13 +204,17 @@ module ExpressionPushdownExtraCoverageTests =
         let test = Expression.Equal(Expression.Property(p, "Id"), Expression.Constant(10))
 
         // if test then true else false -> test
-        let cond1 = Expression.Condition(test, Expression.Constant(true), Expression.Constant(false))
+        let cond1 =
+            Expression.Condition(test, Expression.Constant(true), Expression.Constant(false))
+
         let res1 = ExpressionPushdownTranslator.translatePredicate p plan dialect cond1
         Assert.True(Option.isSome res1)
         Assert.Contains("Id = @p0", Option.get res1)
 
         // if test then false else true -> NOT (test)
-        let cond2 = Expression.Condition(test, Expression.Constant(false), Expression.Constant(true))
+        let cond2 =
+            Expression.Condition(test, Expression.Constant(false), Expression.Constant(true))
+
         let res2 = ExpressionPushdownTranslator.translatePredicate p plan dialect cond2
         Assert.True(Option.isSome res2)
         Assert.Contains("NOT (Id = @p1)", Option.get res2)
@@ -189,7 +224,9 @@ module ExpressionPushdownExtraCoverageTests =
         let p = Expression.Parameter(typeof<ExtraProduct>, "p")
         let plan = PushdownQueryPlan.Create("Products", [])
         let test = Expression.Equal(Expression.Property(p, "Id"), Expression.Constant(10))
-        let pred = Expression.Equal(Expression.Property(p, "Price"), Expression.Constant(50.0m))
+
+        let pred =
+            Expression.Equal(Expression.Property(p, "Price"), Expression.Constant(50.0m))
 
         // if test then pred else false -> (test AND pred)
         let condAnd = Expression.Condition(test, pred, Expression.Constant(false))
@@ -205,13 +242,19 @@ module ExpressionPushdownExtraCoverageTests =
 
         // if test then false else pred -> (NOT (test) AND pred)
         let condNotAnd = Expression.Condition(test, Expression.Constant(false), pred)
-        let resNotAnd = ExpressionPushdownTranslator.translatePredicate p plan dialect condNotAnd
+
+        let resNotAnd =
+            ExpressionPushdownTranslator.translatePredicate p plan dialect condNotAnd
+
         Assert.True(Option.isSome resNotAnd)
         Assert.Contains("NOT", Option.get resNotAnd)
 
         // if test then pred else true -> (NOT (test) OR pred)
         let condNotOr = Expression.Condition(test, pred, Expression.Constant(true))
-        let resNotOr = ExpressionPushdownTranslator.translatePredicate p plan dialect condNotOr
+
+        let resNotOr =
+            ExpressionPushdownTranslator.translatePredicate p plan dialect condNotOr
+
         Assert.True(Option.isSome resNotOr)
         Assert.Contains("OR", Option.get resNotOr)
 
@@ -224,7 +267,9 @@ module ExpressionPushdownExtraCoverageTests =
         let p = Expression.Parameter(typeof<ExtraProduct>, "p")
         let plan = PushdownQueryPlan.Create("Products", [])
         let containsMi = typeof<string>.GetMethod("Contains", [| typeof<string> |])
-        let call = Expression.Call(Expression.Property(p, "Name"), containsMi, Expression.Constant("ABC"))
+
+        let call =
+            Expression.Call(Expression.Property(p, "Name"), containsMi, Expression.Constant("ABC"))
 
         let eqTrue = Expression.Equal(call, Expression.Constant(true))
         let eqFalse = Expression.Equal(call, Expression.Constant(false))
@@ -248,7 +293,9 @@ module ExpressionPushdownExtraCoverageTests =
         let p = Expression.Parameter(typeof<ExtraProduct>, "p")
         let plan = PushdownQueryPlan.Create("Products", [])
         let containsMi = typeof<string>.GetMethod("Contains", [| typeof<string> |])
-        let call = Expression.Call(Expression.Property(p, "Name"), containsMi, Expression.Constant("XYZ"))
+
+        let call =
+            Expression.Call(Expression.Property(p, "Name"), containsMi, Expression.Constant("XYZ"))
 
         let leftEqTrue = Expression.Equal(Expression.Constant(true), call)
         let leftEqFalse = Expression.Equal(Expression.Constant(false), call)
@@ -290,13 +337,19 @@ module ExpressionPushdownExtraCoverageTests =
         let nameProp = Expression.Property(p, "Name")
         let strNullConst = Expression.Constant(null, typeof<string>)
         let nullEq = Expression.Equal(strNullConst, nameProp)
-        let resNullEq = ExpressionPushdownTranslator.translatePredicate p plan dialect nullEq
+
+        let resNullEq =
+            ExpressionPushdownTranslator.translatePredicate p plan dialect nullEq
+
         Assert.True(Option.isSome resNullEq)
         Assert.Contains("IS NULL", Option.get resNullEq)
 
         // null <> col -> col IS NOT NULL
         let nullNe = Expression.NotEqual(strNullConst, nameProp)
-        let resNullNe = ExpressionPushdownTranslator.translatePredicate p plan dialect nullNe
+
+        let resNullNe =
+            ExpressionPushdownTranslator.translatePredicate p plan dialect nullNe
+
         Assert.True(Option.isSome resNullNe)
         Assert.Contains("IS NOT NULL", Option.get resNullNe)
 
@@ -310,7 +363,9 @@ module ExpressionPushdownExtraCoverageTests =
         let noParams = Expression.Equal(callGuid1, callGuid2)
         Assert.True(Option.isNone (ExpressionPushdownTranslator.translatePredicate p plan dialect noParams))
 
-        let notExpr = Expression.Not(Expression.Equal(Expression.Property(p, "Id"), Expression.Constant(5)))
+        let notExpr =
+            Expression.Not(Expression.Equal(Expression.Property(p, "Id"), Expression.Constant(5)))
+
         let notRes = ExpressionPushdownTranslator.translatePredicate p plan dialect notExpr
         Assert.True(Option.isSome notRes)
         Assert.Contains("NOT", Option.get notRes)
@@ -340,12 +395,18 @@ module ExpressionPushdownExtraCoverageTests =
         let isNotNullMi = typeof<CustomPredicates>.GetMethod("IsNotNull")
 
         let callNull = Expression.Call(isNullMi, nameProp)
-        let resNull = ExpressionPushdownTranslator.translatePredicate p plan dialect callNull
+
+        let resNull =
+            ExpressionPushdownTranslator.translatePredicate p plan dialect callNull
+
         Assert.True(Option.isSome resNull)
         Assert.Contains("IS NULL", Option.get resNull)
 
         let callNotNull = Expression.Call(isNotNullMi, nameProp)
-        let resNotNull = ExpressionPushdownTranslator.translatePredicate p plan dialect callNotNull
+
+        let resNotNull =
+            ExpressionPushdownTranslator.translatePredicate p plan dialect callNotNull
+
         Assert.True(Option.isSome resNotNull)
         Assert.Contains("IS NOT NULL", Option.get resNotNull)
 
@@ -357,14 +418,22 @@ module ExpressionPushdownExtraCoverageTests =
 
         let isNotEmptyMi = typeof<CustomPredicates>.GetMethod("isNotEmpty")
         let isNotNullOrEmptyMi = typeof<CustomPredicates>.GetMethod("isNotNullOrEmpty")
-        let isNullOrWhiteSpaceMi = typeof<string>.GetMethod("IsNullOrWhiteSpace", [| typeof<string> |])
+
+        let isNullOrWhiteSpaceMi =
+            typeof<string>.GetMethod("IsNullOrWhiteSpace", [| typeof<string> |])
 
         let callNotEmpty = Expression.Call(isNotEmptyMi, nameProp)
-        let resNotEmpty = ExpressionPushdownTranslator.translatePredicate p plan dialect callNotEmpty
+
+        let resNotEmpty =
+            ExpressionPushdownTranslator.translatePredicate p plan dialect callNotEmpty
+
         Assert.True(Option.isSome resNotEmpty)
 
         let callNotNullOrEmpty = Expression.Call(isNotNullOrEmptyMi, nameProp)
-        let resNotNullOrEmpty = ExpressionPushdownTranslator.translatePredicate p plan dialect callNotNullOrEmpty
+
+        let resNotNullOrEmpty =
+            ExpressionPushdownTranslator.translatePredicate p plan dialect callNotNullOrEmpty
+
         Assert.True(Option.isSome resNotNullOrEmpty)
 
         let callWs = Expression.Call(isNullOrWhiteSpaceMi, nameProp)
@@ -374,13 +443,19 @@ module ExpressionPushdownExtraCoverageTests =
 
         let opEqMi = typeof<CustomPredicates>.GetMethod("op_Equality")
         let callOpEqNull = Expression.Call(opEqMi, nameProp, Expression.Constant(null))
-        let resOpEqNull = ExpressionPushdownTranslator.translatePredicate p plan dialect callOpEqNull
+
+        let resOpEqNull =
+            ExpressionPushdownTranslator.translatePredicate p plan dialect callOpEqNull
+
         Assert.True(Option.isSome resOpEqNull)
         Assert.Contains("IS NULL", Option.get resOpEqNull)
 
         let opNeMi = typeof<CustomPredicates>.GetMethod("op_Inequality")
         let callOpNeNull = Expression.Call(opNeMi, Expression.Constant(null), nameProp)
-        let resOpNeNull = ExpressionPushdownTranslator.translatePredicate p plan dialect callOpNeNull
+
+        let resOpNeNull =
+            ExpressionPushdownTranslator.translatePredicate p plan dialect callOpNeNull
+
         Assert.True(Option.isSome resOpNeNull)
         Assert.Contains("IS NOT NULL", Option.get resOpNeNull)
 
@@ -411,15 +486,25 @@ module ExpressionPushdownExtraCoverageTests =
 
         let toStrMi = typeof<decimal>.GetMethod("ToString", Type.EmptyTypes)
         let callToStr = Expression.Call(priceProp, toStrMi)
-        let resToStr = ExpressionPushdownTranslator.translateScalarExpr dialect plan callToStr
+
+        let resToStr =
+            ExpressionPushdownTranslator.translateScalarExpr dialect plan callToStr
+
         Assert.True(Option.isSome resToStr)
 
         plan.IsDistinct <- true
-        let longCountMi = typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "LongCount" && m.GetParameters().Length = 1)
+
+        let longCountMi =
+            typeof<Queryable>.GetMethods()
+            |> Seq.find (fun m -> m.Name = "LongCount" && m.GetParameters().Length = 1)
+
         let genLongCount = longCountMi.MakeGenericMethod(typeof<ExtraProduct>)
         let dummyIq = Expression.Constant(null, typeof<IQueryable<ExtraProduct>>)
         let callLongCount = Expression.Call(null, genLongCount, dummyIq)
-        let resLongCount = ExpressionPushdownTranslator.translateScalarExpr dialect plan callLongCount
+
+        let resLongCount =
+            ExpressionPushdownTranslator.translateScalarExpr dialect plan callLongCount
+
         Assert.True(Option.isSome resLongCount)
         Assert.Contains("COUNT(DISTINCT *)", Option.get resLongCount)
 
@@ -433,9 +518,12 @@ module ExpressionPushdownExtraCoverageTests =
         let baseProducts = SqlPushdownQueryable<ExtraProduct>(conn, "Products")
         let wrappedProducts = baseProducts.Where(fun p -> p.Id > 0)
 
-        let subq = SqlPushdownQueryable<ExtraProduct>(conn, "Orders", [ ("@customParam", box 99) ])
+        let subq =
+            SqlPushdownQueryable<ExtraProduct>(conn, "Orders", [ ("@customParam", box 99) ])
+
         let res = wrappedProducts.WithCte(subq)
         Assert.NotNull(res)
+
         match box res with
         | :? ISqlPushdownQueryable as spq ->
             Assert.True(spq.Plan.Ctes.Count > 0)
@@ -448,9 +536,12 @@ module ExpressionPushdownExtraCoverageTests =
         let baseProducts = SqlPushdownQueryable<ExtraProduct>(conn, "Products")
         let wrappedProducts = baseProducts.Where(fun p -> p.Price > 10.0m)
 
-        let subq = SqlPushdownQueryable<ExtraProduct>(conn, "Orders", [ ("@customParam2", box 42) ])
+        let subq =
+            SqlPushdownQueryable<ExtraProduct>(conn, "Orders", [ ("@customParam2", box 42) ])
+
         let res = wrappedProducts.WithCte("custom_named_cte", subq)
         Assert.NotNull(res)
+
         match box res with
         | :? ISqlPushdownQueryable as spq ->
             Assert.True(spq.Plan.Ctes |> Seq.exists (fun c -> c.Name = "custom_named_cte"))
@@ -461,102 +552,122 @@ module ExpressionPushdownExtraCoverageTests =
     let ``SqlComputationExtensions Union and UnionAll on wrapped queryable preserves seedPlan ctes scenario 1`` () =
         let conn = SqliteConnector("Data Source=:memory:")
         let baseProducts = SqlPushdownQueryable<ExtraProduct>(conn, "Products")
-        baseProducts.Plan.Ctes.Add({
-            Name = "seed_cte"
-            SubquerySql = "SELECT 1"
-            IsRecursive = false
-            SourceQuery = None
-        })
+
+        baseProducts.Plan.Ctes.Add(
+            {
+                Name = "seed_cte"
+                SubquerySql = "SELECT 1"
+                IsRecursive = false
+                SourceQuery = None
+            }
+        )
+
         let wrapped = baseProducts.Where(fun p -> p.Id > 5)
-        let other = SqlPushdownQueryable<ExtraProduct>(conn, "Products").Where(fun p -> p.Id > 10)
+
+        let other =
+            SqlPushdownQueryable<ExtraProduct>(conn, "Products").Where(fun p -> p.Id > 10)
 
         let unionRes = wrapped.Union(other)
         Assert.NotNull(unionRes)
+
         match box unionRes with
-        | :? ISqlPushdownQueryable as spq ->
-            Assert.True(spq.Plan.Ctes |> Seq.exists (fun c -> c.Name = "seed_cte"))
+        | :? ISqlPushdownQueryable as spq -> Assert.True(spq.Plan.Ctes |> Seq.exists (fun c -> c.Name = "seed_cte"))
         | _ -> ()
 
         let unionAllRes = wrapped.UnionAll(other)
         Assert.NotNull(unionAllRes)
+
         match box unionAllRes with
-        | :? ISqlPushdownQueryable as spq ->
-            Assert.True(spq.Plan.Ctes |> Seq.exists (fun c -> c.Name = "seed_cte"))
+        | :? ISqlPushdownQueryable as spq -> Assert.True(spq.Plan.Ctes |> Seq.exists (fun c -> c.Name = "seed_cte"))
         | _ -> ()
 
     [<Fact>]
     let ``SqlComputationExtensions Intersect and Except on wrapped queryable preserves seedPlan ctes scenario 2`` () =
         let conn = SqliteConnector("Data Source=:memory:")
         let baseProducts = SqlPushdownQueryable<ExtraProduct>(conn, "Products")
-        baseProducts.Plan.Ctes.Add({
-            Name = "seed_cte_2"
-            SubquerySql = "SELECT 2"
-            IsRecursive = false
-            SourceQuery = None
-        })
+
+        baseProducts.Plan.Ctes.Add(
+            {
+                Name = "seed_cte_2"
+                SubquerySql = "SELECT 2"
+                IsRecursive = false
+                SourceQuery = None
+            }
+        )
+
         let wrapped = baseProducts.Where(fun p -> p.Score.HasValue)
-        let other = SqlPushdownQueryable<ExtraProduct>(conn, "Products").Where(fun p -> p.InStock)
+
+        let other =
+            SqlPushdownQueryable<ExtraProduct>(conn, "Products").Where(fun p -> p.InStock)
 
         let intersectRes = wrapped.Intersect(other)
         Assert.NotNull(intersectRes)
+
         match box intersectRes with
-        | :? ISqlPushdownQueryable as spq ->
-            Assert.True(spq.Plan.Ctes |> Seq.exists (fun c -> c.Name = "seed_cte_2"))
+        | :? ISqlPushdownQueryable as spq -> Assert.True(spq.Plan.Ctes |> Seq.exists (fun c -> c.Name = "seed_cte_2"))
         | _ -> ()
 
         let exceptRes = wrapped.Except(other)
         Assert.NotNull(exceptRes)
+
         match box exceptRes with
-        | :? ISqlPushdownQueryable as spq ->
-            Assert.True(spq.Plan.Ctes |> Seq.exists (fun c -> c.Name = "seed_cte_2"))
+        | :? ISqlPushdownQueryable as spq -> Assert.True(spq.Plan.Ctes |> Seq.exists (fun c -> c.Name = "seed_cte_2"))
         | _ -> ()
 
     [<Fact>]
     let ``fsql collectAllCtesFromExpr discovers CTEs from static properties scenario 1`` () =
         let conn = SqliteConnector("Data Source=:memory:")
         let products = SqlPushdownQueryable<ExtraProduct>(conn, "Products")
+
         let q =
             fsql {
                 for p in products do
                     where (StaticCteHolder.SampleSpq.Count() > 0)
                     select p.Id
             }
+
         Assert.NotNull(q)
 
     [<Fact>]
     let ``fsql collectAllCtesFromExpr discovers CTEs from static properties scenario 2`` () =
         let conn = SqliteConnector("Data Source=:memory:")
         let products = SqlPushdownQueryable<ExtraProduct>(conn, "Products")
+
         let q =
             fsql {
                 for p in products do
                     where (StaticCteHolder.SampleSpq.Any())
                     select p.Name
             }
+
         Assert.NotNull(q)
 
     [<Fact>]
     let ``fsql collectAllCtesFromExpr discovers inMem and throwing properties scenario 1`` () =
         let conn = SqliteConnector("Data Source=:memory:")
         let products = SqlPushdownQueryable<ExtraProduct>(conn, "Products")
+
         let q =
             fsql {
                 for p in products do
                     where (StaticCteHolder.InMemIq.Count() > 0)
                     select p.Id
             }
+
         Assert.NotNull(q)
 
     [<Fact>]
     let ``fsql collectAllCtesFromExpr discovers inMem and throwing properties scenario 2`` () =
         let conn = SqliteConnector("Data Source=:memory:")
         let products = SqlPushdownQueryable<ExtraProduct>(conn, "Products")
+
         let q =
             fsql {
                 for p in products do
                     where (StaticCteHolder.ThrowingIq.Count() >= 0)
                     select p.Name
             }
+
         Assert.NotNull(q)
 
     // -------------------------------------------------------------------------
@@ -615,7 +726,7 @@ module ExpressionPushdownExtraCoverageTests =
     let ``unwrapClientOption handles non-option primitives scenario 2`` () =
         let plainInt = 12345
         Assert.Equal(box plainInt, ExpressionPushdownTranslator.unwrapClientOption (box plainInt))
-        let plainObj = obj()
+        let plainObj = obj ()
         Assert.Same(plainObj, ExpressionPushdownTranslator.unwrapClientOption plainObj)
 
     [<Fact>]
@@ -632,7 +743,7 @@ module ExpressionPushdownExtraCoverageTests =
 
     [<Fact>]
     let ``tryFindPushdownSource on constant field holding non-pushdown returns None scenario 2`` () =
-        let inMem = ([ 1; 2 ] : int list).AsQueryable()
+        let inMem = ([ 1; 2 ]: int list).AsQueryable()
         let holder = AnyFieldClass()
         holder.AnyField <- inMem
         let fieldInfo = typeof<AnyFieldClass>.GetField("AnyField")
@@ -646,7 +757,10 @@ module ExpressionPushdownExtraCoverageTests =
         let conn = SqliteConnector("Data Source=:memory:")
         let baseProducts = SqlPushdownQueryable<ExtraProduct>(conn, "Products")
         let spqExpr = Expression.Constant(baseProducts)
-        let nullConst = Expression.Constant(null, typeof<SqlPushdownQueryable<ExtraProduct>>)
+
+        let nullConst =
+            Expression.Constant(null, typeof<SqlPushdownQueryable<ExtraProduct>>)
+
         let dummy = Expression.Constant(10)
         let binLeft = Expression.Add(dummy, dummy)
         let binWithSpqLeft = Expression.Equal(spqExpr, nullConst)
@@ -661,10 +775,17 @@ module ExpressionPushdownExtraCoverageTests =
         let conn = SqliteConnector("Data Source=:memory:")
         let baseProducts = SqlPushdownQueryable<ExtraProduct>(conn, "Products")
         let spqExpr = Expression.Constant(baseProducts)
-        let nullConst = Expression.Constant(null, typeof<SqlPushdownQueryable<ExtraProduct>>)
+
+        let nullConst =
+            Expression.Constant(null, typeof<SqlPushdownQueryable<ExtraProduct>>)
+
         let dummy = Expression.Constant(5)
-        let nestedLeft = Expression.AndAlso(Expression.Equal(spqExpr, nullConst), Expression.Constant(true))
-        let nestedRight = Expression.AndAlso(Expression.Constant(true), Expression.Equal(nullConst, spqExpr))
+
+        let nestedLeft =
+            Expression.AndAlso(Expression.Equal(spqExpr, nullConst), Expression.Constant(true))
+
+        let nestedRight =
+            Expression.AndAlso(Expression.Constant(true), Expression.Equal(nullConst, spqExpr))
 
         Assert.True((ExpressionPushdownTranslator.tryFindPushdownSource nestedLeft).IsSome)
         Assert.True((ExpressionPushdownTranslator.tryFindPushdownSource nestedRight).IsSome)
@@ -673,7 +794,14 @@ module ExpressionPushdownExtraCoverageTests =
     let ``exprHasParamName with Conditional New Invocation MethodCall and null scenario 1`` () =
         let p = Expression.Parameter(typeof<int>, "target")
         let other = Expression.Parameter(typeof<int>, "other")
-        let cond = Expression.Condition(Expression.Equal(p, Expression.Constant(1)), Expression.Constant(10), Expression.Constant(20))
+
+        let cond =
+            Expression.Condition(
+                Expression.Equal(p, Expression.Constant(1)),
+                Expression.Constant(10),
+                Expression.Constant(20)
+            )
+
         Assert.True(ExpressionPushdownTranslator.exprHasParamName "target" cond)
         Assert.False(ExpressionPushdownTranslator.exprHasParamName "other" cond)
         Assert.False(ExpressionPushdownTranslator.exprHasParamName "target" null)
@@ -690,7 +818,13 @@ module ExpressionPushdownExtraCoverageTests =
         let invExpr = Expression.Invoke(lambda, p)
         Assert.True(ExpressionPushdownTranslator.exprHasParamName "paramX" invExpr)
 
-        let mcExpr = Expression.Call(typeof<string>.GetMethod("Concat", [| typeof<obj>; typeof<obj> |]), p, Expression.Constant("!"))
+        let mcExpr =
+            Expression.Call(
+                typeof<string>.GetMethod("Concat", [| typeof<obj>; typeof<obj> |]),
+                p,
+                Expression.Constant("!")
+            )
+
         Assert.True(ExpressionPushdownTranslator.exprHasParamName "paramX" mcExpr)
 
     [<Fact>]
@@ -746,7 +880,11 @@ module ExpressionPushdownExtraCoverageTests =
     let ``tryExtractFromValue with object holding property returning IQueryable scenario 2`` () =
         let conn = SqliteConnector("Data Source=:memory:")
         let baseProducts = SqlPushdownQueryable<ExtraProduct>(conn, "Products")
-        let propHolder = { SpqProp = baseProducts :> IQueryable<ExtraProduct> }
+
+        let propHolder =
+            {
+                SpqProp = baseProducts :> IQueryable<ExtraProduct>
+            }
 
         let result = ExpressionPushdownTranslator.tryExtractFromValue propHolder
         Assert.True(result.IsSome)
@@ -757,7 +895,10 @@ module ExpressionPushdownExtraCoverageTests =
         let p = Expression.Parameter(typeof<ExtraProduct>, "p")
         let boolProp = Expression.Property(p, "InStock")
         let conv = Expression.Convert(boolProp, typeof<bool>)
-        let condOpt = ExpressionPushdownTranslator.translateScalarCondition dialect plan conv
+
+        let condOpt =
+            ExpressionPushdownTranslator.translateScalarCondition dialect plan conv
+
         Assert.True(condOpt.IsSome)
 
     [<Fact>]
@@ -767,12 +908,20 @@ module ExpressionPushdownExtraCoverageTests =
         let scoreProp = Expression.Property(p, "Price")
         let testExpr = Expression.GreaterThan(scoreProp, Expression.Constant(10.0M))
 
-        let condTrueFalse = Expression.Condition(testExpr, Expression.Constant(true), Expression.Constant(false))
-        let res1 = ExpressionPushdownTranslator.translateScalarCondition dialect plan condTrueFalse
+        let condTrueFalse =
+            Expression.Condition(testExpr, Expression.Constant(true), Expression.Constant(false))
+
+        let res1 =
+            ExpressionPushdownTranslator.translateScalarCondition dialect plan condTrueFalse
+
         Assert.True(res1.IsSome)
 
-        let condFalseTrue = Expression.Condition(testExpr, Expression.Constant(false), Expression.Constant(true))
-        let res2 = ExpressionPushdownTranslator.translateScalarCondition dialect plan condFalseTrue
+        let condFalseTrue =
+            Expression.Condition(testExpr, Expression.Constant(false), Expression.Constant(true))
+
+        let res2 =
+            ExpressionPushdownTranslator.translateScalarCondition dialect plan condFalseTrue
+
         Assert.True(res2.IsSome)
 
     [<Fact>]
@@ -788,8 +937,12 @@ module ExpressionPushdownExtraCoverageTests =
                 | null -> None
                 | m -> Some m)
 
-        let isNullCall = Expression.Call(isNotNullMethod.MakeGenericMethod([| typeof<Nullable<decimal>> |]), optProp)
-        let res = ExpressionPushdownTranslator.translateScalarCondition dialect plan isNullCall
+        let isNullCall =
+            Expression.Call(isNotNullMethod.MakeGenericMethod([| typeof<Nullable<decimal>> |]), optProp)
+
+        let res =
+            ExpressionPushdownTranslator.translateScalarCondition dialect plan isNullCall
+
         Assert.True(res.IsSome)
 
     [<Fact>]
@@ -805,8 +958,12 @@ module ExpressionPushdownExtraCoverageTests =
                 | null -> None
                 | m -> Some m)
 
-        let isNotNullCall = Expression.Call(isNotNullMethod.MakeGenericMethod([| typeof<string> |]), nameProp)
-        let res = ExpressionPushdownTranslator.translateScalarCondition dialect plan isNotNullCall
+        let isNotNullCall =
+            Expression.Call(isNotNullMethod.MakeGenericMethod([| typeof<string> |]), nameProp)
+
+        let res =
+            ExpressionPushdownTranslator.translateScalarCondition dialect plan isNotNullCall
+
         Assert.True(res.IsSome)
 
     [<Fact>]
@@ -814,9 +971,17 @@ module ExpressionPushdownExtraCoverageTests =
         let plan = PushdownQueryPlan.Create("Products", [])
         let p = Expression.Parameter(typeof<ExtraProduct>, "p")
         let priceProp = Expression.Property(p, "Price")
-        let toStringFormat = Expression.Call(priceProp, typeof<decimal>.GetMethod("ToString", [| typeof<string> |]), Expression.Constant("F2"))
 
-        let res = ExpressionPushdownTranslator.translateScalarExpr dialect plan toStringFormat
+        let toStringFormat =
+            Expression.Call(
+                priceProp,
+                typeof<decimal>.GetMethod("ToString", [| typeof<string> |]),
+                Expression.Constant("F2")
+            )
+
+        let res =
+            ExpressionPushdownTranslator.translateScalarExpr dialect plan toStringFormat
+
         Assert.True(res.IsSome)
 
     [<Fact>]
@@ -824,7 +989,14 @@ module ExpressionPushdownExtraCoverageTests =
         let plan = PushdownQueryPlan.Create("Products", [])
         let p = Expression.Parameter(typeof<ExtraProduct>, "p")
         let nameProp = Expression.Property(p, "Name")
-        let substr = Expression.Call(nameProp, typeof<string>.GetMethod("Substring", [| typeof<int>; typeof<int> |]), Expression.Constant(0), Expression.Constant(3))
+
+        let substr =
+            Expression.Call(
+                nameProp,
+                typeof<string>.GetMethod("Substring", [| typeof<int>; typeof<int> |]),
+                Expression.Constant(0),
+                Expression.Constant(3)
+            )
 
         let res = ExpressionPushdownTranslator.translateScalarExpr dialect plan substr
         Assert.True(res.IsSome)
@@ -834,7 +1006,13 @@ module ExpressionPushdownExtraCoverageTests =
         let plan = PushdownQueryPlan.Create("Products", [])
         let p = Expression.Parameter(typeof<ExtraProduct>, "p")
         let nameProp = Expression.Property(p, "Name")
-        let indexOf = Expression.Call(nameProp, typeof<string>.GetMethod("IndexOf", [| typeof<string> |]), Expression.Constant("abc"))
+
+        let indexOf =
+            Expression.Call(
+                nameProp,
+                typeof<string>.GetMethod("IndexOf", [| typeof<string> |]),
+                Expression.Constant("abc")
+            )
 
         let res = ExpressionPushdownTranslator.translateScalarExpr dialect plan indexOf
         Assert.True(res.IsSome)
@@ -844,7 +1022,13 @@ module ExpressionPushdownExtraCoverageTests =
         let plan = PushdownQueryPlan.Create("Products", [])
         let p = Expression.Parameter(typeof<ExtraProduct>, "p")
         let nameProp = Expression.Property(p, "Name")
-        let indexOf = Expression.Call(nameProp, typeof<string>.GetMethod("IndexOf", [| typeof<string> |]), Expression.Constant("x"))
+
+        let indexOf =
+            Expression.Call(
+                nameProp,
+                typeof<string>.GetMethod("IndexOf", [| typeof<string> |]),
+                Expression.Constant("x")
+            )
 
         let res = ExpressionPushdownTranslator.translateScalarExpr dialect plan indexOf
         Assert.True(res.IsSome)
@@ -853,15 +1037,25 @@ module ExpressionPushdownExtraCoverageTests =
     let ``mergeExpressionIntoPlan with member expression holding IQueryable with CTEs scenario 1`` () =
         let conn = SqliteConnector("Data Source=:memory:")
         let baseProducts = SqlPushdownQueryable<ExtraProduct>(conn, "Products")
-        baseProducts.Plan.Ctes.Add({
-            Name = "holder_cte"
-            SubquerySql = "SELECT 1"
-            IsRecursive = false
-            SourceQuery = None
-        })
-        let holder = { SpqProp = baseProducts :> IQueryable<ExtraProduct> }
+
+        baseProducts.Plan.Ctes.Add(
+            {
+                Name = "holder_cte"
+                SubquerySql = "SELECT 1"
+                IsRecursive = false
+                SourceQuery = None
+            }
+        )
+
+        let holder =
+            {
+                SpqProp = baseProducts :> IQueryable<ExtraProduct>
+            }
+
         let plan = PushdownQueryPlan.Create("Products", [])
-        let propExpr = Expression.Property(Expression.Constant(holder), typeof<SpqPropHolder>.GetProperty("SpqProp"))
+
+        let propExpr =
+            Expression.Property(Expression.Constant(holder), typeof<SpqPropHolder>.GetProperty("SpqProp"))
 
         ExpressionPushdownTranslator.mergeExpressionIntoPlan propExpr plan dialect
         Assert.True(plan.Ctes |> Seq.exists (fun c -> c.Name = "holder_cte"))
@@ -870,15 +1064,25 @@ module ExpressionPushdownExtraCoverageTests =
     let ``mergeExpressionIntoPlan with member expression holding IQueryable with CTEs scenario 2`` () =
         let conn = SqliteConnector("Data Source=:memory:")
         let baseProducts = SqlPushdownQueryable<ExtraProduct>(conn, "Products")
-        baseProducts.Plan.Ctes.Add({
-            Name = "holder_cte_2"
-            SubquerySql = "SELECT 2"
-            IsRecursive = true
-            SourceQuery = None
-        })
-        let holder = { SpqProp = baseProducts :> IQueryable<ExtraProduct> }
+
+        baseProducts.Plan.Ctes.Add(
+            {
+                Name = "holder_cte_2"
+                SubquerySql = "SELECT 2"
+                IsRecursive = true
+                SourceQuery = None
+            }
+        )
+
+        let holder =
+            {
+                SpqProp = baseProducts :> IQueryable<ExtraProduct>
+            }
+
         let plan = PushdownQueryPlan.Create("Products", [])
-        let propExpr = Expression.Property(Expression.Constant(holder), typeof<SpqPropHolder>.GetProperty("SpqProp"))
+
+        let propExpr =
+            Expression.Property(Expression.Constant(holder), typeof<SpqPropHolder>.GetProperty("SpqProp"))
 
         ExpressionPushdownTranslator.mergeExpressionIntoPlan propExpr plan dialect
         Assert.True(plan.Ctes |> Seq.exists (fun c -> c.Name = "holder_cte_2"))
@@ -886,8 +1090,13 @@ module ExpressionPushdownExtraCoverageTests =
     [<Fact>]
     let ``mergeExpressionIntoPlan terminal aggregate Count with column projection scenario 1`` () =
         let conn = SqliteConnector("Data Source=:memory:")
-        let baseProducts = SqlPushdownQueryable<ExtraProduct>(conn, "Products") :> IQueryable<ExtraProduct>
-        let countExpr = Expression.Call(typeof<Queryable>, "Count", [| typeof<ExtraProduct> |], baseProducts.Expression)
+
+        let baseProducts =
+            SqlPushdownQueryable<ExtraProduct>(conn, "Products") :> IQueryable<ExtraProduct>
+
+        let countExpr =
+            Expression.Call(typeof<Queryable>, "Count", [| typeof<ExtraProduct> |], baseProducts.Expression)
+
         let plan = PushdownQueryPlan.Create("Products", [])
 
         ExpressionPushdownTranslator.mergeExpressionIntoPlan countExpr plan dialect
@@ -896,10 +1105,21 @@ module ExpressionPushdownExtraCoverageTests =
     [<Fact>]
     let ``mergeExpressionIntoPlan terminal aggregate Count with column projection scenario 2`` () =
         let conn = SqliteConnector("Data Source=:memory:")
-        let baseProducts = SqlPushdownQueryable<ExtraProduct>(conn, "Products") :> IQueryable<ExtraProduct>
+
+        let baseProducts =
+            SqlPushdownQueryable<ExtraProduct>(conn, "Products") :> IQueryable<ExtraProduct>
+
         let p = Expression.Parameter(typeof<ExtraProduct>, "p")
-        let predLambda = Expression.Lambda<Func<ExtraProduct, bool>>(Expression.GreaterThan(Expression.Property(p, "Price"), Expression.Constant(0.0M)), p)
-        let countExpr = Expression.Call(typeof<Queryable>, "Count", [| typeof<ExtraProduct> |], baseProducts.Expression, predLambda)
+
+        let predLambda =
+            Expression.Lambda<Func<ExtraProduct, bool>>(
+                Expression.GreaterThan(Expression.Property(p, "Price"), Expression.Constant(0.0M)),
+                p
+            )
+
+        let countExpr =
+            Expression.Call(typeof<Queryable>, "Count", [| typeof<ExtraProduct> |], baseProducts.Expression, predLambda)
+
         let plan = PushdownQueryPlan.Create("Products", [])
 
         ExpressionPushdownTranslator.mergeExpressionIntoPlan countExpr plan dialect

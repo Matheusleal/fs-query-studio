@@ -66,7 +66,10 @@ let ``Request when send task faults sets exception on pending waiter task`` () =
     let channel = HostChannel(fun _ -> Task.FromException(ex))
 
     let task = channel.Request("secret/get", {| reference = "r" |})
-    let aggregateEx = Assert.Throws<System.AggregateException>(fun () -> task.Wait(1000) |> ignore)
+
+    let aggregateEx =
+        Assert.Throws<System.AggregateException>(fun () -> task.Wait(1000) |> ignore)
+
     Assert.Contains("send failed", aggregateEx.InnerException.Message)
 
 [<Fact>]

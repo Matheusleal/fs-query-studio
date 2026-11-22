@@ -262,6 +262,7 @@ let ``loop answers execution/evaluate with a busy error while the slot is reserv
 let ``loop dispatches execution/evaluate in background and replies scenario 1`` () =
     task {
         let channel = HostChannel(fun _ -> Task.CompletedTask)
+
         let evalParams: EvaluateParams =
             {
                 Source = "1 + 1"
@@ -270,6 +271,7 @@ let ``loop dispatches execution/evaluate in background and replies scenario 1`` 
                 DocumentUri = "untitled:eval1.fsx"
                 IsNotebookCell = false
             }
+
         let line =
             System.Text.Json.JsonSerializer.Serialize<WorkerRequestFrame>(
                 {
@@ -279,6 +281,7 @@ let ``loop dispatches execution/evaluate in background and replies scenario 1`` 
                 },
                 Serialization.options
             )
+
         use stdin = new StringReader(line + "\n")
         use stdout = new StringWriter()
         do! Program.loop stdin stdout channel
@@ -291,7 +294,10 @@ let ``loop dispatches execution/evaluate in background and replies scenario 1`` 
 let ``loop handles execution/evaluate with malformed parameters scenario 2`` () =
     task {
         let channel = HostChannel(fun _ -> Task.CompletedTask)
-        let line = """{"id":"eval-malformed","method":"execution/evaluate","params":{"BadProperty":123}}"""
+
+        let line =
+            """{"id":"eval-malformed","method":"execution/evaluate","params":{"BadProperty":123}}"""
+
         use stdin = new StringReader(line + "\n")
         use stdout = new StringWriter()
         do! Program.loop stdin stdout channel
