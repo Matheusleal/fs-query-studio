@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="MySqlDialect.fs" />
     <Compile Include="MySqlConnector.fs" />
     <Compile Include="MySqlDescriptor.fs" />
   </ItemGroup>

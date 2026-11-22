@@ -272,22 +272,9 @@ type PushdownQueryPlan =
                         $"{t} {j.Alias}"
 
                 match j.JoinType.Trim().ToUpperInvariant() with
-                | "CROSS APPLY" ->
-                    match dialect with
-                    | SqlDialect.SqlServer
-                    | SqlDialect.Oracle -> $"CROSS APPLY {tbl}"
-                    | SqlDialect.PostgreSql
-                    | SqlDialect.MySql
-                    | SqlDialect.MariaDb -> $"CROSS JOIN LATERAL {tbl}"
-                    | SqlDialect.Sqlite -> $"CROSS JOIN {tbl}"
+                | "CROSS APPLY" -> dialect.Dialect.FormatApplyJoin(false, tbl)
                 | "OUTER APPLY" ->
-                    match dialect with
-                    | SqlDialect.SqlServer
-                    | SqlDialect.Oracle -> $"OUTER APPLY {tbl}"
-                    | SqlDialect.PostgreSql
-                    | SqlDialect.MySql
-                    | SqlDialect.MariaDb -> $"LEFT JOIN LATERAL {tbl} ON true"
-                    | SqlDialect.Sqlite ->
+                    if dialect = SqlDialect.Sqlite then
                         let onPart =
                             if String.IsNullOrWhiteSpace j.OnClause then
                                 "1=1"
@@ -295,6 +282,8 @@ type PushdownQueryPlan =
                                 j.OnClause
 
                         $"LEFT JOIN {tbl} ON {onPart}"
+                    else
+                        dialect.Dialect.FormatApplyJoin(true, tbl)
                 | "CROSS JOIN" -> $"CROSS JOIN {tbl}"
                 | "FULL OUTER JOIN"
                 | "FULL JOIN" ->
@@ -497,7 +486,7 @@ type PushdownQueryPlan =
                 let hasRecursive = this.Ctes |> Seq.exists (fun c -> c.IsRecursive)
 
                 let withKw =
-                    if hasRecursive && dialect <> SqlDialect.SqlServer && dialect <> SqlDialect.Oracle then
+                    if hasRecursive && dialect.Dialect.SupportsRecursiveCteKeyword then
                         "WITH RECURSIVE "
                     else
                         "WITH "
@@ -506,7 +495,7 @@ type PushdownQueryPlan =
             else
                 withSetOps
 
-        if dialect = SqlDialect.Oracle then
+        if dialect.Dialect.Name = "Oracle" then
             // In Oracle SQL, unquoted identifiers cannot begin with an underscore '_'
             System.Text.RegularExpressions.Regex.Replace(finalSql, @"\b_([a-zA-Z0-9_]+)\b", "$1")
         else

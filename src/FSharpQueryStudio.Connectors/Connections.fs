@@ -1,4 +1,4 @@
-﻿namespace FSharpQueryStudio.Connectors
+namespace FSharpQueryStudio.Connectors
 
 open System
 open System.Globalization
@@ -94,22 +94,7 @@ module Connections =
         | Some r -> r.Resolve name
 
     let internal stageCsvConnection (eng: FileSqliteEngine) (connName: string) (csvConn: CsvConnector) : string =
-        let colTypes =
-            if csvConn.Options.ColumnTypes.IsEmpty then
-                None
-            else
-                Some csvConn.Options.ColumnTypes
-
-        let cleanTableName =
-            eng.EnsureStaged(connName, csvConn.FilePath, (fun () -> csvConn.ReadRows()), ?columnTypes = colTypes)
-
-        let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(csvConn.FilePath)
-
-        if not (String.IsNullOrWhiteSpace fileBaseName) then
-            eng.EnsureAliasView(fileBaseName, cleanTableName)
-            eng.EnsureAliasView($"{connName}_{fileBaseName}", cleanTableName)
-
-        cleanTableName
+        (csvConn :> IStagableConnector).StagePrimaryTable(eng, connName)
 
     let internal stageExcelSheet
         (eng: FileSqliteEngine)
@@ -119,45 +104,11 @@ module Connections =
         (maxRows: int option)
         (isPrimary: bool)
         : string =
-        let compoundKey = $"{connName}_{sheetName}"
-
-        let colTypes =
-            if excelConn.Options.ColumnTypes.IsEmpty then
-                None
-            else
-                Some excelConn.Options.ColumnTypes
-
-        let cleanTableName =
-            eng.EnsureStaged(
-                compoundKey,
-                excelConn.FilePath,
-                (fun () -> excelConn.ReadRows(sheetName = sheetName, ?maxRows = maxRows)),
-                ?columnTypes = colTypes
-            )
-
-        eng.EnsureAliasView(sheetName, cleanTableName)
-
-        if isPrimary then
-            eng.EnsureAliasView(connName, cleanTableName)
-            let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(excelConn.FilePath)
-
-            if not (String.IsNullOrWhiteSpace fileBaseName) then
-                eng.EnsureAliasView(fileBaseName, cleanTableName)
-
-        cleanTableName
+        excelConn.StageSheet(eng, connName, sheetName, maxRows, isPrimary)
 
     let internal stageExcelConnection (eng: FileSqliteEngine) (connName: string) (excelConn: ExcelConnector) : unit =
-        if System.IO.File.Exists excelConn.FilePath then
-            eng.DropStaleTableIfExists(connName, excelConn.FilePath)
-
-            let tables =
-                try
-                    (excelConn :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
-                with _ ->
-                    []
-
-            for i, tbl in List.indexed tables do
-                stageExcelSheet eng connName excelConn tbl.Name None (i = 0) |> ignore
+        (excelConn :> IStagableConnector).StageConnection(eng, connName, 1, 1, None)
+        |> ignore
 
     let internal stageJsonTable
         (eng: FileSqliteEngine)
@@ -167,45 +118,11 @@ module Connections =
         (maxRows: int option)
         (isPrimary: bool)
         : string =
-        let compoundKey = $"{connName}_{tableName}"
-
-        let colTypes =
-            if jsonConn.Options.ColumnTypes.IsEmpty then
-                None
-            else
-                Some jsonConn.Options.ColumnTypes
-
-        let cleanTableName =
-            eng.EnsureStaged(
-                compoundKey,
-                jsonConn.FilePath,
-                (fun () -> jsonConn.ReadRows(tableName = tableName, ?maxRows = maxRows)),
-                ?columnTypes = colTypes
-            )
-
-        eng.EnsureAliasView(tableName, cleanTableName)
-
-        if isPrimary then
-            eng.EnsureAliasView(connName, cleanTableName)
-            let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(jsonConn.FilePath)
-
-            if not (String.IsNullOrWhiteSpace fileBaseName) then
-                eng.EnsureAliasView(fileBaseName, cleanTableName)
-
-        cleanTableName
+        jsonConn.StageTable(eng, connName, tableName, maxRows, isPrimary)
 
     let internal stageJsonConnection (eng: FileSqliteEngine) (connName: string) (jsonConn: JsonConnector) : unit =
-        if System.IO.File.Exists jsonConn.FilePath then
-            eng.DropStaleTableIfExists(connName, jsonConn.FilePath)
-
-            let tables =
-                try
-                    (jsonConn :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
-                with _ ->
-                    []
-
-            for i, tbl in List.indexed tables do
-                stageJsonTable eng connName jsonConn tbl.Name None (i = 0) |> ignore
+        (jsonConn :> IStagableConnector).StageConnection(eng, connName, 1, 1, None)
+        |> ignore
 
     let internal stageXmlTable
         (eng: FileSqliteEngine)
@@ -215,45 +132,11 @@ module Connections =
         (maxRows: int option)
         (isPrimary: bool)
         : string =
-        let compoundKey = $"{connName}_{tableName}"
-
-        let colTypes =
-            if xmlConn.Options.ColumnTypes.IsEmpty then
-                None
-            else
-                Some xmlConn.Options.ColumnTypes
-
-        let cleanTableName =
-            eng.EnsureStaged(
-                compoundKey,
-                xmlConn.FilePath,
-                (fun () -> xmlConn.ReadRows(tableName = tableName, ?maxRows = maxRows)),
-                ?columnTypes = colTypes
-            )
-
-        eng.EnsureAliasView(tableName, cleanTableName)
-
-        if isPrimary then
-            eng.EnsureAliasView(connName, cleanTableName)
-            let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(xmlConn.FilePath)
-
-            if not (String.IsNullOrWhiteSpace fileBaseName) then
-                eng.EnsureAliasView(fileBaseName, cleanTableName)
-
-        cleanTableName
+        xmlConn.StageTable(eng, connName, tableName, maxRows, isPrimary)
 
     let internal stageXmlConnection (eng: FileSqliteEngine) (connName: string) (xmlConn: XmlConnector) : unit =
-        if System.IO.File.Exists xmlConn.FilePath then
-            eng.DropStaleTableIfExists(connName, xmlConn.FilePath)
-
-            let tables =
-                try
-                    (xmlConn :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
-                with _ ->
-                    []
-
-            for i, tbl in List.indexed tables do
-                stageXmlTable eng connName xmlConn tbl.Name None (i = 0) |> ignore
+        (xmlConn :> IStagableConnector).StageConnection(eng, connName, 1, 1, None)
+        |> ignore
 
     let internal ensureWorkspaceFilesStaged () : unit =
         try
@@ -269,27 +152,11 @@ module Connections =
 
                 for connDef in wcp.Connections do
                     try
-                        match connDef.Kind.Id.Trim().ToLowerInvariant() with
-                        | "csv" ->
-                            match r.Resolve connDef.Name with
-                            | :? CsvConnector as cc when System.IO.File.Exists cc.FilePath ->
-                                stageCsvConnection eng connDef.Name cc |> ignore
-                            | _ -> ()
-                        | "xml" ->
-                            match r.Resolve connDef.Name with
-                            | :? XmlConnector as xc when System.IO.File.Exists xc.FilePath ->
-                                stageXmlConnection eng connDef.Name xc
-                            | _ -> ()
-                        | "json" ->
-                            match r.Resolve connDef.Name with
-                            | :? JsonConnector as jc when System.IO.File.Exists jc.FilePath ->
-                                stageJsonConnection eng connDef.Name jc
-                            | _ -> ()
-                        | "excel" ->
-                            match r.Resolve connDef.Name with
-                            | :? ExcelConnector as ec when System.IO.File.Exists ec.FilePath ->
-                                stageExcelConnection eng connDef.Name ec
-                            | _ -> ()
+                        let conn = r.Resolve connDef.Name
+
+                        match ConnectorClassifier.classify conn with
+                        | ConnectorInstance.Stagable sc when System.IO.File.Exists sc.FilePath ->
+                            sc.StageConnection(eng, connDef.Name, 1, 1, None) |> ignore
                         | _ -> ()
                     with ex ->
                         Log.Warning(
@@ -1711,10 +1578,9 @@ module Connections =
                     let conn: IConnector =
                         ConnectorRegistry.Instance.Resolve(connDef, secretStore, Some effectiveBaseDir)
 
-                    match connDef.Kind.Id.Trim().ToLowerInvariant() with
-                    | "csv" ->
-                        let csvConn = conn :?> CsvConnector
-                        let filePath = csvConn.FilePath
+                    match ConnectorClassifier.classify conn with
+                    | ConnectorInstance.Stagable sc ->
+                        let filePath = sc.FilePath
 
                         let fullPath =
                             if System.IO.Path.IsPathRooted filePath then
@@ -1723,308 +1589,9 @@ module Connections =
                                 System.IO.Path.Combine(effectiveBaseDir, filePath)
 
                         if System.IO.File.Exists fullPath then
-                            let cleanTableName =
-                                if eng.IsStagedAndCurrent(connDef.Name, fullPath) then
-                                    skippedCount <- skippedCount + 1
-
-                                    match onProgress with
-                                    | Some cb ->
-                                        cb
-                                            {
-                                                TableName = connDef.Name
-                                                FilePath = fullPath
-                                                Phase = "Skipped"
-                                                RowCount = None
-                                                CurrentIndex = Some currentIdx
-                                                TotalCount = Some total
-                                                ElapsedMs = Some 0L
-                                                Message = Some $"'{connDef.Name}' is up-to-date in cache"
-                                            }
-                                    | None -> ()
-
-                                    let clean = CodeGenerationHelpers.cleanIdentifier connDef.Name
-
-                                    if String.IsNullOrWhiteSpace clean then
-                                        "StagedFile"
-                                    else
-                                        clean
-                                else
-                                    let staged =
-                                        eng.EnsureStaged(
-                                            connDef.Name,
-                                            fullPath,
-                                            (fun () -> csvConn.ReadRows()),
-                                            ?columnTypes =
-                                                (if csvConn.Options.ColumnTypes.IsEmpty then
-                                                     None
-                                                 else
-                                                     Some csvConn.Options.ColumnTypes),
-                                            currentIndex = currentIdx,
-                                            totalCount = total,
-                                            ?onProgress = onProgress
-                                        )
-
-                                    stagedCount <- stagedCount + 1
-                                    staged
-
-                            let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(fullPath)
-
-                            if not (String.IsNullOrWhiteSpace fileBaseName) then
-                                eng.EnsureAliasView(fileBaseName, cleanTableName)
-                                eng.EnsureAliasView($"{connDef.Name}_{fileBaseName}", cleanTableName)
-                    | "excel" ->
-                        let excelConn = conn :?> ExcelConnector
-                        let filePath = excelConn.FilePath
-
-                        let fullPath =
-                            if System.IO.Path.IsPathRooted filePath then
-                                filePath
-                            else
-                                System.IO.Path.Combine(effectiveBaseDir, filePath)
-
-                        if System.IO.File.Exists fullPath then
-                            // Remove any legacy unprefixed table staged under the workbook connection name
-                            eng.DropStaleTableIfExists(connDef.Name, fullPath)
-
-                            let tables =
-                                try
-                                    (excelConn :> IConnector)
-                                        .DiscoverSchemaAsync(CancellationToken.None)
-                                        .GetAwaiter()
-                                        .GetResult()
-                                with ex ->
-                                    Log.Warning(
-                                        "FS Query Studio: Could not discover worksheets for Excel connection '{Name}': {Error}",
-                                        connDef.Name,
-                                        ex.Message
-                                    )
-
-                                    []
-
-                            for tblIdx, tbl in List.indexed tables do
-                                let sheetName = tbl.Name
-                                let compoundKey = $"{connDef.Name}_{sheetName}"
-
-                                let cleanTableName =
-                                    if eng.IsStagedAndCurrent(compoundKey, fullPath) then
-                                        skippedCount <- skippedCount + 1
-
-                                        match onProgress with
-                                        | Some cb ->
-                                            cb
-                                                {
-                                                    TableName = compoundKey
-                                                    FilePath = fullPath
-                                                    Phase = "Skipped"
-                                                    RowCount = None
-                                                    CurrentIndex = Some currentIdx
-                                                    TotalCount = Some total
-                                                    ElapsedMs = Some 0L
-                                                    Message = Some $"'{compoundKey}' is up-to-date in cache"
-                                                }
-                                        | None -> ()
-
-                                        let clean = CodeGenerationHelpers.cleanIdentifier compoundKey
-
-                                        if String.IsNullOrWhiteSpace clean then
-                                            "StagedFile"
-                                        else
-                                            clean
-                                    else
-                                        let staged =
-                                            eng.EnsureStaged(
-                                                compoundKey,
-                                                fullPath,
-                                                (fun () -> excelConn.ReadRows(sheetName = sheetName)),
-                                                ?columnTypes =
-                                                    (if excelConn.Options.ColumnTypes.IsEmpty then
-                                                         None
-                                                     else
-                                                         Some excelConn.Options.ColumnTypes),
-                                                currentIndex = currentIdx,
-                                                totalCount = total,
-                                                ?onProgress = onProgress
-                                            )
-
-                                        stagedCount <- stagedCount + 1
-                                        staged
-
-                                eng.EnsureAliasView(sheetName, cleanTableName)
-
-                                if tblIdx = 0 then
-                                    eng.EnsureAliasView(connDef.Name, cleanTableName)
-                                    let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(fullPath)
-
-                                    if not (String.IsNullOrWhiteSpace fileBaseName) then
-                                        eng.EnsureAliasView(fileBaseName, cleanTableName)
-                    | "json" ->
-                        let jsonConn = conn :?> JsonConnector
-                        let filePath = jsonConn.FilePath
-
-                        let fullPath =
-                            if System.IO.Path.IsPathRooted filePath then
-                                filePath
-                            else
-                                System.IO.Path.Combine(effectiveBaseDir, filePath)
-
-                        if System.IO.File.Exists fullPath then
-                            eng.DropStaleTableIfExists(connDef.Name, fullPath)
-
-                            let tables =
-                                try
-                                    (jsonConn :> IConnector)
-                                        .DiscoverSchemaAsync(CancellationToken.None)
-                                        .GetAwaiter()
-                                        .GetResult()
-                                with ex ->
-                                    Log.Warning(
-                                        "FS Query Studio: Could not discover tables for JSON connection '{Name}': {Error}",
-                                        connDef.Name,
-                                        ex.Message
-                                    )
-
-                                    []
-
-                            for tblIdx, tbl in List.indexed tables do
-                                let tableName = tbl.Name
-                                let compoundKey = $"{connDef.Name}_{tableName}"
-
-                                let cleanTableName =
-                                    if eng.IsStagedAndCurrent(compoundKey, fullPath) then
-                                        skippedCount <- skippedCount + 1
-
-                                        match onProgress with
-                                        | Some cb ->
-                                            cb
-                                                {
-                                                    TableName = compoundKey
-                                                    FilePath = fullPath
-                                                    Phase = "Skipped"
-                                                    RowCount = None
-                                                    CurrentIndex = Some currentIdx
-                                                    TotalCount = Some total
-                                                    ElapsedMs = Some 0L
-                                                    Message = Some $"'{compoundKey}' is up-to-date in cache"
-                                                }
-                                        | None -> ()
-
-                                        let clean = CodeGenerationHelpers.cleanIdentifier compoundKey
-
-                                        if String.IsNullOrWhiteSpace clean then
-                                            "StagedFile"
-                                        else
-                                            clean
-                                    else
-                                        let staged =
-                                            eng.EnsureStaged(
-                                                compoundKey,
-                                                fullPath,
-                                                (fun () -> jsonConn.ReadRows(tableName = tableName)),
-                                                ?columnTypes =
-                                                    (if jsonConn.Options.ColumnTypes.IsEmpty then
-                                                         None
-                                                     else
-                                                         Some jsonConn.Options.ColumnTypes),
-                                                currentIndex = currentIdx,
-                                                totalCount = total,
-                                                ?onProgress = onProgress
-                                            )
-
-                                        stagedCount <- stagedCount + 1
-                                        staged
-
-                                eng.EnsureAliasView(tableName, cleanTableName)
-
-                                if tblIdx = 0 then
-                                    eng.EnsureAliasView(connDef.Name, cleanTableName)
-                                    let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(fullPath)
-
-                                    if not (String.IsNullOrWhiteSpace fileBaseName) then
-                                        eng.EnsureAliasView(fileBaseName, cleanTableName)
-                    | "xml" ->
-                        let xmlConn = conn :?> XmlConnector
-                        let filePath = xmlConn.FilePath
-
-                        let fullPath =
-                            if System.IO.Path.IsPathRooted filePath then
-                                filePath
-                            else
-                                System.IO.Path.Combine(effectiveBaseDir, filePath)
-
-                        if System.IO.File.Exists fullPath then
-                            eng.DropStaleTableIfExists(connDef.Name, fullPath)
-
-                            let tables =
-                                try
-                                    (xmlConn :> IConnector)
-                                        .DiscoverSchemaAsync(CancellationToken.None)
-                                        .GetAwaiter()
-                                        .GetResult()
-                                with ex ->
-                                    Log.Warning(
-                                        "FS Query Studio: Could not discover tables for XML connection '{Name}': {Error}",
-                                        connDef.Name,
-                                        ex.Message
-                                    )
-
-                                    []
-
-                            for tblIdx, tbl in List.indexed tables do
-                                let tableName = tbl.Name
-                                let compoundKey = $"{connDef.Name}_{tableName}"
-
-                                let cleanTableName =
-                                    if eng.IsStagedAndCurrent(compoundKey, fullPath) then
-                                        skippedCount <- skippedCount + 1
-
-                                        match onProgress with
-                                        | Some cb ->
-                                            cb
-                                                {
-                                                    TableName = compoundKey
-                                                    FilePath = fullPath
-                                                    Phase = "Skipped"
-                                                    RowCount = None
-                                                    CurrentIndex = Some currentIdx
-                                                    TotalCount = Some total
-                                                    ElapsedMs = Some 0L
-                                                    Message = Some $"'{compoundKey}' is up-to-date in cache"
-                                                }
-                                        | None -> ()
-
-                                        let clean = CodeGenerationHelpers.cleanIdentifier compoundKey
-
-                                        if String.IsNullOrWhiteSpace clean then
-                                            "StagedFile"
-                                        else
-                                            clean
-                                    else
-                                        let staged =
-                                            eng.EnsureStaged(
-                                                compoundKey,
-                                                fullPath,
-                                                (fun () -> xmlConn.ReadRows(tableName = tableName)),
-                                                ?columnTypes =
-                                                    (if xmlConn.Options.ColumnTypes.IsEmpty then
-                                                         None
-                                                     else
-                                                         Some xmlConn.Options.ColumnTypes),
-                                                currentIndex = currentIdx,
-                                                totalCount = total,
-                                                ?onProgress = onProgress
-                                            )
-
-                                        stagedCount <- stagedCount + 1
-                                        staged
-
-                                eng.EnsureAliasView(tableName, cleanTableName)
-
-                                if tblIdx = 0 then
-                                    eng.EnsureAliasView(connDef.Name, cleanTableName)
-                                    let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(fullPath)
-
-                                    if not (String.IsNullOrWhiteSpace fileBaseName) then
-                                        eng.EnsureAliasView(fileBaseName, cleanTableName)
+                            let res = sc.StageConnection(eng, connDef.Name, currentIdx, total, onProgress)
+                            stagedCount <- stagedCount + res.StagedCount
+                            skippedCount <- skippedCount + res.SkippedCount
                     | _ -> ()
                 with ex ->
                     Log.Warning(

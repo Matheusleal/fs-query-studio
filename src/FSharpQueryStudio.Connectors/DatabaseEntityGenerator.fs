@@ -299,29 +299,13 @@ module DatabaseEntityGenerator =
                 if origName.IndexOf('.') < 0 then
                     rawTable
                 elif isKnownSchemaOnly then
-                    if topGroup = "public" || topGroup = "dbo" || topGroup = "main" then
-                        origName
-                    else
-                        origName
-                elif kind = ConnectorKind.SqlServer then
-                    $"{topGroup}.dbo.{rawTable}"
-                elif kind = ConnectorKind.PostgreSql && isDefaultGroup then
-                    rawTable
-                else
                     origName
-            | Some subSchema ->
-                if kind = ConnectorKind.PostgreSql && isDefaultGroup then
-                    if subSchema = "public" then
-                        rawTable
-                    else
-                        $"{subSchema}.{rawTable}"
-                elif kind = ConnectorKind.Oracle then
-                    if String.Equals(subSchema, "SYSTEM", StringComparison.OrdinalIgnoreCase) then
-                        rawTable
-                    else
-                        $"{subSchema}.{rawTable}"
                 else
-                    $"{topGroup}.{subSchema}.{rawTable}"
+                    let dialect = SqlDialect.fromConnectorKind kind
+                    dialect.Dialect.FormatSqlTarget(topGroup, None, rawTable, origName, isDefaultGroup)
+            | Some _ ->
+                let dialect = SqlDialect.fromConnectorKind kind
+                dialect.Dialect.FormatSqlTarget(topGroup, subSchemaOpt, rawTable, origName, isDefaultGroup)
 
         let formatTopLevelSqlTarget
             (topGroup: string)
@@ -633,15 +617,7 @@ module DatabaseEntityGenerator =
 
     let generateSqlProvider (connStr: string) (kind: ConnectorKind) (typeAlias: string option) : string =
         let alias = defaultArg typeAlias "Db"
-
-        let vendor =
-            if kind = ConnectorKind.PostgreSql then
-                "Common.DatabaseProviderTypes.POSTGRESQL"
-            elif kind = ConnectorKind.SqlServer then
-                "Common.DatabaseProviderTypes.MSSQLSERVER"
-            elif kind = ConnectorKind.Sqlite then
-                "Common.DatabaseProviderTypes.SQLITE"
-            else
-                "Common.DatabaseProviderTypes.POSTGRESQL"
+        let dialect = SqlDialect.fromConnectorKind kind
+        let vendor = dialect.Dialect.SqlProviderType
 
         $"open FSharp.Data.Sql\n\n[<Literal>]\nlet private connStr = \"{connStr}\"\n\ntype {alias} = SqlDataProvider<\n    DatabaseVendor = {vendor},\n    ConnectionString = connStr >\n\nlet db = {alias}.GetDataContext()\n"

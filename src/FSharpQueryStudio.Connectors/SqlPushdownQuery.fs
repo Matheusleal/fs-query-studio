@@ -84,6 +84,16 @@ module LinqInMemoryFallback =
 
 /// LINQ Query Provider that inspects expression trees and executes parameterized SQL pushdown queries.
 type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, baseParameters: (string * obj) list) =
+    static do
+        try
+            let t =
+                typeof<PushdownQueryPlan>.Assembly.GetType("FSharpQueryStudio.Connectors.SqlPushdownQuery")
+
+            if not (isNull t) then
+                System.Runtime.CompilerServices.RuntimeHelpers.RunClassConstructor(t.TypeHandle)
+        with _ ->
+            ()
+
     let dialect = SqlDialect.fromConnectorKind (connector :> IConnector).Kind
 
     member _.Connector = connector
@@ -1216,66 +1226,7 @@ and SqlPushdownQueryable<'T>
 
         let planText =
             try
-                match dialect with
-                | SqlDialect.Sqlite ->
-                    let (res: ConnectorQueryResult) =
-                        connector.ExecuteQuery $"EXPLAIN QUERY PLAN {formatted}" parms
-
-                    let lines =
-                        res.Rows
-                        |> Seq.map (fun row ->
-                            if row.Length >= 4 then $"detail: {row.[3]}"
-                            elif row.Length > 0 then string row.[0]
-                            else "")
-                        |> String.concat "\n"
-
-                    $"-- SQLite EXPLAIN QUERY PLAN:\n{lines}"
-                | SqlDialect.PostgreSql ->
-                    let (res: ConnectorQueryResult) =
-                        connector.ExecuteQuery $"EXPLAIN {formatted}" parms
-
-                    let lines =
-                        res.Rows
-                        |> Seq.map (fun row -> if row.Length > 0 then string row.[0] else "")
-                        |> String.concat "\n"
-
-                    $"-- PostgreSQL EXPLAIN:\n{lines}"
-                | SqlDialect.SqlServer ->
-                    let (res: ConnectorQueryResult) =
-                        connector.ExecuteQuery $"SET SHOWPLAN_TEXT ON; {formatted}; SET SHOWPLAN_TEXT OFF;" parms
-
-                    let lines =
-                        res.Rows
-                        |> Seq.map (fun row -> if row.Length > 0 then string row.[0] else "")
-                        |> String.concat "\n"
-
-                    $"-- SQL Server SHOWPLAN:\n{lines}"
-                | SqlDialect.MySql
-                | SqlDialect.MariaDb ->
-                    let (res: ConnectorQueryResult) =
-                        connector.ExecuteQuery $"EXPLAIN {formatted}" parms
-
-                    let lines =
-                        res.Rows
-                        |> Seq.map (fun row ->
-                            res.Columns
-                            |> List.mapi (fun i col -> $"{col}: {row.[i]}")
-                            |> String.concat ", ")
-                        |> String.concat "\n"
-
-                    $"-- {dialect} EXPLAIN:\n{lines}"
-                | SqlDialect.Oracle ->
-                    connector.ExecuteQuery $"EXPLAIN PLAN FOR {formatted}" parms |> ignore
-
-                    let (res: ConnectorQueryResult) =
-                        connector.ExecuteQuery "SELECT PLAN_TABLE_OUTPUT FROM TABLE(DBMS_XPLAN.DISPLAY())" []
-
-                    let lines =
-                        res.Rows
-                        |> Seq.map (fun row -> if row.Length > 0 then string row.[0] else "")
-                        |> String.concat "\n"
-
-                    $"-- Oracle Execution Plan (DBMS_XPLAN):\n{lines}"
+                dialect.Dialect.FormatExplain(connector, formatted, parms)
             with ex ->
                 $"-- EXPLAIN diagnostic report:\n--   Engine: {dialect}\n--   Status: {ex.Message}"
 
@@ -1505,72 +1456,7 @@ module SqlPushdownQuery =
             match connectorOpt with
             | Some conn ->
                 try
-                    match dialect with
-                    | SqlDialect.Sqlite ->
-                        let explainSql = $"EXPLAIN QUERY PLAN {sql}"
-                        let res = conn.ExecuteQuery explainSql parms
-
-                        let lines =
-                            res.Rows
-                            |> Seq.map (fun row ->
-                                if row.Length >= 4 && not (isNull row.[3]) then
-                                    string row.[3]
-                                elif row.Length > 0 then
-                                    String.concat " | " (row |> Seq.map string)
-                                else
-                                    "")
-                            |> Seq.filter (not << String.IsNullOrWhiteSpace)
-                            |> String.concat "\n"
-
-                        if String.IsNullOrWhiteSpace lines then
-                            "-- SQLite EXPLAIN: Plan generated successfully."
-                        else
-                            $"-- SQLite EXPLAIN QUERY PLAN:\n{lines}"
-                    | SqlDialect.PostgreSql ->
-                        let explainSql = $"EXPLAIN (ANALYZE false, FORMAT TEXT) {sql}"
-                        let res = conn.ExecuteQuery explainSql parms
-
-                        let lines =
-                            res.Rows
-                            |> Seq.map (fun row -> if row.Length > 0 then string row.[0] else "")
-                            |> String.concat "\n"
-
-                        $"-- PostgreSQL EXPLAIN:\n{lines}"
-                    | SqlDialect.SqlServer ->
-                        let res =
-                            conn.ExecuteQuery $"SET SHOWPLAN_TEXT ON; {sql}; SET SHOWPLAN_TEXT OFF;" parms
-
-                        let lines =
-                            res.Rows
-                            |> Seq.map (fun row -> if row.Length > 0 then string row.[0] else "")
-                            |> String.concat "\n"
-
-                        $"-- SQL Server SHOWPLAN:\n{lines}"
-                    | SqlDialect.MySql
-                    | SqlDialect.MariaDb ->
-                        let res = conn.ExecuteQuery $"EXPLAIN {sql}" parms
-
-                        let lines =
-                            res.Rows
-                            |> Seq.map (fun row ->
-                                res.Columns
-                                |> List.mapi (fun i col -> $"{col}: {row.[i]}")
-                                |> String.concat ", ")
-                            |> String.concat "\n"
-
-                        $"-- {dialect} EXPLAIN:\n{lines}"
-                    | SqlDialect.Oracle ->
-                        conn.ExecuteQuery $"EXPLAIN PLAN FOR {sql}" parms |> ignore
-
-                        let res =
-                            conn.ExecuteQuery "SELECT PLAN_TABLE_OUTPUT FROM TABLE(DBMS_XPLAN.DISPLAY())" []
-
-                        let lines =
-                            res.Rows
-                            |> Seq.map (fun row -> if row.Length > 0 then string row.[0] else "")
-                            |> String.concat "\n"
-
-                        $"-- Oracle Execution Plan (DBMS_XPLAN):\n{lines}"
+                    dialect.Dialect.FormatExplain(conn, sql, parms)
                 with ex ->
                     $"-- EXPLAIN diagnostic report:\n--   Engine: {dialect}\n--   Status: {ex.Message}"
             | None -> $"-- Diagnostic execution plan estimate:\n--   Engine: {dialect}\n--   Target SQL:\n{formatted}"

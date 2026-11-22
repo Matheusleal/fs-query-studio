@@ -306,6 +306,10 @@ type SqliteConnector(filePath: string) =
         member this.DiscoverSchemaAsync(ct: CancellationToken) = this.DiscoverSchemaAsync(ct)
 
     member _.ConnectionString = connectionString
+    member _.Dialect: ISqlDialect = SqliteDialect.Instance
+
+    interface ISqlDialectProvider with
+        member _.Dialect = SqliteDialect.Instance
 
     interface IQueryableConnector with
         member _.ConnectionString = connectionString

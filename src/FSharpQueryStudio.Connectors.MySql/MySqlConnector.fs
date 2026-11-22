@@ -199,6 +199,10 @@ type MySqlConnector(connectionString: string) =
         member this.DiscoverSchemaAsync(ct: CancellationToken) = this.DiscoverSchemaAsync(ct)
 
     member _.ConnectionString = connectionString
+    member _.Dialect: ISqlDialect = MySqlDialect.Instance
+
+    interface ISqlDialectProvider with
+        member _.Dialect = MySqlDialect.Instance
 
     interface IQueryableConnector with
         member _.ConnectionString = connectionString

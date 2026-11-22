@@ -497,3 +497,94 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
                 }
 
             Task.FromResult [ table ]
+
+    member this.StagePrimaryTable(engine: IStagingEngine, connName: string) : string =
+        let colTypes =
+            if resolvedOptions.ColumnTypes.IsEmpty then
+                None
+            else
+                Some resolvedOptions.ColumnTypes
+
+        let cleanTableName =
+            engine.EnsureStaged(connName, cleanPath, (fun () -> this.ReadRows()), ?columnTypes = colTypes)
+
+        let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(cleanPath)
+
+        if not (String.IsNullOrWhiteSpace fileBaseName) then
+            engine.EnsureAliasView(fileBaseName, cleanTableName)
+            engine.EnsureAliasView($"{connName}_{fileBaseName}", cleanTableName)
+
+        cleanTableName
+
+    interface IStagableConnector with
+        member _.FilePath = cleanPath
+
+        member this.StageConnection
+            (
+                engine: IStagingEngine,
+                connName: string,
+                currentIndex: int,
+                totalCount: int,
+                onProgress: (StagingProgressEvent -> unit) option
+            ) : StagingResult =
+            let fullPath = cleanPath
+
+            if engine.IsStagedAndCurrent(connName, fullPath) then
+                match onProgress with
+                | Some cb ->
+                    cb
+                        {
+                            TableName = connName
+                            FilePath = fullPath
+                            Phase = "Skipped"
+                            RowCount = None
+                            CurrentIndex = Some currentIndex
+                            TotalCount = Some totalCount
+                            ElapsedMs = Some 0L
+                            Message = Some $"'{connName}' is up-to-date in cache"
+                        }
+                | None -> ()
+
+                let clean = CodeGenerationHelpers.cleanIdentifier connName
+
+                let cleanTableName =
+                    if String.IsNullOrWhiteSpace clean then
+                        "StagedFile"
+                    else
+                        clean
+
+                let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(fullPath)
+
+                if not (String.IsNullOrWhiteSpace fileBaseName) then
+                    engine.EnsureAliasView(fileBaseName, cleanTableName)
+                    engine.EnsureAliasView($"{connName}_{fileBaseName}", cleanTableName)
+
+                { StagedCount = 0; SkippedCount = 1 }
+            else
+                let colTypes =
+                    if resolvedOptions.ColumnTypes.IsEmpty then
+                        None
+                    else
+                        Some resolvedOptions.ColumnTypes
+
+                let cleanTableName =
+                    engine.EnsureStaged(
+                        connName,
+                        fullPath,
+                        (fun () -> this.ReadRows()),
+                        ?columnTypes = colTypes,
+                        currentIndex = currentIndex,
+                        totalCount = totalCount,
+                        ?onProgress = onProgress
+                    )
+
+                let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(fullPath)
+
+                if not (String.IsNullOrWhiteSpace fileBaseName) then
+                    engine.EnsureAliasView(fileBaseName, cleanTableName)
+                    engine.EnsureAliasView($"{connName}_{fileBaseName}", cleanTableName)
+
+                { StagedCount = 1; SkippedCount = 0 }
+
+        member this.StagePrimaryTable(engine: IStagingEngine, connName: string) =
+            this.StagePrimaryTable(engine, connName)

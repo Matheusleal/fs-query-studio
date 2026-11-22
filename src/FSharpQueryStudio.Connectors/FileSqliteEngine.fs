@@ -8,19 +8,6 @@ open Microsoft.Data.Sqlite
 open FSharpQueryStudio.Protocol
 open Serilog
 
-/// Event data reported during file staging and cache population phases.
-type StagingProgressEvent =
-    {
-        TableName: string
-        FilePath: string
-        Phase: string // "Reading" | "Writing" | "Indexing" | "Completed" | "Skipped" | "Failed"
-        RowCount: int option
-        CurrentIndex: int option
-        TotalCount: int option
-        ElapsedMs: int64 option
-        Message: string option
-    }
-
 /// Manages an embedded SQLite staging database for tabular file formats (CSV, Excel)
 /// to enable relational joins, B-tree indexes, and SQL pushdown across workspace files.
 type FileSqliteEngine(dbPath: string) =
@@ -813,3 +800,25 @@ type FileSqliteEngine(dbPath: string) =
                     executeWithRetry 1 5
             finally
                 sem.Release() |> ignore
+
+    interface IStagingEngine with
+        member this.DatabasePath = this.DatabasePath
+
+        member this.EnsureStaged(key, filePath, readRows, ?columnTypes, ?currentIndex, ?totalCount, ?onProgress) =
+            this.EnsureStaged(
+                key,
+                filePath,
+                readRows,
+                ?columnTypes = columnTypes,
+                ?currentIndex = currentIndex,
+                ?totalCount = totalCount,
+                ?onProgress = onProgress
+            )
+
+        member this.DropStaleTableIfExists(connName, filePath) =
+            this.DropStaleTableIfExists(connName, filePath)
+
+        member this.EnsureAliasView(aliasName, targetTable) =
+            this.EnsureAliasView(aliasName, targetTable)
+
+        member this.IsStagedAndCurrent(key, filePath) = this.IsStagedAndCurrent(key, filePath)

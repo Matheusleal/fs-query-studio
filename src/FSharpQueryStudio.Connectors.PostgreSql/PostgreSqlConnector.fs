@@ -362,6 +362,10 @@ type PostgreSqlConnector(connectionString: string) =
         member this.DiscoverSchemaAsync(ct: CancellationToken) = this.DiscoverSchemaAsync(ct)
 
     member _.ConnectionString = connectionString
+    member _.Dialect: ISqlDialect = PostgreSqlDialect.Instance
+
+    interface ISqlDialectProvider with
+        member _.Dialect = PostgreSqlDialect.Instance
 
     interface IQueryableConnector with
         member _.ConnectionString = connectionString

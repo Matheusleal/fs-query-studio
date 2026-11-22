@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="MariaDbDialect.fs" />
     <Compile Include="MariaDbConnector.fs" />
     <Compile Include="MariaDbDescriptor.fs" />
   </ItemGroup>

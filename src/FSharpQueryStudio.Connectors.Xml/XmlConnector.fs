@@ -349,3 +349,134 @@ type XmlConnector(filePath: string, ?options: XmlOptions) =
                             : ConnectorTable)
 
                     Task.FromResult tables
+
+    member this.StageTable
+        (engine: IStagingEngine, connName: string, tableName: string, maxRows: int option, isPrimary: bool)
+        : string =
+        let compoundKey = $"{connName}_{tableName}"
+
+        let colTypes =
+            if options.ColumnTypes.IsEmpty then
+                None
+            else
+                Some options.ColumnTypes
+
+        let cleanTableName =
+            engine.EnsureStaged(
+                compoundKey,
+                cleanPath,
+                (fun () -> this.ReadRows(tableName = tableName, ?maxRows = maxRows)),
+                ?columnTypes = colTypes
+            )
+
+        engine.EnsureAliasView(tableName, cleanTableName)
+
+        if isPrimary then
+            engine.EnsureAliasView(connName, cleanTableName)
+            let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(cleanPath)
+
+            if not (String.IsNullOrWhiteSpace fileBaseName) then
+                engine.EnsureAliasView(fileBaseName, cleanTableName)
+
+        cleanTableName
+
+    interface IStagableConnector with
+        member _.FilePath = cleanPath
+
+        member this.StageConnection
+            (
+                engine: IStagingEngine,
+                connName: string,
+                currentIndex: int,
+                totalCount: int,
+                onProgress: (StagingProgressEvent -> unit) option
+            ) : StagingResult =
+            let fullPath = cleanPath
+            let mutable staged = 0
+            let mutable skipped = 0
+
+            if System.IO.File.Exists fullPath then
+                let tables =
+                    try
+                        (this :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
+                    with _ ->
+                        []
+
+                for tblIdx, tbl in List.indexed tables do
+                    let tableName = tbl.Name
+                    let compoundKey = $"{connName}_{tableName}"
+
+                    let cleanTableName =
+                        if engine.IsStagedAndCurrent(compoundKey, fullPath) then
+                            skipped <- skipped + 1
+
+                            match onProgress with
+                            | Some cb ->
+                                cb
+                                    {
+                                        TableName = compoundKey
+                                        FilePath = fullPath
+                                        Phase = "Skipped"
+                                        RowCount = None
+                                        CurrentIndex = Some currentIndex
+                                        TotalCount = Some totalCount
+                                        ElapsedMs = Some 0L
+                                        Message = Some $"'{compoundKey}' is up-to-date in cache"
+                                    }
+                            | None -> ()
+
+                            let clean = CodeGenerationHelpers.cleanIdentifier compoundKey
+
+                            if String.IsNullOrWhiteSpace clean then
+                                "StagedFile"
+                            else
+                                clean
+                        else
+                            let s =
+                                engine.EnsureStaged(
+                                    compoundKey,
+                                    fullPath,
+                                    (fun () -> this.ReadRows(tableName = tableName)),
+                                    ?columnTypes =
+                                        (if options.ColumnTypes.IsEmpty then
+                                             None
+                                         else
+                                             Some options.ColumnTypes),
+                                    currentIndex = currentIndex,
+                                    totalCount = totalCount,
+                                    ?onProgress = onProgress
+                                )
+
+                            staged <- staged + 1
+                            s
+
+                    engine.EnsureAliasView(tableName, cleanTableName)
+
+                    if tblIdx = 0 then
+                        engine.EnsureAliasView(connName, cleanTableName)
+                        let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(fullPath)
+
+                        if not (String.IsNullOrWhiteSpace fileBaseName) then
+                            engine.EnsureAliasView(fileBaseName, cleanTableName)
+
+            {
+                StagedCount = staged
+                SkippedCount = skipped
+            }
+
+        member this.StagePrimaryTable(engine: IStagingEngine, connName: string) =
+            let defaultTable =
+                match options.RowElement with
+                | Some t when not (String.IsNullOrWhiteSpace t) -> t
+                | _ ->
+                    let tables =
+                        try
+                            (this :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
+                        with _ ->
+                            []
+
+                    match tables with
+                    | first :: _ -> first.Name
+                    | [] -> "Items"
+
+            this.StageTable(engine, connName, defaultTable, None, true)
