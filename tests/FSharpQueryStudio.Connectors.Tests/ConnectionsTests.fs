@@ -2245,6 +2245,122 @@ let ``DatabaseConnection.GenerateEntities emits top-level and schema properties 
     Assert.Contains("member _.PRODUCTS : FSharpQueryStudio.Connectors.SqlPushdownQueryable<SYSTEM.PRODUCTS> = conn.Table<SYSTEM.PRODUCTS>(\"PRODUCTS\")", oraCode)
     Assert.Contains("member _.SYSTEM =", oraCode)
 
+[<Fact>]
+let ``DatabaseConnection.GenerateEntities maps string variants case-insensitively and handles whitespace without fallback to obj`` () =
+    let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
+        { new IQueryableConnector with
+            member _.ConnectionString = connStr
+            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+          interface IConnector with
+            member _.Kind = kind
+            member _.TestConnectionAsync _ = System.Threading.Tasks.Task.FromResult true
+            member _.DiscoverSchemaAsync _ = System.Threading.Tasks.Task.FromResult tables }
+
+    let tables = [
+        { Name = "shop.articles"
+          Columns = [
+              { Name = "Title"; DataType = "  VARCHAR2(255)  " }
+              { Name = "Body"; DataType = "CLOB" }
+              { Name = "Metadata"; DataType = "JSONB" }
+              { Name = "RawText"; DataType = "LONGTEXT" }
+              { Name = "Summary"; DataType = "MEDIUMTEXT" }
+              { Name = "Code"; DataType = "CHAR(10)" }
+              { Name = "Tag"; DataType = "NVARCHAR(50)" }
+          ] }
+    ]
+    let conn = Connections.DatabaseConnection("ShopConn", makeConnector ConnectorKind.MySql "Server=localhost;Database=shop;" tables)
+    let code = conn.GenerateEntities()
+
+    Assert.Contains("Title: string", code)
+    Assert.Contains("Body: string", code)
+    Assert.Contains("Metadata: string", code)
+    Assert.Contains("RawText: string", code)
+    Assert.Contains("Summary: string", code)
+    Assert.Contains("Code: string", code)
+    Assert.Contains("Tag: string", code)
+    Assert.DoesNotContain(": obj", code)
+
+[<Fact>]
+let ``DatabaseConnection.GenerateEntities falls back to obj safely for unknown custom data types`` () =
+    let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
+        { new IQueryableConnector with
+            member _.ConnectionString = connStr
+            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+          interface IConnector with
+            member _.Kind = kind
+            member _.TestConnectionAsync _ = System.Threading.Tasks.Task.FromResult true
+            member _.DiscoverSchemaAsync _ = System.Threading.Tasks.Task.FromResult tables }
+
+    let tables = [
+        { Name = "geo.locations"
+          Columns = [
+              { Name = "Id"; DataType = "int" }
+              { Name = "CustomShape"; DataType = "geometry_custom_udt" }
+              { Name = "OpaqueBlob"; DataType = "unrecognized_engine_type" }
+          ] }
+    ]
+    let conn = Connections.DatabaseConnection("GeoConn", makeConnector ConnectorKind.PostgreSql "Host=localhost;Database=geo;" tables)
+    let code = conn.GenerateEntities()
+
+    Assert.Contains("Id: int", code)
+    Assert.Contains("CustomShape: obj", code)
+    Assert.Contains("OpaqueBlob: obj", code)
+
+[<Fact>]
+let ``DatabaseConnection.GenerateEntities escapes F# reserved keywords in table and column identifiers`` () =
+    let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
+        { new IQueryableConnector with
+            member _.ConnectionString = connStr
+            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+          interface IConnector with
+            member _.Kind = kind
+            member _.TestConnectionAsync _ = System.Threading.Tasks.Task.FromResult true
+            member _.DiscoverSchemaAsync _ = System.Threading.Tasks.Task.FromResult tables }
+
+    let tables = [
+        { Name = "public.type"
+          Columns = [
+              { Name = "open"; DataType = "bool" }
+              { Name = "member"; DataType = "string" }
+              { Name = "class"; DataType = "int" }
+          ] }
+    ]
+    let conn = Connections.DatabaseConnection("KeywordsConn", makeConnector ConnectorKind.PostgreSql "Host=localhost;Database=public;" tables)
+    let code = conn.GenerateEntities()
+
+    Assert.Contains("type ``type`` =", code)
+    Assert.Contains("``open``: bool", code)
+    Assert.Contains("``member``: string", code)
+    Assert.Contains("``class``: int", code)
+
+[<Fact>]
+let ``DatabaseConnection.GenerateEntities exposes single sub-schema tables at top-level regardless of sub-schema name`` () =
+    let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
+        { new IQueryableConnector with
+            member _.ConnectionString = connStr
+            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+          interface IConnector with
+            member _.Kind = kind
+            member _.TestConnectionAsync _ = System.Threading.Tasks.Task.FromResult true
+            member _.DiscoverSchemaAsync _ = System.Threading.Tasks.Task.FromResult tables }
+
+    let tables = [
+        { Name = "company_db.sales_department.deals"
+          Columns = [
+              { Name = "deal_id"; DataType = "int" }
+              { Name = "client_name"; DataType = "string" }
+              { Name = "amount"; DataType = "decimal" }
+          ] }
+    ]
+    let conn = Connections.DatabaseConnection("CompanyConn", makeConnector ConnectorKind.SqlServer "Server=localhost;Database=company_db;" tables)
+    let code = conn.GenerateEntities()
+
+    // Because company_db has only 1 sub-schema (sales_department), deals should be accessible both directly and hierarchically
+    Assert.Contains("member _.deals : FSharpQueryStudio.Connectors.SqlPushdownQueryable<company_db.sales_department.deals> = conn.Table<company_db.sales_department.deals>", code)
+    Assert.Contains("member _.sales_department =", code)
+    Assert.Contains("member _.company_db =", code)
+
+
 
 
 

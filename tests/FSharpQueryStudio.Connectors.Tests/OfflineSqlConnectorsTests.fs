@@ -98,11 +98,33 @@ let ``MySqlConnector NormalizeConnectionString replaces localhost with 127.0.0.1
     Assert.Contains("Server=192.168.1.100", other)
 
 [<Fact>]
+let ``MySqlConnector NormalizeConnectionString handles case variations, malformed and empty strings safely`` () =
+    let upper = MySqlConnector.NormalizeConnectionString "Server=LOCALHOST;Port=3306;Database=mydb;"
+    Assert.Contains("Server=127.0.0.1", upper)
+    let mixed = MySqlConnector.NormalizeConnectionString "server=LocalHost;port=3306;database=mydb;"
+    Assert.Contains("Server=127.0.0.1", mixed)
+    let malformed = MySqlConnector.NormalizeConnectionString "not a valid conn string;;"
+    Assert.Equal("not a valid conn string;;", malformed)
+    let empty = MySqlConnector.NormalizeConnectionString ""
+    Assert.Equal("", empty)
+
+[<Fact>]
 let ``MariaDbConnector NormalizeConnectionString replaces localhost with 127.0.0.1 and preserves others`` () =
     let norm = MariaDbConnector.NormalizeConnectionString "Server=localhost;Port=3307;Database=mydb;User ID=root;Password=secret;"
     Assert.Contains("Server=127.0.0.1", norm)
     let other = MariaDbConnector.NormalizeConnectionString "Server=remote.db;Port=3307;Database=mydb;User ID=root;Password=secret;"
     Assert.Contains("Server=remote.db", other)
+
+[<Fact>]
+let ``MariaDbConnector NormalizeConnectionString handles case variations, malformed and empty strings safely`` () =
+    let upper = MariaDbConnector.NormalizeConnectionString "Server=LOCALHOST;Port=3307;Database=mydb;"
+    Assert.Contains("Server=127.0.0.1", upper)
+    let mixed = MariaDbConnector.NormalizeConnectionString "server=LocalHost;port=3307;database=mydb;"
+    Assert.Contains("Server=127.0.0.1", mixed)
+    let malformed = MariaDbConnector.NormalizeConnectionString "invalid connection string ;==;"
+    Assert.Equal("invalid connection string ;==;", malformed)
+    let empty = MariaDbConnector.NormalizeConnectionString ""
+    Assert.Equal("", empty)
 
 // -----------------------------------------------------------------------------
 // 2. Safe Connection Failure Handling (TestConnectionAsync)
