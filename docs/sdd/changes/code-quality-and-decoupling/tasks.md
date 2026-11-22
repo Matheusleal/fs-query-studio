@@ -19,3 +19,11 @@
 - [x] TASK-012: Executar validação E2E com `node editors/vscode/test_all_samples_e2e.mjs`
 - [x] TASK-013: Executar build completo de release e empacotamento VSIX (`dotnet fsi .\build.fsx release`)
 - [x] TASK-014: Auditoria de conformidade SDD e atualização de documentação
+
+## Fase 4: Desacoplamento e Decomposição de Super-Arquivos (> 500 linhas)
+- [x] TASK-015: Modularizar `AdvancedSampleGenerator.fs` (de 2.765 linhas para 170 linhas) extraindo `AdvancedSampleInitScripts.fs`, `AdvancedSampleNotebookCommon.fs`, `AdvancedSampleNotebooksEngines.fs`, `AdvancedSampleNotebooksPostgres.fs`, `AdvancedSampleNotebooksSqlServer.fs`
+- [x] TASK-016: Modularizar `Connections.fs` (de 1.911 linhas para 1.549 linhas) extraindo `DatabaseEntityGenerator.fs` e `ConnectionExtensions.fs`
+- [x] TASK-017: Modularizar `SampleDataGenerator.fs` (de 3.941 linhas para 140 linhas) extraindo `SampleDataSqlite.fs`, `SampleDataFiles.fs`, `SampleDemoNotebookEn.fs` e `SampleDemoNotebookPt.fs`
+- [x] TASK-018: Modularizar `SqlPushdownQuery.fs` (de 4.809 linhas para 1.083 linhas) extraindo `ExpressionPushdownTranslator.fs` e `SqlComputationExtensions.fs`
+- [x] TASK-019: Modularizar `extension.ts` (de 853 linhas para 264 linhas) extraindo `services/health-check.ts`, `ui/status-bar.ts` e `commands/workspace-commands.ts`
+- [x] TASK-020: Executar validação integral (552 testes unitários Connectors, 491 testes frontend, release build e E2E dos 12 notebooks com 214/214 células aprovadas) e atualizar PR
