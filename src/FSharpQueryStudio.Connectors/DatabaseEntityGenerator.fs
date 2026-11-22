@@ -320,16 +320,9 @@ module DatabaseEntityGenerator =
                 if origName.IndexOf('.') < 0 then rawTable
                 elif isKnownSchemaOnly then origName
                 else rawTable
-            | Some subSchema ->
-                if subSchema = "public" || subSchema = "dbo" || subSchema = "main" then
-                    rawTable
-                elif
-                    kind = ConnectorKind.Oracle
-                    && String.Equals(subSchema, "SYSTEM", StringComparison.OrdinalIgnoreCase)
-                then
-                    rawTable
-                else
-                    $"{subSchema}.{rawTable}"
+            | Some _ ->
+                let dialect = SqlDialect.fromConnectorKind kind
+                dialect.Dialect.FormatSqlTarget(topGroup, subSchemaOpt, rawTable, origName, false)
 
         for (schema, entries) in schemaGroups do
             sb.AppendLine($"    module {escapeIdent schema} =") |> ignore

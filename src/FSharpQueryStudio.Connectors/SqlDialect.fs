@@ -37,6 +37,34 @@ module SqlDialect =
         else
             SqlDialect.Sqlite
 
+    let fromDialect (dialect: ISqlDialect) : SqlDialect =
+        let n =
+            match box dialect with
+            | null -> ""
+            | _ ->
+                if isNull dialect.Name then
+                    ""
+                else
+                    dialect.Name.ToLowerInvariant().Replace(" ", "")
+
+        if n.Contains("postgre") then
+            SqlDialect.PostgreSql
+        elif n.Contains("sqlserver") || n.Contains("mssql") then
+            SqlDialect.SqlServer
+        elif n.Contains("mariadb") then
+            SqlDialect.MariaDb
+        elif n.Contains("mysql") then
+            SqlDialect.MySql
+        elif n.Contains("oracle") then
+            SqlDialect.Oracle
+        else
+            SqlDialect.Sqlite
+
+    let fromConnectorToDialect (connector: IConnector) : SqlDialect =
+        match box connector with
+        | :? ISqlDialectProvider as sdp -> fromDialect sdp.Dialect
+        | _ -> fromConnectorKind connector.Kind
+
     let fromConnector (connector: IConnector) : ISqlDialect =
         match box connector with
         | :? ISqlDialectProvider as sdp -> sdp.Dialect

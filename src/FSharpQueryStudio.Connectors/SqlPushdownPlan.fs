@@ -274,16 +274,13 @@ type PushdownQueryPlan =
                 match j.JoinType.Trim().ToUpperInvariant() with
                 | "CROSS APPLY" -> dialect.Dialect.FormatApplyJoin(false, tbl)
                 | "OUTER APPLY" ->
-                    if dialect = SqlDialect.Sqlite then
-                        let onPart =
-                            if String.IsNullOrWhiteSpace j.OnClause then
-                                "1=1"
-                            else
-                                j.OnClause
+                    let onClauseOpt =
+                        if String.IsNullOrWhiteSpace j.OnClause then
+                            None
+                        else
+                            Some j.OnClause
 
-                        $"LEFT JOIN {tbl} ON {onPart}"
-                    else
-                        dialect.Dialect.FormatApplyJoin(true, tbl)
+                    dialect.Dialect.FormatOuterApplyJoin(tbl, onClauseOpt)
                 | "CROSS JOIN" -> $"CROSS JOIN {tbl}"
                 | "FULL OUTER JOIN"
                 | "FULL JOIN" ->
@@ -406,57 +403,18 @@ type PushdownQueryPlan =
             else
                 ""
 
-        let distinctKeyword = if this.IsDistinct then "DISTINCT " else ""
-
         let rawSelect =
-            match dialect with
-            | SqlDialect.SqlServer ->
-                match this.Skip, this.Take with
-                | Some skip, Some take ->
-                    let ord =
-                        if orderSql = "" then
-                            " ORDER BY (SELECT NULL)"
-                        else
-                            orderSql
-
-                    $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{ord} OFFSET {skip} ROWS FETCH NEXT {take} ROWS ONLY"
-                | Some skip, None ->
-                    let ord =
-                        if orderSql = "" then
-                            " ORDER BY (SELECT NULL)"
-                        else
-                            orderSql
-
-                    $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{ord} OFFSET {skip} ROWS"
-                | None, Some take ->
-                    if orderSql <> "" then
-                        $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{orderSql} OFFSET 0 ROWS FETCH NEXT {take} ROWS ONLY"
-                    else
-                        $"SELECT {distinctKeyword}TOP ({take}) {selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}"
-                | None, None ->
-                    $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{orderSql}"
-            | SqlDialect.Oracle ->
-                match this.Skip, this.Take with
-                | Some skip, Some take ->
-                    let ord = if orderSql = "" then "" else orderSql
-                    $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{ord} OFFSET {skip} ROWS FETCH NEXT {take} ROWS ONLY"
-                | Some skip, None ->
-                    let ord = if orderSql = "" then "" else orderSql
-                    $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{ord} OFFSET {skip} ROWS"
-                | None, Some take ->
-                    let ord = if orderSql = "" then "" else orderSql
-                    $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{ord} OFFSET 0 ROWS FETCH NEXT {take} ROWS ONLY"
-                | None, None ->
-                    $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{orderSql}"
-            | _ ->
-                let limitSql =
-                    match this.Take, this.Skip with
-                    | Some take, Some skip -> $" LIMIT {take} OFFSET {skip}"
-                    | Some take, None -> $" LIMIT {take}"
-                    | None, Some skip -> $" OFFSET {skip}"
-                    | None, None -> ""
-
-                $"SELECT {distinctKeyword}{selectCols} FROM {fromSource}{whereSql}{groupBySql}{havingSql}{orderSql}{limitSql}"
+            dialect.Dialect.FormatSelect(
+                this.IsDistinct,
+                selectCols,
+                fromSource,
+                whereSql,
+                groupBySql,
+                havingSql,
+                orderSql,
+                this.Take,
+                this.Skip
+            )
 
         let withSetOps =
             if this.SetOperations.Count > 0 then
@@ -495,8 +453,4 @@ type PushdownQueryPlan =
             else
                 withSetOps
 
-        if dialect.Dialect.Name = "Oracle" then
-            // In Oracle SQL, unquoted identifiers cannot begin with an underscore '_'
-            System.Text.RegularExpressions.Regex.Replace(finalSql, @"\b_([a-zA-Z0-9_]+)\b", "$1")
-        else
-            finalSql
+        dialect.Dialect.PostProcessSql finalSql

@@ -480,3 +480,5 @@ type XmlConnector(filePath: string, ?options: XmlOptions) =
                     | [] -> "Items"
 
             this.StageTable(engine, connName, defaultTable, None, true)
+
+        member this.ReadRaw(maxRows: int option) = this.ReadRows(?maxRows = maxRows)

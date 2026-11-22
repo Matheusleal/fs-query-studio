@@ -488,3 +488,5 @@ type JsonConnector(filePath: string, ?options: JsonOptions) =
                     | [] -> "Items"
 
             this.StageTable(engine, connName, defaultTable, None, true)
+
+        member this.ReadRaw(maxRows: int option) = this.ReadRows(?maxRows = maxRows)

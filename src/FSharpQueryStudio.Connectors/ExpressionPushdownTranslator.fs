@@ -1217,17 +1217,9 @@ module ExpressionPushdownTranslator =
         else
             $"(NOT {inner})"
 
-    and formatNotEmptySql (dialect: SqlDialect) (col: string) : string =
-        if dialect = SqlDialect.Oracle then
-            $"({col} IS NOT NULL AND LENGTH({col}) > 0)"
-        else
-            $"({col} IS NOT NULL AND {col} <> '')"
+    and formatNotEmptySql (dialect: SqlDialect) (col: string) : string = dialect.Dialect.FormatIsNotEmpty col
 
-    and formatIsEmptySql (dialect: SqlDialect) (col: string) : string =
-        if dialect = SqlDialect.Oracle then
-            $"({col} IS NULL OR LENGTH({col}) = 0)"
-        else
-            $"({col} IS NULL OR {col} = '')"
+    and formatIsEmptySql (dialect: SqlDialect) (col: string) : string = dialect.Dialect.FormatIsEmpty col
 
     and tryExtractBoolConstant (expr: Expression) : bool option =
         match unwrapQuote expr |> unwrapBlock with
@@ -1910,11 +1902,8 @@ module ExpressionPushdownTranslator =
             | _ -> None
         | :? MemberExpression as m when m.Type = typeof<bool> && dependsOnParameter param m ->
             let col = extractColumnNameWithAlias plan m
-
-            if dialect = SqlDialect.PostgreSql then
-                Some $"({col} = TRUE)"
-            else
-                Some $"({col} = 1)"
+            let bVal = dialect.Dialect.FormatBooleanLiteral true
+            Some $"({col} = {bVal})"
         | _ -> None
 
     and tryUnwrapOptionArg (arg: Expression) : Expression option =
@@ -2101,32 +2090,25 @@ module ExpressionPushdownTranslator =
                 | None -> "OVER ()"
 
             let safeOverClause =
-                if
-                    (dialect = SqlDialect.SqlServer || dialect = SqlDialect.Oracle)
-                    && (mName = "rowNumber"
-                        || mName = "RowNumber"
-                        || mName = "rank"
-                        || mName = "Rank"
-                        || mName = "denseRank"
-                        || mName = "DenseRank"
-                        || mName = "ntile"
-                        || mName = "Ntile")
-                then
+                match dialect.Dialect.DefaultWindowOrder with
+                | Some defaultOrder when
+                    (mName = "rowNumber"
+                     || mName = "RowNumber"
+                     || mName = "rank"
+                     || mName = "Rank"
+                     || mName = "denseRank"
+                     || mName = "DenseRank"
+                     || mName = "ntile"
+                     || mName = "Ntile")
+                    ->
                     if not (overClause.Contains("ORDER BY")) then
-                        let defaultOrder =
-                            if dialect = SqlDialect.Oracle then
-                                "ORDER BY NULL"
-                            else
-                                "ORDER BY (SELECT NULL)"
-
                         if overClause = "OVER ()" then
                             $"OVER ({defaultOrder})"
                         else
                             overClause.Replace(")", $" {defaultOrder})")
                     else
                         overClause
-                else
-                    overClause
+                | _ -> overClause
 
             match mName with
             | "rowNumber"
@@ -2369,26 +2351,7 @@ module ExpressionPushdownTranslator =
                     else
                         pathStr
 
-                match dialect with
-                | SqlDialect.SqlServer
-                | SqlDialect.Oracle -> Some $"JSON_VALUE({colSql}, '{normalizedPath}')"
-                | SqlDialect.Sqlite -> Some $"json_extract({colSql}, '{normalizedPath}')"
-                | SqlDialect.MySql
-                | SqlDialect.MariaDb -> Some $"JSON_UNQUOTE(JSON_EXTRACT({colSql}, '{normalizedPath}'))"
-                | SqlDialect.PostgreSql ->
-                    let trimmed =
-                        if normalizedPath.StartsWith("$.") then
-                            normalizedPath.Substring(2)
-                        elif normalizedPath.StartsWith("$") then
-                            normalizedPath.Substring(1)
-                        else
-                            normalizedPath
-
-                    if trimmed.Contains(".") then
-                        let parts = trimmed.Split('.') |> String.concat "', '"
-                        Some $"({colSql} #>> '{{{parts}}}')"
-                    else
-                        Some $"({colSql} ->> '{trimmed}')"
+                dialect.Dialect.TranslateJsonExtract(colSql, normalizedPath)
             else
                 None
         else
@@ -2487,10 +2450,8 @@ module ExpressionPushdownTranslator =
         | :? MemberExpression as m when m.Type = typeof<bool> ->
             match translateScalarExpr dialect plan m with
             | Some s ->
-                if dialect = SqlDialect.PostgreSql then
-                    Some $"({s} = TRUE)"
-                else
-                    Some $"({s} = 1)"
+                let bVal = dialect.Dialect.FormatBooleanLiteral true
+                Some $"({s} = {bVal})"
             | None
             | _ -> None
         | :? MethodCallExpression as mc when
@@ -2594,11 +2555,7 @@ module ExpressionPushdownTranslator =
                 Some $"'{escaped}'"
             elif c.Type = typeof<bool> then
                 let b = c.Value :?> bool
-
-                if dialect = SqlDialect.PostgreSql then
-                    Some(if b then "TRUE" else "FALSE")
-                else
-                    Some(if b then "1" else "0")
+                Some(dialect.Dialect.FormatBooleanLiteral b)
             elif c.Type = typeof<DateTime> then
                 let dt = c.Value :?> DateTime
                 let dtStr = dt.ToString("yyyy-MM-dd HH:mm:ss.fff")
@@ -2619,65 +2576,7 @@ module ExpressionPushdownTranslator =
                 || m.Member.Name = "Second")
             ->
             match translateScalarExpr dialect plan m.Expression with
-            | Some o ->
-                match m.Member.Name with
-                | "Year" ->
-                    match dialect with
-                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%Y', {o}) AS INTEGER)"
-                    | SqlDialect.SqlServer
-                    | SqlDialect.MySql
-                    | SqlDialect.MariaDb -> Some $"YEAR({o})"
-                    | SqlDialect.PostgreSql
-                    | SqlDialect.Oracle -> Some $"EXTRACT(YEAR FROM {o})"
-                | "Month" ->
-                    match dialect with
-                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%m', {o}) AS INTEGER)"
-                    | SqlDialect.SqlServer
-                    | SqlDialect.MySql
-                    | SqlDialect.MariaDb -> Some $"MONTH({o})"
-                    | SqlDialect.PostgreSql
-                    | SqlDialect.Oracle -> Some $"EXTRACT(MONTH FROM {o})"
-                | "Day" ->
-                    match dialect with
-                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%d', {o}) AS INTEGER)"
-                    | SqlDialect.SqlServer
-                    | SqlDialect.MySql
-                    | SqlDialect.MariaDb -> Some $"DAY({o})"
-                    | SqlDialect.PostgreSql
-                    | SqlDialect.Oracle -> Some $"EXTRACT(DAY FROM {o})"
-                | "Date" ->
-                    match dialect with
-                    | SqlDialect.Sqlite -> Some $"date({o})"
-                    | SqlDialect.SqlServer
-                    | SqlDialect.PostgreSql -> Some $"CAST({o} AS DATE)"
-                    | SqlDialect.MySql
-                    | SqlDialect.MariaDb -> Some $"DATE({o})"
-                    | SqlDialect.Oracle -> Some $"TRUNC({o})"
-                | "Hour" ->
-                    match dialect with
-                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%H', {o}) AS INTEGER)"
-                    | SqlDialect.SqlServer -> Some $"DATEPART(HOUR, {o})"
-                    | SqlDialect.MySql
-                    | SqlDialect.MariaDb -> Some $"HOUR({o})"
-                    | SqlDialect.Oracle -> Some $"TO_NUMBER(TO_CHAR({o}, 'HH24'))"
-                    | SqlDialect.PostgreSql -> Some $"EXTRACT(HOUR FROM {o})"
-                | "Minute" ->
-                    match dialect with
-                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%M', {o}) AS INTEGER)"
-                    | SqlDialect.SqlServer -> Some $"DATEPART(MINUTE, {o})"
-                    | SqlDialect.MySql
-                    | SqlDialect.MariaDb -> Some $"MINUTE({o})"
-                    | SqlDialect.Oracle -> Some $"TO_NUMBER(TO_CHAR({o}, 'MI'))"
-                    | SqlDialect.PostgreSql -> Some $"EXTRACT(MINUTE FROM {o})"
-                | "Second" ->
-                    match dialect with
-                    | SqlDialect.Sqlite -> Some $"CAST(strftime('%%S', {o}) AS INTEGER)"
-                    | SqlDialect.SqlServer -> Some $"DATEPART(SECOND, {o})"
-                    | SqlDialect.MySql
-                    | SqlDialect.MariaDb -> Some $"SECOND({o})"
-                    | SqlDialect.Oracle -> Some $"TO_NUMBER(TO_CHAR({o}, 'SS'))"
-                    | SqlDialect.PostgreSql -> Some $"EXTRACT(SECOND FROM {o})"
-                | _ -> None
+            | Some o -> dialect.Dialect.TranslateDatePart(m.Member.Name, o)
             | None
             | _ -> None
         | :? MemberExpression as m when
@@ -2686,10 +2585,7 @@ module ExpressionPushdownTranslator =
             && m.Member.Name = "Length"
             ->
             match translateScalarExpr dialect plan m.Expression with
-            | Some o ->
-                match dialect with
-                | SqlDialect.SqlServer -> Some $"LEN({o})"
-                | _ -> Some $"LENGTH({o})"
+            | Some o -> Some(dialect.Dialect.TranslateStringLength o)
             | None
             | _ -> None
         | :? MemberExpression as m ->
@@ -2901,18 +2797,7 @@ module ExpressionPushdownTranslator =
 
                 if argParts |> List.forall Option.isSome then
                     let parts = argParts |> List.map Option.get
-
-                    match dialect with
-                    | SqlDialect.SqlServer ->
-                        let joined = String.concat " + " parts
-                        Some $"({joined})"
-                    | SqlDialect.MySql
-                    | SqlDialect.MariaDb ->
-                        let joined = String.concat ", " parts
-                        Some $"CONCAT({joined})"
-                    | _ ->
-                        let joined = String.concat " || " parts
-                        Some $"({joined})"
+                    Some(dialect.Dialect.FormatConcat parts)
                 else
                     None
             elif
@@ -3118,85 +3003,11 @@ module ExpressionPushdownTranslator =
 
                     match formatArg with
                     | Some fmt ->
-                        match dialect with
-                        | SqlDialect.Sqlite ->
-                            let sqliteFmt =
-                                fmt
-                                    .Replace("yyyy", "%Y")
-                                    .Replace("YYYY", "%Y")
-                                    .Replace("yy", "%Y")
-                                    .Replace("MM", "%m")
-                                    .Replace("dd", "%d")
-                                    .Replace("DD", "%d")
-                                    .Replace("HH", "%H")
-                                    .Replace("hh", "%H")
-                                    .Replace("mm", "%M")
-                                    .Replace("ss", "%S")
-                                    .Replace("SS", "%S")
-
-                            if sqliteFmt.Contains("%") then
-                                Some $"strftime('{sqliteFmt}', {o})"
-                            else
-                                Some $"CAST({o} AS TEXT)"
-                        | SqlDialect.SqlServer -> Some $"FORMAT({o}, '{fmt}')"
-                        | SqlDialect.PostgreSql ->
-                            let pgFmt =
-                                fmt
-                                    .Replace("yyyy", "YYYY")
-                                    .Replace("YYYY", "YYYY")
-                                    .Replace("yy", "YY")
-                                    .Replace("MM", "MM")
-                                    .Replace("dd", "DD")
-                                    .Replace("DD", "DD")
-                                    .Replace("HH", "HH24")
-                                    .Replace("hh", "HH12")
-                                    .Replace("mm", "MI")
-                                    .Replace("ss", "SS")
-                                    .Replace("SS", "SS")
-
-                            Some $"to_char({o}, '{pgFmt}')"
-                        | SqlDialect.MySql
-                        | SqlDialect.MariaDb ->
-                            let myFmt =
-                                fmt
-                                    .Replace("yyyy", "%Y")
-                                    .Replace("YYYY", "%Y")
-                                    .Replace("yy", "%y")
-                                    .Replace("MM", "%m")
-                                    .Replace("dd", "%d")
-                                    .Replace("DD", "%d")
-                                    .Replace("HH", "%H")
-                                    .Replace("hh", "%h")
-                                    .Replace("mm", "%i")
-                                    .Replace("ss", "%s")
-                                    .Replace("SS", "%s")
-
-                            Some $"DATE_FORMAT({o}, '{myFmt}')"
-                        | SqlDialect.Oracle ->
-                            let oraFmt =
-                                fmt
-                                    .Replace("yyyy", "YYYY")
-                                    .Replace("YYYY", "YYYY")
-                                    .Replace("yy", "YY")
-                                    .Replace("MM", "MM")
-                                    .Replace("dd", "DD")
-                                    .Replace("DD", "DD")
-                                    .Replace("HH", "HH24")
-                                    .Replace("hh", "HH12")
-                                    .Replace("mm", "MI")
-                                    .Replace("ss", "SS")
-                                    .Replace("SS", "SS")
-
-                            Some $"TO_CHAR({o}, '{oraFmt}')"
+                        match dialect.Dialect.TranslateDateFormat(o, fmt) with
+                        | Some f -> Some f
+                        | None -> Some(dialect.Dialect.TranslateCastToString o)
                     | None
-                    | _ ->
-                        match dialect with
-                        | SqlDialect.Sqlite -> Some $"CAST({o} AS TEXT)"
-                        | SqlDialect.SqlServer -> Some $"CAST({o} AS NVARCHAR(MAX))"
-                        | SqlDialect.PostgreSql -> Some $"CAST({o} AS TEXT)"
-                        | SqlDialect.MySql
-                        | SqlDialect.MariaDb -> Some $"CAST({o} AS CHAR)"
-                        | SqlDialect.Oracle -> Some $"TO_CHAR({o})"
+                    | _ -> Some(dialect.Dialect.TranslateCastToString o)
                 | None
                 | _ -> None
             elif mc.Method.DeclaringType = typeof<string> && mc.Method.Name = "Substring" then
@@ -3214,16 +3025,9 @@ module ExpressionPushdownTranslator =
                         else
                             None
 
-                    match startArg, lenArg with
-                    | Some s, Some l ->
-                        match dialect with
-                        | SqlDialect.SqlServer -> Some $"SUBSTRING({o}, ({s}) + 1, {l})"
-                        | _ -> Some $"SUBSTR({o}, ({s}) + 1, {l})"
-                    | Some s, None ->
-                        match dialect with
-                        | SqlDialect.SqlServer -> Some $"SUBSTRING({o}, ({s}) + 1, LEN({o}))"
-                        | _ -> Some $"SUBSTR({o}, ({s}) + 1)"
-                    | _ -> None
+                    match startArg with
+                    | Some s -> Some(dialect.Dialect.TranslateSubstring(o, s, lenArg))
+                    | None -> None
                 | None
                 | _ -> None
             elif
@@ -3277,12 +3081,7 @@ module ExpressionPushdownTranslator =
                 && mc.Arguments.Count = 1
             then
                 match translateScalarExpr dialect plan mc.Arguments.[0] with
-                | Some v ->
-                    match dialect with
-                    | SqlDialect.PostgreSql
-                    | SqlDialect.Sqlite
-                    | SqlDialect.Oracle -> Some $"CEIL({v})"
-                    | _ -> Some $"CEILING({v})"
+                | Some v -> Some(dialect.Dialect.TranslateCeiling v)
                 | None
                 | _ -> None
             elif
@@ -3353,11 +3152,7 @@ module ExpressionPushdownTranslator =
                 && mc.Arguments.Count >= 1
             then
                 match translateScalarExpr dialect plan mc.Object, translateScalarExpr dialect plan mc.Arguments.[0] with
-                | Some strSql, Some subSql ->
-                    match dialect with
-                    | SqlDialect.SqlServer -> Some $"(CHARINDEX({subSql}, {strSql}) - 1)"
-                    | SqlDialect.PostgreSql -> Some $"(POSITION({subSql} IN {strSql}) - 1)"
-                    | _ -> Some $"(INSTR({strSql}, {subSql}) - 1)"
+                | Some strSql, Some subSql -> Some(dialect.Dialect.TranslateIndexOf(strSql, subSql))
                 | _ -> None
             else
                 None

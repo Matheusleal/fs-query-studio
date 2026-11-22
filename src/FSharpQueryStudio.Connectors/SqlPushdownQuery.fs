@@ -94,7 +94,7 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
         with _ ->
             ()
 
-    let dialect = SqlDialect.fromConnectorKind (connector :> IConnector).Kind
+    let dialect = SqlDialect.fromConnectorToDialect (connector :> IConnector)
 
     member _.Connector = connector
     member _.BaseSql = baseSql
@@ -362,6 +362,11 @@ and SqlPushdownQueryable<'T>
         baseParameters: (string * obj) list,
         plan: PushdownQueryPlan
     ) =
+    let dialect =
+        match box provider with
+        | :? SqlPushdownQueryProvider as spp -> spp.Dialect
+        | _ -> defaultArg plan.Dialect (SqlDialect.fromConnectorToDialect (connector :> IConnector))
+
     new(connector: IQueryableConnector, baseSql: string, ?baseParameters: (string * obj) list) =
         let p = defaultArg baseParameters []
         let provider = SqlPushdownQueryProvider(connector, baseSql, p)
@@ -382,6 +387,7 @@ and SqlPushdownQueryable<'T>
     member _.Connector = connector
     member _.BaseSql = baseSql
     member _.BaseParameters = baseParameters
+    member _.Dialect = dialect
 
     /// Appends a raw parameterized WHERE clause directly to the pushdown query.
     member this.Where(filterSql: string, ?parameters: (string * obj) list) : SqlPushdownQueryable<'T> =
@@ -740,8 +746,7 @@ and SqlPushdownQueryable<'T>
         let p = provider :?> SqlPushdownQueryProvider
         let newPlan = plan.Clone()
 
-        let qCol =
-            SqlDialect.quoteIdentifier (SqlDialect.fromConnectorKind (connector :> IConnector).Kind) columnName
+        let qCol = SqlDialect.quoteIdentifier dialect columnName
 
         let dPrefix = if newPlan.IsDistinct then "DISTINCT " else ""
         newPlan.Projection <- Some $"COUNT({dPrefix}{qCol})"
@@ -752,7 +757,7 @@ and SqlPushdownQueryable<'T>
     member this.Count(colSelector: Expression<Func<'T, 'U>>) : int =
         let p = provider :?> SqlPushdownQueryProvider
         let newPlan = plan.Clone()
-        let dialect = SqlDialect.fromConnectorKind (connector :> IConnector).Kind
+        let dialect = SqlDialect.fromConnectorToDialect (connector :> IConnector)
 
         if colSelector.ReturnType = typeof<bool> then
             match
@@ -782,8 +787,7 @@ and SqlPushdownQueryable<'T>
         let p = provider :?> SqlPushdownQueryProvider
         let newPlan = plan.Clone()
 
-        let qCol =
-            SqlDialect.quoteIdentifier (SqlDialect.fromConnectorKind (connector :> IConnector).Kind) columnName
+        let qCol = SqlDialect.quoteIdentifier dialect columnName
 
         newPlan.Projection <- Some $"COUNT(DISTINCT {qCol})"
         let pExpr = (this :> IQueryable<'T>).Expression
@@ -806,8 +810,7 @@ and SqlPushdownQueryable<'T>
         let p = provider :?> SqlPushdownQueryProvider
         let newPlan = plan.Clone()
 
-        let qCol =
-            SqlDialect.quoteIdentifier (SqlDialect.fromConnectorKind (connector :> IConnector).Kind) columnName
+        let qCol = SqlDialect.quoteIdentifier dialect columnName
 
         newPlan.Projection <- Some $"SUM({qCol})"
         let pExpr = (this :> IQueryable<'T>).Expression
@@ -830,8 +833,7 @@ and SqlPushdownQueryable<'T>
         let p = provider :?> SqlPushdownQueryProvider
         let newPlan = plan.Clone()
 
-        let qCol =
-            SqlDialect.quoteIdentifier (SqlDialect.fromConnectorKind (connector :> IConnector).Kind) columnName
+        let qCol = SqlDialect.quoteIdentifier dialect columnName
 
         newPlan.Projection <- Some $"MIN({qCol})"
         let pExpr = (this :> IQueryable<'T>).Expression
@@ -854,8 +856,7 @@ and SqlPushdownQueryable<'T>
         let p = provider :?> SqlPushdownQueryProvider
         let newPlan = plan.Clone()
 
-        let qCol =
-            SqlDialect.quoteIdentifier (SqlDialect.fromConnectorKind (connector :> IConnector).Kind) columnName
+        let qCol = SqlDialect.quoteIdentifier dialect columnName
 
         newPlan.Projection <- Some $"MAX({qCol})"
         let pExpr = (this :> IQueryable<'T>).Expression
@@ -878,8 +879,7 @@ and SqlPushdownQueryable<'T>
         let p = provider :?> SqlPushdownQueryProvider
         let newPlan = plan.Clone()
 
-        let qCol =
-            SqlDialect.quoteIdentifier (SqlDialect.fromConnectorKind (connector :> IConnector).Kind) columnName
+        let qCol = SqlDialect.quoteIdentifier dialect columnName
 
         newPlan.Projection <- Some $"AVG({qCol})"
         let pExpr = (this :> IQueryable<'T>).Expression
@@ -927,8 +927,7 @@ and SqlPushdownQueryable<'T>
         let otherForSub = otherPlan.Clone()
         otherForSub.Ctes.Clear()
 
-        let subSql =
-            otherForSub.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
+        let subSql = otherForSub.BuildSql dialect
 
         let allOtherParams =
             otherForSub.BaseParameters @ (otherForSub.Parameters |> List.ofSeq)
@@ -1122,8 +1121,7 @@ and SqlPushdownQueryable<'T>
 
             let fullCtePlan = cp.ExtractPlan(cteQuery.Expression, seedPlan = seedPlan)
 
-            let mutable subSql =
-                fullCtePlan.BuildSql(SqlDialect.fromConnectorKind (connector :> IConnector).Kind)
+            let mutable subSql = fullCtePlan.BuildSql dialect
 
             for (pName, pVal) in fullCtePlan.Parameters do
                 let uniqueName = $"@p{newPlan.Parameters.Count}"
@@ -1449,7 +1447,7 @@ module SqlPushdownQuery =
             | Some d -> d
             | None ->
                 match connectorOpt with
-                | Some c -> SqlDialect.fromConnectorKind (c :> IConnector).Kind
+                | Some c -> SqlDialect.fromConnectorToDialect (c :> IConnector)
                 | None -> SqlDialect.Sqlite
 
         let planText =

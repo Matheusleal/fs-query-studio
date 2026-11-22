@@ -281,7 +281,7 @@ type ConnectorDialectDecouplingTests() =
             SqlServerDialect.Instance.TranslateJsonExtract("data", "$.name")
         )
 
-        Assert.Equal(Some "data ->> 'name'", PostgreSqlDialect.Instance.TranslateJsonExtract("data", "$.name"))
+        Assert.Equal(Some "(data ->> 'name')", PostgreSqlDialect.Instance.TranslateJsonExtract("data", "$.name"))
 
         Assert.Equal(
             Some "JSON_UNQUOTE(JSON_EXTRACT(data, '$.name'))",
@@ -410,3 +410,285 @@ type ConnectorDialectDecouplingTests() =
 
             if File.Exists tempDb then
                 File.Delete tempDb
+
+    // --- FormatSelect Dialect Tests (>= 2 per dialect) ---
+
+    [<Fact>]
+    member _.``SqliteDialect FormatSelect generates valid SELECT with LIMIT and OFFSET``() =
+        let dialect = SqliteDialect.Instance
+
+        let sql1 =
+            dialect.FormatSelect(
+                false,
+                "Id, Name",
+                "Users",
+                " WHERE Active = 1",
+                "",
+                "",
+                " ORDER BY Id ASC",
+                Some 10,
+                Some 20
+            )
+
+        Assert.Equal("SELECT Id, Name FROM Users WHERE Active = 1 ORDER BY Id ASC LIMIT 10 OFFSET 20", sql1)
+
+        let sql2 = dialect.FormatSelect(true, "Id", "Users", "", "", "", "", Some 5, None)
+        Assert.Equal("SELECT DISTINCT Id FROM Users LIMIT 5", sql2)
+
+        let sql3 = dialect.FormatSelect(false, "*", "Users", "", "", "", "", None, None)
+        Assert.Equal("SELECT * FROM Users", sql3)
+
+    [<Fact>]
+    member _.``SqlServerDialect FormatSelect handles TOP, OFFSET and FETCH NEXT correctly``() =
+        let dialect = SqlServerDialect.Instance
+        // Take only without order -> TOP (5)
+        let sqlTop =
+            dialect.FormatSelect(false, "Id, Name", "Users", " WHERE Active = 1", "", "", "", Some 5, None)
+
+        Assert.Equal("SELECT TOP (5) Id, Name FROM Users WHERE Active = 1", sqlTop)
+
+        // Take only with order -> OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY
+        let sqlTakeOrd =
+            dialect.FormatSelect(false, "Id, Name", "Users", "", "", "", " ORDER BY Id", Some 5, None)
+
+        Assert.Equal("SELECT Id, Name FROM Users ORDER BY Id OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY", sqlTakeOrd)
+
+        // Take and Skip -> OFFSET and FETCH NEXT with fallback order
+        let sqlPage =
+            dialect.FormatSelect(true, "Id", "Users", "", "", "", "", Some 10, Some 20)
+
+        Assert.Equal(
+            "SELECT DISTINCT Id FROM Users ORDER BY (SELECT NULL) OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY",
+            sqlPage
+        )
+
+        // Skip only -> OFFSET without FETCH NEXT
+        let sqlSkip =
+            dialect.FormatSelect(false, "*", "Users", "", "", "", " ORDER BY Id", None, Some 15)
+
+        Assert.Equal("SELECT * FROM Users ORDER BY Id OFFSET 15 ROWS", sqlSkip)
+
+    [<Fact>]
+    member _.``OracleDialect FormatSelect handles OFFSET and FETCH NEXT correctly``() =
+        let dialect = OracleDialect.Instance
+
+        let sql1 =
+            dialect.FormatSelect(false, "Id, Name", "Users", "", "", "", " ORDER BY Id ASC", Some 10, Some 20)
+
+        Assert.Equal("SELECT Id, Name FROM Users ORDER BY Id ASC OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY", sql1)
+
+        let sql2 = dialect.FormatSelect(true, "Id", "Users", "", "", "", "", Some 5, None)
+        Assert.Equal("SELECT DISTINCT Id FROM Users OFFSET 0 ROWS FETCH NEXT 5 ROWS ONLY", sql2)
+
+        let sql3 = dialect.FormatSelect(false, "*", "Users", "", "", "", "", None, Some 10)
+        Assert.Equal("SELECT * FROM Users OFFSET 10 ROWS", sql3)
+
+    [<Fact>]
+    member _.``PostgreSqlDialect FormatSelect handles LIMIT and OFFSET correctly``() =
+        let dialect = PostgreSqlDialect.Instance
+
+        let sql1 =
+            dialect.FormatSelect(false, "Id, Name", "Users", "", "", "", " ORDER BY Id", Some 10, Some 5)
+
+        Assert.Equal("SELECT Id, Name FROM Users ORDER BY Id LIMIT 10 OFFSET 5", sql1)
+
+        let sql2 =
+            dialect.FormatSelect(true, "Email", "Users", " WHERE Active = 1", "", "", "", None, Some 10)
+
+        Assert.Equal("SELECT DISTINCT Email FROM Users WHERE Active = 1 OFFSET 10", sql2)
+
+    [<Fact>]
+    member _.``MySqlDialect and MariaDbDialect FormatSelect handle LIMIT and OFFSET correctly``() =
+        let mysql = MySqlDialect.Instance
+        let maria = MariaDbDialect.Instance
+
+        let sqlMy = mysql.FormatSelect(false, "Id", "Users", "", "", "", "", Some 10, None)
+        Assert.Equal("SELECT Id FROM Users LIMIT 10", sqlMy)
+
+        let sqlMaria =
+            maria.FormatSelect(true, "Id", "Users", "", "", "", " ORDER BY Id", Some 10, Some 20)
+
+        Assert.Equal("SELECT DISTINCT Id FROM Users ORDER BY Id LIMIT 10 OFFSET 20", sqlMaria)
+
+    // --- FormatOuterApplyJoin Tests ---
+
+    [<Fact>]
+    member _.``SqliteDialect FormatOuterApplyJoin emulates outer apply with LEFT JOIN``() =
+        let dialect = SqliteDialect.Instance
+        let resWithOn = dialect.FormatOuterApplyJoin("Orders o", Some "u.Id = o.UserId")
+        Assert.Equal("LEFT JOIN Orders o ON u.Id = o.UserId", resWithOn)
+
+        let resWithoutOn = dialect.FormatOuterApplyJoin("Orders o", None)
+        Assert.Equal("LEFT JOIN Orders o ON 1=1", resWithoutOn)
+
+    [<Fact>]
+    member _.``SqlServer, Postgres, Oracle FormatOuterApplyJoin generates expected outer apply or lateral join``() =
+        let sqlServer = SqlServerDialect.Instance
+        let pg = PostgreSqlDialect.Instance
+        let ora = OracleDialect.Instance
+
+        Assert.Equal("OUTER APPLY Orders o", sqlServer.FormatOuterApplyJoin("Orders o", None))
+        Assert.Equal("LEFT JOIN LATERAL Orders o ON true", pg.FormatOuterApplyJoin("Orders o", None))
+
+        Assert.Equal(
+            "LEFT JOIN LATERAL Orders o ON o.Id = u.Id",
+            pg.FormatOuterApplyJoin("Orders o", Some "o.Id = u.Id")
+        )
+
+        Assert.Equal("OUTER APPLY Orders o", ora.FormatOuterApplyJoin("Orders o", None))
+
+    // --- PostProcessSql Tests ---
+
+    [<Fact>]
+    member _.``OracleDialect PostProcessSql strips invalid leading underscores from unquoted identifiers``() =
+        let dialect = OracleDialect.Instance
+
+        let sql =
+            "SELECT _t0.Id, _t0._Name, t1._Value FROM Users _t0 JOIN Orders t1 ON _t0.Id = t1.UserId"
+
+        let processed = dialect.PostProcessSql(sql)
+        Assert.Equal("SELECT t0.Id, t0.Name, t1.Value FROM Users t0 JOIN Orders t1 ON t0.Id = t1.UserId", processed)
+
+    [<Fact>]
+    member _.``Sqlite and SqlServer PostProcessSql keep SQL intact``() =
+        let sql = "SELECT _t0.Id FROM Users _t0"
+        Assert.Equal(sql, SqliteDialect.Instance.PostProcessSql(sql))
+        Assert.Equal(sql, SqlServerDialect.Instance.PostProcessSql(sql))
+
+    // --- Scalar Translation Tests (>= 2 per scenario) ---
+
+    [<Fact>]
+    member _.``Dialects FormatBooleanLiteral formats correctly for all engines``() =
+        Assert.Equal("1", SqliteDialect.Instance.FormatBooleanLiteral(true))
+        Assert.Equal("0", SqliteDialect.Instance.FormatBooleanLiteral(false))
+        Assert.Equal("1", SqlServerDialect.Instance.FormatBooleanLiteral(true))
+        Assert.Equal("0", SqlServerDialect.Instance.FormatBooleanLiteral(false))
+        Assert.Equal("TRUE", PostgreSqlDialect.Instance.FormatBooleanLiteral(true))
+        Assert.Equal("FALSE", PostgreSqlDialect.Instance.FormatBooleanLiteral(false))
+        Assert.Equal("1", MySqlDialect.Instance.FormatBooleanLiteral(true))
+        Assert.Equal("0", MariaDbDialect.Instance.FormatBooleanLiteral(false))
+        Assert.Equal("1", OracleDialect.Instance.FormatBooleanLiteral(true))
+
+    [<Fact>]
+    member _.``Dialects FormatIsEmpty and FormatIsNotEmpty translate correctly``() =
+        // Oracle uses LENGTH
+        Assert.Equal("(name IS NULL OR LENGTH(name) = 0)", OracleDialect.Instance.FormatIsEmpty("name"))
+        Assert.Equal("(name IS NOT NULL AND LENGTH(name) > 0)", OracleDialect.Instance.FormatIsNotEmpty("name"))
+
+        // Others use empty string check
+        Assert.Equal("(name IS NULL OR name = '')", SqliteDialect.Instance.FormatIsEmpty("name"))
+        Assert.Equal("(name IS NOT NULL AND name <> '')", SqliteDialect.Instance.FormatIsNotEmpty("name"))
+        Assert.Equal("(name IS NULL OR name = '')", SqlServerDialect.Instance.FormatIsEmpty("name"))
+        Assert.Equal("(name IS NOT NULL AND name <> '')", PostgreSqlDialect.Instance.FormatIsNotEmpty("name"))
+
+    [<Fact>]
+    member _.``Dialects TranslateStringLength and FormatConcat translate correctly``() =
+        // String Length: LEN in SqlServer, LENGTH in others
+        Assert.Equal("LEN(col)", SqlServerDialect.Instance.TranslateStringLength("col"))
+        Assert.Equal("LENGTH(col)", SqliteDialect.Instance.TranslateStringLength("col"))
+        Assert.Equal("LENGTH(col)", PostgreSqlDialect.Instance.TranslateStringLength("col"))
+
+        // Concat: + in SqlServer, CONCAT in MySql/MariaDb, || in others
+        Assert.Equal("(a + b + c)", SqlServerDialect.Instance.FormatConcat([ "a"; "b"; "c" ]))
+        Assert.Equal("CONCAT(a, b, c)", MySqlDialect.Instance.FormatConcat([ "a"; "b"; "c" ]))
+        Assert.Equal("CONCAT(a, b)", MariaDbDialect.Instance.FormatConcat([ "a"; "b" ]))
+        Assert.Equal("(a || b || c)", SqliteDialect.Instance.FormatConcat([ "a"; "b"; "c" ]))
+        Assert.Equal("(a || b)", PostgreSqlDialect.Instance.FormatConcat([ "a"; "b" ]))
+
+    [<Fact>]
+    member _.``Dialects TranslateDateFormat translates patterns correctly per engine``() =
+        let dt = "dt"
+        let fmt = "yyyy-MM-dd"
+
+        Assert.Equal(Some "strftime('%Y-%m-%d', dt)", SqliteDialect.Instance.TranslateDateFormat(dt, fmt))
+        Assert.Equal(Some "FORMAT(dt, 'yyyy-MM-dd')", SqlServerDialect.Instance.TranslateDateFormat(dt, fmt))
+        Assert.Equal(Some "to_char(dt, 'YYYY-MM-DD')", PostgreSqlDialect.Instance.TranslateDateFormat(dt, fmt))
+        Assert.Equal(Some "DATE_FORMAT(dt, '%Y-%m-%d')", MySqlDialect.Instance.TranslateDateFormat(dt, fmt))
+        Assert.Equal(Some "DATE_FORMAT(dt, '%Y-%m-%d')", MariaDbDialect.Instance.TranslateDateFormat(dt, fmt))
+        Assert.Equal(Some "TO_CHAR(dt, 'YYYY-MM-DD')", OracleDialect.Instance.TranslateDateFormat(dt, fmt))
+
+    [<Fact>]
+    member _.``Dialects TranslateCastToString, TranslateSubstring, TranslateCeiling, TranslateIndexOf translate correctly``
+        ()
+        =
+        // CastToString
+        Assert.Equal("CAST(x AS TEXT)", SqliteDialect.Instance.TranslateCastToString("x"))
+        Assert.Equal("CAST(x AS NVARCHAR(MAX))", SqlServerDialect.Instance.TranslateCastToString("x"))
+        Assert.Equal("CAST(x AS TEXT)", PostgreSqlDialect.Instance.TranslateCastToString("x"))
+        Assert.Equal("CAST(x AS CHAR)", MySqlDialect.Instance.TranslateCastToString("x"))
+        Assert.Equal("TO_CHAR(x)", OracleDialect.Instance.TranslateCastToString("x"))
+
+        // Substring
+        Assert.Equal("SUBSTRING(s, (0) + 1, 5)", SqlServerDialect.Instance.TranslateSubstring("s", "0", Some "5"))
+        Assert.Equal("SUBSTRING(s, (0) + 1, LEN(s))", SqlServerDialect.Instance.TranslateSubstring("s", "0", None))
+        Assert.Equal("SUBSTR(s, (0) + 1, 5)", SqliteDialect.Instance.TranslateSubstring("s", "0", Some "5"))
+        Assert.Equal("SUBSTR(s, (0) + 1)", SqliteDialect.Instance.TranslateSubstring("s", "0", None))
+        Assert.Equal("SUBSTR(s, (0) + 1, 5)", PostgreSqlDialect.Instance.TranslateSubstring("s", "0", Some "5"))
+
+        // Ceiling
+        Assert.Equal("CEIL(v)", SqliteDialect.Instance.TranslateCeiling("v"))
+        Assert.Equal("CEIL(v)", PostgreSqlDialect.Instance.TranslateCeiling("v"))
+        Assert.Equal("CEIL(v)", OracleDialect.Instance.TranslateCeiling("v"))
+        Assert.Equal("CEILING(v)", SqlServerDialect.Instance.TranslateCeiling("v"))
+        Assert.Equal("CEILING(v)", MySqlDialect.Instance.TranslateCeiling("v"))
+
+        // IndexOf
+        Assert.Equal("(CHARINDEX(sub, str) - 1)", SqlServerDialect.Instance.TranslateIndexOf("str", "sub"))
+        Assert.Equal("(POSITION(sub IN str) - 1)", PostgreSqlDialect.Instance.TranslateIndexOf("str", "sub"))
+        Assert.Equal("(INSTR(str, sub) - 1)", SqliteDialect.Instance.TranslateIndexOf("str", "sub"))
+        Assert.Equal("(INSTR(str, sub) - 1)", MySqlDialect.Instance.TranslateIndexOf("str", "sub"))
+
+    // --- IStagableConnector ReadRaw Tests ---
+
+    [<Fact>]
+    member _.``IStagableConnector ReadRaw reads CSV correctly with and without maxRows``() =
+        let tempCsv = Path.Combine(Path.GetTempPath(), $"readraw_{Guid.NewGuid():N}.csv")
+        File.WriteAllText(tempCsv, "Id,Name\n1,Alice\n2,Bob\n3,Charlie")
+
+        try
+            let connector = CsvConnector(tempCsv) :> IStagableConnector
+            let allRows = connector.ReadRaw None
+            Assert.Equal(3, allRows.Rows |> Seq.length)
+            Assert.Equal<string seq>([ "Id"; "Name" ], allRows.Columns)
+
+            let limitedRows = connector.ReadRaw(Some 2)
+            Assert.Equal(2, limitedRows.Rows |> Seq.length)
+        finally
+            if File.Exists tempCsv then
+                File.Delete tempCsv
+
+    [<Fact>]
+    member _.``IStagableConnector ReadRaw reads JSON correctly with and without maxRows``() =
+        let tempJson = Path.Combine(Path.GetTempPath(), $"readraw_{Guid.NewGuid():N}.json")
+        File.WriteAllText(tempJson, "[{\"Id\":1,\"Val\":\"A\"},{\"Id\":2,\"Val\":\"B\"},{\"Id\":3,\"Val\":\"C\"}]")
+
+        try
+            let connector = JsonConnector(tempJson) :> IStagableConnector
+            let allRows = connector.ReadRaw None
+            Assert.Equal(3, allRows.Rows |> Seq.length)
+
+            let limitedRows = connector.ReadRaw(Some 1)
+            Assert.Equal(1, limitedRows.Rows |> Seq.length)
+        finally
+            if File.Exists tempJson then
+                File.Delete tempJson
+
+    [<Fact>]
+    member _.``IStagableConnector ReadRaw reads XML correctly with and without maxRows``() =
+        let tempXml = Path.Combine(Path.GetTempPath(), $"readraw_{Guid.NewGuid():N}.xml")
+
+        File.WriteAllText(
+            tempXml,
+            "<Items><Item><Id>1</Id><Val>A</Val></Item><Item><Id>2</Id><Val>B</Val></Item></Items>"
+        )
+
+        try
+            let connector = XmlConnector(tempXml) :> IStagableConnector
+            let allRows = connector.ReadRaw None
+            Assert.Equal(2, allRows.Rows |> Seq.length)
+
+            let limitedRows = connector.ReadRaw(Some 1)
+            Assert.Equal(1, limitedRows.Rows |> Seq.length)
+        finally
+            if File.Exists tempXml then
+                File.Delete tempXml

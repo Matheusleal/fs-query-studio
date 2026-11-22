@@ -621,9 +621,9 @@ module Connections =
 
     let readCsvRaw (name: string) : ConnectorQueryResult =
         match resolve name with
-        | :? CsvConnector as c ->
+        | :? IStagableConnector as c ->
             let stopwatch = Stopwatch.StartNew()
-            let result = c.ReadRows()
+            let result = c.ReadRaw None
 
             { result with
                 Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows
@@ -632,9 +632,9 @@ module Connections =
 
     let readExcelRaw (name: string) (maxRows: int option) : ConnectorQueryResult =
         match resolve name with
-        | :? ExcelConnector as c ->
+        | :? IStagableConnector as c ->
             let stopwatch = Stopwatch.StartNew()
-            let result = c.ReadRows(?maxRows = maxRows)
+            let result = c.ReadRaw maxRows
 
             { result with
                 Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows
@@ -643,9 +643,9 @@ module Connections =
 
     let readJsonFileRaw (name: string) (maxRows: int option) : ConnectorQueryResult =
         match resolve name with
-        | :? JsonConnector as c ->
+        | :? IStagableConnector as c ->
             let stopwatch = Stopwatch.StartNew()
-            let result = c.ReadRows(?maxRows = maxRows)
+            let result = c.ReadRaw maxRows
 
             { result with
                 Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows
@@ -654,9 +654,9 @@ module Connections =
 
     let readXmlRaw (name: string) (maxRows: int option) : ConnectorQueryResult =
         match resolve name with
-        | :? XmlConnector as c ->
+        | :? IStagableConnector as c ->
             let stopwatch = Stopwatch.StartNew()
-            let result = c.ReadRows(?maxRows = maxRows)
+            let result = c.ReadRaw maxRows
 
             { result with
                 Rows = logOnceDrained (c :> IConnector).Kind stopwatch result.Rows

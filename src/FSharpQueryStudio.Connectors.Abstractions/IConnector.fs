@@ -81,6 +81,7 @@ type IStagableConnector =
             StagingResult
 
     abstract StagePrimaryTable: engine: IStagingEngine * connName: string -> string
+    abstract ReadRaw: maxRows: int option -> ConnectorQueryResult
 
 /// Common SQL dialect utilities and keyword lookup shared across all connectors.
 module SqlDialectCommon =
@@ -209,6 +210,32 @@ type ISqlDialect =
             string
 
     abstract SqlProviderType: string
+    abstract FormatOuterApplyJoin: tableSql: string * onClause: string option -> string
+
+    abstract FormatSelect:
+        distinct: bool *
+        selectCols: string *
+        fromSource: string *
+        whereSql: string *
+        groupBySql: string *
+        havingSql: string *
+        orderSql: string *
+        take: int option *
+        skip: int option ->
+            string
+
+    abstract PostProcessSql: finalSql: string -> string
+    abstract FormatBooleanLiteral: value: bool -> string
+    abstract FormatIsEmpty: col: string -> string
+    abstract FormatIsNotEmpty: col: string -> string
+    abstract DefaultWindowOrder: string option
+    abstract TranslateStringLength: operand: string -> string
+    abstract FormatConcat: parts: string list -> string
+    abstract TranslateDateFormat: operand: string * format: string -> string option
+    abstract TranslateCastToString: operand: string -> string
+    abstract TranslateSubstring: operand: string * startExpr: string * lengthExpr: string option -> string
+    abstract TranslateCeiling: operand: string -> string
+    abstract TranslateIndexOf: strSql: string * subSql: string -> string
 
 /// Provided by SQL connectors that can supply an ISqlDialect instance.
 type ISqlDialectProvider =

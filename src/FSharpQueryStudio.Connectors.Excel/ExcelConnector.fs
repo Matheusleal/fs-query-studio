@@ -402,3 +402,5 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
                     | [] -> "Sheet1"
 
             this.StageSheet(engine, connName, defaultSheet, None, true)
+
+        member this.ReadRaw(maxRows: int option) = this.ReadRows(?maxRows = maxRows)

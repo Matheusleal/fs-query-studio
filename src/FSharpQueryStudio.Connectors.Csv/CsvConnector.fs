@@ -588,3 +588,13 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
 
         member this.StagePrimaryTable(engine: IStagingEngine, connName: string) =
             this.StagePrimaryTable(engine, connName)
+
+        member this.ReadRaw(maxRows: int option) =
+            let result = this.ReadRows()
+
+            match maxRows with
+            | Some m when m >= 0 ->
+                { result with
+                    Rows = result.Rows |> Seq.truncate m
+                }
+            | _ -> result
