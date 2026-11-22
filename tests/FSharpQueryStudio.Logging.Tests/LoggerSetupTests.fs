@@ -7,7 +7,9 @@ open FSharpQueryStudio.Logging
 
 [<Fact>]
 let ``worker-role logger never writes to stdout, only stderr and its file`` () =
-    let tempDir = Path.Combine(Path.GetTempPath(), "fqs-logger-tests-" + Guid.NewGuid().ToString("N"))
+    let tempDir =
+        Path.Combine(Path.GetTempPath(), "fqs-logger-tests-" + Guid.NewGuid().ToString("N"))
+
     Directory.CreateDirectory(tempDir) |> ignore
     let originalOut = Console.Out
     let originalErr = Console.Error
@@ -34,7 +36,9 @@ let ``worker-role logger never writes to stdout, only stderr and its file`` () =
 
 [<Fact>]
 let ``host-role logger writes its file under the given logs directory`` () =
-    let tempDir = Path.Combine(Path.GetTempPath(), "fqs-logger-tests-" + Guid.NewGuid().ToString("N"))
+    let tempDir =
+        Path.Combine(Path.GetTempPath(), "fqs-logger-tests-" + Guid.NewGuid().ToString("N"))
+
     Directory.CreateDirectory(tempDir) |> ignore
 
     try

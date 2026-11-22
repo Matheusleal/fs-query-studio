@@ -32,4 +32,6 @@ module CancellationSignal =
 
     let reset (workingDirectory: string) : unit =
         let path = sentinelPath workingDirectory
-        if File.Exists(path) then File.Delete(path)
+
+        if File.Exists(path) then
+            File.Delete(path)

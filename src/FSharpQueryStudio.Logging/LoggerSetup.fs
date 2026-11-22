@@ -46,8 +46,8 @@ module LoggerSetup =
             .MinimumLevel.Debug()
         |> withConsole
         |> fun config ->
-            config
-                .WriteTo.File(
+            config.WriteTo
+                .File(
                     JsonFormatter(renderMessage = true),
                     Path.Combine(logsDirectory, $"{filePrefix}-.log"),
                     restrictedToMinimumLevel = LogEventLevel.Information,

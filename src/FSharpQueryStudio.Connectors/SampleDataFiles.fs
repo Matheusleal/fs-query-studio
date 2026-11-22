@@ -1258,4 +1258,3 @@ module SampleDataFiles =
         writer.WriteEndElement() // LogisticsHub
         writer.WriteEndDocument()
         writer.Flush()
-

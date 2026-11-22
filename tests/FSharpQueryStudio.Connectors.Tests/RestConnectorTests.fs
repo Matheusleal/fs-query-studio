@@ -35,16 +35,24 @@ type private HttpStub(handle: HttpListenerContext -> Task) =
                     let! context = listener.GetContextAsync()
                     do! handle context
                     context.Response.Close()
-                with
-                | _ -> keepGoing <- false
+                with _ ->
+                    keepGoing <- false
         }
 
     member _.BaseUrl = $"http://127.0.0.1:{port}"
 
     interface IDisposable with
         member _.Dispose() =
-            try listener.Stop() with _ -> ()
-            try listener.Close() with _ -> ()
+            try
+                listener.Stop()
+            with _ ->
+                ()
+
+            try
+                listener.Close()
+            with _ ->
+                ()
+
             ignore acceptTask
 
 let private writeJson (context: HttpListenerContext) (json: string) : Task =
@@ -71,7 +79,8 @@ let ``SendAsync sends the configured query params/headers and parses the JSON re
         let options =
             { RestRequestOptions.Get($"{stub.BaseUrl}/items") with
                 QueryParams = [ "id", "42" ]
-                Headers = [ "X-Api-Key", "test-token" ] }
+                Headers = [ "X-Api-Key", "test-token" ]
+            }
 
         let connector = RestConnector(options)
         let! result = connector.SendAsync options CancellationToken.None
@@ -95,7 +104,8 @@ let ``SendAsync sends a POST body and the stub echoes what it received`` () =
         let options =
             { RestRequestOptions.Get($"{stub.BaseUrl}/run") with
                 Method = "POST"
-                Body = Some """{"query":"select 1"}""" }
+                Body = Some """{"query":"select 1"}"""
+            }
 
         let connector = RestConnector(options)
         let! result = connector.SendAsync options CancellationToken.None
@@ -135,7 +145,9 @@ let ``PaginateAsync follows next-page links until extractNextUrl returns None`` 
 let ``TestConnectionAsync returns true when the endpoint responds successfully and false when unreachable`` () =
     task {
         use stub = new HttpStub(fun ctx -> writeJson ctx "{}")
-        let reachable = RestConnector(RestRequestOptions.Get($"{stub.BaseUrl}/health")) :> IConnector
+
+        let reachable =
+            RestConnector(RestRequestOptions.Get($"{stub.BaseUrl}/health")) :> IConnector
 
         let unreachable =
             RestConnector(RestRequestOptions.Get("http://127.0.0.1:1")) :> IConnector
@@ -149,7 +161,8 @@ let ``TestConnectionAsync returns true when the endpoint responds successfully a
 
 [<Fact>]
 let ``RestConnector reports its Kind as RestJson`` () =
-    let connector = RestConnector(RestRequestOptions.Get("http://127.0.0.1/x")) :> IConnector
+    let connector =
+        RestConnector(RestRequestOptions.Get("http://127.0.0.1/x")) :> IConnector
 
     Assert.Equal(ConnectorKind.RestJson, connector.Kind)
 
@@ -163,18 +176,25 @@ let ``RestDescriptor and RestConnectorFactory coverage`` () =
     Assert.Equal(1, descriptor.FormFields.Length)
     Assert.True(descriptor.EntityGenerator.IsNone)
 
-    let validJson = System.Text.Json.JsonDocument.Parse("""{"url": "https://api.test.com"}""").RootElement
+    let validJson =
+        System.Text.Json.JsonDocument.Parse("""{"url": "https://api.test.com"}""").RootElement
+
     Assert.True(descriptor.ValidateConfiguration(validJson).IsOk)
     let invalidJson = System.Text.Json.JsonDocument.Parse("""{}""").RootElement
     Assert.True(descriptor.ValidateConfiguration(invalidJson).IsError)
 
     let factory = descriptor.Factory
-    let dummyStore = { new FSharpQueryStudio.Security.ISecretStore with
-        member _.TryRead(_) = None
-        member _.TryReadAsync(_, _) = System.Threading.Tasks.Task.FromResult None
-        member _.Save _ _ = ()
-        member _.Delete _ = ()
-    }
+
+    let dummyStore =
+        { new FSharpQueryStudio.Security.ISecretStore with
+            member _.TryRead(_) = None
+
+            member _.TryReadAsync(_, _) =
+                System.Threading.Tasks.Task.FromResult None
+
+            member _.Save _ _ = ()
+            member _.Delete _ = ()
+        }
 
     // String config
     let strDoc = System.Text.Json.JsonDocument.Parse("\"https://api.test.com/items\"")
@@ -182,7 +202,9 @@ let ``RestDescriptor and RestConnectorFactory coverage`` () =
     Assert.Equal("https://api.test.com/items", conn1.BaseOptions.Url)
 
     // Object config with url
-    let objDoc1 = System.Text.Json.JsonDocument.Parse("""{"url": "https://api.test.com/v2"}""")
+    let objDoc1 =
+        System.Text.Json.JsonDocument.Parse("""{"url": "https://api.test.com/v2"}""")
+
     let conn2 = factory.Create(objDoc1.RootElement, dummyStore, None) :?> RestConnector
     Assert.Equal("https://api.test.com/v2", conn2.BaseOptions.Url)
 
@@ -190,4 +212,3 @@ let ``RestDescriptor and RestConnectorFactory coverage`` () =
     let objDoc2 = System.Text.Json.JsonDocument.Parse("""{"other": 123}""")
     let conn3 = factory.Create(objDoc2.RootElement, dummyStore, None) :?> RestConnector
     Assert.NotNull(conn3)
-

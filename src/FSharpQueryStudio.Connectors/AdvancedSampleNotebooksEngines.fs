@@ -4,7 +4,14 @@ open AdvancedSampleNotebookCommon
 
 module AdvancedSampleNotebooksEngines =
 
-    let private buildEngineNotebook (engineDisplayName: string) (connName: string) (isUpper: bool) (dockerService: string) (icon: string) (isPt: bool) : string =
+    let private buildEngineNotebook
+        (engineDisplayName: string)
+        (connName: string)
+        (isUpper: bool)
+        (dockerService: string)
+        (icon: string)
+        (isPt: bool)
+        : string =
         let defaultDb = if isUpper then "SYSTEM" else "fsqs_demo"
         let tblProd = if isUpper then "PRODUCTS" else "products"
         let tblOrd = if isUpper then "ORDERS" else "orders"
@@ -24,7 +31,8 @@ module AdvancedSampleNotebooksEngines =
         let cells =
             if not isPt then
                 [
-                    mkMarkdown $"""
+                    mkMarkdown
+                        $"""
 # {icon} {engineDisplayName} Advanced FSQL Showcase & Diagnostics
 
 This notebook demonstrates the full power of **FSQL** pushed down to **{engineDisplayName}**:
@@ -48,7 +56,8 @@ docker compose -f docker-compose.fsqs.yml up -d {dockerService}
 ```
 """
                     mkMarkdown "## 1. ⚡ Analytic Window Functions (Partitioning & Running Aggregates)"
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 1. Ranking products per category by price with running totals in {engineDisplayName}
 fsql {{
     for p in Connections.sql.{connName}.{tblProd} do
@@ -66,7 +75,8 @@ fsql {{
 }}
 """
                     mkMarkdown "## 2. 🧭 Positional & Value Window Functions (`lag`, `lead`, `firstValue`, `lastValue`)"
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 2.1 Comparing order values with previous and subsequent transactions using lag and lead
 fsql {{
     for o in Connections.sql.{connName}.{tblOrd} do
@@ -79,7 +89,8 @@ fsql {{
     |}}
 }}
 """
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 2.2 First and last values within each category's partition
 fsql {{
     for p in Connections.sql.{connName}.{tblProd} do
@@ -93,7 +104,8 @@ fsql {{
 }}
 """
                     mkMarkdown "## 3. 🔍 Semi-Structured JSON Navigation (`fsql.jsonValue`)"
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 3. Extracting nested attributes from JSON columns
 fsql {{
     for p in Connections.sql.{connName}.{tblProd} do
@@ -105,7 +117,8 @@ fsql {{
 }}
 """
                     mkMarkdown "## 4. 🎯 Correlated Subqueries & Existence Predicates (`whereExists` / `notExists`)"
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 4.1 Finding customers who placed high-value orders (>= $200) with correlated order count
 fsql {{
     for c in Connections.sql.{connName}.{tblCust} do
@@ -117,7 +130,8 @@ fsql {{
     |}}
 }}
 """
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 4.2 Finding customers with no pending orders
 fsql {{
     for c in Connections.sql.{connName}.{tblCust} do
@@ -129,7 +143,8 @@ fsql {{
 }}
 """
                     mkMarkdown "## 5. 🔗 Relational Joins & Grouping with Having"
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 5.1 Left outer join between customers and orders
 fsql {{
     for c in Connections.sql.{connName}.{tblCust} do
@@ -143,7 +158,8 @@ fsql {{
     |}}
 }}
 """
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 5.2 Grouping orders by status with HAVING aggregate filtering
 fsql {{
     for o in Connections.sql.{connName}.{tblOrd} do
@@ -157,7 +173,8 @@ fsql {{
 }}
 """
                     mkMarkdown "## 6. 🧱 Common Table Expressions (CTE) & Set Operations"
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 6.1 Querying with CTE composition
 let highValue =
     fsql {{
@@ -176,7 +193,8 @@ fsql {{
 }}
 """
                     mkMarkdown "## 7. 🩺 Live Query Plan Diagnostics (Explain)"
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 7. Inspecting execution plan diagnostics pushed down to {engineDisplayName}
 let sampleQuery =
     fsql {{
@@ -194,7 +212,8 @@ printfn "Dialect: %%A" diag.Dialect
 printfn "%%s" diag.PlanText
 """
                     mkMarkdown "## 8. 🛡️ Null & Empty Filtering (`isNotNull`, `isNotEmpty`, `isNotNullOrEmpty`)"
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 8. Filter non-null and non-empty columns with full SQL pushdown in {engineDisplayName}
 fsql {{
     for c in Connections.sql.{connName}.{tblCust} do
@@ -205,8 +224,10 @@ fsql {{
     |}}
 }}
 """
-                    mkMarkdown "## 9. 🌳 Multi-Database Hierarchical Tree Mapping (`Connections.sql.<Conn>.<Database>.<Table>`)"
-                    mkCode $"""
+                    mkMarkdown
+                        "## 9. 🌳 Multi-Database Hierarchical Tree Mapping (`Connections.sql.<Conn>.<Database>.<Table>`)"
+                    mkCode
+                        $"""
 // 9. Query tables directly via the discovered database tree hierarchy ({defaultDb})
 fsql {{
     for p in Connections.sql.{connName}.{defaultDb}.{tblProd} do
@@ -223,7 +244,8 @@ fsql {{
                 ]
             else
                 [
-                    mkMarkdown $"""
+                    mkMarkdown
+                        $"""
 # {icon} Demonstração Avançada e Diagnósticos FSQL com {engineDisplayName}
 
 Este caderno demonstra todo o poder do **FSQL** com pushdown completo para o **{engineDisplayName}**:
@@ -247,7 +269,8 @@ docker compose -f docker-compose.fsqs.yml up -d {dockerService}
 ```
 """
                     mkMarkdown "## 1. ⚡ Funções de Janela Analíticas (Particionamento e Agregações Acumuladas)"
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 1. Ranking de produtos por categoria por preço com totais acumulados no {engineDisplayName}
 fsql {{
     for p in Connections.sql.{connName}.{tblProd} do
@@ -264,8 +287,10 @@ fsql {{
     |}}
 }}
 """
-                    mkMarkdown "## 2. 🧭 Funções de Janela Posicionais e de Valor (`lag`, `lead`, `firstValue`, `lastValue`)"
-                    mkCode $"""
+                    mkMarkdown
+                        "## 2. 🧭 Funções de Janela Posicionais e de Valor (`lag`, `lead`, `firstValue`, `lastValue`)"
+                    mkCode
+                        $"""
 // 2.1 Comparando valores de pedidos com pedidos anteriores e posteriores usando lag e lead
 fsql {{
     for o in Connections.sql.{connName}.{tblOrd} do
@@ -278,7 +303,8 @@ fsql {{
     |}}
 }}
 """
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 2.2 Primeiros e últimos valores dentro da janela de cada categoria
 fsql {{
     for p in Connections.sql.{connName}.{tblProd} do
@@ -292,7 +318,8 @@ fsql {{
 }}
 """
                     mkMarkdown "## 3. 🔍 Navegação em JSON Semi-Estruturado (`fsql.jsonValue`)"
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 3. Extraindo atributos de colunas JSON nativas
 fsql {{
     for p in Connections.sql.{connName}.{tblProd} do
@@ -303,8 +330,10 @@ fsql {{
     |}}
 }}
 """
-                    mkMarkdown "## 4. 🎯 Subqueries Correlacionadas e Predicados de Existência (`whereExists` / `notExists`)"
-                    mkCode $"""
+                    mkMarkdown
+                        "## 4. 🎯 Subqueries Correlacionadas e Predicados de Existência (`whereExists` / `notExists`)"
+                    mkCode
+                        $"""
 // 4.1 Clientes com pedidos de alto valor (>= R$ 200) e contagem correlacionada
 fsql {{
     for c in Connections.sql.{connName}.{tblCust} do
@@ -316,7 +345,8 @@ fsql {{
     |}}
 }}
 """
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 4.2 Clientes sem pedidos pendentes
 fsql {{
     for c in Connections.sql.{connName}.{tblCust} do
@@ -328,7 +358,8 @@ fsql {{
 }}
 """
                     mkMarkdown "## 5. 🔗 Junções Relacionais e Agrupamento com Having"
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 5.1 Left outer join entre clientes e pedidos
 fsql {{
     for c in Connections.sql.{connName}.{tblCust} do
@@ -342,7 +373,8 @@ fsql {{
     |}}
 }}
 """
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 5.2 Agrupamento por status com filtro agregado HAVING
 fsql {{
     for o in Connections.sql.{connName}.{tblOrd} do
@@ -356,7 +388,8 @@ fsql {{
 }}
 """
                     mkMarkdown "## 6. 🧱 Common Table Expressions (CTE) & Operações de Conjunto"
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 6.1 Consulta com composição de CTEs
 let pedidosRelevantes =
     fsql {{
@@ -375,7 +408,8 @@ fsql {{
 }}
 """
                     mkMarkdown "## 7. 🩺 Diagnósticos em Tempo Real do Plano de Execução (Explain)"
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 7. Inspecionando o plano de execução gerado pelo {engineDisplayName}
 let consultaComplexa =
     fsql {{
@@ -393,7 +427,8 @@ printfn "Dialeto: %%A" diag.Dialect
 printfn "%%s" diag.PlanText
 """
                     mkMarkdown "## 8. 🛡️ Filtros `isNotNull`, `isNotEmpty` e `isNotNullOrEmpty`"
-                    mkCode $"""
+                    mkCode
+                        $"""
 // 8. Filtra colunas não nulas e não vazias com pushdown SQL completo no {engineDisplayName}
 fsql {{
     for c in Connections.sql.{connName}.{tblCust} do
@@ -404,8 +439,10 @@ fsql {{
     |}}
 }}
 """
-                    mkMarkdown "## 9. 🌳 Mapeamento Hierárquico Multi-Database em Árvore (`Connections.sql.<Conn>.<Database>.<Table>`)"
-                    mkCode $"""
+                    mkMarkdown
+                        "## 9. 🌳 Mapeamento Hierárquico Multi-Database em Árvore (`Connections.sql.<Conn>.<Database>.<Table>`)"
+                    mkCode
+                        $"""
 // 9. Consulta tabelas diretamente pela hierarquia em árvore do database descoberto ({defaultDb})
 fsql {{
     for p in Connections.sql.{connName}.{defaultDb}.{tblProd} do
@@ -420,14 +457,23 @@ fsql {{
 }}
 """
                 ]
+
         serializeNotebook cells
 
-    let getMySqlNotebook () = buildEngineNotebook "MySQL" "MySQL_Advanced" false "fsqs-mysql" "🐬" false
-    let getMySqlNotebookPt () = buildEngineNotebook "MySQL" "MySQL_Advanced" false "fsqs-mysql" "🐬" true
+    let getMySqlNotebook () =
+        buildEngineNotebook "MySQL" "MySQL_Advanced" false "fsqs-mysql" "🐬" false
 
-    let getMariaDbNotebook () = buildEngineNotebook "MariaDB" "MariaDB_Advanced" false "fsqs-mariadb" "🦭" false
-    let getMariaDbNotebookPt () = buildEngineNotebook "MariaDB" "MariaDB_Advanced" false "fsqs-mariadb" "🦭" true
+    let getMySqlNotebookPt () =
+        buildEngineNotebook "MySQL" "MySQL_Advanced" false "fsqs-mysql" "🐬" true
 
-    let getOracleNotebook () = buildEngineNotebook "Oracle" "Oracle_Advanced" true "fsqs-oracle" "🔴" false
-    let getOracleNotebookPt () = buildEngineNotebook "Oracle" "Oracle_Advanced" true "fsqs-oracle" "🔴" true
+    let getMariaDbNotebook () =
+        buildEngineNotebook "MariaDB" "MariaDB_Advanced" false "fsqs-mariadb" "🦭" false
 
+    let getMariaDbNotebookPt () =
+        buildEngineNotebook "MariaDB" "MariaDB_Advanced" false "fsqs-mariadb" "🦭" true
+
+    let getOracleNotebook () =
+        buildEngineNotebook "Oracle" "Oracle_Advanced" true "fsqs-oracle" "🔴" false
+
+    let getOracleNotebookPt () =
+        buildEngineNotebook "Oracle" "Oracle_Advanced" true "fsqs-oracle" "🔴" true

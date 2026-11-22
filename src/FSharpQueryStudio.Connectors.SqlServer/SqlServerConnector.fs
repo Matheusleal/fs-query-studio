@@ -13,7 +13,8 @@ module SqlServerConnectorExtensions =
         static member SqlServer = ConnectorKind("SqlServer")
 
     type ConnectorCategory with
-        static member Sql = ConnectorCategory("sql", "Db", "FSharpQueryStudio.Connectors.Connections.SqlCategory")
+        static member Sql =
+            ConnectorCategory("sql", "Db", "FSharpQueryStudio.Connectors.Connections.SqlCategory")
 
 /// SQL Server connector — Section 10, same capability shape as
 /// `SqliteConnector`: connection, parameterized commands, reader-based
@@ -38,18 +39,23 @@ type SqlServerConnector(connectionString: string) =
         initialCmd.CommandText <- sql
         SqlServerConnector.BindParameters(initialCmd, parameters)
         let initialReader = initialCmd.ExecuteReader(CommandBehavior.CloseConnection)
-        let columns = [ for i in 0 .. initialReader.FieldCount - 1 -> initialReader.GetName(i) ]
-        let mutable firstRun = Some (initialConn, initialCmd, initialReader)
+
+        let columns =
+            [ for i in 0 .. initialReader.FieldCount - 1 -> initialReader.GetName(i) ]
+
+        let mutable firstRun = Some(initialConn, initialCmd, initialReader)
 
         let rows =
             Seq.delay (fun () ->
                 match firstRun with
-                | Some (conn, cmd, reader) ->
+                | Some(conn, cmd, reader) ->
                     firstRun <- None
+
                     seq {
                         use _c = conn
                         use _cmd = cmd
                         use _r = reader
+
                         while reader.Read() do
                             yield [| for i in 0 .. reader.FieldCount - 1 -> reader.GetValue(i) |]
                     }
@@ -60,19 +66,24 @@ type SqlServerConnector(connectionString: string) =
                     cmd.CommandText <- sql
                     SqlServerConnector.BindParameters(cmd, parameters)
                     let reader = cmd.ExecuteReader(CommandBehavior.CloseConnection)
+
                     seq {
                         use _c = conn
                         use _cmd = cmd
                         use _r = reader
+
                         while reader.Read() do
                             yield [| for i in 0 .. reader.FieldCount - 1 -> reader.GetValue(i) |]
-                    }
-            )
+                    })
 
         { Columns = columns; Rows = rows }
 
     /// Executes `sql` and streams rows directly into a typed F# record without creating intermediate obj[] arrays per row.
-    member this.ExecuteReaderStreamWithColumns<'T> (sql: string) (parameters: (string * obj) list) (mapperFactory: string list -> (System.Data.IDataRecord -> 'T)) : 'T seq =
+    member this.ExecuteReaderStreamWithColumns<'T>
+        (sql: string)
+        (parameters: (string * obj) list)
+        (mapperFactory: string list -> (System.Data.IDataRecord -> 'T))
+        : 'T seq =
         Seq.delay (fun () ->
             let connection = new SqlConnection(connectionString)
             connection.Open()
@@ -80,6 +91,7 @@ type SqlServerConnector(connectionString: string) =
             command.CommandText <- sql
             SqlServerConnector.BindParameters(command, parameters)
             let reader = command.ExecuteReader(CommandBehavior.CloseConnection)
+
             seq {
                 use _conn = connection
                 use _cmd = command
@@ -90,11 +102,14 @@ type SqlServerConnector(connectionString: string) =
 
                 while reader.Read() do
                     yield mapper record
-            }
-        )
+            })
 
     /// Executes `sql` and streams rows directly into a typed F# record using a pre-configured mapper.
-    member this.ExecuteReaderStream<'T> (sql: string) (parameters: (string * obj) list) (mapper: System.Data.IDataRecord -> 'T) : 'T seq =
+    member this.ExecuteReaderStream<'T>
+        (sql: string)
+        (parameters: (string * obj) list)
+        (mapper: System.Data.IDataRecord -> 'T)
+        : 'T seq =
         this.ExecuteReaderStreamWithColumns sql parameters (fun _ -> mapper)
 
     /// Every base table, view and column across all accessible databases on the SQL Server instance.
@@ -104,19 +119,25 @@ type SqlServerConnector(connectionString: string) =
             do! connection.OpenAsync(ct)
 
             let dbNames = ResizeArray<string>()
+
             try
                 use dbCmd = connection.CreateCommand()
+
                 dbCmd.CommandText <-
                     "SELECT name FROM sys.databases WHERE state = 0 AND name NOT IN ('tempdb', 'model', 'msdb') AND HAS_DBACCESS(name) = 1 ORDER BY name"
+
                 use! dbReader = dbCmd.ExecuteReaderAsync(ct)
                 let mutable moreDbs = true
+
                 while moreDbs do
                     let! hasNext = dbReader.ReadAsync(ct)
+
                     if hasNext then
                         dbNames.Add(dbReader.GetString(0))
                     else
                         moreDbs <- false
-            with _ -> ()
+            with _ ->
+                ()
 
             if dbNames.Count = 0 && not (String.IsNullOrWhiteSpace connection.Database) then
                 dbNames.Add(connection.Database)
@@ -127,6 +148,7 @@ type SqlServerConnector(connectionString: string) =
                 try
                     let escapedDb = "[" + dbName.Replace("]", "]]") + "]"
                     use command = connection.CreateCommand()
+
                     command.CommandText <-
                         $"SELECT s.name AS TABLE_SCHEMA, o.name AS TABLE_NAME, c.name AS COLUMN_NAME, t.name AS DATA_TYPE \
                           FROM {escapedDb}.sys.objects o \
@@ -141,13 +163,22 @@ type SqlServerConnector(connectionString: string) =
 
                     use! reader = command.ExecuteReaderAsync(ct)
                     let mutable hasRow = true
+
                     while hasRow do
                         let! more = reader.ReadAsync(ct)
+
                         if more then
-                            rows.Add((dbName, reader.GetString(0), reader.GetString(1), reader.GetString(2), reader.GetString(3)))
+                            rows.Add(
+                                (dbName,
+                                 reader.GetString(0),
+                                 reader.GetString(1),
+                                 reader.GetString(2),
+                                 reader.GetString(3))
+                            )
                         else
                             hasRow <- false
-                with _ -> ()
+                with _ ->
+                    ()
 
             return
                 rows
@@ -157,11 +188,19 @@ type SqlServerConnector(connectionString: string) =
                     else
                         $"{dbName}.{schema}.{tableName}")
                 |> Seq.map (fun (displayName, tableRows) ->
-                    { Name = displayName
-                      Columns =
-                        tableRows
-                        |> Seq.map (fun (_, _, _, columnName, dataType) -> ({ Name = columnName; DataType = dataType }: ConnectorColumn))
-                        |> List.ofSeq }: ConnectorTable)
+                    {
+                        Name = displayName
+                        Columns =
+                            tableRows
+                            |> Seq.map (fun (_, _, _, columnName, dataType) ->
+                                ({
+                                    Name = columnName
+                                    DataType = dataType
+                                }
+                                : ConnectorColumn))
+                            |> List.ofSeq
+                    }
+                    : ConnectorTable)
                 |> List.ofSeq
         }
 
@@ -187,8 +226,16 @@ type SqlServerConnector(connectionString: string) =
         member this.ExecuteQuery (sql: string) (parameters: (string * obj) list) = this.ExecuteQuery sql parameters
 
     interface IStreamingQueryableConnector with
-        member this.ExecuteReaderStream (sql: string) (parameters: (string * obj) list) (mapper: System.Data.IDataRecord -> 'T) : 'T seq =
+        member this.ExecuteReaderStream
+            (sql: string)
+            (parameters: (string * obj) list)
+            (mapper: System.Data.IDataRecord -> 'T)
+            : 'T seq =
             this.ExecuteReaderStream sql parameters mapper
-        member this.ExecuteReaderStreamWithColumns (sql: string) (parameters: (string * obj) list) (mapperFactory: string list -> (System.Data.IDataRecord -> 'T)) : 'T seq =
-            this.ExecuteReaderStreamWithColumns sql parameters mapperFactory
 
+        member this.ExecuteReaderStreamWithColumns
+            (sql: string)
+            (parameters: (string * obj) list)
+            (mapperFactory: string list -> (System.Data.IDataRecord -> 'T))
+            : 'T seq =
+            this.ExecuteReaderStreamWithColumns sql parameters mapperFactory

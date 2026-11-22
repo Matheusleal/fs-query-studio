@@ -41,7 +41,9 @@ let ``signatureHelp on a higher-order function doesn't fragment a function-typed
         // `Parameters.Length = 3` instead of the correct 2 and a mangled
         // first parameter's text. Position here is right after `apply `
         // on line 2 (before the `(fun ...)` argument).
-        let source = "let apply (f: int -> int) (x: int) = f x\nlet r = apply (fun n -> n + 1) 5"
+        let source =
+            "let apply (f: int -> int) (x: int) = f x\nlet r = apply (fun n -> n + 1) 5"
+
         let! result = FsacBridge.signatureHelp uri 1 source 2 14
 
         match result with

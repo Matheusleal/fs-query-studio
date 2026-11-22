@@ -7,9 +7,11 @@ open Xunit
 open FSharpQueryStudio.Fsac
 
 type private Loopback =
-    { OurClient: LspClient
-      ServerRead: AnonymousPipeClientStream
-      ServerWrite: AnonymousPipeServerStream }
+    {
+        OurClient: LspClient
+        ServerRead: AnonymousPipeClientStream
+        ServerWrite: AnonymousPipeServerStream
+    }
 
     interface System.IDisposable with
         member this.Dispose() =
@@ -22,15 +24,22 @@ type private Loopback =
 /// `fsautocomplete` binary.
 let private makeLoopback () =
     let toServer = new AnonymousPipeServerStream(PipeDirection.Out)
-    let toServerClient = new AnonymousPipeClientStream(PipeDirection.In, toServer.GetClientHandleAsString())
+
+    let toServerClient =
+        new AnonymousPipeClientStream(PipeDirection.In, toServer.GetClientHandleAsString())
+
     let toClient = new AnonymousPipeServerStream(PipeDirection.Out)
-    let toClientClient = new AnonymousPipeClientStream(PipeDirection.In, toClient.GetClientHandleAsString())
+
+    let toClientClient =
+        new AnonymousPipeClientStream(PipeDirection.In, toClient.GetClientHandleAsString())
 
     let ourClient = LspClient(input = toClientClient, output = toServer)
 
-    { OurClient = ourClient
-      ServerRead = toServerClient
-      ServerWrite = toClient }
+    {
+        OurClient = ourClient
+        ServerRead = toServerClient
+        ServerWrite = toClient
+    }
 
 [<Fact>]
 let ``SendRequest returns the matching response's result`` () =
@@ -40,7 +49,10 @@ let ``SendRequest returns the matching response's result`` () =
         let serverTask =
             task {
                 let! raw = LspTransport.readMessage loopback.ServerRead
-                let requestId = JsonDocument.Parse(raw.Value).RootElement.GetProperty("id").GetInt32()
+
+                let requestId =
+                    JsonDocument.Parse(raw.Value).RootElement.GetProperty("id").GetInt32()
+
                 let response = $"""{{"jsonrpc":"2.0","id":{requestId},"result":{{"ok":true}}}}"""
                 do! LspTransport.writeMessage loopback.ServerWrite response
             }
@@ -61,8 +73,13 @@ let ``SendRequest surfaces a JSON-RPC error response`` () =
         let serverTask =
             task {
                 let! raw = LspTransport.readMessage loopback.ServerRead
-                let requestId = JsonDocument.Parse(raw.Value).RootElement.GetProperty("id").GetInt32()
-                let response = $"""{{"jsonrpc":"2.0","id":{requestId},"error":{{"code":-32601,"message":"boom"}}}}"""
+
+                let requestId =
+                    JsonDocument.Parse(raw.Value).RootElement.GetProperty("id").GetInt32()
+
+                let response =
+                    $"""{{"jsonrpc":"2.0","id":{requestId},"error":{{"code":-32601,"message":"boom"}}}}"""
+
                 do! LspTransport.writeMessage loopback.ServerWrite response
             }
 
@@ -108,7 +125,8 @@ let ``a throwing notification handler does not stop the reader loop from dispatc
             fun paramsEl -> received.TrySetResult(paramsEl.GetProperty("value").GetString()) |> ignore
         )
 
-        let throwingNotification = """{"jsonrpc":"2.0","method":"test/throws","params":{}}"""
+        let throwingNotification =
+            """{"jsonrpc":"2.0","method":"test/throws","params":{}}"""
 
         let succeedingNotification =
             """{"jsonrpc":"2.0","method":"test/succeeds","params":{"value":"still alive"}}"""
@@ -139,7 +157,10 @@ let ``a malformed JSON frame does not kill the reader loop - a later SendRequest
         let serverTask =
             task {
                 let! raw = LspTransport.readMessage loopback.ServerRead
-                let requestId = JsonDocument.Parse(raw.Value).RootElement.GetProperty("id").GetInt32()
+
+                let requestId =
+                    JsonDocument.Parse(raw.Value).RootElement.GetProperty("id").GetInt32()
+
                 let response = $"""{{"jsonrpc":"2.0","id":{requestId},"result":{{"ok":true}}}}"""
                 do! LspTransport.writeMessage loopback.ServerWrite response
             }
@@ -198,6 +219,7 @@ let ``pending request fails with server process exited when pipe is closed unexp
         // Now close the server stream so the client's reader loop hits EOF while waiting
         loopback.ServerWrite.Dispose()
         let! res = reqTask
+
         match res with
         | LspFail err ->
             Assert.Equal(-1, err.Code)
@@ -214,19 +236,26 @@ let ``unrecognized or empty message does not crash reader loop`` () =
         // Send an unawaited response id
         do! LspTransport.writeMessage loopback.ServerWrite """{"jsonrpc":"2.0","id":99999,"result":123}"""
         // Send an unhandled notification
-        do! LspTransport.writeMessage loopback.ServerWrite """{"jsonrpc":"2.0","method":"unregistered/notify","params":{}}"""
+        do!
+            LspTransport.writeMessage
+                loopback.ServerWrite
+                """{"jsonrpc":"2.0","method":"unregistered/notify","params":{}}"""
 
         // Now verify a real request still succeeds
         let serverTask =
             task {
                 let! raw = LspTransport.readMessage loopback.ServerRead
-                let requestId = JsonDocument.Parse(raw.Value).RootElement.GetProperty("id").GetInt32()
+
+                let requestId =
+                    JsonDocument.Parse(raw.Value).RootElement.GetProperty("id").GetInt32()
+
                 let response = $"""{{"jsonrpc":"2.0","id":{requestId},"result":{{"ok":true}}}}"""
                 do! LspTransport.writeMessage loopback.ServerWrite response
             }
 
         let! result = loopback.OurClient.SendRequest("test/ping", {| msg = "hi" |})
         do! serverTask
+
         match result with
         | LspOk el -> Assert.True(el.GetProperty("ok").GetBoolean())
         | LspFail err -> failwith err.Message

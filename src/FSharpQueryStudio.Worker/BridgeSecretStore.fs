@@ -36,6 +36,7 @@ type BridgeSecretStore(host: HostChannel, ?timeout: TimeSpan) =
                 cts.CancelAfter(timeout)
                 let request = host.Request("secret/get", {| reference = reference |})
                 let! completed = Task.WhenAny(request, Task.Delay(-1, cts.Token))
+
                 if completed = (request :> Task) then
                     let! frame = request
                     return extractSecret frame

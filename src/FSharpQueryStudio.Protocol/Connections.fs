@@ -9,20 +9,25 @@ type ConnectorKindJsonConverter() =
 
     override _.Read(reader: byref<Utf8JsonReader>, _: Type, _: JsonSerializerOptions) : ConnectorKind =
         match reader.TokenType with
-        | JsonTokenType.String ->
-            ConnectorKind(reader.GetString())
+        | JsonTokenType.String -> ConnectorKind(reader.GetString())
         | JsonTokenType.StartObject ->
             use doc = JsonDocument.ParseValue(&reader)
             let root = doc.RootElement
             let mutable caseProp = Unchecked.defaultof<JsonElement>
-            if root.TryGetProperty("Case", &caseProp) && caseProp.ValueKind = JsonValueKind.String then
+
+            if
+                root.TryGetProperty("Case", &caseProp)
+                && caseProp.ValueKind = JsonValueKind.String
+            then
                 ConnectorKind(caseProp.GetString())
-            elif root.TryGetProperty("case", &caseProp) && caseProp.ValueKind = JsonValueKind.String then
+            elif
+                root.TryGetProperty("case", &caseProp)
+                && caseProp.ValueKind = JsonValueKind.String
+            then
                 ConnectorKind(caseProp.GetString())
             else
                 ConnectorKind(root.GetRawText())
-        | _ ->
-            ConnectorKind(reader.GetString())
+        | _ -> ConnectorKind(reader.GetString())
 
     override _.Write(writer: Utf8JsonWriter, value: ConnectorKind, _: JsonSerializerOptions) : unit =
         writer.WriteStartObject()
@@ -31,14 +36,17 @@ type ConnectorKindJsonConverter() =
 
 /// Open, connector-agnostic identifier representing a connector kind on the wire.
 /// Concrete connector modules define their own kind identifiers without coupling the protocol.
-and [<Struct; CustomEquality; NoComparison; JsonConverter(typeof<ConnectorKindJsonConverter>)>] ConnectorKind(id: string) =
+and [<Struct; CustomEquality; NoComparison; JsonConverter(typeof<ConnectorKindJsonConverter>)>] ConnectorKind
+    (id: string) =
     member _.Id: string = if isNull id then "" else id
     static member Custom(id: string) : ConnectorKind = ConnectorKind(id)
     override this.ToString() = this.Id
+
     override this.Equals(other: obj) =
         match other with
         | :? ConnectorKind as k -> String.Equals(this.Id, k.Id, StringComparison.OrdinalIgnoreCase)
         | _ -> false
+
     override this.GetHashCode() =
         StringComparer.OrdinalIgnoreCase.GetHashCode(this.Id)
 
@@ -47,12 +55,14 @@ and [<Struct; CustomEquality; NoComparison; JsonConverter(typeof<ConnectorKindJs
 /// rather than carrying any credential value itself, so this type is always
 /// safe to write to `workspace.json` as-is.
 type ConnectionDefinition =
-    { Id: Guid
-      Name: string
-      Kind: ConnectorKind
-      Configuration: JsonElement
-      SecretReference: string option
-      IsTrusted: bool }
+    {
+        Id: Guid
+        Name: string
+        Kind: ConnectorKind
+        Configuration: JsonElement
+        SecretReference: string option
+        IsTrusted: bool
+    }
 
 /// `connection/remove` request payload.
 type ConnectionRemoveParams = { Id: Guid }
@@ -64,30 +74,40 @@ type ConnectionSchemaParams = { Id: Guid }
 type SchemaColumn = { Name: string; DataType: string }
 
 /// One discovered table/sheet/resource — mirrors `ConnectorTable`.
-type SchemaTable = { Name: string; Columns: SchemaColumn list }
+type SchemaTable =
+    {
+        Name: string
+        Columns: SchemaColumn list
+    }
 
 /// `connection/schema` result payload.
 type ConnectionSchemaResult = { Tables: SchemaTable list }
 
 /// Wire representation of a declarative form field for connection creation.
 type ConnectorFormFieldDto =
-    { Name: string
-      Label: string
-      Type: string
-      Required: bool
-      Placeholder: string option
-      DefaultValue: string option
-      Options: string list option
-      SecretHandling: string }
+    {
+        Name: string
+        Label: string
+        Type: string
+        Required: bool
+        Placeholder: string option
+        DefaultValue: string option
+        Options: string list option
+        SecretHandling: string
+    }
 
 /// Wire representation of a registered connector's metadata and schema.
 type ConnectorDescriptorDto =
-    { KindId: string
-      DisplayName: string
-      Category: string
-      Icon: string
-      FormFields: ConnectorFormFieldDto list }
+    {
+        KindId: string
+        DisplayName: string
+        Category: string
+        Icon: string
+        FormFields: ConnectorFormFieldDto list
+    }
 
 /// `connector/list` result payload.
 type ConnectorListResult =
-    { Connectors: ConnectorDescriptorDto list }
+    {
+        Connectors: ConnectorDescriptorDto list
+    }

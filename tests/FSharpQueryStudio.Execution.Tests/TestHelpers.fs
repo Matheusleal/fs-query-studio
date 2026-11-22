@@ -6,6 +6,7 @@ open System.Threading.Tasks
 
 let withTimeout (seconds: float) (work: Task<'T>) : Task<'T> =
     let timeoutSec = min seconds 45.0
+
     task {
         let! winner = Task.WhenAny(work, Task.Delay(TimeSpan.FromSeconds timeoutSec))
 
@@ -16,7 +17,9 @@ let withTimeout (seconds: float) (work: Task<'T>) : Task<'T> =
     }
 
 let tempWorkingDirectory () =
-    let dir = Path.Combine(Path.GetTempPath(), "fqs-fsi-tests-" + Guid.NewGuid().ToString("N"))
+    let dir =
+        Path.Combine(Path.GetTempPath(), "fqs-fsi-tests-" + Guid.NewGuid().ToString("N"))
+
     Directory.CreateDirectory(dir) |> ignore
     dir
 
@@ -27,8 +30,8 @@ let tempWorkingDirectory () =
 let cleanupWorkingDirectory (dir: string) =
     try
         Directory.SetCurrentDirectory(Path.GetTempPath())
+
         if Directory.Exists(dir) then
             Directory.Delete(dir, true)
     with _ ->
         ()
-

@@ -22,87 +22,150 @@ type MockDataRecord(values: (string * obj) array, ?throwOnTypedGet: bool) =
     interface IDataRecord with
         member _.FieldCount = values.Length
         member _.GetName(i) = colNames.[i]
-        member _.GetDataTypeName(i) = if isNull colValues.[i] then "System.Object" else colValues.[i].GetType().Name
-        member _.GetFieldType(i) = if isNull colValues.[i] then typeof<obj> else colValues.[i].GetType()
+
+        member _.GetDataTypeName(i) =
+            if isNull colValues.[i] then
+                "System.Object"
+            else
+                colValues.[i].GetType().Name
+
+        member _.GetFieldType(i) =
+            if isNull colValues.[i] then
+                typeof<obj>
+            else
+                colValues.[i].GetType()
+
         member _.GetValue(i) = colValues.[i]
+
         member _.GetValues(valuesArr) =
             let count = min valuesArr.Length colValues.Length
             Array.Copy(colValues, valuesArr, count)
             count
+
         member _.GetOrdinal(name) =
-            match colNames |> Array.tryFindIndex (fun n -> String.Equals(n, name, StringComparison.OrdinalIgnoreCase)) with
+            match
+                colNames
+                |> Array.tryFindIndex (fun n -> String.Equals(n, name, StringComparison.OrdinalIgnoreCase))
+            with
             | Some idx -> idx
             | None -> raise (IndexOutOfRangeException($"Field '{name}' not found"))
+
         member _.GetBoolean(i) =
-            if shouldThrowOnTyped then raise (InvalidCastException())
+            if shouldThrowOnTyped then
+                raise (InvalidCastException())
+
             Convert.ToBoolean(colValues.[i])
+
         member _.GetByte(i) =
-            if shouldThrowOnTyped then raise (InvalidCastException())
+            if shouldThrowOnTyped then
+                raise (InvalidCastException())
+
             Convert.ToByte(colValues.[i])
+
         member _.GetBytes(i, fieldOffset, buffer, bufferoffset, length) = 0L
+
         member _.GetChar(i) =
-            if shouldThrowOnTyped then raise (InvalidCastException())
+            if shouldThrowOnTyped then
+                raise (InvalidCastException())
+
             Convert.ToChar(colValues.[i])
+
         member _.GetChars(i, fieldOffset, buffer, bufferoffset, length) = 0L
+
         member _.GetGuid(i) =
-            if shouldThrowOnTyped then raise (InvalidCastException())
+            if shouldThrowOnTyped then
+                raise (InvalidCastException())
+
             match colValues.[i] with
             | :? Guid as g -> g
             | :? string as s -> Guid.Parse(s)
             | :? (byte array) as b -> Guid(b)
             | _ -> raise (InvalidCastException())
+
         member _.GetInt16(i) =
-            if shouldThrowOnTyped then raise (InvalidCastException())
+            if shouldThrowOnTyped then
+                raise (InvalidCastException())
+
             Convert.ToInt16(colValues.[i])
+
         member _.GetInt32(i) =
-            if shouldThrowOnTyped then raise (InvalidCastException())
+            if shouldThrowOnTyped then
+                raise (InvalidCastException())
+
             Convert.ToInt32(colValues.[i])
+
         member _.GetInt64(i) =
-            if shouldThrowOnTyped then raise (InvalidCastException())
+            if shouldThrowOnTyped then
+                raise (InvalidCastException())
+
             Convert.ToInt64(colValues.[i])
+
         member _.GetFloat(i) =
-            if shouldThrowOnTyped then raise (InvalidCastException())
+            if shouldThrowOnTyped then
+                raise (InvalidCastException())
+
             Convert.ToSingle(colValues.[i])
+
         member _.GetDouble(i) =
-            if shouldThrowOnTyped then raise (InvalidCastException())
+            if shouldThrowOnTyped then
+                raise (InvalidCastException())
+
             Convert.ToDouble(colValues.[i])
+
         member _.GetString(i) =
-            if shouldThrowOnTyped then raise (InvalidCastException())
+            if shouldThrowOnTyped then
+                raise (InvalidCastException())
+
             Convert.ToString(colValues.[i])
+
         member _.GetDecimal(i) =
-            if shouldThrowOnTyped then raise (InvalidCastException())
+            if shouldThrowOnTyped then
+                raise (InvalidCastException())
+
             Convert.ToDecimal(colValues.[i])
+
         member _.GetDateTime(i) =
-            if shouldThrowOnTyped then raise (InvalidCastException())
+            if shouldThrowOnTyped then
+                raise (InvalidCastException())
+
             Convert.ToDateTime(colValues.[i])
+
         member _.GetData(i) = raise (NotSupportedException())
+
         member _.IsDBNull(i) =
-            if i < 0 || i >= colValues.Length then true
+            if i < 0 || i >= colValues.Length then
+                true
             else
                 let v = colValues.[i]
                 isNull v || Convert.IsDBNull(v)
-        member _.Item with get (i: int) = colValues.[i]
-        member _.Item with get (name: string) =
-            let idx = (colNames |> Array.findIndex (fun n -> String.Equals(n, name, StringComparison.OrdinalIgnoreCase)))
-            colValues.[idx]
+
+        member _.Item
+            with get (i: int) = colValues.[i]
+
+        member _.Item
+            with get (name: string) =
+                let idx =
+                    (colNames
+                     |> Array.findIndex (fun n -> String.Equals(n, name, StringComparison.OrdinalIgnoreCase)))
+
+                colValues.[idx]
 
 // Test records for CompiledRecordMapper tests
-type SampleRecord = {
-    Id: int
-    Name: string
-    Amount: decimal
-    Score: double
-    IsActive: bool
-    CreatedDate: DateTime
-    EffectiveDate: DateOnly
-    EventTime: TimeOnly
-    Notes: string option
-    Data: byte[]
-}
+type SampleRecord =
+    {
+        Id: int
+        Name: string
+        Amount: decimal
+        Score: double
+        IsActive: bool
+        CreatedDate: DateTime
+        EffectiveDate: DateOnly
+        EventTime: TimeOnly
+        Notes: string option
+        Data: byte[]
+    }
 
-type SimpleScalarRecord = {
-    Count: int
-}
+type SimpleScalarRecord = { Count: int }
 
 // =========================================================================
 // 1. TryParseNormalizedDecimal & TryParseNormalizedDouble tests
@@ -115,7 +178,9 @@ module DecimalNormalizationTests =
     [<InlineData("-1.234,56", -1234.56)>]
     [<InlineData("1.234.567,89", 1234567.89)>]
     [<InlineData("-1.234.567,89", -1234567.89)>]
-    let ``TryParseNormalizedDecimal handles European and Brazilian formats with thousand dots and decimal comma`` (input: string, expected: double) =
+    let ``TryParseNormalizedDecimal handles European and Brazilian formats with thousand dots and decimal comma``
+        (input: string, expected: double)
+        =
         let success, result = RecordReaders.TryParseNormalizedDecimal input
         Assert.True(success)
         Assert.Equal(decimal expected, result)
@@ -125,7 +190,9 @@ module DecimalNormalizationTests =
     [<InlineData("-1,234.56", -1234.56)>]
     [<InlineData("1,234,567.89", 1234567.89)>]
     [<InlineData("-1,234,567.89", -1234567.89)>]
-    let ``TryParseNormalizedDecimal handles US and Invariant formats with thousand commas and decimal dot`` (input: string, expected: double) =
+    let ``TryParseNormalizedDecimal handles US and Invariant formats with thousand commas and decimal dot``
+        (input: string, expected: double)
+        =
         let success, result = RecordReaders.TryParseNormalizedDecimal input
         Assert.True(success)
         Assert.Equal(decimal expected, result)
@@ -297,12 +364,16 @@ module ReadInt32Tests =
 
     [<Fact>]
     let ``ReadInt32 clamps int64 exceeding Int32 limits`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box (int64 Int32.MaxValue + 500L)
-            box (int64 Int32.MinValue - 500L)
-            box Int64.MaxValue
-            box Int64.MinValue
-        |])
+        let record: IDataRecord =
+            MockDataRecord(
+                [|
+                    box (int64 Int32.MaxValue + 500L)
+                    box (int64 Int32.MinValue - 500L)
+                    box Int64.MaxValue
+                    box Int64.MinValue
+                |]
+            )
+
         Assert.Equal(Int32.MaxValue, RecordReaders.ReadInt32(record, 0))
         Assert.Equal(Int32.MinValue, RecordReaders.ReadInt32(record, 1))
         Assert.Equal(Int32.MaxValue, RecordReaders.ReadInt32(record, 2))
@@ -310,15 +381,19 @@ module ReadInt32Tests =
 
     [<Fact>]
     let ``ReadInt32 converts single double decimal with rounding and clamping`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box 42.7f
-            box 42.2
-            box 99.6M
-            box 1e12
-            box -1e12
-            box Double.PositiveInfinity
-            box Double.NaN
-        |])
+        let record: IDataRecord =
+            MockDataRecord(
+                [|
+                    box 42.7f
+                    box 42.2
+                    box 99.6M
+                    box 1e12
+                    box -1e12
+                    box Double.PositiveInfinity
+                    box Double.NaN
+                |]
+            )
+
         Assert.Equal(43, RecordReaders.ReadInt32(record, 0))
         Assert.Equal(42, RecordReaders.ReadInt32(record, 1))
         Assert.Equal(100, RecordReaders.ReadInt32(record, 2))
@@ -341,12 +416,9 @@ module ReadInt32Tests =
 
     [<Fact>]
     let ``ReadInt32 parses string with quotes spaces and decimal formatting`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box " \" 1,234.56 \" "
-            box " '42' "
-            box " -500 "
-            box "123"
-        |])
+        let record: IDataRecord =
+            MockDataRecord([| box " \" 1,234.56 \" "; box " '42' "; box " -500 "; box "123" |])
+
         Assert.Equal(1235, RecordReaders.ReadInt32(record, 0))
         Assert.Equal(42, RecordReaders.ReadInt32(record, 1))
         Assert.Equal(-500, RecordReaders.ReadInt32(record, 2))
@@ -377,12 +449,9 @@ module ReadInt64Tests =
 
     [<Fact>]
     let ``ReadInt64 handles native int64 int int16 and byte`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box 9876543210123L
-            box 42
-            box 100s
-            box 12uy
-        |])
+        let record: IDataRecord =
+            MockDataRecord([| box 9876543210123L; box 42; box 100s; box 12uy |])
+
         Assert.Equal(9876543210123L, RecordReaders.ReadInt64(record, 0))
         Assert.Equal(42L, RecordReaders.ReadInt64(record, 1))
         Assert.Equal(100L, RecordReaders.ReadInt64(record, 2))
@@ -390,14 +459,18 @@ module ReadInt64Tests =
 
     [<Fact>]
     let ``ReadInt64 clamps decimal double and single`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box 1e25
-            box -1e25
-            box 9876543210.4M
-            box 123.7f
-            box Double.PositiveInfinity
-            box Double.NaN
-        |])
+        let record: IDataRecord =
+            MockDataRecord(
+                [|
+                    box 1e25
+                    box -1e25
+                    box 9876543210.4M
+                    box 123.7f
+                    box Double.PositiveInfinity
+                    box Double.NaN
+                |]
+            )
+
         Assert.Equal(Int64.MaxValue, RecordReaders.ReadInt64(record, 0))
         Assert.Equal(Int64.MinValue, RecordReaders.ReadInt64(record, 1))
         Assert.Equal(9876543210L, RecordReaders.ReadInt64(record, 2))
@@ -407,12 +480,9 @@ module ReadInt64Tests =
 
     [<Fact>]
     let ``ReadInt64 handles bool and strings with formatting`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box true
-            box false
-            box " 9876543210 "
-            box " \"1,234,567.89\" "
-        |])
+        let record: IDataRecord =
+            MockDataRecord([| box true; box false; box " 9876543210 "; box " \"1,234,567.89\" " |])
+
         Assert.Equal(1L, RecordReaders.ReadInt64(record, 0))
         Assert.Equal(0L, RecordReaders.ReadInt64(record, 1))
         Assert.Equal(9876543210L, RecordReaders.ReadInt64(record, 2))
@@ -432,16 +502,20 @@ module ReadInt16AndByteTests =
 
     [<Fact>]
     let ``ReadInt16 handles int16 and clamping of larger integers`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box 1234s
-            box 50000
-            box -50000
-            box 1000000L
-            box -1000000L
-            box 200uy
-            box " 300 "
-            box "1,200.4"
-        |], throwOnTypedGet = true)
+        let record: IDataRecord =
+            MockDataRecord(
+                [|
+                    box 1234s
+                    box 50000
+                    box -50000
+                    box 1000000L
+                    box -1000000L
+                    box 200uy
+                    box " 300 "
+                    box "1,200.4"
+                |],
+                throwOnTypedGet = true
+            )
 
         Assert.Equal(1234s, RecordReaders.ReadInt16(record, 0))
         Assert.Equal(Int16.MaxValue, RecordReaders.ReadInt16(record, 1))
@@ -461,13 +535,8 @@ module ReadInt16AndByteTests =
 
     [<Fact>]
     let ``ReadByte handles byte and string conversions with error handling`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box 128uy
-            box 255
-            box "200"
-            box "invalid"
-            box DBNull.Value
-        |], throwOnTypedGet = true)
+        let record: IDataRecord =
+            MockDataRecord([| box 128uy; box 255; box "200"; box "invalid"; box DBNull.Value |], throwOnTypedGet = true)
 
         Assert.Equal(128uy, RecordReaders.ReadByte(record, 0))
         Assert.Equal(255uy, RecordReaders.ReadByte(record, 1))
@@ -481,17 +550,20 @@ module ReadDecimalDoubleSingleTests =
 
     [<Fact>]
     let ``ReadDecimal converts various types and formats accurately`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box 1234.56M
-            box 1234.56
-            box 42.5f
-            box 100
-            box 5000L
-            box " 1.234,56 "
-            box " 1,234.56 "
-            box "NULL"
-            box DBNull.Value
-        |])
+        let record: IDataRecord =
+            MockDataRecord(
+                [|
+                    box 1234.56M
+                    box 1234.56
+                    box 42.5f
+                    box 100
+                    box 5000L
+                    box " 1.234,56 "
+                    box " 1,234.56 "
+                    box "NULL"
+                    box DBNull.Value
+                |]
+            )
 
         Assert.Equal(1234.56M, RecordReaders.ReadDecimal(record, 0))
         Assert.Equal(1234.56M, RecordReaders.ReadDecimal(record, 1))
@@ -506,17 +578,20 @@ module ReadDecimalDoubleSingleTests =
 
     [<Fact>]
     let ``ReadDouble converts various types and handles finite checks`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box 1234.56
-            box 42.5f
-            box 100M
-            box 1000
-            box " 1.234,56 "
-            box Double.PositiveInfinity
-            box Double.NaN
-            box "NaN"
-            box DBNull.Value
-        |])
+        let record: IDataRecord =
+            MockDataRecord(
+                [|
+                    box 1234.56
+                    box 42.5f
+                    box 100M
+                    box 1000
+                    box " 1.234,56 "
+                    box Double.PositiveInfinity
+                    box Double.NaN
+                    box "NaN"
+                    box DBNull.Value
+                |]
+            )
 
         Assert.Equal(1234.56, RecordReaders.ReadDouble(record, 0), 2)
         Assert.Equal(42.5, RecordReaders.ReadDouble(record, 1), 1)
@@ -531,13 +606,8 @@ module ReadDecimalDoubleSingleTests =
 
     [<Fact>]
     let ``ReadSingle converts correctly and handles bounds`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box 42.5f
-            box 123.45
-            box "12.34"
-            box "N/A"
-            box DBNull.Value
-        |])
+        let record: IDataRecord =
+            MockDataRecord([| box 42.5f; box 123.45; box "12.34"; box "N/A"; box DBNull.Value |])
 
         Assert.Equal(42.5f, RecordReaders.ReadSingle(record, 0))
         Assert.Equal(123.45f, RecordReaders.ReadSingle(record, 1))
@@ -570,13 +640,22 @@ module ReadBooleanTests =
 
     [<Fact>]
     let ``ReadBool handles numbers and sentinels`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box 1; box 0; box -1
-            box 1L; box 0L
-            box 1.0; box 0.0
-            box 1M; box 0M
-            box "NULL"; box DBNull.Value
-        |])
+        let record: IDataRecord =
+            MockDataRecord(
+                [|
+                    box 1
+                    box 0
+                    box -1
+                    box 1L
+                    box 0L
+                    box 1.0
+                    box 0.0
+                    box 1M
+                    box 0M
+                    box "NULL"
+                    box DBNull.Value
+                |]
+            )
 
         Assert.True(RecordReaders.ReadBool(record, 0))
         Assert.False(RecordReaders.ReadBool(record, 1))
@@ -596,12 +675,8 @@ module ReadStringAndGuidTests =
 
     [<Fact>]
     let ``ReadString handles strings and falls back to string representation`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box "hello"
-            box 123
-            box DBNull.Value
-            null
-        |], throwOnTypedGet = true)
+        let record: IDataRecord =
+            MockDataRecord([| box "hello"; box 123; box DBNull.Value; null |], throwOnTypedGet = true)
 
         Assert.Equal("hello", RecordReaders.ReadString(record, 0))
         Assert.Equal("123", RecordReaders.ReadString(record, 1))
@@ -613,16 +688,21 @@ module ReadStringAndGuidTests =
     let ``ReadGuid handles Guid, formatted string, byte array and invalid values`` () =
         let g = Guid.NewGuid()
         let gBytes = g.ToByteArray()
-        let record: IDataRecord = MockDataRecord([|
-            box g
-            box (g.ToString())
-            box (g.ToString("N"))
-            box ("{" + g.ToString() + "}")
-            box gBytes
-            box "not-a-guid"
-            box "NULL"
-            box DBNull.Value
-        |], throwOnTypedGet = true)
+
+        let record: IDataRecord =
+            MockDataRecord(
+                [|
+                    box g
+                    box (g.ToString())
+                    box (g.ToString("N"))
+                    box ("{" + g.ToString() + "}")
+                    box gBytes
+                    box "not-a-guid"
+                    box "NULL"
+                    box DBNull.Value
+                |],
+                throwOnTypedGet = true
+            )
 
         Assert.Equal(g, RecordReaders.ReadGuid(record, 0))
         Assert.Equal(g, RecordReaders.ReadGuid(record, 1))
@@ -644,16 +724,20 @@ module ReadDateAndDateTimeTests =
         let dto = DateTimeOffset(dt)
         let oa = dt.ToOADate()
 
-        let record: IDataRecord = MockDataRecord([|
-            box dt
-            box d
-            box dto
-            box oa
-            box "2026-11-16T14:30:00Z"
-            box "2026-11-16"
-            box "NULL"
-            box DBNull.Value
-        |], throwOnTypedGet = true)
+        let record: IDataRecord =
+            MockDataRecord(
+                [|
+                    box dt
+                    box d
+                    box dto
+                    box oa
+                    box "2026-11-16T14:30:00Z"
+                    box "2026-11-16"
+                    box "NULL"
+                    box DBNull.Value
+                |],
+                throwOnTypedGet = true
+            )
 
         Assert.Equal(dt, RecordReaders.ReadDateTime(record, 0))
         Assert.Equal(d.ToDateTime(TimeOnly.MinValue), RecordReaders.ReadDateTime(record, 1))
@@ -669,14 +753,18 @@ module ReadDateAndDateTimeTests =
     let ``ReadDateOnly handles DateOnly, DateTime, strings and sentinels`` () =
         let d = DateOnly(2026, 11, 16)
         let dt = DateTime(2026, 11, 16, 18, 0, 0)
-        let record: IDataRecord = MockDataRecord([|
-            box d
-            box dt
-            box "2026-11-16"
-            box "2026-11-16T10:00:00Z"
-            box "N/A"
-            box DBNull.Value
-        |])
+
+        let record: IDataRecord =
+            MockDataRecord(
+                [|
+                    box d
+                    box dt
+                    box "2026-11-16"
+                    box "2026-11-16T10:00:00Z"
+                    box "N/A"
+                    box DBNull.Value
+                |]
+            )
 
         Assert.Equal(d, RecordReaders.ReadDateOnly(record, 0))
         Assert.Equal(d, RecordReaders.ReadDateOnly(record, 1))
@@ -691,14 +779,9 @@ module ReadDateAndDateTimeTests =
         let t = TimeOnly(15, 45, 30)
         let ts = TimeSpan(15, 45, 30)
         let dt = DateTime(2026, 11, 16, 15, 45, 30)
-        let record: IDataRecord = MockDataRecord([|
-            box t
-            box ts
-            box dt
-            box "15:45:30"
-            box "NULL"
-            box DBNull.Value
-        |])
+
+        let record: IDataRecord =
+            MockDataRecord([| box t; box ts; box dt; box "15:45:30"; box "NULL"; box DBNull.Value |])
 
         Assert.Equal(t, RecordReaders.ReadTimeOnly(record, 0))
         Assert.Equal(t, RecordReaders.ReadTimeOnly(record, 1))
@@ -712,13 +795,9 @@ module ReadDateAndDateTimeTests =
     let ``ReadByteArray handles byte arrays, base64 and string text`` () =
         let bytes = [| 1uy; 2uy; 3uy; 4uy |]
         let base64 = Convert.ToBase64String(bytes)
-        let record: IDataRecord = MockDataRecord([|
-            box bytes
-            box base64
-            box "hello"
-            box "NULL"
-            box DBNull.Value
-        |])
+
+        let record: IDataRecord =
+            MockDataRecord([| box bytes; box base64; box "hello"; box "NULL"; box DBNull.Value |])
 
         Assert.Equal<byte seq>(bytes, RecordReaders.ReadByteArray(record, 0))
         Assert.Equal<byte seq>(bytes, RecordReaders.ReadByteArray(record, 1))
@@ -732,13 +811,8 @@ module NullableReadersTests =
 
     [<Fact>]
     let ``ReadNullableInt32 returns valid Nullable or empty when null or sentinel`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box 42
-            box "100"
-            box "NULL"
-            box DBNull.Value
-            null
-        |])
+        let record: IDataRecord =
+            MockDataRecord([| box 42; box "100"; box "NULL"; box DBNull.Value; null |])
 
         Assert.Equal(Nullable 42, RecordReaders.ReadNullableInt32(record, 0))
         Assert.Equal(Nullable 100, RecordReaders.ReadNullableInt32(record, 1))
@@ -749,11 +823,8 @@ module NullableReadersTests =
 
     [<Fact>]
     let ``ReadNullableInt64 returns valid Nullable or empty when null or sentinel`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box 9876543210L
-            box "NULL"
-            box DBNull.Value
-        |])
+        let record: IDataRecord =
+            MockDataRecord([| box 9876543210L; box "NULL"; box DBNull.Value |])
 
         Assert.Equal(Nullable 9876543210L, RecordReaders.ReadNullableInt64(record, 0))
         Assert.Equal(Nullable<int64>(), RecordReaders.ReadNullableInt64(record, 1))
@@ -761,12 +832,8 @@ module NullableReadersTests =
 
     [<Fact>]
     let ``ReadNullableDecimal returns valid Nullable or empty when null or sentinel`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box 123.45M
-            box "1.234,56"
-            box "N/A"
-            box DBNull.Value
-        |])
+        let record: IDataRecord =
+            MockDataRecord([| box 123.45M; box "1.234,56"; box "N/A"; box DBNull.Value |])
 
         Assert.Equal(Nullable 123.45M, RecordReaders.ReadNullableDecimal(record, 0))
         Assert.Equal(Nullable 1234.56M, RecordReaders.ReadNullableDecimal(record, 1))
@@ -775,12 +842,8 @@ module NullableReadersTests =
 
     [<Fact>]
     let ``ReadNullableDouble returns valid Nullable or empty when null or sentinel`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box 45.67
-            box "45,67"
-            box "NaN"
-            box DBNull.Value
-        |])
+        let record: IDataRecord =
+            MockDataRecord([| box 45.67; box "45,67"; box "NaN"; box DBNull.Value |])
 
         Assert.Equal(Nullable 45.67, RecordReaders.ReadNullableDouble(record, 0))
         Assert.Equal(Nullable 45.67, RecordReaders.ReadNullableDouble(record, 1))
@@ -790,12 +853,9 @@ module NullableReadersTests =
     [<Fact>]
     let ``ReadNullableDateTime returns valid Nullable or empty when null or sentinel`` () =
         let dt = DateTime(2026, 11, 16, 12, 0, 0)
-        let record: IDataRecord = MockDataRecord([|
-            box dt
-            box "2026-11-16T12:00:00Z"
-            box "NULL"
-            box DBNull.Value
-        |])
+
+        let record: IDataRecord =
+            MockDataRecord([| box dt; box "2026-11-16T12:00:00Z"; box "NULL"; box DBNull.Value |])
 
         Assert.Equal(Nullable dt, RecordReaders.ReadNullableDateTime(record, 0))
         Assert.True(RecordReaders.ReadNullableDateTime(record, 1).HasValue)
@@ -807,13 +867,8 @@ module OptionAndObjectReadersTests =
 
     [<Fact>]
     let ``ReadOption returns Some or None for primitive and string types`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box 42
-            box "NULL"
-            box DBNull.Value
-            box "hello"
-            box ""
-        |])
+        let record: IDataRecord =
+            MockDataRecord([| box 42; box "NULL"; box DBNull.Value; box "hello"; box "" |])
 
         Assert.Equal(Some 42, RecordReaders.ReadOption<int>(record, 0))
         Assert.Equal(None, RecordReaders.ReadOption<int>(record, 1))
@@ -824,10 +879,7 @@ module OptionAndObjectReadersTests =
 
     [<Fact>]
     let ``ReadObject returns converted object or default value on DBNull`` () =
-        let record: IDataRecord = MockDataRecord([|
-            box "123"
-            box DBNull.Value
-        |])
+        let record: IDataRecord = MockDataRecord([| box "123"; box DBNull.Value |])
 
         let v1 = RecordReaders.ReadObject(record, 0, typeof<int>)
         Assert.Equal(box 123, v1)
@@ -935,27 +987,41 @@ module CompiledRecordMapperTests =
 
     [<Fact>]
     let ``CompiledRecordMapper maps record types with full fidelity`` () =
-        let mapper = CompiledRecordMapper.getCompiledRecordMapper<SampleRecord> [
-            "Id"; "Name"; "Amount"; "Score"; "IsActive"; "CreatedDate"; "EffectiveDate"; "EventTime"; "Notes"; "Data"
-        ]
+        let mapper =
+            CompiledRecordMapper.getCompiledRecordMapper<SampleRecord>
+                [
+                    "Id"
+                    "Name"
+                    "Amount"
+                    "Score"
+                    "IsActive"
+                    "CreatedDate"
+                    "EffectiveDate"
+                    "EventTime"
+                    "Notes"
+                    "Data"
+                ]
 
         let dt = DateTime(2026, 11, 16, 10, 0, 0)
         let d = DateOnly(2026, 11, 16)
         let t = TimeOnly(10, 0, 0)
         let dataBytes = [| 1uy; 2uy; 3uy |]
 
-        let record: IDataRecord = MockDataRecord([|
-            "Id", box "101"
-            "Name", box "Test Entity"
-            "Amount", box "1.250,75"
-            "Score", box "98,5"
-            "IsActive", box "true"
-            "CreatedDate", box dt
-            "EffectiveDate", box d
-            "EventTime", box t
-            "Notes", box "Some notes"
-            "Data", box dataBytes
-        |])
+        let record: IDataRecord =
+            MockDataRecord(
+                [|
+                    "Id", box "101"
+                    "Name", box "Test Entity"
+                    "Amount", box "1.250,75"
+                    "Score", box "98,5"
+                    "IsActive", box "true"
+                    "CreatedDate", box dt
+                    "EffectiveDate", box d
+                    "EventTime", box t
+                    "Notes", box "Some notes"
+                    "Data", box dataBytes
+                |]
+            )
 
         let result = mapper record
 
@@ -972,29 +1038,45 @@ module CompiledRecordMapperTests =
 
     [<Fact>]
     let ``CompiledRecordMapper maps record with missing or sentinel notes to None`` () =
-        let mapper = CompiledRecordMapper.getCompiledRecordMapper<SampleRecord> [
-            "Id"; "Name"; "Amount"; "Score"; "IsActive"; "CreatedDate"; "EffectiveDate"; "EventTime"; "Notes"; "Data"
-        ]
+        let mapper =
+            CompiledRecordMapper.getCompiledRecordMapper<SampleRecord>
+                [
+                    "Id"
+                    "Name"
+                    "Amount"
+                    "Score"
+                    "IsActive"
+                    "CreatedDate"
+                    "EffectiveDate"
+                    "EventTime"
+                    "Notes"
+                    "Data"
+                ]
 
-        let record: IDataRecord = MockDataRecord([|
-            "Id", box 1
-            "Name", box "Entity"
-            "Amount", box 0M
-            "Score", box 0.0
-            "IsActive", box false
-            "CreatedDate", box DateTime.UtcNow
-            "EffectiveDate", box (DateOnly(2026, 1, 1))
-            "EventTime", box (TimeOnly(0, 0, 0))
-            "Notes", box "NULL"
-            "Data", box (Array.empty<byte>)
-        |])
+        let record: IDataRecord =
+            MockDataRecord(
+                [|
+                    "Id", box 1
+                    "Name", box "Entity"
+                    "Amount", box 0M
+                    "Score", box 0.0
+                    "IsActive", box false
+                    "CreatedDate", box DateTime.UtcNow
+                    "EffectiveDate", box (DateOnly(2026, 1, 1))
+                    "EventTime", box (TimeOnly(0, 0, 0))
+                    "Notes", box "NULL"
+                    "Data", box (Array.empty<byte>)
+                |]
+            )
 
         let result = mapper record
         Assert.Equal(None, result.Notes)
 
     [<Fact>]
     let ``CompiledRecordMapper maps tuples directly`` () =
-        let mapper = CompiledRecordMapper.getCompiledRecordMapper<int * string * double> [ "A"; "B"; "C" ]
+        let mapper =
+            CompiledRecordMapper.getCompiledRecordMapper<int * string * double> [ "A"; "B"; "C" ]
+
         let record: IDataRecord = MockDataRecord([| box "42"; box "Hello"; box "3.14" |])
         let (a, b, c) = mapper record
         Assert.Equal(42, a)
@@ -1016,7 +1098,9 @@ module CompiledRecordMapperTests =
 
     [<Fact>]
     let ``CompiledRecordMapper maps obj array`` () =
-        let arrayMapper = CompiledRecordMapper.getCompiledRecordMapper<obj array> [ "X"; "Y" ]
+        let arrayMapper =
+            CompiledRecordMapper.getCompiledRecordMapper<obj array> [ "X"; "Y" ]
+
         let record: IDataRecord = MockDataRecord([| box 1; box "text" |])
         let arr = arrayMapper record
         Assert.Equal(2, arr.Length)
@@ -1027,12 +1111,13 @@ module CompiledRecordMapperTests =
 // 6. Comprehensive RecordReaders.ConvertValue & CompiledRecordMapper tests
 // =========================================================================
 
-type NumericAndIdTypesRecord = {
-    SmallInt: int16
-    ByteVal: byte
-    FloatVal: single
-    IdVal: Guid
-}
+type NumericAndIdTypesRecord =
+    {
+        SmallInt: int16
+        ByteVal: byte
+        FloatVal: single
+        IdVal: Guid
+    }
 
 module ConvertValueDeepTests =
 
@@ -1091,7 +1176,11 @@ module ConvertValueDeepTests =
         let t = TimeOnly(14, 20, 10)
         Assert.Equal(box t, RecordReaders.ConvertValue (box ts) typeof<TimeOnly>)
         Assert.Equal(box t, RecordReaders.ConvertValue (box (DateTime(2026, 11, 16, 14, 20, 10))) typeof<TimeOnly>)
-        Assert.Equal(box t, RecordReaders.ConvertValue (box (DateTimeOffset(2026, 11, 16, 14, 20, 10, TimeSpan.Zero))) typeof<TimeOnly>)
+
+        Assert.Equal(
+            box t,
+            RecordReaders.ConvertValue (box (DateTimeOffset(2026, 11, 16, 14, 20, 10, TimeSpan.Zero))) typeof<TimeOnly>
+        )
 
     [<Fact>]
     let ``ConvertValue converts raw objects to byte array`` () =
@@ -1130,17 +1219,21 @@ module ConvertValueDeepTests =
 
     [<Fact>]
     let ``CompiledRecordMapper maps record with int16, byte, single, and Guid fields`` () =
-        let mapper = CompiledRecordMapper.getCompiledRecordMapper<NumericAndIdTypesRecord> [
-            "SmallInt"; "ByteVal"; "FloatVal"; "IdVal"
-        ]
+        let mapper =
+            CompiledRecordMapper.getCompiledRecordMapper<NumericAndIdTypesRecord>
+                [ "SmallInt"; "ByteVal"; "FloatVal"; "IdVal" ]
 
         let g = Guid.NewGuid()
-        let record: IDataRecord = MockDataRecord([|
-            "SmallInt", box "32000"
-            "ByteVal", box "255"
-            "FloatVal", box "42.5"
-            "IdVal", box (string g)
-        |])
+
+        let record: IDataRecord =
+            MockDataRecord(
+                [|
+                    "SmallInt", box "32000"
+                    "ByteVal", box "255"
+                    "FloatVal", box "42.5"
+                    "IdVal", box (string g)
+                |]
+            )
 
         let result = mapper record
         Assert.Equal(32000s, result.SmallInt)
@@ -1150,15 +1243,19 @@ module ConvertValueDeepTests =
 
     [<Fact>]
     let ``RecordReaders reader methods handle null, DBNull, out-of-bounds, and typed-get exceptions`` () =
-        let throwingRecord: IDataRecord = MockDataRecord([|
-            box null
-            DBNull.Value
-            box "bad_val"
-            box (Guid.NewGuid())
-            box (DateTime(2026, 11, 16))
-            box (TimeSpan(10, 0, 0))
-            box (DateOnly(2026, 11, 16))
-        |], throwOnTypedGet = true)
+        let throwingRecord: IDataRecord =
+            MockDataRecord(
+                [|
+                    box null
+                    DBNull.Value
+                    box "bad_val"
+                    box (Guid.NewGuid())
+                    box (DateTime(2026, 11, 16))
+                    box (TimeSpan(10, 0, 0))
+                    box (DateOnly(2026, 11, 16))
+                |],
+                throwOnTypedGet = true
+            )
 
         // Out of bounds (< 0 and >= FieldCount)
         Assert.Equal(0, RecordReaders.ReadInt32(throwingRecord, -1))
@@ -1194,19 +1291,25 @@ module ConvertValueDeepTests =
         Assert.Empty(RecordReaders.ReadByteArray(throwingRecord, 0))
 
         // Typed get throwing -> fallback to GetValue
-        let gRecord: IDataRecord = MockDataRecord([| box (Guid.NewGuid()) |], throwOnTypedGet = true)
+        let gRecord: IDataRecord =
+            MockDataRecord([| box (Guid.NewGuid()) |], throwOnTypedGet = true)
+
         Assert.NotEqual(Guid.Empty, RecordReaders.ReadGuid(gRecord, 0))
 
-        let dtRecord: IDataRecord = MockDataRecord([| box (DateTime(2026, 11, 16)) |], throwOnTypedGet = true)
+        let dtRecord: IDataRecord =
+            MockDataRecord([| box (DateTime(2026, 11, 16)) |], throwOnTypedGet = true)
+
         Assert.Equal(DateTime(2026, 11, 16), RecordReaders.ReadDateTime(dtRecord, 0))
 
-        let strRecord: IDataRecord = MockDataRecord([| box "ValidString" |], throwOnTypedGet = true)
+        let strRecord: IDataRecord =
+            MockDataRecord([| box "ValidString" |], throwOnTypedGet = true)
+
         Assert.Equal("ValidString", RecordReaders.ReadString(strRecord, 0))
 
     [<Fact>]
     let ``RecordReaders ConvertValue handles all object and primitive fallback branches`` () =
         // Target obj
-        let anyObj = obj()
+        let anyObj = obj ()
         Assert.Same(anyObj, RecordReaders.ConvertValue anyObj typeof<obj>)
 
         // Nullable with null and sentinel
@@ -1239,19 +1342,25 @@ module ConvertValueDeepTests =
         Assert.Equal(box tVal, RecordReaders.ConvertValue (box (TimeSpan(8, 30, 0))) typeof<TimeOnly>)
         Assert.Equal(box tVal, RecordReaders.ConvertValue (box (DateTime(2026, 11, 16, 8, 30, 0))) typeof<TimeOnly>)
         Assert.Equal(box (TimeOnly(8, 0, 0)), RecordReaders.ConvertValue (box dto) typeof<TimeOnly>)
-        Assert.Equal(box TimeOnly.MinValue, RecordReaders.ConvertValue (box (obj())) typeof<TimeOnly>)
+        Assert.Equal(box TimeOnly.MinValue, RecordReaders.ConvertValue (box (obj ())) typeof<TimeOnly>)
 
         // Non-string byte[]
-        Assert.Equal(box (Array.empty<byte>), RecordReaders.ConvertValue (box (obj())) typeof<byte[]>)
+        Assert.Equal(box (Array.empty<byte>), RecordReaders.ConvertValue (box (obj ())) typeof<byte[]>)
 
         // String DateTime and TimeOnly fallbacks
-        let dtFromTimeStr = RecordReaders.ConvertValue (box "2026-11-16T12:00:00") typeof<DateTime>
+        let dtFromTimeStr =
+            RecordReaders.ConvertValue (box "2026-11-16T12:00:00") typeof<DateTime>
+
         Assert.Equal(box (DateTime(2026, 11, 16, 12, 0, 0)), dtFromTimeStr)
 
-        let dFromDtStr = RecordReaders.ConvertValue (box "2026-11-16T12:00:00") typeof<DateOnly>
+        let dFromDtStr =
+            RecordReaders.ConvertValue (box "2026-11-16T12:00:00") typeof<DateOnly>
+
         Assert.Equal(box (DateOnly(2026, 11, 16)), dFromDtStr)
 
-        let tFromDtStr = RecordReaders.ConvertValue (box "2026-11-16T12:00:00") typeof<TimeOnly>
+        let tFromDtStr =
+            RecordReaders.ConvertValue (box "2026-11-16T12:00:00") typeof<TimeOnly>
+
         Assert.Equal(box (TimeOnly(12, 0, 0)), tFromDtStr)
 
         // String double fallback failing -> 0.0
@@ -1339,34 +1448,36 @@ module ConvertValueDeepTests =
 
     [<Fact>]
     let ``RecordReaders Read primitives cover all type conversions, sentinels, and fallbacks`` () =
-        let vals: obj array = [|
-            box 12s                     // 0: int16
-            box 5uy                     // 1: byte
-            box 50.2M                   // 2: decimal
-            box 123.0                   // 3: double
-            box Double.NaN              // 4: non-finite double
-            box 45.0f                   // 5: single
-            box Single.PositiveInfinity // 6: non-finite single
-            box true                    // 7: bool true
-            box false                   // 8: bool false
-            box "-"                     // 9: sentinel
-            box "123"                   // 10: numeric string
-            box "45.6"                  // 11: float string
-            box "invalid"               // 12: invalid string
-            box null                    // 13: null
-            DBNull.Value                // 14: DBNull
-            box 1000L                   // 15: int64
-            box "yes"                   // 16: string bool yes
-            box "1"                     // 17: string bool 1
-            box "sim"                   // 18: string bool sim
-            box (Guid.NewGuid())        // 19: guid
-            box (DateTime(2026, 11, 16, 10, 30, 0)) // 20: datetime
-            box (DateOnly(2026, 11, 16))            // 21: dateonly
-            box (TimeOnly(10, 30, 0))               // 22: timeonly
-            box (TimeSpan(10, 30, 0))               // 23: timespan
-            box [| 1uy; 2uy; 3uy |]     // 24: byte array
-            box "SGVsbG8="              // 25: base64 string
-        |]
+        let vals: obj array =
+            [|
+                box 12s // 0: int16
+                box 5uy // 1: byte
+                box 50.2M // 2: decimal
+                box 123.0 // 3: double
+                box Double.NaN // 4: non-finite double
+                box 45.0f // 5: single
+                box Single.PositiveInfinity // 6: non-finite single
+                box true // 7: bool true
+                box false // 8: bool false
+                box "-" // 9: sentinel
+                box "123" // 10: numeric string
+                box "45.6" // 11: float string
+                box "invalid" // 12: invalid string
+                box null // 13: null
+                DBNull.Value // 14: DBNull
+                box 1000L // 15: int64
+                box "yes" // 16: string bool yes
+                box "1" // 17: string bool 1
+                box "sim" // 18: string bool sim
+                box (Guid.NewGuid()) // 19: guid
+                box (DateTime(2026, 11, 16, 10, 30, 0)) // 20: datetime
+                box (DateOnly(2026, 11, 16)) // 21: dateonly
+                box (TimeOnly(10, 30, 0)) // 22: timeonly
+                box (TimeSpan(10, 30, 0)) // 23: timespan
+                box [| 1uy; 2uy; 3uy |] // 24: byte array
+                box "SGVsbG8=" // 25: base64 string
+            |]
+
         let mockRec: IDataRecord = MockDataRecord(vals)
 
         // ReadInt32
@@ -1544,14 +1655,18 @@ module ConvertValueDeepTests =
         let mockRec: IDataRecord = MockDataRecord(vals)
 
         // 1. obj array
-        let arrayMapper = CompiledRecordMapper.getCompiledRecordMapper<obj array> [ "Col0"; "Col1" ]
+        let arrayMapper =
+            CompiledRecordMapper.getCompiledRecordMapper<obj array> [ "Col0"; "Col1" ]
+
         let arr = arrayMapper mockRec
         Assert.Equal(2, arr.Length)
         Assert.Equal(box 42, arr.[0])
         Assert.Equal(box "Hello", arr.[1])
 
         // 2. tuple (int * string)
-        let tupleMapper = CompiledRecordMapper.getCompiledRecordMapper<int * string> [ "Col0"; "Col1" ]
+        let tupleMapper =
+            CompiledRecordMapper.getCompiledRecordMapper<int * string> [ "Col0"; "Col1" ]
+
         let (num, text) = tupleMapper mockRec
         Assert.Equal(42, num)
         Assert.Equal("Hello", text)
@@ -1592,20 +1707,20 @@ module ConvertValueDeepTests =
         Assert.Equal(box 123L, RecordReaders.ConvertValue (box 123s) typeof<int64>)
 
         // Non-string into DateTime fallback
-        Assert.Equal(box DateTime.MinValue, RecordReaders.ConvertValue (box (obj())) typeof<DateTime>)
+        Assert.Equal(box DateTime.MinValue, RecordReaders.ConvertValue (box (obj ())) typeof<DateTime>)
 
         // DateOnly conversions
         let dVal = DateOnly(2026, 11, 16)
         Assert.Equal(box dVal, RecordReaders.ConvertValue (box dVal) typeof<DateOnly>)
 
         // Non-string into TimeOnly fallback
-        Assert.Equal(box TimeOnly.MinValue, RecordReaders.ConvertValue (box (obj())) typeof<TimeOnly>)
+        Assert.Equal(box TimeOnly.MinValue, RecordReaders.ConvertValue (box (obj ())) typeof<TimeOnly>)
 
         // Non-string into byte[] fallback
-        Assert.Equal(box (Array.empty<byte>), RecordReaders.ConvertValue (box (obj())) typeof<byte[]>)
+        Assert.Equal(box (Array.empty<byte>), RecordReaders.ConvertValue (box (obj ())) typeof<byte[]>)
 
         // Non-convertible type fallback
-        Assert.Null(RecordReaders.ConvertValue (box (obj())) typeof<Uri>)
+        Assert.Null(RecordReaders.ConvertValue (box (obj ())) typeof<Uri>)
         Assert.Null(RecordReaders.ConvertValue (box "http://localhost") typeof<Uri>)
 
         // ReadOption with invalid conversion returning None
@@ -1620,15 +1735,12 @@ module ConvertValueDeepTests =
 type CustomGuidContainer(g: Guid) =
     override _.ToString() = g.ToString()
 
-type RecordWithOtherField = {
-    Id: int
-    Other: Uri
-}
+type RecordWithOtherField = { Id: int; Other: Uri }
 
 [<Fact>]
 let ``RecordReaders Read primitives unexpected object and fallback branches`` () =
     // 1. Unexpected obj() causing Convert.* to throw and return fallback defaults
-    let unconvertible = obj()
+    let unconvertible = obj ()
     let recThrowing: IDataRecord = MockDataRecord([| unconvertible |])
 
     Assert.Equal(0, RecordReaders.ReadInt32(recThrowing, 0))
@@ -1649,14 +1761,10 @@ let ``RecordReaders Read primitives unexpected object and fallback branches`` ()
     Assert.Equal(g, RecordReaders.ReadGuid(recGuid, 0))
 
     // 3. CompiledRecordMapper with non-primitive field (hits lines 712-714) and column count mismatch (hits line 670)
-    let mapper = CompiledRecordMapper.getCompiledRecordMapper<RecordWithOtherField> [ "NonExistent" ]
+    let mapper =
+        CompiledRecordMapper.getCompiledRecordMapper<RecordWithOtherField> [ "NonExistent" ]
+
     let recObj: IDataRecord = MockDataRecord([| box 10 |])
     let mapped = mapper recObj
     Assert.Equal(10, mapped.Id)
     Assert.Null(mapped.Other)
-
-
-
-
-
-

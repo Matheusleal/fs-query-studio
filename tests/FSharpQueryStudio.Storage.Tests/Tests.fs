@@ -9,17 +9,21 @@ open FSharpQueryStudio.Storage
 open FSharpQueryStudio.Security
 
 let private tempWorkspaceDir () =
-    let dir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+    let dir =
+        Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+
     Directory.CreateDirectory dir |> ignore
     dir
 
 let private sampleConnection (name: string) : ConnectionDefinition =
-    { Id = Guid.NewGuid()
-      Name = name
-      Kind = ConnectorKind("Sqlite")
-      Configuration = JsonDocument.Parse("""{"filePath":"C:/data/sales.db"}""").RootElement
-      SecretReference = Some "vault://sales-db-cred"
-      IsTrusted = true }
+    {
+        Id = Guid.NewGuid()
+        Name = name
+        Kind = ConnectorKind("Sqlite")
+        Configuration = JsonDocument.Parse("""{"filePath":"C:/data/sales.db"}""").RootElement
+        SecretReference = Some "vault://sales-db-cred"
+        IsTrusted = true
+    }
 
 /// `JsonElement` doesn't have value-based `Equals` across separately
 /// parsed documents (it compares the underlying `JsonDocument` reference),
@@ -75,9 +79,11 @@ let ``the written workspace.json exposes only non-secret connection metadata in 
 
     let topLevelPropertyNames =
         doc.RootElement.EnumerateObject() |> Seq.map (fun p -> p.Name) |> Seq.toList
+
     Assert.Equal("connections", List.last topLevelPropertyNames)
 
-    let element = doc.RootElement.GetProperty("connections").EnumerateArray() |> Seq.exactlyOne
+    let element =
+        doc.RootElement.GetProperty("connections").EnumerateArray() |> Seq.exactlyOne
 
     let propertyNames =
         element.EnumerateObject() |> Seq.map (fun p -> p.Name) |> Set.ofSeq
@@ -108,7 +114,11 @@ let ``registerConnection replaces an existing connection with the same Id instea
     let original = sampleConnection "Sales"
     Workspace.writeConnections dir [ original ]
 
-    let renamed = { original with Name = "Sales (renamed)" }
+    let renamed =
+        { original with
+            Name = "Sales (renamed)"
+        }
+
     let result = Workspace.registerConnection dir renamed
 
     assertSameConnections [ renamed ] result
@@ -121,7 +131,11 @@ let ``a registered connection's credential lives in the secret store, never in w
     let reference = "vault://sales-db-cred"
     secretStore.Save reference "correct horse battery staple"
 
-    let connection = { sampleConnection "Sales" with SecretReference = Some reference }
+    let connection =
+        { sampleConnection "Sales" with
+            SecretReference = Some reference
+        }
+
     Workspace.registerConnection dir connection |> ignore
 
     let json = File.ReadAllText(Workspace.workspaceFilePath dir)
@@ -173,7 +187,9 @@ let ``removeConnection for an Id that isn't registered is a no-op, not an error`
     assertSameConnections [ existing ] result
 
 [<Fact>]
-let ``readConfiguration on legacy Schema v1 plain JSON array automatically upgrades it to Schema v2 and preserves connections`` () =
+let ``readConfiguration on legacy Schema v1 plain JSON array automatically upgrades it to Schema v2 and preserves connections``
+    ()
+    =
     let dir = tempWorkspaceDir ()
     let conn = sampleConnection "LegacyConn"
     let legacyArrayJson = JsonSerializer.Serialize([ conn ], Serialization.options)
@@ -266,7 +282,9 @@ let ``ProjectUpgradeConstants parses connections from array, object, missing pro
     Assert.Empty(ProjectUpgradeConstants.parseConnectionsFromRawJson primitiveJson)
 
 [<Fact>]
-let ``ProjectUpgradeConstants detectSchemaVersion handles array, schemaVersion, dollarSchemaVersion, missing, and invalid json`` () =
+let ``ProjectUpgradeConstants detectSchemaVersion handles array, schemaVersion, dollarSchemaVersion, missing, and invalid json``
+    ()
+    =
     Assert.Equal(1, ProjectUpgradeConstants.detectSchemaVersion "[]")
     Assert.Equal(2, ProjectUpgradeConstants.detectSchemaVersion """{"schemaVersion": 2}""")
     Assert.Equal(2, ProjectUpgradeConstants.detectSchemaVersion """{"$schemaVersion": 2}""")
@@ -284,7 +302,9 @@ let ``ProjectUpgrader handles invalid or empty paths cleanly`` () =
     Assert.False(reportEmpty.Upgraded)
     Assert.Equal(2, reportEmpty.CurrentVersion)
 
-    let reportNonExistent = ProjectUpgrader.upgradeWorkspace (Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")))
+    let reportNonExistent =
+        ProjectUpgrader.upgradeWorkspace (Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")))
+
     Assert.False(reportNonExistent.Upgraded)
 
 [<Fact>]
@@ -299,7 +319,12 @@ let ``ProjectUpgrader merges connections when target .fsqs workspace.json alread
     let dir = tempWorkspaceDir ()
     let connA = sampleConnection "ConnA"
     let connB_root = sampleConnection "ConnB"
-    let connB_target = { connB_root with Name = "ConnB_UpdatedInTarget" }
+
+    let connB_target =
+        { connB_root with
+            Name = "ConnB_UpdatedInTarget"
+        }
+
     let connC = sampleConnection "ConnC"
 
     let fsqsDir = Path.Combine(dir, ".fsqs")
@@ -308,7 +333,10 @@ let ``ProjectUpgrader merges connections when target .fsqs workspace.json alread
     ProjectUpgradeConstants.writeV2WorkspaceJson targetWs [ connB_target; connC ]
 
     let rootWs = Path.Combine(dir, "workspace.json")
-    let rootJson = JsonSerializer.Serialize([ connA; connB_root ], Serialization.options)
+
+    let rootJson =
+        JsonSerializer.Serialize([ connA; connB_root ], Serialization.options)
+
     File.WriteAllText(rootWs, rootJson)
 
     Assert.True(ProjectUpgrader.needsUpgrade dir)
@@ -346,9 +374,12 @@ let ``ProjectUpgrader handles generated folder when destination files already ex
 
 [<Fact>]
 let ``Global AppData directory ending in FSharpQueryStudio upgrades in-place without creating .fsqs folder`` () =
-    let baseDir = Path.Combine(Path.GetTempPath(), "test-global-" + Guid.NewGuid().ToString("N"))
+    let baseDir =
+        Path.Combine(Path.GetTempPath(), "test-global-" + Guid.NewGuid().ToString("N"))
+
     let globalDir = Path.Combine(baseDir, "FSharpQueryStudio")
     Directory.CreateDirectory globalDir |> ignore
+
     try
         let conn = sampleConnection "GlobalConn"
         let wsFile = Path.Combine(globalDir, "workspace.json")
@@ -369,7 +400,10 @@ let ``Global AppData directory ending in FSharpQueryStudio upgrades in-place wit
         let reportAgain = Workspace.ensureProjectUpgraded globalDir
         Assert.False(reportAgain.Upgraded)
     finally
-        try Directory.Delete(baseDir, true) with _ -> ()
+        try
+            Directory.Delete(baseDir, true)
+        with _ ->
+            ()
 
 [<Fact>]
 let ``Storage and Workspace handle directories ending in .fsqs directly`` () =
@@ -389,19 +423,23 @@ let ``Storage and Workspace handle directories ending in .fsqs directly`` () =
     Assert.True(report.Upgraded)
 
 [<Fact>]
-let ``Workspace readConfiguration handles varied formats: dollarSchemaVersion, missing extension, invalid date, primitive JSON`` () =
+let ``Workspace readConfiguration handles varied formats: dollarSchemaVersion, missing extension, invalid date, primitive JSON``
+    ()
+    =
     let dir = tempWorkspaceDir ()
     let storageDir = Path.Combine(dir, ".fsqs")
     Directory.CreateDirectory storageDir |> ignore
     let wsFile = Path.Combine(storageDir, "workspace.json")
 
     // Format with $schemaVersion, missing extensionVersion, invalid updatedAt, no connections array
-    let json1 = """
+    let json1 =
+        """
     {
         "$schemaVersion": 2,
         "updatedAt": "invalid-date-string"
     }
     """
+
     File.WriteAllText(wsFile, json1)
     let cfg1 = Workspace.readConfiguration dir
     Assert.Equal(2, cfg1.SchemaVersion)
@@ -417,10 +455,13 @@ let ``Workspace readConfiguration handles varied formats: dollarSchemaVersion, m
 
     // writeConfiguration with empty ExtensionVersion falls back to currentExtensionVersion
     let emptyExtConfig =
-        { SchemaVersion = 2
-          ExtensionVersion = ""
-          UpdatedAt = None
-          Connections = [] }
+        {
+            SchemaVersion = 2
+            ExtensionVersion = ""
+            UpdatedAt = None
+            Connections = []
+        }
+
     Workspace.writeConfiguration dir emptyExtConfig
     let cfg3 = Workspace.readConfiguration dir
     Assert.Equal("0.7.0", cfg3.ExtensionVersion)
@@ -439,7 +480,15 @@ let ``workspaceFilePath and writeConfiguration invoke upgrader when needsUpgrade
     // writeConfiguration on a dir with legacy root file triggers upgrade
     let dir2 = tempWorkspaceDir ()
     File.WriteAllText(Path.Combine(dir2, "workspace.json"), "[]")
-    let cfg = { SchemaVersion = 2; ExtensionVersion = "0.7.0"; UpdatedAt = None; Connections = [] }
+
+    let cfg =
+        {
+            SchemaVersion = 2
+            ExtensionVersion = "0.7.0"
+            UpdatedAt = None
+            Connections = []
+        }
+
     Workspace.writeConfiguration dir2 cfg
     Assert.True(File.Exists(Path.Combine(dir2, ".fsqs", "workspace.json")))
 
@@ -448,6 +497,7 @@ let ``readConfiguration on empty workspaceDir reads relative workspace.json arra
     let originalCurrentDir = Directory.GetCurrentDirectory()
     let tempDir = tempWorkspaceDir ()
     Directory.SetCurrentDirectory tempDir
+
     try
         // Array directly in current directory
         File.WriteAllText("workspace.json", "[]")
@@ -481,11 +531,10 @@ let ``workspaceFilePath fallback branches hit line 55 and line 57`` () =
     let originalCurrentDir = Directory.GetCurrentDirectory()
     let tempDir = tempWorkspaceDir ()
     Directory.SetCurrentDirectory tempDir
+
     try
         File.WriteAllText("workspace.json", "{}")
         let resolvedPath57 = Workspace.workspaceFilePath ""
         Assert.Equal("workspace.json", resolvedPath57)
     finally
         Directory.SetCurrentDirectory originalCurrentDir
-
-

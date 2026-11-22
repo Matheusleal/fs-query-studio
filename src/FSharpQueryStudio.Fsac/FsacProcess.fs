@@ -22,14 +22,14 @@ type FsacProcess(fsautocompleteDllPath: string) =
         try
             if not proc.HasExited then
                 proc.Kill(entireProcessTree = true)
-        with _ -> ()
+        with _ ->
+            ()
 
     do
         AppDomain.CurrentDomain.ProcessExit.Add(fun _ ->
             match current with
             | Some(proc, _) -> killProc proc
-            | None -> ()
-        )
+            | None -> ())
 
     let spawn () : Process * LspClient =
         let psi =
@@ -41,6 +41,7 @@ type FsacProcess(fsautocompleteDllPath: string) =
                 RedirectStandardError = true,
                 UseShellExecute = false
             )
+
         psi.EnvironmentVariables.["DOTNET_GCServer"] <- "0"
         psi.EnvironmentVariables.["DOTNET_gcConcurrent"] <- "1"
         psi.EnvironmentVariables.["DOTNET_TieredPGO"] <- "1"
@@ -61,7 +62,10 @@ type FsacProcess(fsautocompleteDllPath: string) =
 
         proc.Start() |> ignore
         proc.BeginErrorReadLine()
-        let client = LspClient(input = proc.StandardOutput.BaseStream, output = proc.StandardInput.BaseStream)
+
+        let client =
+            LspClient(input = proc.StandardOutput.BaseStream, output = proc.StandardInput.BaseStream)
+
         proc, client
 
     let initializeHandshake (client: LspClient) : Task =
@@ -69,21 +73,27 @@ type FsacProcess(fsautocompleteDllPath: string) =
             let! result =
                 client.SendRequest(
                     "initialize",
-                    {| processId = System.Diagnostics.Process.GetCurrentProcess().Id
-                       rootUri = null
-                       // Declaring `textDocument.publishDiagnostics` client
-                       // capability is required for real fsautocomplete
-                       // 0.83.0 to push `textDocument/publishDiagnostics`
-                       // notifications at all - confirmed during Task 6
-                       // (FsacBridge.check, the first task to round-trip
-                       // real diagnostics): with an empty `capabilities`
-                       // object, FSAC ran analysis (its own
-                       // `fsharp/documentAnalyzed`/`fsharp/fileParsed`
-                       // notifications still fired) but never sent a single
-                       // `publishDiagnostics` push, even after 45s.
-                       capabilities =
-                        {| textDocument =
-                            {| publishDiagnostics = {| relatedInformation = true |} |} |} |}
+                    {|
+                        processId = System.Diagnostics.Process.GetCurrentProcess().Id
+                        rootUri = null
+                        // Declaring `textDocument.publishDiagnostics` client
+                        // capability is required for real fsautocomplete
+                        // 0.83.0 to push `textDocument/publishDiagnostics`
+                        // notifications at all - confirmed during Task 6
+                        // (FsacBridge.check, the first task to round-trip
+                        // real diagnostics): with an empty `capabilities`
+                        // object, FSAC ran analysis (its own
+                        // `fsharp/documentAnalyzed`/`fsharp/fileParsed`
+                        // notifications still fired) but never sent a single
+                        // `publishDiagnostics` push, even after 45s.
+                        capabilities =
+                            {|
+                                textDocument =
+                                    {|
+                                        publishDiagnostics = {| relatedInformation = true |}
+                                    |}
+                            |}
+                    |}
                 )
 
             // A protocol-level `LspFail` here - including the exact

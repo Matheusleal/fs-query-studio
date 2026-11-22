@@ -9,7 +9,11 @@ open FSharpQueryStudio.Worker
 [<Fact>]
 let ``Request writes one frame with a host- id and its method`` () =
     let sent = List<WorkerRequestFrame>()
-    let channel = HostChannel(fun frame -> sent.Add frame; Task.CompletedTask)
+
+    let channel =
+        HostChannel(fun frame ->
+            sent.Add frame
+            Task.CompletedTask)
 
     channel.Request("secret/get", {| reference = "fqs-conn-abc" |}) |> ignore
 
@@ -21,13 +25,23 @@ let ``Request writes one frame with a host- id and its method`` () =
 [<Fact>]
 let ``TryComplete resolves the matching pending Request and returns true`` () =
     let sent = List<WorkerRequestFrame>()
-    let channel = HostChannel(fun frame -> sent.Add frame; Task.CompletedTask)
+
+    let channel =
+        HostChannel(fun frame ->
+            sent.Add frame
+            Task.CompletedTask)
 
     let pending = channel.Request("secret/get", {| reference = "r" |})
+
     let reply: WorkerResponseFrame =
-        { Id = sent.[0].Id
-          Result = Some(System.Text.Json.JsonSerializer.SerializeToElement({| secret = "hunter2" |}, Serialization.options))
-          Error = None }
+        {
+            Id = sent.[0].Id
+            Result =
+                Some(
+                    System.Text.Json.JsonSerializer.SerializeToElement({| secret = "hunter2" |}, Serialization.options)
+                )
+            Error = None
+        }
 
     Assert.True(channel.TryComplete reply)
     Assert.True(pending.Wait 1000)
@@ -36,5 +50,12 @@ let ``TryComplete resolves the matching pending Request and returns true`` () =
 [<Fact>]
 let ``TryComplete returns false for an unknown id`` () =
     let channel = HostChannel(fun _ -> Task.CompletedTask)
-    let reply: WorkerResponseFrame = { Id = "host-nope"; Result = None; Error = None }
+
+    let reply: WorkerResponseFrame =
+        {
+            Id = "host-nope"
+            Result = None
+            Error = None
+        }
+
     Assert.False(channel.TryComplete reply)

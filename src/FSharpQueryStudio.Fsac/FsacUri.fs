@@ -54,4 +54,3 @@ module FsacUri =
 
             let fullPath = Path.Combine(untitledUriRoot, safeName).Replace('\\', '/')
             $"file:///{fullPath.TrimStart('/')}"
-

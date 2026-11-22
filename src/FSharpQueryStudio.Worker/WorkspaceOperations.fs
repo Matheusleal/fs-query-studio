@@ -12,60 +12,83 @@ open FSharpQueryStudio.Execution
 
 [<CLIMutable>]
 type SampleCreateParams =
-    { TargetDirectory: string option
-      TargetDir: string option }
+    {
+        TargetDirectory: string option
+        TargetDir: string option
+    }
 
 type SampleCreateResult =
-    { SqlitePath: string
-      Sqlite2Path: string
-      CsvPath: string
-      Csv2Path: string
-      ExcelPath: string
-      Excel2Path: string
-      JsonPath: string
-      XmlPath: string
-      RestUrl: string
-      NotebookPath: string
-      NotebookPtPath: string
-      RegisteredConnections: string list }
+    {
+        SqlitePath: string
+        Sqlite2Path: string
+        CsvPath: string
+        Csv2Path: string
+        ExcelPath: string
+        Excel2Path: string
+        JsonPath: string
+        XmlPath: string
+        RestUrl: string
+        NotebookPath: string
+        NotebookPtPath: string
+        RegisteredConnections: string list
+    }
 
 type AutoImportSourceItem =
-    { Name: string
-      Kind: ConnectorKind
-      FilePath: string
-      RelativePath: string }
+    {
+        Name: string
+        Kind: ConnectorKind
+        FilePath: string
+        RelativePath: string
+    }
 
 type AutoImportDataSourcesResult =
-    { TargetDir: string
-      DataSourcesDir: string
-      FolderCreated: bool
-      FoundFilesCount: int
-      ImportedCount: int
-      Imported: AutoImportSourceItem list
-      RemovedCount: int
-      SkippedCount: int }
+    {
+        TargetDir: string
+        DataSourcesDir: string
+        FolderCreated: bool
+        FoundFilesCount: int
+        ImportedCount: int
+        Imported: AutoImportSourceItem list
+        RemovedCount: int
+        SkippedCount: int
+    }
 
 /// Encapsulates workspace filesystem workflows (sample generation, auto-import, empty project initialization).
 module WorkspaceOperations =
 
     /// Initializes empty workspace directories and workspace.json.
-    let initEmptyProject (rootDir: string) : {| workspacePath: string; targetDir: string; fsqsDir: string |} =
+    let initEmptyProject
+        (rootDir: string)
+        : {|
+            workspacePath: string
+            targetDir: string
+            fsqsDir: string
+        |}
+        =
         let fsqsDir = Path.Combine(rootDir, ".fsqs")
         Directory.CreateDirectory(fsqsDir) |> ignore
         let wsFile = Path.Combine(fsqsDir, "workspace.json")
+
         if not (File.Exists wsFile) then
             Workspace.writeConnections rootDir []
 
         let generatedDir = Path.Combine(fsqsDir, "generated")
         Directory.CreateDirectory(generatedDir) |> ignore
 
-        {| workspacePath = wsFile; targetDir = rootDir; fsqsDir = fsqsDir |}
+        {|
+            workspacePath = wsFile
+            targetDir = rootDir
+            fsqsDir = fsqsDir
+        |}
 
     /// Automatically scans for tabular data files in data_sources and registers them in the workspace.
     let autoImportDataSources (rawDir: string) (secretStore: ISecretStore) : AutoImportDataSourcesResult =
         let rootDir, dataSourcesDir =
-            let trimmed = rawDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            let trimmed =
+                rawDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+
             let leaf = Path.GetFileName trimmed
+
             if leaf.Equals("data_sources", StringComparison.OrdinalIgnoreCase) then
                 let parent = Path.GetDirectoryName trimmed
                 let actualRoot = if String.IsNullOrWhiteSpace parent then rawDir else parent
@@ -74,9 +97,11 @@ module WorkspaceOperations =
                 rawDir, Path.Combine(rawDir, "data_sources")
 
         let folderCreated = not (Directory.Exists dataSourcesDir)
+
         if folderCreated then
             Directory.CreateDirectory(dataSourcesDir) |> ignore
             let readmePath = Path.Combine(dataSourcesDir, "README.txt")
+
             if not (File.Exists readmePath) then
                 File.WriteAllText(
                     readmePath,
@@ -84,21 +109,29 @@ module WorkspaceOperations =
                 )
 
         let fsqsDir = Path.Combine(rootDir, ".fsqs")
-        if not (Directory.Exists fsqsDir) && not (rootDir.EndsWith(".fsqs", StringComparison.OrdinalIgnoreCase)) then
+
+        if
+            not (Directory.Exists fsqsDir)
+            && not (rootDir.EndsWith(".fsqs", StringComparison.OrdinalIgnoreCase))
+        then
             Directory.CreateDirectory(fsqsDir) |> ignore
+
         let generatedDir = Path.Combine(fsqsDir, "generated")
+
         if not (Directory.Exists generatedDir) then
             Directory.CreateDirectory(generatedDir) |> ignore
 
         let supportedExtensions =
-            [ ".csv", ConnectorKind("Csv")
-              ".xlsx", ConnectorKind("Excel")
-              ".xls", ConnectorKind("Excel")
-              ".json", ConnectorKind("Json")
-              ".xml", ConnectorKind("Xml")
-              ".sqlite", ConnectorKind("Sqlite")
-              ".sqlite3", ConnectorKind("Sqlite")
-              ".db", ConnectorKind("Sqlite") ]
+            [
+                ".csv", ConnectorKind("Csv")
+                ".xlsx", ConnectorKind("Excel")
+                ".xls", ConnectorKind("Excel")
+                ".json", ConnectorKind("Json")
+                ".xml", ConnectorKind("Xml")
+                ".sqlite", ConnectorKind("Sqlite")
+                ".sqlite3", ConnectorKind("Sqlite")
+                ".db", ConnectorKind("Sqlite")
+            ]
 
         let candidateFiles =
             if Directory.Exists dataSourcesDir then
@@ -106,6 +139,7 @@ module WorkspaceOperations =
                 |> Seq.filter (fun file ->
                     let fileName = Path.GetFileName file
                     let ext = Path.GetExtension(file).ToLowerInvariant()
+
                     not (fileName.StartsWith("~$", StringComparison.OrdinalIgnoreCase))
                     && not (fileName.StartsWith(".", StringComparison.OrdinalIgnoreCase))
                     && (supportedExtensions |> List.exists (fun (e, _) -> e = ext)))
@@ -119,12 +153,16 @@ module WorkspaceOperations =
             try
                 if conn.Configuration.ValueKind = JsonValueKind.Object then
                     let mutable prop = Unchecked.defaultof<JsonElement>
-                    if conn.Configuration.TryGetProperty("filePath", &prop) && prop.ValueKind = JsonValueKind.String then
-                        Some (prop.GetString())
+
+                    if
+                        conn.Configuration.TryGetProperty("filePath", &prop)
+                        && prop.ValueKind = JsonValueKind.String
+                    then
+                        Some(prop.GetString())
                     else
                         None
                 elif conn.Configuration.ValueKind = JsonValueKind.String then
-                    Some (conn.Configuration.GetString())
+                    Some(conn.Configuration.GetString())
                 else
                     None
             with _ ->
@@ -132,12 +170,23 @@ module WorkspaceOperations =
 
         let isMatchingFile (registeredPath: string) (actualFile: string) : bool =
             try
-                let full1 = Path.GetFullPath(if Path.IsPathRooted registeredPath then registeredPath else Path.Combine(rootDir, registeredPath))
+                let full1 =
+                    Path.GetFullPath(
+                        if Path.IsPathRooted registeredPath then
+                            registeredPath
+                        else
+                            Path.Combine(rootDir, registeredPath)
+                    )
+
                 let full2 = Path.GetFullPath(actualFile)
+
                 String.Equals(
                     full1,
                     full2,
-                    (if OperatingSystem.IsWindows() then StringComparison.OrdinalIgnoreCase else StringComparison.Ordinal)
+                    (if OperatingSystem.IsWindows() then
+                         StringComparison.OrdinalIgnoreCase
+                     else
+                         StringComparison.Ordinal)
                 )
             with _ ->
                 String.Equals(registeredPath, actualFile, StringComparison.OrdinalIgnoreCase)
@@ -150,9 +199,7 @@ module WorkspaceOperations =
                 | None -> false)
 
         let mutable usedNames =
-            existingConnections
-            |> List.map (fun c -> c.Name)
-            |> Set.ofList
+            existingConnections |> List.map (fun c -> c.Name) |> Set.ofList
 
         let makeUniqueName (candidate: string) : string =
             if not (Set.contains candidate usedNames) then
@@ -160,14 +207,17 @@ module WorkspaceOperations =
                 candidate
             else
                 let mutable idx = 2
+
                 while Set.contains $"{candidate}_{idx}" usedNames do
                     idx <- idx + 1
+
                 let unique = $"{candidate}_{idx}"
                 usedNames <- Set.add unique usedNames
                 unique
 
         let toPascalCase (s: string) : string =
             let parts = s.Split([| '_'; '-'; ' '; '.' |], StringSplitOptions.RemoveEmptyEntries)
+
             if parts.Length = 0 then
                 "DataSource"
             else
@@ -175,12 +225,17 @@ module WorkspaceOperations =
                     parts
                     |> Array.map (fun part ->
                         let clean = CodeGenerationHelpers.cleanIdentifier part
+
                         if clean.Length > 0 && Char.IsLower(clean.[0]) then
                             Char.ToUpper(clean.[0]).ToString() + clean.Substring(1)
                         else
                             clean)
                     |> String.concat ""
-                if String.IsNullOrWhiteSpace capitalized then "DataSource" else capitalized
+
+                if String.IsNullOrWhiteSpace capitalized then
+                    "DataSource"
+                else
+                    capitalized
 
         let mutable newlyImported: AutoImportSourceItem list = []
         let mutable newConnections: ConnectionDefinition list = []
@@ -188,6 +243,7 @@ module WorkspaceOperations =
         for file in candidateFiles do
             if not (isAlreadyRegistered file) then
                 let ext = Path.GetExtension(file).ToLowerInvariant()
+
                 let kind =
                     supportedExtensions
                     |> List.tryFind (fun (e, _) -> e = ext)
@@ -206,26 +262,56 @@ module WorkspaceOperations =
                 let configElement =
                     match kind.Id with
                     | "Excel" ->
-                        JsonSerializer.SerializeToElement({| filePath = relPath; hasHeader = true |}, Serialization.options)
+                        JsonSerializer.SerializeToElement(
+                            {|
+                                filePath = relPath
+                                hasHeader = true
+                            |},
+                            Serialization.options
+                        )
                     | "Json" ->
-                        JsonSerializer.SerializeToElement({| filePath = relPath; flattenNested = true |}, Serialization.options)
+                        JsonSerializer.SerializeToElement(
+                            {|
+                                filePath = relPath
+                                flattenNested = true
+                            |},
+                            Serialization.options
+                        )
                     | "Xml" ->
-                        JsonSerializer.SerializeToElement({| filePath = relPath; includeAttributes = true; flattenNested = true |}, Serialization.options)
-                    | "Sqlite" ->
-                        JsonSerializer.SerializeToElement({| filePath = relPath |}, Serialization.options)
+                        JsonSerializer.SerializeToElement(
+                            {|
+                                filePath = relPath
+                                includeAttributes = true
+                                flattenNested = true
+                            |},
+                            Serialization.options
+                        )
+                    | "Sqlite" -> JsonSerializer.SerializeToElement({| filePath = relPath |}, Serialization.options)
                     | _ -> // Csv
                         JsonSerializer.SerializeToElement({| filePath = relPath |}, Serialization.options)
 
                 let def: ConnectionDefinition =
-                    { Id = Guid.NewGuid()
-                      Name = connName
-                      Kind = kind
-                      Configuration = configElement
-                      SecretReference = None
-                      IsTrusted = true }
+                    {
+                        Id = Guid.NewGuid()
+                        Name = connName
+                        Kind = kind
+                        Configuration = configElement
+                        SecretReference = None
+                        IsTrusted = true
+                    }
 
                 newConnections <- newConnections @ [ def ]
-                newlyImported <- newlyImported @ [ { Name = connName; Kind = kind; FilePath = file; RelativePath = relPath } ]
+
+                newlyImported <-
+                    newlyImported
+                    @ [
+                        {
+                            Name = connName
+                            Kind = kind
+                            FilePath = file
+                            RelativePath = relPath
+                        }
+                    ]
 
         let missingDataSourcesConnections =
             existingConnections
@@ -233,16 +319,31 @@ module WorkspaceOperations =
                 match getExistingFilePath conn with
                 | Some pathStr ->
                     let norm = pathStr.Replace('\\', '/')
+
                     let isUnderDataSources =
                         norm.StartsWith("data_sources/", StringComparison.OrdinalIgnoreCase)
                         || norm.Contains("/data_sources/")
                         || (try
-                                let full = Path.GetFullPath(if Path.IsPathRooted pathStr then pathStr else Path.Combine(rootDir, pathStr))
+                                let full =
+                                    Path.GetFullPath(
+                                        if Path.IsPathRooted pathStr then
+                                            pathStr
+                                        else
+                                            Path.Combine(rootDir, pathStr)
+                                    )
+
                                 let dsFull = Path.GetFullPath(dataSourcesDir)
                                 full.StartsWith(dsFull, StringComparison.OrdinalIgnoreCase)
-                            with _ -> false)
+                            with _ ->
+                                false)
+
                     if isUnderDataSources then
-                        let full = if Path.IsPathRooted pathStr then pathStr else Path.Combine(rootDir, pathStr)
+                        let full =
+                            if Path.IsPathRooted pathStr then
+                                pathStr
+                            else
+                                Path.Combine(rootDir, pathStr)
+
                         not (File.Exists full)
                     else
                         false
@@ -250,7 +351,9 @@ module WorkspaceOperations =
 
         let remainingConnections =
             if missingDataSourcesConnections.Length > 0 then
-                let missingIds = missingDataSourcesConnections |> List.map (fun c -> c.Id) |> Set.ofList
+                let missingIds =
+                    missingDataSourcesConnections |> List.map (fun c -> c.Id) |> Set.ofList
+
                 existingConnections |> List.filter (fun c -> not (Set.contains c.Id missingIds))
             else
                 existingConnections
@@ -259,149 +362,240 @@ module WorkspaceOperations =
             let merged = remainingConnections @ newConnections
             Workspace.writeConnections rootDir merged
             Connections.configure (WorkspaceConnectionResolver(merged, secretStore, rootDir))
+
             try
-                (EntityBackgroundGenerator.generateForConnectionsAsync rootDir merged secretStore).GetAwaiter().GetResult() |> ignore
+                (EntityBackgroundGenerator.generateForConnectionsAsync rootDir merged secretStore)
+                    .GetAwaiter()
+                    .GetResult()
+                |> ignore
             with ex ->
                 Log.Warning("FS Query Studio: Entity generation after auto-import failed: {Error}", ex.Message)
+
             Connections.triggerBackgroundSync rootDir merged secretStore
             SessionStore.resetAll ()
 
-        { TargetDir = rootDir
-          DataSourcesDir = dataSourcesDir
-          FolderCreated = folderCreated
-          FoundFilesCount = candidateFiles.Length
-          ImportedCount = newlyImported.Length
-          Imported = newlyImported
-          RemovedCount = missingDataSourcesConnections.Length
-          SkippedCount = candidateFiles.Length - newlyImported.Length }
+        {
+            TargetDir = rootDir
+            DataSourcesDir = dataSourcesDir
+            FolderCreated = folderCreated
+            FoundFilesCount = candidateFiles.Length
+            ImportedCount = newlyImported.Length
+            Imported = newlyImported
+            RemovedCount = missingDataSourcesConnections.Length
+            SkippedCount = candidateFiles.Length - newlyImported.Length
+        }
 
     /// Generates sample data files inside data_sources/ and registers them via the natural auto-import pipeline plus the sample REST source.
-    let createSampleDataWithLanguage (dir: string) (language: string option) (secretStore: ISecretStore) : SampleCreateResult =
+    let createSampleDataWithLanguage
+        (dir: string)
+        (language: string option)
+        (secretStore: ISecretStore)
+        : SampleCreateResult =
         let files = SampleDataGenerator.generateAllSamplesWithLanguage dir language
 
         let sampleFileNames =
-            set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "ProductCatalog"; "LogisticsHub"; "GitHubFSharp" ]
+            set
+                [
+                    "SampleStore"
+                    "InventoryStore"
+                    "SalesFeed"
+                    "CustomersFeed"
+                    "RegionalTargets"
+                    "CommerceOps"
+                    "ProductCatalog"
+                    "LogisticsHub"
+                    "GitHubFSharp"
+                ]
 
         let currentConns = Workspace.readConnections dir
+
         let hasAllSamples =
             sampleFileNames
-            |> Set.forall (fun name -> currentConns |> List.exists (fun c -> String.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)))
+            |> Set.forall (fun name ->
+                currentConns
+                |> List.exists (fun c -> String.Equals(c.Name, name, StringComparison.OrdinalIgnoreCase)))
 
         if not hasAllSamples then
             let existingNonSample =
                 currentConns
-                |> List.filter (fun c -> not (sampleFileNames |> Set.exists (fun s -> String.Equals(s, c.Name, StringComparison.OrdinalIgnoreCase))))
+                |> List.filter (fun c ->
+                    not (
+                        sampleFileNames
+                        |> Set.exists (fun s -> String.Equals(s, c.Name, StringComparison.OrdinalIgnoreCase))
+                    ))
 
             let restDef: ConnectionDefinition =
-                { Id = Guid.NewGuid()
-                  Name = "GitHubFSharp"
-                  Kind = ConnectorKind.RestJson
-                  Configuration =
-                      JsonSerializer.SerializeToElement(
-                          {| url = files.RestUrl
-                             method = "GET"
-                             headers = [ ("Accept", "application/vnd.github+json"); ("User-Agent", "FSharpQueryStudio/1.0") ] |},
-                          Serialization.options
-                      )
-                  SecretReference = None
-                  IsTrusted = true }
+                {
+                    Id = Guid.NewGuid()
+                    Name = "GitHubFSharp"
+                    Kind = ConnectorKind.RestJson
+                    Configuration =
+                        JsonSerializer.SerializeToElement(
+                            {|
+                                url = files.RestUrl
+                                method = "GET"
+                                headers =
+                                    [
+                                        ("Accept", "application/vnd.github+json")
+                                        ("User-Agent", "FSharpQueryStudio/1.0")
+                                    ]
+                            |},
+                            Serialization.options
+                        )
+                    SecretReference = None
+                    IsTrusted = true
+                }
 
             Workspace.writeConnections dir (existingNonSample @ [ restDef ])
 
             let _ = autoImportDataSources dir secretStore
             SessionStore.resetAll ()
 
-        { SqlitePath = files.SqlitePath
-          Sqlite2Path = files.Sqlite2Path
-          CsvPath = files.CsvPath
-          Csv2Path = files.Csv2Path
-          ExcelPath = files.ExcelPath
-          Excel2Path = files.Excel2Path
-          JsonPath = files.JsonPath
-          XmlPath = files.XmlPath
-          RestUrl = files.RestUrl
-          NotebookPath = files.NotebookPath
-          NotebookPtPath = files.NotebookPtPath
-          RegisteredConnections = [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "ProductCatalog"; "LogisticsHub"; "GitHubFSharp" ] }
+        {
+            SqlitePath = files.SqlitePath
+            Sqlite2Path = files.Sqlite2Path
+            CsvPath = files.CsvPath
+            Csv2Path = files.Csv2Path
+            ExcelPath = files.ExcelPath
+            Excel2Path = files.Excel2Path
+            JsonPath = files.JsonPath
+            XmlPath = files.XmlPath
+            RestUrl = files.RestUrl
+            NotebookPath = files.NotebookPath
+            NotebookPtPath = files.NotebookPtPath
+            RegisteredConnections =
+                [
+                    "SampleStore"
+                    "InventoryStore"
+                    "SalesFeed"
+                    "CustomersFeed"
+                    "RegionalTargets"
+                    "CommerceOps"
+                    "ProductCatalog"
+                    "LogisticsHub"
+                    "GitHubFSharp"
+                ]
+        }
 
     /// Generates sample data files inside data_sources/ and registers them via the natural auto-import pipeline plus the sample REST source.
     let createSampleData (dir: string) (secretStore: ISecretStore) : SampleCreateResult =
         createSampleDataWithLanguage dir None secretStore
 
     /// Generates containerized and dialect-specific advanced database sample environments, Docker Compose configs, and notebooks.
-    let createAdvancedSamplesWithLanguage (dir: string) (engines: string list) (language: string option) (secretStore: ISecretStore) : AdvancedSampleGenerator.AdvancedSampleResult =
-        let result = AdvancedSampleGenerator.generateAdvancedSamplesWithLanguage dir engines language
+    let createAdvancedSamplesWithLanguage
+        (dir: string)
+        (engines: string list)
+        (language: string option)
+        (secretStore: ISecretStore)
+        : AdvancedSampleGenerator.AdvancedSampleResult =
+        let result =
+            AdvancedSampleGenerator.generateAdvancedSamplesWithLanguage dir engines language
+
         let currentConns = Workspace.readConnections dir
 
         let mutable newConns = currentConns
+
         for connName in result.RegisteredConnections do
-            let alreadyExists = newConns |> List.exists (fun c -> String.Equals(c.Name, connName, StringComparison.OrdinalIgnoreCase))
+            let alreadyExists =
+                newConns
+                |> List.exists (fun c -> String.Equals(c.Name, connName, StringComparison.OrdinalIgnoreCase))
+
             if not alreadyExists then
                 match connName with
                 | "PostgreSQL_Advanced" ->
                     let pgDef: ConnectionDefinition =
-                        { Id = Guid.NewGuid()
-                          Name = "PostgreSQL_Advanced"
-                          Kind = ConnectorKind.PostgreSql
-                          Configuration =
-                              JsonSerializer.SerializeToElement(
-                                  {| connectionString = "Host=localhost;Port=5432;Database=fsqs_demo;Username=postgres;Password=Password123!" |},
-                                  Serialization.options
-                              )
-                          SecretReference = None
-                          IsTrusted = true }
+                        {
+                            Id = Guid.NewGuid()
+                            Name = "PostgreSQL_Advanced"
+                            Kind = ConnectorKind.PostgreSql
+                            Configuration =
+                                JsonSerializer.SerializeToElement(
+                                    {|
+                                        connectionString =
+                                            "Host=localhost;Port=5432;Database=fsqs_demo;Username=postgres;Password=Password123!"
+                                    |},
+                                    Serialization.options
+                                )
+                            SecretReference = None
+                            IsTrusted = true
+                        }
+
                     newConns <- newConns @ [ pgDef ]
                 | "SqlServer_Advanced" ->
                     let sqlDef: ConnectionDefinition =
-                        { Id = Guid.NewGuid()
-                          Name = "SqlServer_Advanced"
-                          Kind = ConnectorKind.SqlServer
-                          Configuration =
-                              JsonSerializer.SerializeToElement(
-                                  {| connectionString = "Server=localhost,1433;Database=master;User Id=sa;Password=Password123!;TrustServerCertificate=True;" |},
-                                  Serialization.options
-                              )
-                          SecretReference = None
-                          IsTrusted = true }
+                        {
+                            Id = Guid.NewGuid()
+                            Name = "SqlServer_Advanced"
+                            Kind = ConnectorKind.SqlServer
+                            Configuration =
+                                JsonSerializer.SerializeToElement(
+                                    {|
+                                        connectionString =
+                                            "Server=localhost,1433;Database=master;User Id=sa;Password=Password123!;TrustServerCertificate=True;"
+                                    |},
+                                    Serialization.options
+                                )
+                            SecretReference = None
+                            IsTrusted = true
+                        }
+
                     newConns <- newConns @ [ sqlDef ]
                 | "MySQL_Advanced" ->
                     let myDef: ConnectionDefinition =
-                        { Id = Guid.NewGuid()
-                          Name = "MySQL_Advanced"
-                          Kind = ConnectorKind.MySql
-                          Configuration =
-                              JsonSerializer.SerializeToElement(
-                                  {| connectionString = "Server=127.0.0.1;Port=3306;Database=fsqs_demo;User ID=root;Password=Password123!;" |},
-                                  Serialization.options
-                              )
-                          SecretReference = None
-                          IsTrusted = true }
+                        {
+                            Id = Guid.NewGuid()
+                            Name = "MySQL_Advanced"
+                            Kind = ConnectorKind.MySql
+                            Configuration =
+                                JsonSerializer.SerializeToElement(
+                                    {|
+                                        connectionString =
+                                            "Server=127.0.0.1;Port=3306;Database=fsqs_demo;User ID=root;Password=Password123!;"
+                                    |},
+                                    Serialization.options
+                                )
+                            SecretReference = None
+                            IsTrusted = true
+                        }
+
                     newConns <- newConns @ [ myDef ]
                 | "MariaDB_Advanced" ->
                     let mariaDef: ConnectionDefinition =
-                        { Id = Guid.NewGuid()
-                          Name = "MariaDB_Advanced"
-                          Kind = ConnectorKind.MariaDb
-                          Configuration =
-                              JsonSerializer.SerializeToElement(
-                                  {| connectionString = "Server=127.0.0.1;Port=3307;Database=fsqs_demo;User ID=root;Password=Password123!;" |},
-                                  Serialization.options
-                              )
-                          SecretReference = None
-                          IsTrusted = true }
+                        {
+                            Id = Guid.NewGuid()
+                            Name = "MariaDB_Advanced"
+                            Kind = ConnectorKind.MariaDb
+                            Configuration =
+                                JsonSerializer.SerializeToElement(
+                                    {|
+                                        connectionString =
+                                            "Server=127.0.0.1;Port=3307;Database=fsqs_demo;User ID=root;Password=Password123!;"
+                                    |},
+                                    Serialization.options
+                                )
+                            SecretReference = None
+                            IsTrusted = true
+                        }
+
                     newConns <- newConns @ [ mariaDef ]
                 | "Oracle_Advanced" ->
                     let oraDef: ConnectionDefinition =
-                        { Id = Guid.NewGuid()
-                          Name = "Oracle_Advanced"
-                          Kind = ConnectorKind.Oracle
-                          Configuration =
-                              JsonSerializer.SerializeToElement(
-                                  {| connectionString = "Data Source=localhost:1521/FREEPDB1;User Id=system;Password=Password123!;" |},
-                                  Serialization.options
-                              )
-                          SecretReference = None
-                          IsTrusted = true }
+                        {
+                            Id = Guid.NewGuid()
+                            Name = "Oracle_Advanced"
+                            Kind = ConnectorKind.Oracle
+                            Configuration =
+                                JsonSerializer.SerializeToElement(
+                                    {|
+                                        connectionString =
+                                            "Data Source=localhost:1521/FREEPDB1;User Id=system;Password=Password123!;"
+                                    |},
+                                    Serialization.options
+                                )
+                            SecretReference = None
+                            IsTrusted = true
+                        }
+
                     newConns <- newConns @ [ oraDef ]
                 | _ -> ()
 
@@ -409,17 +603,25 @@ module WorkspaceOperations =
             Workspace.writeConnections dir newConns
 
         Connections.configure (WorkspaceConnectionResolver(newConns, secretStore, dir))
+
         try
-            (EntityBackgroundGenerator.generateForConnectionsAsync dir newConns secretStore).GetAwaiter().GetResult() |> ignore
+            (EntityBackgroundGenerator.generateForConnectionsAsync dir newConns secretStore).GetAwaiter().GetResult()
+            |> ignore
         with ex ->
-            Log.Warning("FS Query Studio: Entity generation after advanced samples creation failed: {Error}", ex.Message)
+            Log.Warning(
+                "FS Query Studio: Entity generation after advanced samples creation failed: {Error}",
+                ex.Message
+            )
+
         Connections.triggerBackgroundSync dir newConns secretStore
 
         SessionStore.resetAll ()
         result
 
     /// Generates containerized and dialect-specific advanced database sample environments, Docker Compose configs, and notebooks.
-    let createAdvancedSamples (dir: string) (engines: string list) (secretStore: ISecretStore) : AdvancedSampleGenerator.AdvancedSampleResult =
+    let createAdvancedSamples
+        (dir: string)
+        (engines: string list)
+        (secretStore: ISecretStore)
+        : AdvancedSampleGenerator.AdvancedSampleResult =
         createAdvancedSamplesWithLanguage dir engines None secretStore
-
-

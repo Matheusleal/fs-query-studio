@@ -843,7 +843,8 @@ CREATE INDEX IF NOT EXISTS IX_Suppliers_Country ON Suppliers (Country);
                 use cmd = connection.CreateCommand()
                 cmd.CommandText <- createIndexesSql
                 cmd.ExecuteNonQuery() |> ignore
-        with _ -> ()
+        with _ ->
+            ()
 
     let ensureInventoryIndexes (filePath: string) : unit =
         try
@@ -853,5 +854,5 @@ CREATE INDEX IF NOT EXISTS IX_Suppliers_Country ON Suppliers (Country);
                 use cmd = connection.CreateCommand()
                 cmd.CommandText <- createInventoryIndexesSql
                 cmd.ExecuteNonQuery() |> ignore
-        with _ -> ()
-
+        with _ ->
+            ()

@@ -11,7 +11,10 @@ open FSharpQueryStudio.Connectors
 [<Fact>]
 let ``BindParameters adds every parameter as a real ADO.NET parameter, never touching the SQL text`` () =
     use command = new SqliteCommand()
-    let originalSql = "select * from Orders where CustomerId = @customerId and Total > @minTotal"
+
+    let originalSql =
+        "select * from Orders where CustomerId = @customerId and Total > @minTotal"
+
     command.CommandText <- originalSql
 
     SqliteConnector.BindParameters(command, [ "@customerId", box 42; "@minTotal", box 100.0 ])
@@ -32,10 +35,13 @@ let ``BindParameters binds a null value as DBNull rather than a literal null`` (
 /// A fresh temp SQLite file with one `Orders` table and two rows, deleted
 /// when the caller's `use` scope ends.
 type private TempSqliteFile() =
-    let path = Path.Combine(Path.GetTempPath(), "fqs-sqlite-" + Guid.NewGuid().ToString("N") + ".db")
+    let path =
+        Path.Combine(Path.GetTempPath(), "fqs-sqlite-" + Guid.NewGuid().ToString("N") + ".db")
 
     do
-        use connection = new SqliteConnection(SqliteConnectionStringBuilder(DataSource = path).ToString())
+        use connection =
+            new SqliteConnection(SqliteConnectionStringBuilder(DataSource = path).ToString())
+
         connection.Open()
         use create = connection.CreateCommand()
         create.CommandText <- "create table Orders (Id integer primary key, CustomerId integer, Total real)"
@@ -63,9 +69,9 @@ let ``ExecuteQuery returns only the rows matching a bound parameter, reading thr
     let connector = SqliteConnector(file.Path)
 
     let result =
-        connector.ExecuteQuery "select Id, CustomerId, Total from Orders where CustomerId = @customerId" [
-            "@customerId", box 42
-        ]
+        connector.ExecuteQuery
+            "select Id, CustomerId, Total from Orders where CustomerId = @customerId"
+            [ "@customerId", box 42 ]
 
     Assert.Equal<string list>([ "Id"; "CustomerId"; "Total" ], result.Columns)
     let rows = result.Rows |> Seq.toList
@@ -108,7 +114,7 @@ let ``ExecuteQuery rows sequence can be enumerated multiple times without throwi
     let connector = SqliteConnector(file.Path)
 
     let result = connector.ExecuteQuery "select Id, CustomerId, Total from Orders" []
-    
+
     // Primeira enumeração: contar elementos
     let count = result.Rows |> Seq.length
     Assert.Equal(2, count)
@@ -119,18 +125,21 @@ let ``ExecuteQuery rows sequence can be enumerated multiple times without throwi
 
     // Terceira enumeração com ExecuteReaderStream
     let streaming = connector :> IStreamingQueryableConnector
+
     let streamResult =
-        streaming.ExecuteReaderStream
-            "select Id, CustomerId, Total from Orders order by Id"
-            []
-            (fun record -> record.GetInt32(0))
+        streaming.ExecuteReaderStream "select Id, CustomerId, Total from Orders order by Id" [] (fun record ->
+            record.GetInt32(0))
         |> Seq.toList
+
     Assert.Equal<int list>([ 1; 2 ], streamResult)
 
 [<Fact>]
 let ``ExecuteQuery executes query only once on first enumeration without duplicate execution`` () =
     use file = new TempSqliteFile()
-    use connection = new SqliteConnection(SqliteConnectionStringBuilder(DataSource = file.Path).ToString())
+
+    use connection =
+        new SqliteConnection(SqliteConnectionStringBuilder(DataSource = file.Path).ToString())
+
     connection.Open()
     use create = connection.CreateCommand()
     create.CommandText <- "create table ExecAudit (Id integer primary key autoincrement, Val text)"
@@ -138,10 +147,9 @@ let ``ExecuteQuery executes query only once on first enumeration without duplica
     SqliteConnection.ClearAllPools()
 
     let connector = SqliteConnector(file.Path)
+
     let result =
-        connector.ExecuteQuery
-            "insert into ExecAudit (Val) values ('hit') returning Id, Val"
-            []
+        connector.ExecuteQuery "insert into ExecAudit (Val) values ('hit') returning Id, Val" []
 
     Assert.Equal<string list>([ "Id"; "Val" ], result.Columns)
 
@@ -152,7 +160,9 @@ let ``ExecuteQuery executes query only once on first enumeration without duplica
     Assert.Equal(box "hit", rowsFirst.[0].[1])
 
     // Verifica no banco que a query rodou exatamente 1 vez
-    use verifyConn = new SqliteConnection(SqliteConnectionStringBuilder(DataSource = file.Path).ToString())
+    use verifyConn =
+        new SqliteConnection(SqliteConnectionStringBuilder(DataSource = file.Path).ToString())
+
     verifyConn.Open()
     use countCmd = verifyConn.CreateCommand()
     countCmd.CommandText <- "select count(*) from ExecAudit"
@@ -191,5 +201,3 @@ let ``ExecuteQuery with zero fieldCount immediately disposes and returns empty r
     let result = connector.ExecuteQuery "create table EmptyTest (Id int)" []
     Assert.Empty(result.Columns)
     Assert.Empty(result.Rows)
-
-

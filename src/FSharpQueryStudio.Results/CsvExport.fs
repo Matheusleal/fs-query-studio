@@ -9,7 +9,10 @@ open System.IO
 /// connector's live-reader-backed sequence streams straight through.
 module CsvExport =
     let private needsQuoting (field: string) =
-        field.Contains(',') || field.Contains('"') || field.Contains('\n') || field.Contains('\r')
+        field.Contains(',')
+        || field.Contains('"')
+        || field.Contains('\n')
+        || field.Contains('\r')
 
     let private escape (field: string) =
         if needsQuoting field then

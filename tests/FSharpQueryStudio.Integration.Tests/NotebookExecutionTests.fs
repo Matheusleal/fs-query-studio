@@ -12,7 +12,9 @@ open TestHelpers
 /// process's current directory - matches Execution.Tests/TestHelpers.fs's
 /// own helper, duplicated here rather than shared across test projects.
 let private tempWorkingDirectory () =
-    let dir = Path.Combine(Path.GetTempPath(), "fqs-notebook-tests-" + Guid.NewGuid().ToString("N"))
+    let dir =
+        Path.Combine(Path.GetTempPath(), "fqs-notebook-tests-" + Guid.NewGuid().ToString("N"))
+
     Directory.CreateDirectory(dir) |> ignore
     dir
 

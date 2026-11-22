@@ -9,8 +9,12 @@ open FSharpQueryStudio.Connectors
 module SampleDataGeneratorTests =
 
     [<Fact>]
-    let ``generateAllSamples creates multiple SQLite dbs, multiple CSVs, and both English and Portuguese notebooks with valid JSON`` () =
-        let tempDir = Path.Combine(Path.GetTempPath(), "fsqs_sample_tests_" + Guid.NewGuid().ToString("N"))
+    let ``generateAllSamples creates multiple SQLite dbs, multiple CSVs, and both English and Portuguese notebooks with valid JSON``
+        ()
+        =
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), "fsqs_sample_tests_" + Guid.NewGuid().ToString("N"))
+
         try
             Directory.CreateDirectory tempDir |> ignore
             let res = SampleDataGenerator.generateAllSamples tempDir
@@ -27,7 +31,9 @@ module SampleDataGeneratorTests =
 
             // Verify First SQLite database content (sample_store.db)
             do
-                use conn1 = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={res.SqlitePath}")
+                use conn1 =
+                    new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={res.SqlitePath}")
+
                 conn1.Open()
                 use cmd1 = conn1.CreateCommand()
                 cmd1.CommandText <- "SELECT COUNT(*) FROM Customers"
@@ -36,7 +42,9 @@ module SampleDataGeneratorTests =
 
             // Verify Second SQLite database content (inventory.db)
             do
-                use conn2 = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={res.Sqlite2Path}")
+                use conn2 =
+                    new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={res.Sqlite2Path}")
+
                 conn2.Open()
                 use cmd2 = conn2.CreateCommand()
                 cmd2.CommandText <- "SELECT COUNT(*) FROM Warehouses"
@@ -56,7 +64,11 @@ module SampleDataGeneratorTests =
             // Verify Second CSV file content (customers_feed.csv)
             let csv2Lines = File.ReadAllLines res.Csv2Path
             Assert.True(csv2Lines.Length > 5, "Customers CSV should contain headers and rows")
-            Assert.StartsWith("CustomerId,CustomerName,LoyaltyTier,TotalSpent,Score,ActiveSince,Feedback", csv2Lines.[0])
+
+            Assert.StartsWith(
+                "CustomerId,CustomerName,LoyaltyTier,TotalSpent,Score,ActiveSince,Feedback",
+                csv2Lines.[0]
+            )
 
             // Verify English notebook validity & rich content with multi-source queries
             let enJson = File.ReadAllText res.NotebookPath
@@ -93,12 +105,18 @@ module SampleDataGeneratorTests =
             Assert.Contains("QuantidadeEmEstoque =", ptJson)
         finally
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
             if Directory.Exists tempDir then
-                try Directory.Delete(tempDir, true) with _ -> ()
+                try
+                    Directory.Delete(tempDir, true)
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``generateAllSamplesWithLanguage respects language filter`` () =
-        let tempDir = Path.Combine(Path.GetTempPath(), "fsqs_sample_lang_" + Guid.NewGuid().ToString("N"))
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), "fsqs_sample_lang_" + Guid.NewGuid().ToString("N"))
+
         try
             Directory.CreateDirectory tempDir |> ignore
 
@@ -117,19 +135,31 @@ module SampleDataGeneratorTests =
             Assert.True(File.Exists resPt.NotebookPtPath, "Portuguese notebook should exist when language is pt")
         finally
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
             if Directory.Exists tempDir then
-                try Directory.Delete(tempDir, true) with _ -> ()
+                try
+                    Directory.Delete(tempDir, true)
+                with _ ->
+                    ()
 
     [<Fact>]
     let ``generateAdvancedSamplesWithLanguage respects language filter and produces valid dialect notebooks`` () =
-        let tempDir = Path.Combine(Path.GetTempPath(), "fsqs_adv_lang_" + Guid.NewGuid().ToString("N"))
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), "fsqs_adv_lang_" + Guid.NewGuid().ToString("N"))
+
         try
             Directory.CreateDirectory tempDir |> ignore
 
             // English only
             let dirEn = Path.Combine(tempDir, "en")
             Directory.CreateDirectory dirEn |> ignore
-            let resEn = AdvancedSampleGenerator.generateAdvancedSamplesWithLanguage dirEn [ "postgresql"; "sqlserver" ] (Some "en")
+
+            let resEn =
+                AdvancedSampleGenerator.generateAdvancedSamplesWithLanguage
+                    dirEn
+                    [ "postgresql"; "sqlserver" ]
+                    (Some "en")
+
             Assert.Contains(Path.Combine(dirEn, "sample_postgresql.fsqnb"), resEn.NotebooksGenerated)
             Assert.Contains(Path.Combine(dirEn, "sample_sqlserver.fsqnb"), resEn.NotebooksGenerated)
             Assert.DoesNotContain(Path.Combine(dirEn, "sample_postgresql_pt.fsqnb"), resEn.NotebooksGenerated)
@@ -138,7 +168,13 @@ module SampleDataGeneratorTests =
             // Portuguese only
             let dirPt = Path.Combine(tempDir, "pt")
             Directory.CreateDirectory dirPt |> ignore
-            let resPt = AdvancedSampleGenerator.generateAdvancedSamplesWithLanguage dirPt [ "postgresql"; "sqlserver" ] (Some "pt")
+
+            let resPt =
+                AdvancedSampleGenerator.generateAdvancedSamplesWithLanguage
+                    dirPt
+                    [ "postgresql"; "sqlserver" ]
+                    (Some "pt")
+
             Assert.Contains(Path.Combine(dirPt, "sample_postgresql_pt.fsqnb"), resPt.NotebooksGenerated)
             Assert.Contains(Path.Combine(dirPt, "sample_sqlserver_pt.fsqnb"), resPt.NotebooksGenerated)
             Assert.DoesNotContain(Path.Combine(dirPt, "sample_postgresql.fsqnb"), resPt.NotebooksGenerated)
@@ -163,4 +199,7 @@ module SampleDataGeneratorTests =
             Assert.Contains("withRecursiveCteSql", ssPtJson)
         finally
             if Directory.Exists tempDir then
-                try Directory.Delete(tempDir, true) with _ -> ()
+                try
+                    Directory.Delete(tempDir, true)
+                with _ ->
+                    ()

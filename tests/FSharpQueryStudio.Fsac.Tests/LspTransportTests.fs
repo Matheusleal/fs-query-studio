@@ -18,7 +18,11 @@ type private OneByteAtATimeStream(bytes: byte[]) =
     override _.CanSeek = false
     override _.CanWrite = false
     override _.Length = int64 bytes.Length
-    override _.Position with get () = int64 position and set _ = failwith "not seekable"
+
+    override _.Position
+        with get () = int64 position
+        and set _ = failwith "not seekable"
+
     override _.Flush() = ()
     override _.SetLength(_) = failwith "not supported"
     override _.Seek(_, _) = failwith "not supported"
@@ -40,7 +44,11 @@ type private ChunkedStream(bytes: byte[], maxChunkSize: int) =
     override _.CanSeek = false
     override _.CanWrite = false
     override _.Length = int64 bytes.Length
-    override _.Position with get () = int64 position and set _ = failwith "not seekable"
+
+    override _.Position
+        with get () = int64 position
+        and set _ = failwith "not seekable"
+
     override _.Flush() = ()
     override _.SetLength(_) = failwith "not supported"
     override _.Seek(_, _) = failwith "not supported"
@@ -68,7 +76,9 @@ let ``writeMessage then readMessage round-trips a JSON payload`` () =
 [<Fact>]
 let ``readMessage reassembles a frame delivered one byte at a time`` () =
     task {
-        let json = """{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{}}"""
+        let json =
+            """{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{}}"""
+
         let bodyBytes = Encoding.UTF8.GetBytes(json)
         let header = $"Content-Length: {bodyBytes.Length}\r\n\r\n"
         let allBytes = Array.append (Encoding.ASCII.GetBytes(header)) bodyBytes
@@ -115,7 +125,10 @@ let ``readMessage parses standard LSP message with exact content length header``
 let ``readMessage parses standard LSP message with multiple headers and case-insensitive length`` () =
     task {
         let payload = """{"jsonrpc":"2.0","method":"shutdown"}"""
-        let raw = $"content-length: {payload.Length}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n{payload}"
+
+        let raw =
+            $"content-length: {payload.Length}\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\n{payload}"
+
         let bytes = Encoding.UTF8.GetBytes(raw)
         let stream = new MemoryStream(bytes)
 

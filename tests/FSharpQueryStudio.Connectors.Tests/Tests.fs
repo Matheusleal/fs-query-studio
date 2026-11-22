@@ -18,7 +18,14 @@ type private FakeConnector(kind: ConnectorKind, tables: ConnectorTable list) =
 [<Fact>]
 let ``a fake connector satisfies the IConnector contract`` () =
     task {
-        let tables = [ { Name = "Orders"; Columns = [ { Name = "Id"; DataType = "int" } ] } ]
+        let tables =
+            [
+                {
+                    Name = "Orders"
+                    Columns = [ { Name = "Id"; DataType = "int" } ]
+                }
+            ]
+
         let connector = FakeConnector(ConnectorKind.Sqlite, tables) :> IConnector
 
         Assert.Equal(ConnectorKind.Sqlite, connector.Kind)

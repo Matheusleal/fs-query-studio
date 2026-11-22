@@ -25,7 +25,10 @@ module NotebookCells =
         let lines = source.Replace("\r\n", "\n").Split('\n')
 
         let boundaryIndices =
-            lines |> Array.mapi (fun i line -> i, line) |> Array.filter (snd >> isBoundary) |> Array.map fst
+            lines
+            |> Array.mapi (fun i line -> i, line)
+            |> Array.filter (snd >> isBoundary)
+            |> Array.map fst
 
         let segmentStarts = 0 :: (boundaryIndices |> Array.map ((+) 1) |> Array.toList)
         let segmentEnds = (boundaryIndices |> Array.toList) @ [ lines.Length ]
@@ -36,5 +39,8 @@ module NotebookCells =
                 None
             else
                 let text = lines.[startLine .. endExclusive - 1] |> String.concat "\n"
-                if System.String.IsNullOrWhiteSpace(text) then None
-                else Some { Text = text; StartLine = startLine })
+
+                if System.String.IsNullOrWhiteSpace(text) then
+                    None
+                else
+                    Some { Text = text; StartLine = startLine })

@@ -14,23 +14,28 @@ module RestConnectorExtensions =
         static member RestJson = ConnectorKind("RestJson")
 
     type ConnectorCategory with
-        static member Rest = ConnectorCategory("rest", "Json", "FSharpQueryStudio.Connectors.Connections.RestCategory")
+        static member Rest =
+            ConnectorCategory("rest", "Json", "FSharpQueryStudio.Connectors.Connections.RestCategory")
 
 /// URL/method/header/query/body configuration — Section 10's REST/JSON
 /// connector capability shape.
 type RestRequestOptions =
-    { Url: string
-      Method: string
-      Headers: (string * string) list
-      QueryParams: (string * string) list
-      Body: string option }
+    {
+        Url: string
+        Method: string
+        Headers: (string * string) list
+        QueryParams: (string * string) list
+        Body: string option
+    }
 
     static member Get(url: string) : RestRequestOptions =
-        { Url = url
-          Method = "GET"
-          Headers = []
-          QueryParams = []
-          Body = None }
+        {
+            Url = url
+            Method = "GET"
+            Headers = []
+            QueryParams = []
+            Body = None
+        }
 
 module private RestRequests =
     let buildUri (options: RestRequestOptions) : Uri =
@@ -41,7 +46,9 @@ module private RestRequests =
                 if String.IsNullOrEmpty(builder.Query) then
                     []
                 else
-                    builder.Query.TrimStart('?').Split('&') |> Array.filter (fun s -> s <> "") |> Array.toList
+                    builder.Query.TrimStart('?').Split('&')
+                    |> Array.filter (fun s -> s <> "")
+                    |> Array.toList
 
             let extra =
                 options.QueryParams
@@ -58,7 +65,8 @@ module private RestRequests =
             request.Headers.TryAddWithoutValidation(name, value) |> ignore
 
         if not (request.Headers.Contains("User-Agent")) then
-            request.Headers.TryAddWithoutValidation("User-Agent", "FSharpQueryStudio/1.0") |> ignore
+            request.Headers.TryAddWithoutValidation("User-Agent", "FSharpQueryStudio/1.0")
+            |> ignore
 
         if not (request.Headers.Contains("Accept")) then
             request.Headers.TryAddWithoutValidation("Accept", "application/json") |> ignore
@@ -109,7 +117,9 @@ type RestConnector(baseOptions: RestRequestOptions, ?httpClient: HttpClient) =
                 let! body = response.Content.ReadAsStringAsync(ct)
                 use doc = JsonDocument.Parse(body)
                 return doc.RootElement.Clone()
-            with ex when RestConnectorDefaults.isSampleGitHubReposUrl options.Url && not ct.IsCancellationRequested ->
+            with ex when
+                RestConnectorDefaults.isSampleGitHubReposUrl options.Url
+                && not ct.IsCancellationRequested ->
                 use doc = JsonDocument.Parse(RestConnectorDefaults.sampleGitHubReposFallbackJson)
                 return doc.RootElement.Clone()
         }
@@ -135,7 +145,11 @@ type RestConnector(baseOptions: RestRequestOptions, ?httpClient: HttpClient) =
 
                 current <-
                     extractNextUrl page
-                    |> Option.map (fun nextUrl -> { opts with Url = nextUrl; QueryParams = [] })
+                    |> Option.map (fun nextUrl ->
+                        { opts with
+                            Url = nextUrl
+                            QueryParams = []
+                        })
 
             return pages |> List.ofSeq
         }

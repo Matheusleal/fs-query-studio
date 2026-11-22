@@ -26,12 +26,14 @@ type private FakeQueryableConnector(rows: obj array list) =
 
     interface IQueryableConnector with
         member _.ConnectionString = "Data Source=:memory:"
+
         member _.ExecuteQuery (_sql: string) (_parameters: (string * obj) list) : ConnectorQueryResult =
             { Columns = [ "Name" ]; Rows = rows }
 
 type private FakeResolver(connector: IConnector) =
     interface IConnectionResolver with
         member _.Resolve(_name: string) = connector
+
         member this.ResolveAsync(_name: string, _ct: System.Threading.CancellationToken) =
             System.Threading.Tasks.Task.FromResult(connector)
 
@@ -42,12 +44,15 @@ let ``Connections.sql logs one event with Kind, ElapsedMs, and RowCount, and nev
     Log.Logger <- LoggerConfiguration().WriteTo.Sink(sink).CreateLogger()
 
     try
-        let connector = FakeQueryableConnector([ [| box "Alice" |]; [| box "Bob" |]; [| box "Carol" |] ])
-        Connections.configure(FakeResolver(connector))
+        let connector =
+            FakeQueryableConnector([ [| box "Alice" |]; [| box "Bob" |]; [| box "Carol" |] ])
+
+        Connections.configure (FakeResolver(connector))
 
         let db = Connections.getDatabaseConnection "Sales"
+
         let result =
-            db.rawQuery("select Name from Orders where Ssn = @ssn", [ "@ssn", box "123-45-6789" ])
+            db.rawQuery ("select Name from Orders where Ssn = @ssn", [ "@ssn", box "123-45-6789" ])
 
         // Force full enumeration - the log fires once the caller has
         // actually consumed the (lazily streamed) rows, not eagerly on
@@ -67,7 +72,9 @@ let ``Connections.sql logs one event with Kind, ElapsedMs, and RowCount, and nev
         Assert.True((propertyValue "ElapsedMs").IsSome)
 
         let allPropertyText =
-            event.Properties |> Seq.map (fun kvp -> kvp.Value.ToString()) |> String.concat " "
+            event.Properties
+            |> Seq.map (fun kvp -> kvp.Value.ToString())
+            |> String.concat " "
 
         Assert.DoesNotContain("123-45-6789", allPropertyText)
         Assert.DoesNotContain("123-45-6789", event.RenderMessage())

@@ -29,9 +29,16 @@ let private roundTrip (proc: Process) (req: WorkerRequestFrame) : Task<WorkerRes
         do! NdjsonStream.writeFrame proc.StandardInput req
         let mutable targetResponse: WorkerResponseFrame option = None
         let mutable eof = false
-        use cts = new System.Threading.CancellationTokenSource(System.TimeSpan.FromSeconds 120.0)
-        while targetResponse.IsNone && not eof && not proc.HasExited && not cts.IsCancellationRequested do
+
+        use cts =
+            new System.Threading.CancellationTokenSource(System.TimeSpan.FromSeconds 120.0)
+
+        while targetResponse.IsNone
+              && not eof
+              && not proc.HasExited
+              && not cts.IsCancellationRequested do
             let! line = proc.StandardOutput.ReadLineAsync(cts.Token)
+
             if isNull line then
                 eof <- true
             else
@@ -39,26 +46,39 @@ let private roundTrip (proc: Process) (req: WorkerRequestFrame) : Task<WorkerRes
                     use doc = System.Text.Json.JsonDocument.Parse(line)
                     let root = doc.RootElement
                     let mutable methodProp = Unchecked.defaultof<System.Text.Json.JsonElement>
+
                     if root.TryGetProperty("method", &methodProp) then
                         let reqId = root.GetProperty("id").GetString()
                         let reply = $"{{\"id\":\"{reqId}\",\"result\":{{\"value\":\"\"}},\"error\":null}}"
                         do! proc.StandardInput.WriteLineAsync(reply)
                     else
-                        let frame = System.Text.Json.JsonSerializer.Deserialize<WorkerResponseFrame>(line, Serialization.options)
+                        let frame =
+                            System.Text.Json.JsonSerializer.Deserialize<WorkerResponseFrame>(
+                                line,
+                                Serialization.options
+                            )
+
                         if frame.Id = req.Id then
                             targetResponse <- Some frame
-                with _ -> ()
+                with _ ->
+                    ()
+
         return targetResponse
     }
 
 let private stopWorker (proc: Process) =
     try
         if not proc.HasExited then
-            try proc.StandardInput.Close() with _ -> ()
+            try
+                proc.StandardInput.Close()
+            with _ ->
+                ()
+
             if not (proc.WaitForExit(2000)) then
                 proc.Kill(entireProcessTree = true)
                 proc.WaitForExit(5000) |> ignore
-    with _ -> ()
+    with _ ->
+        ()
 
 [<Fact>]
 let ``starting the real worker process and requesting worker/health returns a healthy response`` () =
@@ -90,12 +110,20 @@ let ``a throwing script returns a structured Error result and the worker survive
             // so this actually exercises a runtime exception.
             let evaluateParams =
                 """{"source":"(failwith \"boom\" : int)","sessionId":null,"mode":{"Case":"Isolated"},"documentUri":"untitled:Test.fsx","isNotebookCell":false}"""
-            let! errorResponse = roundTrip proc (request "it-2" "execution/evaluate" evaluateParams)
+
+            let! errorResponse =
+                roundTrip proc (request "it-2" "execution/evaluate" evaluateParams)
 
             match errorResponse with
             | Some resp ->
                 Assert.True(resp.Result.IsSome)
-                let envelope = System.Text.Json.JsonSerializer.Deserialize<ResultEnvelope>(resp.Result.Value, Serialization.options)
+
+                let envelope =
+                    System.Text.Json.JsonSerializer.Deserialize<ResultEnvelope>(
+                        resp.Result.Value,
+                        Serialization.options
+                    )
+
                 Assert.Equal(ResultKind.Error, envelope.Kind)
                 Assert.Contains("boom", envelope.DisplayText |> Option.defaultValue "")
             | None -> failwith "expected an error result, got end of stream"

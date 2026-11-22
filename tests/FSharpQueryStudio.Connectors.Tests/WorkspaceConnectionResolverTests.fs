@@ -10,13 +10,20 @@ open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Connectors
 open FSharpQueryStudio.Security
 
-let private definition (name: string) (kind: ConnectorKind) (configuration: obj) (secretRef: string option) : ConnectionDefinition =
-    { Id = Guid.NewGuid()
-      Name = name
-      Kind = kind
-      Configuration = JsonSerializer.SerializeToElement(configuration, Serialization.options)
-      SecretReference = secretRef
-      IsTrusted = false }
+let private definition
+    (name: string)
+    (kind: ConnectorKind)
+    (configuration: obj)
+    (secretRef: string option)
+    : ConnectionDefinition =
+    {
+        Id = Guid.NewGuid()
+        Name = name
+        Kind = kind
+        Configuration = JsonSerializer.SerializeToElement(configuration, Serialization.options)
+        SecretReference = secretRef
+        IsTrusted = false
+    }
 
 [<Fact>]
 let ``ConnectionStringSecrets.resolve substitutes the {password} token from the secret store`` () =
@@ -74,7 +81,8 @@ let ``ConnectionStringSecrets.resolve injects password in postgresql URI format`
 
 [<Fact>]
 let ``resolves a registered SQLite connection to a real, correctly-kinded SqliteConnector`` () =
-    let path = Path.Combine(Path.GetTempPath(), "fqs-resolver-" + Guid.NewGuid().ToString("N") + ".db")
+    let path =
+        Path.Combine(Path.GetTempPath(), "fqs-resolver-" + Guid.NewGuid().ToString("N") + ".db")
 
     try
         let def = definition "Sales" ConnectorKind.Sqlite {| FilePath = path |} None
@@ -90,7 +98,9 @@ let ``resolves a registered SQLite connection to a real, correctly-kinded Sqlite
 
 [<Fact>]
 let ``resolves a registered CSV connection to a real CsvConnector`` () =
-    let def = definition "Feed" ConnectorKind.Csv {| FilePath = @"C:\data\feed.csv" |} None
+    let def =
+        definition "Feed" ConnectorKind.Csv {| FilePath = @"C:\data\feed.csv" |} None
+
     let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore())
 
     let connector = (resolver :> IConnectionResolver).Resolve("Feed")
@@ -100,7 +110,9 @@ let ``resolves a registered CSV connection to a real CsvConnector`` () =
 
 [<Fact>]
 let ``resolves a registered Excel connection to a real ExcelConnector`` () =
-    let def = definition "Book" ConnectorKind.Excel {| FilePath = @"C:\data\book.xlsx" |} None
+    let def =
+        definition "Book" ConnectorKind.Excel {| FilePath = @"C:\data\book.xlsx" |} None
+
     let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore())
 
     let connector = (resolver :> IConnectionResolver).Resolve("Book")
@@ -114,11 +126,13 @@ let ``resolves a registered REST connection to a real RestConnector using the st
         definition
             "Api"
             ConnectorKind.RestJson
-            {| Url = "https://example.test/orders"
-               Method = "GET"
-               Headers = [||]
-               QueryParams = [||]
-               Body = None |}
+            {|
+                Url = "https://example.test/orders"
+                Method = "GET"
+                Headers = [||]
+                QueryParams = [||]
+                Body = None
+            |}
             None
 
     let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore())
@@ -136,7 +150,9 @@ let ``resolves a registered SQL Server connection with its {password} token subs
         definition
             "Sales"
             ConnectorKind.SqlServer
-            {| ConnectionString = "Server=.;Database=Orders;User Id=sa;Password={password};" |}
+            {|
+                ConnectionString = "Server=.;Database=Orders;User Id=sa;Password={password};"
+            |}
             (Some "fqs-conn-sales")
 
     let resolver = WorkspaceConnectionResolver([ def ], store)
@@ -160,13 +176,19 @@ let ``Resolve throws a clear error for a name that is not registered`` () =
 // ---------------------------------------------------------------------------
 
 let private withTempWorkspace (f: string -> unit) =
-    let root = Path.Combine(Path.GetTempPath(), "fqs-relpath-" + Guid.NewGuid().ToString("N"))
+    let root =
+        Path.Combine(Path.GetTempPath(), "fqs-relpath-" + Guid.NewGuid().ToString("N"))
+
     Directory.CreateDirectory(Path.Combine(root, ".fsqs")) |> ignore
     Directory.CreateDirectory(Path.Combine(root, "data")) |> ignore
+
     try
         f root
     finally
-        try Directory.Delete(root, true) with _ -> ()
+        try
+            Directory.Delete(root, true)
+        with _ ->
+            ()
 
 [<Fact>]
 let ``relative CSV path is resolved against the workspace project root and is readable`` () =
@@ -183,8 +205,11 @@ let ``relative CSV path is resolved against the workspace project root and is re
 [<Fact>]
 let ``relative path is resolved against the project root when the workspace dir points at the .fsqs folder`` () =
     withTempWorkspace (fun root ->
-        let def = definition "Feed" ConnectorKind.Csv {| FilePath = "./data/feed.csv" |} None
-        let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore(), Path.Combine(root, ".fsqs"))
+        let def =
+            definition "Feed" ConnectorKind.Csv {| FilePath = "./data/feed.csv" |} None
+
+        let resolver =
+            WorkspaceConnectionResolver([ def ], InMemorySecretStore(), Path.Combine(root, ".fsqs"))
 
         let connector = (resolver :> IConnectionResolver).Resolve("Feed") :?> CsvConnector
 
@@ -193,7 +218,9 @@ let ``relative path is resolved against the project root when the workspace dir 
 [<Fact>]
 let ``parent-relative Excel path (..) is resolved against the project root`` () =
     withTempWorkspace (fun root ->
-        let def = definition "Book" ConnectorKind.Excel {| FilePath = "../shared/book.xlsx" |} None
+        let def =
+            definition "Book" ConnectorKind.Excel {| FilePath = "../shared/book.xlsx" |} None
+
         let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore(), root)
 
         let connector = (resolver :> IConnectionResolver).Resolve("Book") :?> ExcelConnector
@@ -201,12 +228,18 @@ let ``parent-relative Excel path (..) is resolved against the project root`` () 
         Assert.Equal(Path.GetFullPath(Path.Combine(root, "..", "shared", "book.xlsx")), connector.FilePath))
 
 [<Fact>]
-let ``relative SQLite path creates and opens the database inside the project root, not the process working directory`` () =
+let ``relative SQLite path creates and opens the database inside the project root, not the process working directory``
+    ()
+    =
     withTempWorkspace (fun root ->
-        let def = definition "Local" ConnectorKind.Sqlite {| FilePath = "data/local.db" |} None
+        let def =
+            definition "Local" ConnectorKind.Sqlite {| FilePath = "data/local.db" |} None
+
         let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore(), root)
 
-        let connector = (resolver :> IConnectionResolver).Resolve("Local") :?> SqliteConnector
+        let connector =
+            (resolver :> IConnectionResolver).Resolve("Local") :?> SqliteConnector
+
         let result = connector.ExecuteQuery "select 42 as Answer" []
         Assert.Equal(1, result.Rows |> Seq.length)
 
@@ -227,9 +260,24 @@ let ``absolute paths are left untouched when a workspace directory is provided``
 [<Fact>]
 let ``non-file fields such as connection strings are never rewritten as paths`` () =
     let fields: ConnectorFormField list =
-        [ { Name = "connectionString"; Label = "Conn"; Type = ConnectorFieldType.String; Required = true
-            Placeholder = None; DefaultValue = None; SecretHandling = SecretHandling.None } ]
-    let config = JsonSerializer.SerializeToElement({| connectionString = "Data Source=relative.db" |})
+        [
+            {
+                Name = "connectionString"
+                Label = "Conn"
+                Type = ConnectorFieldType.String
+                Required = true
+                Placeholder = None
+                DefaultValue = None
+                SecretHandling = SecretHandling.None
+            }
+        ]
+
+    let config =
+        JsonSerializer.SerializeToElement(
+            {|
+                connectionString = "Data Source=relative.db"
+            |}
+        )
 
     let resolved = ConnectorDescriptor.resolveRelativeFilePaths fields config @"C:\ws"
 
@@ -251,7 +299,11 @@ let ``ConnectionStringSecrets.resolveAsync substitutes the {password} token from
         (store :> ISecretStore).Save "ref1" "s3cret"
 
         let! result =
-            ConnectionStringSecrets.resolveAsync store (Some "ref1") "Server=.;Database=Orders;Password={password};" CancellationToken.None
+            ConnectionStringSecrets.resolveAsync
+                store
+                (Some "ref1")
+                "Server=.;Database=Orders;Password={password};"
+                CancellationToken.None
 
         Assert.Equal("Server=.;Database=Orders;Password=s3cret;", result)
     }
@@ -263,7 +315,11 @@ let ``ConnectionStringSecrets.resolveAsync substitutes case-insensitive {Passwor
         (store :> ISecretStore).Save "ref1" "s3cret"
 
         let! result =
-            ConnectionStringSecrets.resolveAsync store (Some "ref1") "Host=localhost;Database=mydb;Password={Password};" CancellationToken.None
+            ConnectionStringSecrets.resolveAsync
+                store
+                (Some "ref1")
+                "Host=localhost;Database=mydb;Password={Password};"
+                CancellationToken.None
 
         Assert.Equal("Host=localhost;Database=mydb;Password=s3cret;", result)
     }
@@ -272,7 +328,11 @@ let ``ConnectionStringSecrets.resolveAsync substitutes case-insensitive {Passwor
 let ``ConnectionStringSecrets.resolveAsync returns the template unchanged when SecretReference is None`` () =
     task {
         let! result =
-            ConnectionStringSecrets.resolveAsync (InMemorySecretStore()) None "Server=.;Trusted_Connection=true;" CancellationToken.None
+            ConnectionStringSecrets.resolveAsync
+                (InMemorySecretStore())
+                None
+                "Server=.;Trusted_Connection=true;"
+                CancellationToken.None
 
         Assert.Equal("Server=.;Trusted_Connection=true;", result)
     }
@@ -281,7 +341,11 @@ let ``ConnectionStringSecrets.resolveAsync returns the template unchanged when S
 let ``ConnectionStringSecrets.resolveAsync returns the template unchanged when the reference has no stored secret`` () =
     task {
         let! result =
-            ConnectionStringSecrets.resolveAsync (InMemorySecretStore()) (Some "never-saved") "Server=.;Password={password};" CancellationToken.None
+            ConnectionStringSecrets.resolveAsync
+                (InMemorySecretStore())
+                (Some "never-saved")
+                "Server=.;Password={password};"
+                CancellationToken.None
 
         Assert.Equal("Server=.;Password={password};", result)
     }
@@ -293,7 +357,11 @@ let ``ConnectionStringSecrets.resolveAsync returns the template unchanged when t
         (store :> ISecretStore).Save "empty-ref" ""
 
         let! result =
-            ConnectionStringSecrets.resolveAsync store (Some "empty-ref") "Server=.;Password={password};" CancellationToken.None
+            ConnectionStringSecrets.resolveAsync
+                store
+                (Some "empty-ref")
+                "Server=.;Password={password};"
+                CancellationToken.None
 
         Assert.Equal("Server=.;Password={password};", result)
     }
@@ -305,7 +373,11 @@ let ``ConnectionStringSecrets.resolveAsync injects Password when no placeholder 
         (store :> ISecretStore).Save "ref1" "s3cret"
 
         let! result =
-            ConnectionStringSecrets.resolveAsync store (Some "ref1") "Host=localhost;Database=mydb;Username=postgres" CancellationToken.None
+            ConnectionStringSecrets.resolveAsync
+                store
+                (Some "ref1")
+                "Host=localhost;Database=mydb;Username=postgres"
+                CancellationToken.None
 
         Assert.Contains("Password=s3cret", result)
     }
@@ -317,7 +389,11 @@ let ``ConnectionStringSecrets.resolveAsync injects password in postgresql URI fo
         (store :> ISecretStore).Save "ref1" "s3cret"
 
         let! result =
-            ConnectionStringSecrets.resolveAsync store (Some "ref1") "postgresql://postgres@localhost:5432/mydb" CancellationToken.None
+            ConnectionStringSecrets.resolveAsync
+                store
+                (Some "ref1")
+                "postgresql://postgres@localhost:5432/mydb"
+                CancellationToken.None
 
         Assert.Equal("postgresql://postgres:s3cret@localhost:5432/mydb", result)
     }
@@ -329,7 +405,11 @@ let ``ConnectionStringSecrets.resolveAsync injects password in postgresql URI wi
         (store :> ISecretStore).Save "ref1" "s3cret"
 
         let! result =
-            ConnectionStringSecrets.resolveAsync store (Some "ref1") "postgresql://admin:oldpass@localhost:5432/mydb" CancellationToken.None
+            ConnectionStringSecrets.resolveAsync
+                store
+                (Some "ref1")
+                "postgresql://admin:oldpass@localhost:5432/mydb"
+                CancellationToken.None
 
         Assert.Equal("postgresql://admin:s3cret@localhost:5432/mydb", result)
     }
@@ -341,26 +421,33 @@ let ``ConnectionStringSecrets.resolveAsync injects password in postgresql URI wi
 [<Fact>]
 let ``ResolveAsync resolves a registered SQLite connection to a real SqliteConnector`` () =
     task {
-        let path = Path.Combine(Path.GetTempPath(), "fqs-resolver-async-" + Guid.NewGuid().ToString("N") + ".db")
+        let path =
+            Path.Combine(Path.GetTempPath(), "fqs-resolver-async-" + Guid.NewGuid().ToString("N") + ".db")
+
         try
             let def = definition "AsyncSales" ConnectorKind.Sqlite {| FilePath = path |} None
             let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore())
 
-            let! connector = (resolver :> IConnectionResolver).ResolveAsync("AsyncSales", CancellationToken.None)
+            let! connector =
+                (resolver :> IConnectionResolver).ResolveAsync("AsyncSales", CancellationToken.None)
 
             Assert.Equal(ConnectorKind.Sqlite, connector.Kind)
             Assert.IsType<SqliteConnector>(connector) |> ignore
         finally
-            if File.Exists path then File.Delete path
+            if File.Exists path then
+                File.Delete path
     }
 
 [<Fact>]
 let ``ResolveAsync resolves a registered CSV connection to a real CsvConnector`` () =
     task {
-        let def = definition "AsyncFeed" ConnectorKind.Csv {| FilePath = @"C:\data\feed.csv" |} None
+        let def =
+            definition "AsyncFeed" ConnectorKind.Csv {| FilePath = @"C:\data\feed.csv" |} None
+
         let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore())
 
-        let! connector = (resolver :> IConnectionResolver).ResolveAsync("AsyncFeed", CancellationToken.None)
+        let! connector =
+            (resolver :> IConnectionResolver).ResolveAsync("AsyncFeed", CancellationToken.None)
 
         Assert.Equal(ConnectorKind.Csv, connector.Kind)
         Assert.IsType<CsvConnector>(connector) |> ignore
@@ -372,7 +459,8 @@ let ``ResolveAsync throws a clear error for a name that is not registered`` () =
         let resolver = WorkspaceConnectionResolver([], InMemorySecretStore())
 
         let! ex =
-            Assert.ThrowsAsync<Exception>(fun () -> (resolver :> IConnectionResolver).ResolveAsync("MissingConn", CancellationToken.None))
+            Assert.ThrowsAsync<Exception>(fun () ->
+                (resolver :> IConnectionResolver).ResolveAsync("MissingConn", CancellationToken.None))
 
         Assert.Contains("MissingConn", ex.Message)
     }
@@ -383,7 +471,8 @@ let ``ResolveAsync throws a clear error for an empty connection name`` () =
         let resolver = WorkspaceConnectionResolver([], InMemorySecretStore())
 
         let! ex =
-            Assert.ThrowsAsync<Exception>(fun () -> (resolver :> IConnectionResolver).ResolveAsync("", CancellationToken.None))
+            Assert.ThrowsAsync<Exception>(fun () ->
+                (resolver :> IConnectionResolver).ResolveAsync("", CancellationToken.None))
 
         Assert.Contains("No connection named '' is registered", ex.Message)
     }
@@ -391,13 +480,16 @@ let ``ResolveAsync throws a clear error for an empty connection name`` () =
 [<Fact>]
 let ``ResolveAsync throws OperationCanceledException when token is cancelled`` () =
     task {
-        let def = definition "CancelledConn" ConnectorKind.Csv {| FilePath = @"C:\data\feed.csv" |} None
+        let def =
+            definition "CancelledConn" ConnectorKind.Csv {| FilePath = @"C:\data\feed.csv" |} None
+
         let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore())
         use cts = new CancellationTokenSource()
         cts.Cancel()
 
         let! ex =
-            Assert.ThrowsAsync<OperationCanceledException>(fun () -> (resolver :> IConnectionResolver).ResolveAsync("CancelledConn", cts.Token))
+            Assert.ThrowsAsync<OperationCanceledException>(fun () ->
+                (resolver :> IConnectionResolver).ResolveAsync("CancelledConn", cts.Token))
 
         Assert.NotNull(ex)
     }
@@ -405,7 +497,9 @@ let ``ResolveAsync throws OperationCanceledException when token is cancelled`` (
 [<Fact>]
 let ``ResolveAsync method on resolver type honors cancellation token`` () =
     task {
-        let def = definition "DirectConn" ConnectorKind.Csv {| FilePath = @"C:\data\feed.csv" |} None
+        let def =
+            definition "DirectConn" ConnectorKind.Csv {| FilePath = @"C:\data\feed.csv" |} None
+
         let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore())
         use cts = new CancellationTokenSource()
         cts.Cancel()
@@ -420,21 +514,30 @@ let ``ResolveAsync method on resolver type honors cancellation token`` () =
 let ``ConnectionStringSecrets handles URI with no user info`` () =
     let store = InMemorySecretStore()
     (store :> ISecretStore).Save "ref1" "s3cret"
-    let result = ConnectionStringSecrets.resolve store (Some "ref1") "http://localhost:5432/mydb"
+
+    let result =
+        ConnectionStringSecrets.resolve store (Some "ref1") "http://localhost:5432/mydb"
+
     Assert.Equal("http://localhost:5432/mydb", result)
 
 [<Fact>]
 let ``ConnectionStringSecrets handles invalid URI format containing scheme separator`` () =
     let store = InMemorySecretStore()
     (store :> ISecretStore).Save "ref1" "s3cret"
-    let result = ConnectionStringSecrets.resolve store (Some "ref1") "http:// invalid url with spaces"
+
+    let result =
+        ConnectionStringSecrets.resolve store (Some "ref1") "http:// invalid url with spaces"
+
     Assert.Equal("http:// invalid url with spaces", result)
 
 [<Fact>]
 let ``ConnectionStringSecrets fallback when DbConnectionStringBuilder fails`` () =
     let store = InMemorySecretStore()
     (store :> ISecretStore).Save "ref1" "s3cret"
-    let result = ConnectionStringSecrets.resolve store (Some "ref1") "Data Source=\"unclosed"
+
+    let result =
+        ConnectionStringSecrets.resolve store (Some "ref1") "Data Source=\"unclosed"
+
     Assert.Equal("Data Source=\"unclosed;Password=s3cret", result)
 
 [<Fact>]
@@ -442,19 +545,32 @@ let ``ConnectionStringSecrets.resolveAsync handles URI with no user info and inv
     task {
         let store = InMemorySecretStore()
         (store :> ISecretStore).Save "ref1" "s3cret"
-        let! res1 = ConnectionStringSecrets.resolveAsync store (Some "ref1") "http://localhost:5432/mydb" CancellationToken.None
+
+        let! res1 =
+            ConnectionStringSecrets.resolveAsync store (Some "ref1") "http://localhost:5432/mydb" CancellationToken.None
+
         Assert.Equal("http://localhost:5432/mydb", res1)
 
-        let! res2 = ConnectionStringSecrets.resolveAsync store (Some "ref1") "http:// invalid url with spaces" CancellationToken.None
+        let! res2 =
+            ConnectionStringSecrets.resolveAsync
+                store
+                (Some "ref1")
+                "http:// invalid url with spaces"
+                CancellationToken.None
+
         Assert.Equal("http:// invalid url with spaces", res2)
 
-        let! res3 = ConnectionStringSecrets.resolveAsync store (Some "ref1") "Data Source=\"unclosed" CancellationToken.None
+        let! res3 =
+            ConnectionStringSecrets.resolveAsync store (Some "ref1") "Data Source=\"unclosed" CancellationToken.None
+
         Assert.Equal("Data Source=\"unclosed;Password=s3cret", res3)
     }
 
 [<Fact>]
 let ``WorkspaceConnectionResolver exposes BaseDirectory and Connections via properties and interfaces`` () =
-    let def = definition "TestConn" ConnectorKind.Csv {| FilePath = @"C:\data\feed.csv" |} None
+    let def =
+        definition "TestConn" ConnectorKind.Csv {| FilePath = @"C:\data\feed.csv" |} None
+
     let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore(), @"C:\ws")
 
     Assert.Equal(Some @"C:\ws", resolver.BaseDirectory)
@@ -469,18 +585,27 @@ let ``WorkspaceConnectionResolver exposes BaseDirectory and Connections via prop
 
 [<Fact>]
 let ``WorkspaceConnectionResolver throws when resolving connection with unregistered kind`` () =
-    let def = definition "UnknownKindConn" (ConnectorKind.Custom "nonexistent_kind_id") {| Foo = "Bar" |} None
+    let def =
+        definition "UnknownKindConn" (ConnectorKind.Custom "nonexistent_kind_id") {| Foo = "Bar" |} None
+
     let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore())
 
-    let ex = Assert.Throws<Exception>(fun () -> (resolver :> IConnectionResolver).Resolve("UnknownKindConn") |> ignore)
+    let ex =
+        Assert.Throws<Exception>(fun () -> (resolver :> IConnectionResolver).Resolve("UnknownKindConn") |> ignore)
+
     Assert.Contains("No connector descriptor registered for kind 'nonexistent_kind_id'", ex.Message)
 
 [<Fact>]
 let ``WorkspaceConnectionResolver.ResolveAsync throws when resolving connection with unregistered kind`` () =
     task {
-        let def = definition "UnknownKindConnAsync" (ConnectorKind.Custom "nonexistent_kind_id") {| Foo = "Bar" |} None
+        let def =
+            definition "UnknownKindConnAsync" (ConnectorKind.Custom "nonexistent_kind_id") {| Foo = "Bar" |} None
+
         let resolver = WorkspaceConnectionResolver([ def ], InMemorySecretStore())
 
-        let! ex = Assert.ThrowsAsync<Exception>(fun () -> (resolver :> IConnectionResolver).ResolveAsync("UnknownKindConnAsync", CancellationToken.None))
+        let! ex =
+            Assert.ThrowsAsync<Exception>(fun () ->
+                (resolver :> IConnectionResolver).ResolveAsync("UnknownKindConnAsync", CancellationToken.None))
+
         Assert.Contains("No connector descriptor registered for kind 'nonexistent_kind_id'", ex.Message)
     }

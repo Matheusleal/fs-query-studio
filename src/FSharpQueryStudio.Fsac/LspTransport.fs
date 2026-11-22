@@ -17,7 +17,10 @@ module LspTransport =
     let writeMessage (stream: Stream) (json: string) : Task =
         task {
             let bodyBytes = Encoding.UTF8.GetBytes(json)
-            let headerBytes = Encoding.ASCII.GetBytes($"Content-Length: {bodyBytes.Length}\r\n\r\n")
+
+            let headerBytes =
+                Encoding.ASCII.GetBytes($"Content-Length: {bodyBytes.Length}\r\n\r\n")
+
             do! stream.WriteAsync(headerBytes, 0, headerBytes.Length)
             do! stream.WriteAsync(bodyBytes, 0, bodyBytes.Length)
             do! stream.FlushAsync()

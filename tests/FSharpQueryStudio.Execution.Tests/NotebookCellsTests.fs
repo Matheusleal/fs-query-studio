@@ -8,15 +8,22 @@ open FSharpQueryStudio.Execution.NotebookCells
 let ``a script with no boundary markers is a single cell holding everything`` () =
     let cells = NotebookCells.parse "let x = 1\nlet y = 2"
 
-    Assert.Equal<NotebookCells.Cell list>([ { Text = "let x = 1\nlet y = 2"; StartLine = 0 } ], cells)
+    Assert.Equal<NotebookCells.Cell list>(
+        [
+            {
+                Text = "let x = 1\nlet y = 2"
+                StartLine = 0
+            }
+        ],
+        cells
+    )
 
 [<Fact>]
 let ``a single bare marker splits the script into two cells`` () =
     let cells = NotebookCells.parse "let x = 1\n// %%\nlet y = 2"
 
     Assert.Equal<NotebookCells.Cell list>(
-        [ { Text = "let x = 1"; StartLine = 0 }
-          { Text = "let y = 2"; StartLine = 2 } ],
+        [ { Text = "let x = 1"; StartLine = 0 }; { Text = "let y = 2"; StartLine = 2 } ],
         cells
     )
 
@@ -33,9 +40,11 @@ let ``three cells split by two markers preserve document order and StartLine`` (
     let cells = NotebookCells.parse "let a = 1\n// %%\nlet b = 2\n// %%\nlet c = 3"
 
     Assert.Equal<NotebookCells.Cell list>(
-        [ { Text = "let a = 1"; StartLine = 0 }
-          { Text = "let b = 2"; StartLine = 2 }
-          { Text = "let c = 3"; StartLine = 4 } ],
+        [
+            { Text = "let a = 1"; StartLine = 0 }
+            { Text = "let b = 2"; StartLine = 2 }
+            { Text = "let c = 3"; StartLine = 4 }
+        ],
         cells
     )
 
@@ -56,14 +65,12 @@ let ``two consecutive markers with nothing between them produce no empty cell fo
     let cells = NotebookCells.parse "let x = 1\n// %%\n// %%\nlet y = 2"
 
     Assert.Equal<NotebookCells.Cell list>(
-        [ { Text = "let x = 1"; StartLine = 0 }
-          { Text = "let y = 2"; StartLine = 3 } ],
+        [ { Text = "let x = 1"; StartLine = 0 }; { Text = "let y = 2"; StartLine = 3 } ],
         cells
     )
 
 [<Fact>]
-let ``an empty source produces no cells`` () =
-    Assert.Empty(NotebookCells.parse "")
+let ``an empty source produces no cells`` () = Assert.Empty(NotebookCells.parse "")
 
 [<Fact>]
 let ``a source that is only a marker produces no cells`` () =
@@ -80,8 +87,7 @@ let ``Windows-style CRLF line endings split cells the same as LF`` () =
     let cells = NotebookCells.parse "let x = 1\r\n// %%\r\nlet y = 2"
 
     Assert.Equal<NotebookCells.Cell list>(
-        [ { Text = "let x = 1"; StartLine = 0 }
-          { Text = "let y = 2"; StartLine = 2 } ],
+        [ { Text = "let x = 1"; StartLine = 0 }; { Text = "let y = 2"; StartLine = 2 } ],
         cells
     )
 

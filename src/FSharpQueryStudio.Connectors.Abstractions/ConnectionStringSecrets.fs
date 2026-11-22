@@ -18,6 +18,7 @@ module ConnectionStringSecrets =
             try
                 let uri = Uri(template)
                 let userInfo = uri.UserInfo
+
                 if String.IsNullOrEmpty userInfo then
                     template
                 elif userInfo.Contains(":") then
@@ -45,12 +46,18 @@ module ConnectionStringSecrets =
             | Some secret when not (String.IsNullOrEmpty secret) -> substitute secret template
             | _ -> template
 
-    let resolveAsync (secretStore: ISecretStore) (secretReference: string option) (template: string) (ct: CancellationToken) : Task<string> =
+    let resolveAsync
+        (secretStore: ISecretStore)
+        (secretReference: string option)
+        (template: string)
+        (ct: CancellationToken)
+        : Task<string> =
         task {
             match secretReference with
             | None -> return template
             | Some reference ->
                 let! secretOpt = secretStore.TryReadAsync(reference, ct)
+
                 match secretOpt with
                 | Some secret when not (String.IsNullOrEmpty secret) -> return substitute secret template
                 | _ -> return template

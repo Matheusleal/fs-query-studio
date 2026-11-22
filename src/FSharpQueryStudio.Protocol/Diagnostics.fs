@@ -11,10 +11,12 @@ type DiagnosticSeverity =
     | Information
 
 type Diagnostic =
-    { Message: string
-      Severity: DiagnosticSeverity
-      StartLine: int
-      StartColumn: int
-      EndLine: int
-      EndColumn: int
-      Code: string option }
+    {
+        Message: string
+        Severity: DiagnosticSeverity
+        StartLine: int
+        StartColumn: int
+        EndLine: int
+        EndColumn: int
+        Code: string option
+    }

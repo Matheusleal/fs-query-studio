@@ -10,6 +10,7 @@ type private SingleConnectionResolver(name: string, connector: IConnector) =
                 connector
             else
                 failwith $"No connection named '{requested}' is configured."
+
         member this.ResolveAsync(requested: string, _ct: System.Threading.CancellationToken) =
             System.Threading.Tasks.Task.FromResult((this :> IConnectionResolver).Resolve requested)
 
@@ -18,7 +19,7 @@ type private SingleConnectionResolver(name: string, connector: IConnector) =
 type ConnectionsSqlServerRegressionTests(fixture: SqlServerConnectorTests.MsSqlContainerFixture) =
 
     [<Fact>]
-    member _.``Connections.sql binds an OR-1-equals-1-shaped parameter as literal data against SQL Server`` () =
+    member _.``Connections.sql binds an OR-1-equals-1-shaped parameter as literal data against SQL Server``() =
         let connector = SqlServerConnector(fixture.ConnectionString)
 
         connector.ExecuteQuery
@@ -29,11 +30,12 @@ type ConnectionsSqlServerRegressionTests(fixture: SqlServerConnectorTests.MsSqlC
         connector.ExecuteQuery "insert into People (Id, Name) values (1, 'Alice'), (2, 'Bob')" []
         |> ignore
 
-        Connections.configure(SingleConnectionResolver("Sales", connector))
+        Connections.configure (SingleConnectionResolver("Sales", connector))
 
         let db = Connections.getDatabaseConnection "Sales"
+
         let result =
-            db.rawQuery("select * from People where Name = @name", [ "@name", box "x' OR '1'='1" ])
+            db.rawQuery ("select * from People where Name = @name", [ "@name", box "x' OR '1'='1" ])
 
         Assert.Empty(result.Rows)
 
@@ -42,7 +44,7 @@ type ConnectionsSqlServerRegressionTests(fixture: SqlServerConnectorTests.MsSqlC
 type ConnectionsPostgreSqlRegressionTests(fixture: PostgreSqlConnectorTests.PostgreSqlContainerFixture) =
 
     [<Fact>]
-    member _.``Connections.sql binds an OR-1-equals-1-shaped parameter as literal data against PostgreSQL`` () =
+    member _.``Connections.sql binds an OR-1-equals-1-shaped parameter as literal data against PostgreSQL``() =
         let connector = PostgreSqlConnector(fixture.ConnectionString)
 
         connector.ExecuteQuery "drop table if exists people; create table people (id int primary key, name text)" []
@@ -51,10 +53,11 @@ type ConnectionsPostgreSqlRegressionTests(fixture: PostgreSqlConnectorTests.Post
         connector.ExecuteQuery "insert into people (id, name) values (1, 'Alice'), (2, 'Bob')" []
         |> ignore
 
-        Connections.configure(SingleConnectionResolver("Sales", connector))
+        Connections.configure (SingleConnectionResolver("Sales", connector))
 
         let db = Connections.getDatabaseConnection "Sales"
+
         let result =
-            db.rawQuery("select * from people where name = @name", [ "@name", box "x' OR '1'='1" ])
+            db.rawQuery ("select * from people where name = @name", [ "@name", box "x' OR '1'='1" ])
 
         Assert.Empty(result.Rows)

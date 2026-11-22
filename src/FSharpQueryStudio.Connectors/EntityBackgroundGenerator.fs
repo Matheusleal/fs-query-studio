@@ -15,15 +15,22 @@ module EntityBackgroundGenerator =
 
     let generatedDir (workspaceDir: string) : string =
         let baseDir =
-            if String.IsNullOrWhiteSpace workspaceDir then workspaceDir
+            if String.IsNullOrWhiteSpace workspaceDir then
+                workspaceDir
             else
-                let trimmed = workspaceDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                let trimmed =
+                    workspaceDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+
                 let leaf = Path.GetFileName trimmed
+
                 if leaf.Equals(".fsqs", StringComparison.OrdinalIgnoreCase) then
                     workspaceDir
                 elif leaf.Equals("FSharpQueryStudio", StringComparison.OrdinalIgnoreCase) then
                     workspaceDir
-                elif Directory.Exists(Path.Combine(workspaceDir, ".fsqs")) || File.Exists(Path.Combine(workspaceDir, ".fsqs", "workspace.json")) then
+                elif
+                    Directory.Exists(Path.Combine(workspaceDir, ".fsqs"))
+                    || File.Exists(Path.Combine(workspaceDir, ".fsqs", "workspace.json"))
+                then
                     Path.Combine(workspaceDir, ".fsqs")
                 elif Directory.Exists(Path.Combine(workspaceDir, "generated")) then
                     workspaceDir
@@ -35,11 +42,16 @@ module EntityBackgroundGenerator =
     let generatedFilePath (workspaceDir: string) : string =
         Path.Combine(generatedDir workspaceDir, "GeneratedEntities.fs")
 
-    let cleanIdentifier (name: string) : string = CodeGenerationHelpers.cleanIdentifier name
+    let cleanIdentifier (name: string) : string =
+        CodeGenerationHelpers.cleanIdentifier name
+
     let escapeIdent (s: string) : string = CodeGenerationHelpers.escapeIdent s
     let cleanSample (s: string) : string = CsvTypeInference.cleanSample s
     let inferType (samples: string seq) : string = CsvTypeInference.inferType samples
-    let sanitizeColumns (cols: string list) : string list = CodeGenerationHelpers.sanitizeColumns cols
+
+    let sanitizeColumns (cols: string list) : string list =
+        CodeGenerationHelpers.sanitizeColumns cols
+
     let inferJsonTypes (elem: JsonElement) : (string * string) list = JsonTypeInference.inferJsonTypes elem
 
     [<RequireQualifiedAccess>]
@@ -49,38 +61,46 @@ module EntityBackgroundGenerator =
         | Failed of error: string
 
     let mutable onStatusChanged: (EntityMappingStatus -> unit) option = None
-    let private fileWriteLock = obj()
+    let private fileWriteLock = obj ()
 
     let private deduplicateByName (connections: ConnectionDefinition list) : ConnectionDefinition list =
-        let seenNames = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        let seenNames =
+            System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+
         connections
         |> List.rev
         |> List.filter (fun c -> seenNames.Add(c.Name))
         |> List.rev
 
     type private GeneratedFileCache =
-        { Timestamp: DateTime
-          ConnectionFingerprint: int }
+        {
+            Timestamp: DateTime
+            ConnectionFingerprint: int
+        }
 
-    let private generatedFileCache = System.Collections.Concurrent.ConcurrentDictionary<string, GeneratedFileCache>()
+    let private generatedFileCache =
+        System.Collections.Concurrent.ConcurrentDictionary<string, GeneratedFileCache>()
 
     let private computeConnectionFingerprint (connections: ConnectionDefinition list) : int =
         let deduped = deduplicateByName connections
         let hash = System.HashCode()
+
         for def in deduped do
             hash.Add(def.Name)
             hash.Add(def.Kind.ToString())
+
         hash.ToHashCode()
 
     /// Resets memory caches (useful for test isolation).
-    let resetCache () : unit =
-        generatedFileCache.Clear()
+    let resetCache () : unit = generatedFileCache.Clear()
 
     let private writeAtomically (targetPath: string) (content: string) : bool =
         lock fileWriteLock (fun () ->
             let targetDir = Path.GetDirectoryName targetPath
+
             if not (String.IsNullOrWhiteSpace targetDir) then
                 Directory.CreateDirectory targetDir |> ignore
+
             if not (File.Exists targetPath) || File.ReadAllText(targetPath) <> content then
                 let tempPath = $"{targetPath}.{Guid.NewGuid():N}.tmp"
                 File.WriteAllText(tempPath, content)
@@ -99,17 +119,21 @@ module EntityBackgroundGenerator =
         task {
             try
                 let connections = deduplicateByName rawConnections
+
                 if List.isEmpty connections then
                     let targetPath = generatedFilePath workspaceDir
+
                     if File.Exists targetPath then
                         let emptyContent =
-                            "// <auto-generated>\n" +
-                            "// This file is automatically generated in the background by FS Query Studio.\n" +
-                            "// No connections registered.\n" +
-                            "// </auto-generated>\n\n" +
-                            "namespace FSharpQueryStudio.Generated\n\n" +
-                            "open FSharpQueryStudio.Connectors\n"
+                            "// <auto-generated>\n"
+                            + "// This file is automatically generated in the background by FS Query Studio.\n"
+                            + "// No connections registered.\n"
+                            + "// </auto-generated>\n\n"
+                            + "namespace FSharpQueryStudio.Generated\n\n"
+                            + "open FSharpQueryStudio.Connectors\n"
+
                         writeAtomically targetPath emptyContent |> ignore
+
                     onStatusChanged |> Option.iter (fun cb -> cb (EntityMappingStatus.Completed 0))
                     return true
                 else
@@ -118,8 +142,15 @@ module EntityBackgroundGenerator =
 
                     let sb = System.Text.StringBuilder()
                     sb.AppendLine("// <auto-generated>") |> ignore
-                    sb.AppendLine("// This file is automatically generated in the background by FS Query Studio.") |> ignore
-                    sb.AppendLine("// Supports strongly-typed LINQ queries across SQL, CSV, Excel and JSON connections.") |> ignore
+
+                    sb.AppendLine("// This file is automatically generated in the background by FS Query Studio.")
+                    |> ignore
+
+                    sb.AppendLine(
+                        "// Supports strongly-typed LINQ queries across SQL, CSV, Excel and JSON connections."
+                    )
+                    |> ignore
+
                     sb.AppendLine("// Do not edit this file manually.") |> ignore
                     sb.AppendLine("// </auto-generated>") |> ignore
                     sb.AppendLine() |> ignore
@@ -129,23 +160,31 @@ module EntityBackgroundGenerator =
                     sb.AppendLine("open FSharpQueryStudio.Connectors") |> ignore
                     sb.AppendLine() |> ignore
 
-                    let usedModuleNames = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    let usedModuleNames =
+                        System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+
                     let makeUniqueModuleName (baseName: string) =
                         let mutable candidate = baseName
                         let mutable counter = 2
+
                         while usedModuleNames.Contains candidate do
                             candidate <- $"{baseName}_{counter}"
                             counter <- counter + 1
+
                         usedModuleNames.Add candidate |> ignore
                         candidate
 
-                    let usedPropNames = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    let usedPropNames =
+                        System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+
                     let makeUniquePropName (baseName: string) =
                         let mutable candidate = baseName
                         let mutable counter = 2
+
                         while usedPropNames.Contains candidate do
                             candidate <- $"{baseName}_{counter}"
                             counter <- counter + 1
+
                         usedPropNames.Add candidate |> ignore
                         candidate
 
@@ -154,13 +193,14 @@ module EntityBackgroundGenerator =
                         |> List.map (fun def ->
                             let cleanName = cleanIdentifier def.Name
                             let kindId = ConnectorRegistry.KindIdOf def.Kind
+
                             match ConnectorRegistry.Instance.TryGet kindId with
                             | Some desc when desc.EntityGenerator.IsSome ->
                                 let gen = desc.EntityGenerator.Value
                                 let suffix = gen.Category.ModuleSuffix
                                 let moduleName = makeUniqueModuleName $"{cleanName}{suffix}"
                                 let propName = makeUniquePropName cleanName
-                                (def, Some (gen, moduleName, propName))
+                                (def, Some(gen, moduleName, propName))
                             | _ -> (def, None))
 
                     let! results =
@@ -168,17 +208,28 @@ module EntityBackgroundGenerator =
                         |> List.map (fun (def, infoOpt) ->
                             Task.Run(fun () ->
                                 match infoOpt with
-                                | Some (gen, moduleName, propName) ->
+                                | Some(gen, moduleName, propName) ->
                                     try
                                         let rawConnector = (resolver :> IConnectionResolver).Resolve def.Name
                                         let moduleCode = gen.EmitModuleCode(def.Name, rawConnector, moduleName)
+
                                         let extCode =
                                             if not (String.IsNullOrWhiteSpace moduleCode) then
-                                                Some (gen.Category, gen.EmitExtensionCode(def.Name, moduleName, propName))
-                                            else None
+                                                Some(
+                                                    gen.Category,
+                                                    gen.EmitExtensionCode(def.Name, moduleName, propName)
+                                                )
+                                            else
+                                                None
+
                                         (moduleCode, extCode)
                                     with ex ->
-                                        Log.Warning("FS Query Studio: Could not generate background entities for connection '{Name}': {Error}", def.Name, ex.Message)
+                                        Log.Warning(
+                                            "FS Query Studio: Could not generate background entities for connection '{Name}': {Error}",
+                                            def.Name,
+                                            ex.Message
+                                        )
+
                                         ("", None)
                                 | None -> ("", None)))
                         |> Task.WhenAll
@@ -189,9 +240,9 @@ module EntityBackgroundGenerator =
                         if not (String.IsNullOrWhiteSpace moduleCode) then
                             sb.AppendLine(moduleCode) |> ignore
                             sb.AppendLine() |> ignore
+
                         match extOpt with
-                        | Some (cat, extCode) ->
-                            extensions <- (cat, extCode) :: extensions
+                        | Some(cat, extCode) -> extensions <- (cat, extCode) :: extensions
                         | None -> ()
 
                     let totalExtensions = extensions.Length
@@ -208,37 +259,72 @@ module EntityBackgroundGenerator =
 
                         for (categoryTypeName, items) in groupedExtensions do
                             sb.AppendLine($"    type {categoryTypeName} with") |> ignore
+
                             for (_, extLine) in items do
                                 sb.AppendLine(extLine) |> ignore
+
                             sb.AppendLine() |> ignore
 
                         let targetPath = generatedFilePath workspaceDir
                         let newContent = sb.ToString()
 
-                        onStatusChanged |> Option.iter (fun cb -> cb (EntityMappingStatus.Completed totalExtensions))
+                        onStatusChanged
+                        |> Option.iter (fun cb -> cb (EntityMappingStatus.Completed totalExtensions))
 
                         let changed = writeAtomically targetPath newContent
-                        let targetTimestamp = try File.GetLastWriteTimeUtc targetPath with _ -> DateTime.UtcNow
+
+                        let targetTimestamp =
+                            try
+                                File.GetLastWriteTimeUtc targetPath
+                            with _ ->
+                                DateTime.UtcNow
+
                         let fingerprint = computeConnectionFingerprint connections
-                        generatedFileCache.[targetPath] <- { Timestamp = targetTimestamp; ConnectionFingerprint = fingerprint }
+
+                        generatedFileCache.[targetPath] <-
+                            {
+                                Timestamp = targetTimestamp
+                                ConnectionFingerprint = fingerprint
+                            }
+
                         if changed then
-                            Log.Information("FS Query Studio: Background entity types generated at {Path} ({Count} connections)", targetPath, totalExtensions)
+                            Log.Information(
+                                "FS Query Studio: Background entity types generated at {Path} ({Count} connections)",
+                                targetPath,
+                                totalExtensions
+                            )
+
                         return changed
                     else
                         let targetPath = generatedFilePath workspaceDir
-                        let targetTimestamp = try File.GetLastWriteTimeUtc targetPath with _ -> DateTime.UtcNow
+
+                        let targetTimestamp =
+                            try
+                                File.GetLastWriteTimeUtc targetPath
+                            with _ ->
+                                DateTime.UtcNow
+
                         let fingerprint = computeConnectionFingerprint connections
-                        generatedFileCache.[targetPath] <- { Timestamp = targetTimestamp; ConnectionFingerprint = fingerprint }
+
+                        generatedFileCache.[targetPath] <-
+                            {
+                                Timestamp = targetTimestamp
+                                ConnectionFingerprint = fingerprint
+                            }
+
                         onStatusChanged |> Option.iter (fun cb -> cb (EntityMappingStatus.Completed 0))
                         return false
             with ex ->
                 Log.Warning("FS Query Studio: Background entity generation failed: {Error}", ex.Message)
-                onStatusChanged |> Option.iter (fun cb -> cb (EntityMappingStatus.Failed ex.Message))
+
+                onStatusChanged
+                |> Option.iter (fun cb -> cb (EntityMappingStatus.Failed ex.Message))
+
                 return false
         }
 
     let mutable private currentGenerationTask: Task = Task.CompletedTask
-    let private taskLock = obj()
+    let private taskLock = obj ()
 
     /// Triggers generation asynchronously in a background thread without blocking callers.
     let triggerBackgroundGeneration
@@ -247,27 +333,30 @@ module EntityBackgroundGenerator =
         (secretStore: ISecretStore)
         : unit =
         lock taskLock (fun () ->
-            let t = Task.Run(fun () ->
-                generateForConnectionsAsync workspaceDir connections secretStore :> Task
-            )
-            currentGenerationTask <- t
-        )
+            let t =
+                Task.Run(fun () -> generateForConnectionsAsync workspaceDir connections secretStore :> Task)
+
+            currentGenerationTask <- t)
 
     /// Waits for any in-flight background generation task to complete. Useful for tests and cleanups.
     let waitForPendingGeneration () : unit =
         try
             currentGenerationTask.Wait()
-        with _ -> ()
+        with _ ->
+            ()
 
     let internal isModuleIncomplete (existing: string) (connName: string) : bool =
         let cleanName = cleanIdentifier connName
         let modName = $"{cleanName}Db"
+
         if existing.Contains($"module {modName} =") then
-            not (existing.Contains($"module {modName} =\n    module ")
-                 || existing.Contains($"module {modName} =\r\n    module ")
-                 || existing.Contains($"module {modName} =\n        type ")
-                 || existing.Contains($"module {modName} =\r\n        type ")
-                 || existing.Contains("        type "))
+            not (
+                existing.Contains($"module {modName} =\n    module ")
+                || existing.Contains($"module {modName} =\r\n    module ")
+                || existing.Contains($"module {modName} =\n        type ")
+                || existing.Contains($"module {modName} =\r\n        type ")
+                || existing.Contains("        type ")
+            )
         else
             false
 
@@ -276,27 +365,41 @@ module EntityBackgroundGenerator =
             true
         else
             let lastWrite =
-                try File.GetLastWriteTimeUtc targetPath
-                with _ -> DateTime.MinValue
+                try
+                    File.GetLastWriteTimeUtc targetPath
+                with _ ->
+                    DateTime.MinValue
+
             let fingerprint = computeConnectionFingerprint connections
 
             match generatedFileCache.TryGetValue(targetPath) with
-            | true, cached when cached.Timestamp = lastWrite && cached.ConnectionFingerprint = fingerprint ->
-                false
+            | true, cached when cached.Timestamp = lastWrite && cached.ConnectionFingerprint = fingerprint -> false
             | _ ->
                 try
                     let existing = File.ReadAllText targetPath
+
                     let needsGen =
                         if existing.Contains("// No connections registered.") then
                             not (List.isEmpty connections)
                         else
                             let deduped = deduplicateByName connections
+
                             deduped
                             |> List.exists (fun def ->
                                 let cleanName = cleanIdentifier def.Name
-                                not (existing.Contains($"(\"{def.Name}\")") || existing.Contains($"(\"{cleanName}\")"))
+
+                                not (
+                                    existing.Contains($"(\"{def.Name}\")")
+                                    || existing.Contains($"(\"{cleanName}\")")
+                                )
                                 || isModuleIncomplete existing def.Name)
-                    generatedFileCache.[targetPath] <- { Timestamp = lastWrite; ConnectionFingerprint = fingerprint }
+
+                    generatedFileCache.[targetPath] <-
+                        {
+                            Timestamp = lastWrite
+                            ConnectionFingerprint = fingerprint
+                        }
+
                     needsGen
                 with _ ->
                     false
@@ -309,11 +412,13 @@ module EntityBackgroundGenerator =
         : unit =
         waitForPendingGeneration ()
         let targetPath = generatedFilePath workspaceDir
+
         if List.isEmpty connections then
             if File.Exists targetPath then
                 triggerBackgroundGeneration workspaceDir connections secretStore
         elif needsSynchronousGeneration targetPath connections then
             try
-                (generateForConnectionsAsync workspaceDir connections secretStore).GetAwaiter().GetResult() |> ignore
+                (generateForConnectionsAsync workspaceDir connections secretStore).GetAwaiter().GetResult()
+                |> ignore
             with ex ->
                 Log.Warning("FS Query Studio: Initial entity generation failed: {Error}", ex.Message)

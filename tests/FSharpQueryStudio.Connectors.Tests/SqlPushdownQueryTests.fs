@@ -9,33 +9,38 @@ open FSharpQueryStudio.Connectors
 open FSharpQueryStudio.Protocol
 
 [<CLIMutable>]
-type TestProduct = {
-    Id: int
-    Name: string
-    Price: decimal
-    Category: string
-    InStock: bool
-}
+type TestProduct =
+    {
+        Id: int
+        Name: string
+        Price: decimal
+        Category: string
+        InStock: bool
+    }
 
 [<CLIMutable>]
-type TestCustomer = {
-    CustomerId: int
-    CustomerName: string
-}
+type TestCustomer =
+    {
+        CustomerId: int
+        CustomerName: string
+    }
 
 [<CLIMutable>]
-type TestOrder = {
-    OrderId: int
-    CustomerId: int
-    Amount: decimal
-}
+type TestOrder =
+    {
+        OrderId: int
+        CustomerId: int
+        Amount: decimal
+    }
 
 type TempSqliteDb() =
     let path = Path.Combine(Path.GetTempPath(), $"pushdown_test_{Guid.NewGuid():N}.db")
+
     do
         use conn = new SqliteConnection($"Data Source={path}")
         conn.Open()
         use cmd = conn.CreateCommand()
+
         cmd.CommandText <-
             "CREATE TABLE Products (Id INTEGER PRIMARY KEY, Name TEXT, Price NUMERIC, Category TEXT, InStock INTEGER); \
              INSERT INTO Products VALUES (1, 'Keyboard', 45.50, 'Electronics', 1); \
@@ -51,12 +56,18 @@ type TempSqliteDb() =
              INSERT INTO Orders VALUES (101, 1, 150.00); \
              INSERT INTO Orders VALUES (102, 1, 200.00); \
              INSERT INTO Orders VALUES (103, 2, 50.00);"
+
         cmd.ExecuteNonQuery() |> ignore
 
     member _.Path = path
+
     interface IDisposable with
         member _.Dispose() =
-            try if File.Exists(path) then File.Delete(path) with _ -> ()
+            try
+                if File.Exists(path) then
+                    File.Delete(path)
+            with _ ->
+                ()
 
 [<Fact>]
 let ``SqlPushdownQueryable translates query where clause to SQL pushdown`` () =
@@ -67,8 +78,8 @@ let ``SqlPushdownQueryable translates query where clause to SQL pushdown`` () =
     let result =
         query {
             for p in queryable do
-            where (p.Price > 30.0M)
-            select p
+                where (p.Price > 30.0M)
+                select p
         }
         |> Seq.toList
 
@@ -85,9 +96,9 @@ let ``SqlPushdownQueryable translates sorting and take to SQL ORDER BY and LIMIT
     let result =
         query {
             for p in queryable do
-            sortByDescending p.Price
-            take 2
-            select p
+                sortByDescending p.Price
+                take 2
+                select p
         }
         |> Seq.toList
 
@@ -104,8 +115,8 @@ let ``SqlPushdownQueryable translates count to SQL COUNT(*)`` () =
     let totalCount =
         query {
             for p in queryable do
-            where (p.Category = "Electronics")
-            count
+                where (p.Category = "Electronics")
+                count
         }
 
     Assert.Equal(3, totalCount)
@@ -119,8 +130,8 @@ let ``SqlPushdownQueryable translates sum to SQL SUM(Price)`` () =
     let electronicsTotal =
         query {
             for p in queryable do
-            where (p.Category = "Electronics")
-            sumBy p.Price
+                where (p.Category = "Electronics")
+                sumBy p.Price
         }
 
     // 45.50 + 25.00 + 299.99 = 370.49
@@ -133,17 +144,13 @@ let ``SqlPushdownQueryable Where and Page helper methods work seamlessly`` () =
     let queryable = SqlPushdownQueryable<TestProduct>(connector, "Products")
 
     let page1 =
-        queryable
-            .Where("Category = @cat", [ "@cat", box "Electronics" ])
-            .Page(1, 2)
+        queryable.Where("Category = @cat", [ "@cat", box "Electronics" ]).Page(1, 2)
         |> Seq.toList
 
     Assert.Equal(2, page1.Length)
 
     let page2 =
-        queryable
-            .Where("Category = @cat", [ "@cat", box "Electronics" ])
-            .Page(2, 2)
+        queryable.Where("Category = @cat", [ "@cat", box "Electronics" ]).Page(2, 2)
         |> Seq.toList
 
     Assert.Equal(1, page2.Length)
@@ -151,7 +158,14 @@ let ``SqlPushdownQueryable Where and Page helper methods work seamlessly`` () =
 [<Fact>]
 let ``SqlPushdownQueryPlan generates correct SQL Server OFFSET FETCH and TOP syntax`` () =
     let plan = PushdownQueryPlan.Create("Orders", [])
-    plan.OrderBy.Add({ ColumnName = "CreatedAt"; Direction = Descending })
+
+    plan.OrderBy.Add(
+        {
+            ColumnName = "CreatedAt"
+            Direction = Descending
+        }
+    )
+
     plan.Skip <- Some 10
     plan.Take <- Some 5
 
@@ -174,8 +188,8 @@ let ``SqlPushdownQueryable falls back gracefully to in-memory evaluation for unm
     let result =
         query {
             for p in queryable do
-            where (customValidator p.Name)
-            select p
+                where (customValidator p.Name)
+                select p
         }
         |> Seq.toList
 
@@ -187,8 +201,8 @@ let ``SqlPushdownQueryable falls back gracefully to in-memory evaluation for unm
     let result2 =
         query {
             for p in queryable do
-            where (customValidator2 p.Name)
-            select p
+                where (customValidator2 p.Name)
+                select p
         }
         |> Seq.toList
 
@@ -205,12 +219,16 @@ let ``SqlPushdownQueryable executes join and projection with anonymous record`` 
     let q =
         query {
             for p1 in products1 do
-            join p2 in products2 on (p1.Id = p2.Id)
-            sortByDescending p2.Price
-            select {| Id = p1.Id; Name = p2.Name |}
+                join p2 in products2 on (p1.Id = p2.Id)
+                sortByDescending p2.Price
+                select {| Id = p1.Id; Name = p2.Name |}
         }
+
     let expr = (q :> IQueryable).Expression
-    let plan = ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.Sqlite
+
+    let plan =
+        ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.Sqlite
+
     let sql = plan.BuildSql(SqlDialect.Sqlite)
     let result = q |> Seq.toList
 
@@ -221,11 +239,12 @@ let ``SqlPushdownQueryable executes join and projection with anonymous record`` 
     Assert.Equal("Monitor", result.[0].Name)
 
 [<CLIMutable>]
-type TestStock = {
-    Id: int
-    WarehouseId: int
-    QuantityOnHand: int
-}
+type TestStock =
+    {
+        Id: int
+        WarehouseId: int
+        QuantityOnHand: int
+    }
 
 [<Fact>]
 let ``SqlPushdownQueryable executes join between different tables with sorting on inner table column`` () =
@@ -233,26 +252,40 @@ let ``SqlPushdownQueryable executes join between different tables with sorting o
     use conn = new SqliteConnection($"Data Source={db.Path}")
     conn.Open()
     use cmd = conn.CreateCommand()
+
     cmd.CommandText <-
         "CREATE TABLE Warehouses (Id INTEGER PRIMARY KEY, Code TEXT); \
          CREATE TABLE StockLevels (Id INTEGER PRIMARY KEY, WarehouseId INTEGER, QuantityOnHand INTEGER); \
          INSERT INTO Warehouses VALUES (1, 'W1'); \
          INSERT INTO StockLevels VALUES (1, 1, 100);"
+
     cmd.ExecuteNonQuery() |> ignore
 
     let connector = SqliteConnector(db.Path)
-    let warehouses = SqlPushdownQueryable<{| Id: int; Code: string |}>(connector, "Warehouses")
+
+    let warehouses =
+        SqlPushdownQueryable<{| Id: int; Code: string |}>(connector, "Warehouses")
+
     let stocks = SqlPushdownQueryable<TestStock>(connector, "StockLevels")
 
     let q =
         query {
             for w in warehouses do
-            join s in stocks on (w.Id = s.WarehouseId)
-            sortByDescending s.QuantityOnHand
-            select {| Code = w.Code; Qty = s.QuantityOnHand |}
+                join s in stocks on (w.Id = s.WarehouseId)
+                sortByDescending s.QuantityOnHand
+
+                select
+                    {|
+                        Code = w.Code
+                        Qty = s.QuantityOnHand
+                    |}
         }
+
     let expr = (q :> IQueryable).Expression
-    let plan = ExpressionPushdownTranslator.extractPlanFromExpression expr "Warehouses" [] SqlDialect.Sqlite
+
+    let plan =
+        ExpressionPushdownTranslator.extractPlanFromExpression expr "Warehouses" [] SqlDialect.Sqlite
+
     let sql = plan.BuildSql(SqlDialect.Sqlite)
 
     Assert.Contains("INNER JOIN StockLevels _t1 ON _t0.Id = _t1.WarehouseId", sql)
@@ -272,11 +305,15 @@ let ``SqlPushdownQueryable projects strict column subsets in Select without fetc
     let q =
         query {
             for p in products do
-            where (p.Price > 30.0M)
-            select {| ItemName = p.Name; Cost = p.Price |}
+                where (p.Price > 30.0M)
+                select {| ItemName = p.Name; Cost = p.Price |}
         }
+
     let expr = (q :> IQueryable).Expression
-    let plan = ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.Sqlite
+
+    let plan =
+        ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.Sqlite
+
     let sql = plan.BuildSql(SqlDialect.Sqlite)
 
     Assert.Contains("Price AS Cost", sql)
@@ -298,11 +335,19 @@ let ``SqlPushdownQueryable projects string concatenations into native dialect sy
     let q =
         query {
             for p in products do
-            where (p.Id = 1)
-            select {| Display = p.Name + " (" + p.Category + ")" |}
+                where (p.Id = 1)
+
+                select
+                    {|
+                        Display = p.Name + " (" + p.Category + ")"
+                    |}
         }
+
     let expr = (q :> IQueryable).Expression
-    let plan = ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.Sqlite
+
+    let plan =
+        ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.Sqlite
+
     let sql = plan.BuildSql(SqlDialect.Sqlite)
 
     Assert.Contains("||", sql)
@@ -320,9 +365,10 @@ let ``SqlPushdownQueryable projects tuples without in-memory reflection failure`
     let q =
         query {
             for p in products do
-            where (p.Id = 2)
-            select (p.Id, p.Name)
+                where (p.Id = 2)
+                select (p.Id, p.Name)
         }
+
     let result = q |> Seq.toList
     Assert.Single(result) |> ignore
     Assert.Equal((2, "Mouse"), result.[0])
@@ -336,8 +382,8 @@ let ``ResultKind.toRawSql extracts SQL query and parameters before database exec
     let q =
         query {
             for p in products do
-            where (p.Price > 50.0M)
-            select (p.Name, p.Price)
+                where (p.Price > 50.0M)
+                select (p.Name, p.Price)
         }
 
     // Call ResultKind.toRawSql without touching the database
@@ -360,8 +406,8 @@ let ``toRawSql and ToRawSql methods extract matching SQL on projected queries`` 
     let q =
         query {
             for p in products do
-            where (p.Category = "Electronics")
-            select {| Item = p.Name |}
+                where (p.Category = "Electronics")
+                select {| Item = p.Name |}
         }
 
     let sql1 = ResultKind.toRawSql q
@@ -385,9 +431,14 @@ let ``ResultKind.toRawSql on relational join displays full joined SQL without da
     let q =
         query {
             for p1 in products do
-            join p2 in products on (p1.Category = p2.Category)
-            where (p1.Id <> p2.Id)
-            select {| LeftName = p1.Name; RightName = p2.Name |}
+                join p2 in products on (p1.Category = p2.Category)
+                where (p1.Id <> p2.Id)
+
+                select
+                    {|
+                        LeftName = p1.Name
+                        RightName = p2.Name
+                    |}
         }
 
     let rawSql = ResultKind.toRawSql q
@@ -405,12 +456,14 @@ let ``SqlPushdownQueryable translates leftOuterJoin to SQL LEFT JOIN and execute
     let q =
         query {
             for c in customers do
-            leftOuterJoin o in orders on (c.CustomerId = o.CustomerId) into g
-            for o in g.DefaultIfEmpty() do
-            select {|
-                Customer = c.CustomerName
-                Amount = (if isNull (box o) then 0.0M else o.Amount)
-            |}
+                leftOuterJoin o in orders on (c.CustomerId = o.CustomerId) into g
+
+                for o in g.DefaultIfEmpty() do
+                    select
+                        {|
+                            Customer = c.CustomerName
+                            Amount = (if isNull (box o) then 0.0M else o.Amount)
+                        |}
         }
 
     let rawSql = ResultKind.toRawSql q
@@ -431,8 +484,8 @@ let ``SqlPushdownQueryable translates distinct to SELECT DISTINCT`` () =
     let q =
         query {
             for p in products do
-            distinct
-            select p.Category
+                distinct
+                select p.Category
         }
 
     let rawSql = ResultKind.toRawSql q
@@ -467,15 +520,15 @@ let ``SqlPushdownQueryable translates subquery Contains to IN subselect`` () =
     let expensiveIds =
         query {
             for p in products do
-            where (p.Price > 100.0M)
-            select p.Id
+                where (p.Price > 100.0M)
+                select p.Id
         }
 
     let q =
         query {
             for p in products do
-            where (expensiveIds.Contains(p.Id))
-            select p.Name
+                where (expensiveIds.Contains(p.Id))
+                select p.Name
         }
 
     let rawSql = ResultKind.toRawSql q
@@ -484,18 +537,43 @@ let ``SqlPushdownQueryable translates subquery Contains to IN subselect`` () =
     Assert.Single(names) |> ignore
     Assert.Equal("Monitor", names.[0])
 
-type TestSales = { Year: int; Product: string; Sales: int }
+type TestSales =
+    {
+        Year: int
+        Product: string
+        Sales: int
+    }
 
 [<Fact>]
 let ``Seq.pivot performs in-memory cross-tabulation`` () =
-    let rows: TestSales list = [
-        { Year = 2024; Product = "A"; Sales = 100 }
-        { Year = 2024; Product = "B"; Sales = 200 }
-        { Year = 2025; Product = "A"; Sales = 150 }
-        { Year = 2025; Product = "B"; Sales = 250 }
-    ]
+    let rows: TestSales list =
+        [
+            {
+                Year = 2024
+                Product = "A"
+                Sales = 100
+            }
+            {
+                Year = 2024
+                Product = "B"
+                Sales = 200
+            }
+            {
+                Year = 2025
+                Product = "A"
+                Sales = 150
+            }
+            {
+                Year = 2025
+                Product = "B"
+                Sales = 250
+            }
+        ]
 
-    let pivoted = Seq.pivot (fun (r: TestSales) -> r.Year) (fun r -> r.Product) (fun r -> r.Sales) Seq.sum rows |> Seq.toList
+    let pivoted =
+        Seq.pivot (fun (r: TestSales) -> r.Year) (fun r -> r.Product) (fun r -> r.Sales) Seq.sum rows
+        |> Seq.toList
+
     Assert.Equal(2, pivoted.Length)
     let (year2024, map2024) = pivoted |> List.find (fun (y, _) -> y = 2024)
     Assert.Equal(100, map2024.["A"])
@@ -503,7 +581,9 @@ let ``Seq.pivot performs in-memory cross-tabulation`` () =
 
 [<Fact>]
 let ``Connections.sql.buildPivotSql generates dynamic CASE WHEN aggregation SQL`` () =
-    let sql = Connections.sql.buildPivotSql("Sales", ["Year"], "Product", "Amount", ["A"; "B"])
+    let sql =
+        Connections.sql.buildPivotSql ("Sales", [ "Year" ], "Product", "Amount", [ "A"; "B" ])
+
     Assert.Contains("SELECT Year", sql)
     Assert.Contains("SUM(CASE WHEN Product = 'A' THEN Amount END) AS \"A\"", sql)
     Assert.Contains("SUM(CASE WHEN Product = 'B' THEN Amount END) AS \"B\"", sql)
@@ -511,27 +591,73 @@ let ``Connections.sql.buildPivotSql generates dynamic CASE WHEN aggregation SQL`
     Assert.Contains("GROUP BY Year", sql)
 
 [<CLIMutable>]
-type TestUserOrder = { order_id: int; customer_id: int; order_date: DateTime; status: string; currency: string }
+type TestUserOrder =
+    {
+        order_id: int
+        customer_id: int
+        order_date: DateTime
+        status: string
+        currency: string
+    }
+
 [<CLIMutable>]
-type TestUserOrderItem = { order_item_id: int; order_id: int; product_id: int; quantity: int; line_total: decimal }
+type TestUserOrderItem =
+    {
+        order_item_id: int
+        order_id: int
+        product_id: int
+        quantity: int
+        line_total: decimal
+    }
+
 [<CLIMutable>]
-type TestUserCustomer = { customer_id: int; customer_name: string }
+type TestUserCustomer =
+    {
+        customer_id: int
+        customer_name: string
+    }
+
 [<CLIMutable>]
-type TestUserProduct = { product_id: int; product_name: string }
+type TestUserProduct =
+    {
+        product_id: int
+        product_name: string
+    }
+
 [<CLIMutable>]
-type TestUserPayment = { payment_id: int; order_id: int; amount: decimal }
+type TestUserPayment =
+    {
+        payment_id: int
+        order_id: int
+        amount: decimal
+    }
+
 [<CLIMutable>]
-type TestUserShipment = { shipment_id: int; order_id: int; carrier: string }
+type TestUserShipment =
+    {
+        shipment_id: int
+        order_id: int
+        carrier: string
+    }
+
 [<CLIMutable>]
-type TestUserReturn = { return_id: int; order_item_id: int; reason: string }
+type TestUserReturn =
+    {
+        return_id: int
+        order_item_id: int
+        reason: string
+    }
 
 [<Fact>]
 let ``Reproduce user query column order and content matching`` () =
-    let dbPath = Path.Combine(Path.GetTempPath(), $"user_query_test_{Guid.NewGuid():N}.db")
+    let dbPath =
+        Path.Combine(Path.GetTempPath(), $"user_query_test_{Guid.NewGuid():N}.db")
+
     try
         use conn = new SqliteConnection($"Data Source={dbPath}")
         conn.Open()
         use cmd = conn.CreateCommand()
+
         cmd.CommandText <-
             "CREATE TABLE Orders (order_id INTEGER PRIMARY KEY, customer_id INTEGER, order_date TEXT, status TEXT, currency TEXT); \
              CREATE TABLE OrderItems (order_item_id INTEGER PRIMARY KEY, order_id INTEGER, product_id INTEGER, quantity INTEGER, line_total NUMERIC); \
@@ -547,6 +673,7 @@ let ``Reproduce user query column order and content matching`` () =
              INSERT INTO Payments VALUES (201, 1001, 99.50); \
              INSERT INTO Shipments VALUES (301, 1001, 'DHL'); \
              INSERT INTO Returns VALUES (401, 501, 'Defective');"
+
         cmd.ExecuteNonQuery() |> ignore
 
         let connector = SqliteConnector(dbPath)
@@ -561,28 +688,41 @@ let ``Reproduce user query column order and content matching`` () =
         let q =
             query {
                 for order in orders do
-                join orderItem in orderItems on (order.order_id = orderItem.order_id)
-                join customer in customers on (order.customer_id = customer.customer_id)
-                join product in products on (orderItem.product_id = product.product_id)
-                join payment in payments on (order.order_id = payment.order_id)
-                leftOuterJoin shipmentGroup in shipments on (order.order_id = shipmentGroup.order_id) into shipmentGroup
-                leftOuterJoin returnItem in returnsTbl on (orderItem.order_item_id = returnItem.order_item_id) into returnGroup
-                for shipment in shipmentGroup.DefaultIfEmpty() do
-                for r in returnGroup.DefaultIfEmpty() do
-                select {|
-                    Order = order.order_id
-                    Date = order.order_date
-                    Status = order.status
-                    Ccy = order.currency
-                    Item = product.product_name
-                    Qtt = orderItem.quantity
-                    Total = orderItem.line_total
-                    Carrier = (if isNull (box shipment) then "N/A" else shipment.carrier)
-                    Returned = (if isNull (box r) then "N/A" else r.reason)
-                |}
+                    join orderItem in orderItems on (order.order_id = orderItem.order_id)
+                    join customer in customers on (order.customer_id = customer.customer_id)
+                    join product in products on (orderItem.product_id = product.product_id)
+                    join payment in payments on (order.order_id = payment.order_id)
+
+                    leftOuterJoin shipmentGroup in shipments
+                                                       on
+                                                       (order.order_id = shipmentGroup.order_id)
+                                                       into
+                                                       shipmentGroup
+
+                    leftOuterJoin returnItem in returnsTbl
+                                                    on
+                                                    (orderItem.order_item_id = returnItem.order_item_id)
+                                                    into
+                                                    returnGroup
+
+                    for shipment in shipmentGroup.DefaultIfEmpty() do
+                        for r in returnGroup.DefaultIfEmpty() do
+                            select
+                                {|
+                                    Order = order.order_id
+                                    Date = order.order_date
+                                    Status = order.status
+                                    Ccy = order.currency
+                                    Item = product.product_name
+                                    Qtt = orderItem.quantity
+                                    Total = orderItem.line_total
+                                    Carrier = (if isNull (box shipment) then "N/A" else shipment.carrier)
+                                    Returned = (if isNull (box r) then "N/A" else r.reason)
+                                |}
             }
 
-        let cellSource = """
+        let cellSource =
+            """
 query {
     for order in csv.Orders do
     select {|
@@ -601,7 +741,23 @@ query {
     |}
 }
 """
-        let pushdown = q :?> SqlPushdownQueryable<{| Carrier: string; Ccy: string; Date: DateTime; Item: string; Order: int; Qtt: int; Returned: string; Status: string; Total: decimal |}>
+
+        let pushdown =
+            q
+            :?> SqlPushdownQueryable<
+                {|
+                    Carrier: string
+                    Ccy: string
+                    Date: DateTime
+                    Item: string
+                    Order: int
+                    Qtt: int
+                    Returned: string
+                    Status: string
+                    Total: decimal
+                |}
+                 >
+
         let rawSql = pushdown.ToRawSql()
         Assert.Contains("SELECT", rawSql)
         Assert.Contains("JOIN", rawSql)
@@ -617,11 +773,25 @@ query {
         Assert.Equal("DHL", item.Carrier)
         Assert.Equal("Defective", item.Returned)
 
-        let env, _, _ = FSharpQueryStudio.Results.Projection.projectWithCursorDetailed (box q) 0L (Some cellSource) None
+        let env, _, _ =
+            FSharpQueryStudio.Results.Projection.projectWithCursorDetailed (box q) 0L (Some cellSource) None
+
         let colNames = env.Schema |> List.map (fun c -> c.Name)
         let firstRow = env.Rows.[0]
 
-        let expectedCols = [ "Order"; "Date"; "Status"; "Ccy"; "Item"; "Qtt"; "Total"; "Carrier"; "Returned" ]
+        let expectedCols =
+            [
+                "Order"
+                "Date"
+                "Status"
+                "Ccy"
+                "Item"
+                "Qtt"
+                "Total"
+                "Carrier"
+                "Returned"
+            ]
+
         Assert.Equal<string list>(expectedCols, colNames)
         Assert.Equal(box 1001, firstRow.[0])
         Assert.Equal(box "Shipped", firstRow.[2])
@@ -632,7 +802,10 @@ query {
         Assert.Equal(box "DHL", firstRow.[7])
         Assert.Equal(box "Defective", firstRow.[8])
     finally
-        try File.Delete(dbPath) with _ -> ()
+        try
+            File.Delete(dbPath)
+        with _ ->
+            ()
 
 [<Fact>]
 let ``SqlPushdownQueryable translates ToString and Date properties in Select`` () =
@@ -640,23 +813,37 @@ let ``SqlPushdownQueryable translates ToString and Date properties in Select`` (
     use conn = new SqliteConnection($"Data Source={db.Path}")
     conn.Open()
     use cmd = conn.CreateCommand()
+
     cmd.CommandText <-
         "CREATE TABLE TestEvents (Id INTEGER PRIMARY KEY, EventDate TEXT, Price NUMERIC); \
          INSERT INTO TestEvents VALUES (1, '2026-04-18 22:37:25', 14.29);"
+
     cmd.ExecuteNonQuery() |> ignore
 
     let connector = SqliteConnector(db.Path)
-    let events = SqlPushdownQueryable<{| Id: int; EventDate: DateTime; Price: decimal |}>(connector, "TestEvents")
+
+    let events =
+        SqlPushdownQueryable<
+            {|
+                Id: int
+                EventDate: DateTime
+                Price: decimal
+            |}
+         >(
+            connector,
+            "TestEvents"
+        )
 
     let q =
         query {
             for e in events do
-            select {|
-                Id = e.Id
-                FormattedDate = e.EventDate.ToString "dd-MM-yyyy"
-                Year = e.EventDate.Year
-                PriceStr = e.Price.ToString()
-            |}
+                select
+                    {|
+                        Id = e.Id
+                        FormattedDate = e.EventDate.ToString "dd-MM-yyyy"
+                        Year = e.EventDate.Year
+                        PriceStr = e.Price.ToString()
+                    |}
         }
 
     let item = q |> Seq.head
@@ -670,13 +857,14 @@ let ``SqlPushdownQueryable translates ToString and Date properties in Select`` (
     Assert.Contains("CAST(strftime('%Y'", sql)
 
 [<CLIMutable>]
-type TestOptionProduct = {
-    Id: int
-    Name: string
-    Description: string option
-    Rating: decimal option
-    Discount: Nullable<decimal>
-}
+type TestOptionProduct =
+    {
+        Id: int
+        Name: string
+        Description: string option
+        Rating: decimal option
+        Discount: Nullable<decimal>
+    }
 
 [<Fact>]
 let ``SqlPushdownQueryable translates option .Value in where clause to column name instead of Value`` () =
@@ -684,11 +872,13 @@ let ``SqlPushdownQueryable translates option .Value in where clause to column na
     use conn = new SqliteConnection($"Data Source={db.Path}")
     conn.Open()
     use cmd = conn.CreateCommand()
+
     cmd.CommandText <-
         "CREATE TABLE OptionProducts (Id INTEGER PRIMARY KEY, Name TEXT, Description TEXT, Rating NUMERIC, Discount NUMERIC); \
          INSERT INTO OptionProducts VALUES (1, 'Widget', 'HighQuality', 4.5, 10.0); \
          INSERT INTO OptionProducts VALUES (2, 'Gadget', NULL, NULL, NULL); \
          INSERT INTO OptionProducts VALUES (3, 'Doohickey', 'Budget', 3.0, 5.0);"
+
     cmd.ExecuteNonQuery() |> ignore
 
     let connector = SqliteConnector(db.Path)
@@ -697,8 +887,8 @@ let ``SqlPushdownQueryable translates option .Value in where clause to column na
     let q =
         query {
             for p in queryable do
-            where (p.Description.Value = "HighQuality")
-            select p
+                where (p.Description.Value = "HighQuality")
+                select p
         }
 
     let sql = SqlPushdownQuery.extractRawSql (box q)
@@ -715,20 +905,24 @@ let ``SqlPushdownQueryable translates option IsSome and IsNone to IS NOT NULL an
     use conn = new SqliteConnection($"Data Source={db.Path}")
     conn.Open()
     use cmd = conn.CreateCommand()
+
     cmd.CommandText <-
         "CREATE TABLE OptionProducts2 (Id INTEGER PRIMARY KEY, Name TEXT, Description TEXT, Rating NUMERIC, Discount NUMERIC); \
          INSERT INTO OptionProducts2 VALUES (1, 'Widget', 'HighQuality', 4.5, 10.0); \
          INSERT INTO OptionProducts2 VALUES (2, 'Gadget', NULL, NULL, NULL);"
+
     cmd.ExecuteNonQuery() |> ignore
 
     let connector = SqliteConnector(db.Path)
-    let queryable = SqlPushdownQueryable<TestOptionProduct>(connector, "OptionProducts2")
+
+    let queryable =
+        SqlPushdownQueryable<TestOptionProduct>(connector, "OptionProducts2")
 
     let qSome =
         query {
             for p in queryable do
-            where p.Description.IsSome
-            select p
+                where p.Description.IsSome
+                select p
         }
 
     let sqlSome = SqlPushdownQuery.extractRawSql (box qSome)
@@ -741,8 +935,8 @@ let ``SqlPushdownQueryable translates option IsSome and IsNone to IS NOT NULL an
     let qNone =
         query {
             for p in queryable do
-            where p.Description.IsNone
-            select p
+                where p.Description.IsNone
+                select p
         }
 
     let sqlNone = SqlPushdownQuery.extractRawSql (box qNone)
@@ -758,21 +952,25 @@ let ``SqlPushdownQueryable correctly maps scalar option projection without .Valu
     use conn = new SqliteConnection($"Data Source={db.Path}")
     conn.Open()
     use cmd = conn.CreateCommand()
+
     cmd.CommandText <-
         "CREATE TABLE OptionProducts3 (Id INTEGER PRIMARY KEY, Name TEXT, Description TEXT, Rating NUMERIC, Discount NUMERIC); \
          INSERT INTO OptionProducts3 VALUES (1, 'Widget', 'HighQuality', 4.5, 10.0); \
          INSERT INTO OptionProducts3 VALUES (2, 'Gadget', NULL, NULL, NULL); \
          INSERT INTO OptionProducts3 VALUES (3, 'Gizmo', 'TopTier', NULL, NULL);"
+
     cmd.ExecuteNonQuery() |> ignore
 
     let connector = SqliteConnector(db.Path)
-    let queryable = SqlPushdownQueryable<TestOptionProduct>(connector, "OptionProducts3")
+
+    let queryable =
+        SqlPushdownQueryable<TestOptionProduct>(connector, "OptionProducts3")
 
     // 1. Direct scalar option projection without .Value
     let qScalar =
         query {
             for p in queryable do
-            select p.Description
+                select p.Description
         }
 
     let rows = qScalar |> Seq.toList
@@ -793,10 +991,7 @@ let ``SqlPushdownQueryable correctly maps scalar option projection without .Valu
     Assert.Equal("TopTier", filtered.[1])
 
     // 3. Seq.choose
-    let chosen =
-        qScalar
-        |> Seq.choose id
-        |> Seq.toList
+    let chosen = qScalar |> Seq.choose id |> Seq.toList
 
     Assert.Equal(2, chosen.Length)
     Assert.Equal("HighQuality", chosen.[0])
@@ -806,8 +1001,8 @@ let ``SqlPushdownQueryable correctly maps scalar option projection without .Valu
     let qPushdownSome =
         query {
             for p in queryable do
-            where p.Description.IsSome
-            select p.Description
+                where p.Description.IsSome
+                select p.Description
         }
 
     let pushdownRows = qPushdownSome |> Seq.toList
@@ -829,19 +1024,29 @@ let ``SqlPushdownQueryable translates Count after Select on column to COUNT(col)
     let qCount =
         query {
             for p in queryable do
-            select p.Id
-            count
+                select p.Id
+                count
         }
+
     Assert.Equal(5, qCount)
 
     // Verify raw SQL has COUNT and not raw column
-    let rawSql = (queryable.Select(fun p -> p.Id) :?> SqlPushdownQueryable<int>).Count("Id")
+    let rawSql =
+        (queryable.Select(fun p -> p.Id) :?> SqlPushdownQueryable<int>).Count("Id")
+
     Assert.Equal(5, rawSql)
 
 [<Fact>]
 let ``SqlPushdownQueryPlan omits ORDER BY on scalar aggregates without GROUP BY for SQL Server`` () =
     let plan = PushdownQueryPlan.Create("Products", [])
-    plan.OrderBy.Add({ ColumnName = "Price"; Direction = Descending })
+
+    plan.OrderBy.Add(
+        {
+            ColumnName = "Price"
+            Direction = Descending
+        }
+    )
+
     plan.Projection <- Some "COUNT(*)"
 
     let sqlServer = plan.BuildSql(SqlDialect.SqlServer)
@@ -858,13 +1063,16 @@ let ``SqlPushdownQueryPlan omits ORDER BY on scalar aggregates without GROUP BY 
 [<Fact>]
 let ``SqlPushdownQueryPlan generates compliant CROSS APPLY and OUTER APPLY for SQL Server, PostgreSQL, and SQLite`` () =
     let plan = PushdownQueryPlan.Create("Orders", [])
-    plan.Joins.Add({
-        JoinType = "CROSS APPLY"
-        SourceTable = "SELECT TOP (1) * FROM OrderDetails od WHERE od.OrderId = _t0.Id"
-        Alias = "_t1"
-        OnClause = ""
-        RowType = None
-    })
+
+    plan.Joins.Add(
+        {
+            JoinType = "CROSS APPLY"
+            SourceTable = "SELECT TOP (1) * FROM OrderDetails od WHERE od.OrderId = _t0.Id"
+            Alias = "_t1"
+            OnClause = ""
+            RowType = None
+        }
+    )
 
     // SQL Server: CROSS APPLY (subquery) AS _t1 (NO ON clause)
     let sqlServer = plan.BuildSql(SqlDialect.SqlServer)
@@ -873,7 +1081,12 @@ let ``SqlPushdownQueryPlan generates compliant CROSS APPLY and OUTER APPLY for S
 
     // PostgreSQL: CROSS JOIN LATERAL (subquery) AS _t1 (NO ON clause)
     let postgres = plan.BuildSql(SqlDialect.PostgreSql)
-    Assert.Contains("CROSS JOIN LATERAL (SELECT TOP (1) * FROM OrderDetails od WHERE od.OrderId = _t0.Id) AS _t1", postgres)
+
+    Assert.Contains(
+        "CROSS JOIN LATERAL (SELECT TOP (1) * FROM OrderDetails od WHERE od.OrderId = _t0.Id) AS _t1",
+        postgres
+    )
+
     Assert.DoesNotContain(" ON ", postgres)
 
     // SQLite: CROSS JOIN (subquery) AS _t1 (NO ON clause)
@@ -884,13 +1097,16 @@ let ``SqlPushdownQueryPlan generates compliant CROSS APPLY and OUTER APPLY for S
 [<Fact>]
 let ``SqlPushdownQueryPlan generates compliant OUTER APPLY for SQL Server and PostgreSQL`` () =
     let plan = PushdownQueryPlan.Create("Orders", [])
-    plan.Joins.Add({
-        JoinType = "OUTER APPLY"
-        SourceTable = "SELECT * FROM OrderDetails od WHERE od.OrderId = _t0.Id"
-        Alias = "_t1"
-        OnClause = ""
-        RowType = None
-    })
+
+    plan.Joins.Add(
+        {
+            JoinType = "OUTER APPLY"
+            SourceTable = "SELECT * FROM OrderDetails od WHERE od.OrderId = _t0.Id"
+            Alias = "_t1"
+            OnClause = ""
+            RowType = None
+        }
+    )
 
     // SQL Server: OUTER APPLY (...) AS _t1 (NO ON clause)
     let sqlServer = plan.BuildSql(SqlDialect.SqlServer)
@@ -899,18 +1115,25 @@ let ``SqlPushdownQueryPlan generates compliant OUTER APPLY for SQL Server and Po
 
     // PostgreSQL: LEFT JOIN LATERAL (...) AS _t1 ON true
     let postgres = plan.BuildSql(SqlDialect.PostgreSql)
-    Assert.Contains("LEFT JOIN LATERAL (SELECT * FROM OrderDetails od WHERE od.OrderId = _t0.Id) AS _t1 ON true", postgres)
+
+    Assert.Contains(
+        "LEFT JOIN LATERAL (SELECT * FROM OrderDetails od WHERE od.OrderId = _t0.Id) AS _t1 ON true",
+        postgres
+    )
 
 [<Fact>]
 let ``SqlPushdownQueryPlan generates compliant CROSS JOIN without ON clause`` () =
     let plan = PushdownQueryPlan.Create("Products", [])
-    plan.Joins.Add({
-        JoinType = "CROSS JOIN"
-        SourceTable = "Categories"
-        Alias = "_t1"
-        OnClause = ""
-        RowType = None
-    })
+
+    plan.Joins.Add(
+        {
+            JoinType = "CROSS JOIN"
+            SourceTable = "Categories"
+            Alias = "_t1"
+            OnClause = ""
+            RowType = None
+        }
+    )
 
     let sqlServer = plan.BuildSql(SqlDialect.SqlServer)
     Assert.Contains("CROSS JOIN Categories _t1", sqlServer)
@@ -980,21 +1203,25 @@ let ``SqlPushdownQueryable WhereExists, WhereNotExists, WhereIn, and WhereNotIn 
 
     let existsQuery =
         products.WhereExists("SELECT 1 FROM Orders o WHERE o.ProductId = _t0.Id")
+
     let sqlExists = existsQuery.ToRawSql()
     Assert.Contains("WHERE EXISTS (SELECT 1 FROM Orders o WHERE o.ProductId = _t0.Id)", sqlExists)
 
     let notExistsQuery =
         products.WhereNotExists("SELECT 1 FROM Orders o WHERE o.ProductId = _t0.Id")
+
     let sqlNotExists = notExistsQuery.ToRawSql()
     Assert.Contains("WHERE NOT EXISTS (SELECT 1 FROM Orders o WHERE o.ProductId = _t0.Id)", sqlNotExists)
 
     let inQuery =
         products.WhereIn("Category", "SELECT DISTINCT Category FROM Promotions")
+
     let sqlIn = inQuery.ToRawSql()
     Assert.Contains("WHERE (Category IN (SELECT DISTINCT Category FROM Promotions))", sqlIn)
 
     let notInQuery =
         products.WhereNotIn("Category", "SELECT Category FROM DiscontinuedCategories")
+
     let sqlNotIn = notInQuery.ToRawSql()
     Assert.Contains("WHERE (Category NOT IN (SELECT Category FROM DiscontinuedCategories))", sqlNotIn)
 
@@ -1004,11 +1231,15 @@ let ``SqlPushdownQueryable CrossApply, OuterApply, and CrossJoin methods generat
     let connector = SqliteConnector(db.Path)
     let products = SqlPushdownQueryable<TestProduct>(connector, "Products")
 
-    let applied = products.CrossApply("SELECT * FROM Orders o WHERE o.ProductId = _t0.Id", "_o")
+    let applied =
+        products.CrossApply("SELECT * FROM Orders o WHERE o.ProductId = _t0.Id", "_o")
+
     let sqlServerSql = applied.Plan.BuildSql(SqlDialect.SqlServer)
     Assert.Contains("CROSS APPLY (SELECT * FROM Orders o WHERE o.ProductId = _t0.Id) AS _o", sqlServerSql)
 
-    let outerApplied = products.OuterApply("SELECT * FROM Orders o WHERE o.ProductId = _t0.Id", "_o")
+    let outerApplied =
+        products.OuterApply("SELECT * FROM Orders o WHERE o.ProductId = _t0.Id", "_o")
+
     let postgresSql = outerApplied.Plan.BuildSql(SqlDialect.PostgreSql)
     Assert.Contains("LEFT JOIN LATERAL (SELECT * FROM Orders o WHERE o.ProductId = _t0.Id) AS _o ON true", postgresSql)
 
@@ -1020,73 +1251,136 @@ let ``SqlPushdownQueryable CrossApply, OuterApply, and CrossJoin methods generat
 let ``SQL Server advanced DQL features generate 100% compliant T-SQL`` () =
     // 1. Column aggregates with DISTINCT and aliased expressions
     let planAgg = PushdownQueryPlan.Create("Products", [])
-    planAgg.Projection <- Some "COUNT(DISTINCT [Category]) AS [UniqueCategories], MAX([Price]) AS [MaxPrice], MIN([Price]) AS [MinPrice], AVG([Price]) AS [AvgPrice]"
+
+    planAgg.Projection <-
+        Some
+            "COUNT(DISTINCT [Category]) AS [UniqueCategories], MAX([Price]) AS [MaxPrice], MIN([Price]) AS [MinPrice], AVG([Price]) AS [AvgPrice]"
+
     let sqlAgg = planAgg.BuildSql(SqlDialect.SqlServer)
-    Assert.Equal("SELECT COUNT(DISTINCT [Category]) AS [UniqueCategories], MAX([Price]) AS [MaxPrice], MIN([Price]) AS [MinPrice], AVG([Price]) AS [AvgPrice] FROM Products", sqlAgg)
+
+    Assert.Equal(
+        "SELECT COUNT(DISTINCT [Category]) AS [UniqueCategories], MAX([Price]) AS [MaxPrice], MIN([Price]) AS [MinPrice], AVG([Price]) AS [AvgPrice] FROM Products",
+        sqlAgg
+    )
 
     // 2. Scalar sub-select in projection + CROSS APPLY + WHERE EXISTS + GROUP BY + HAVING
     let complexPlan = PushdownQueryPlan.Create("Customers", [], baseAlias = "_c")
-    complexPlan.Joins.Add({
-        JoinType = "CROSS APPLY"
-        SourceTable = "SELECT TOP (1) * FROM Orders _o WHERE _o.CustomerId = _c.CustomerId ORDER BY _o.Amount DESC"
-        Alias = "_latestOrder"
-        OnClause = ""
-        RowType = None
-    })
-    complexPlan.Joins.Add({
-        JoinType = "OUTER APPLY"
-        SourceTable = "SELECT COUNT(*) AS TotalItems FROM OrderItems _oi WHERE _oi.OrderId = _latestOrder.OrderId"
-        Alias = "_itemCount"
-        OnClause = ""
-        RowType = None
-    })
+
+    complexPlan.Joins.Add(
+        {
+            JoinType = "CROSS APPLY"
+            SourceTable = "SELECT TOP (1) * FROM Orders _o WHERE _o.CustomerId = _c.CustomerId ORDER BY _o.Amount DESC"
+            Alias = "_latestOrder"
+            OnClause = ""
+            RowType = None
+        }
+    )
+
+    complexPlan.Joins.Add(
+        {
+            JoinType = "OUTER APPLY"
+            SourceTable = "SELECT COUNT(*) AS TotalItems FROM OrderItems _oi WHERE _oi.OrderId = _latestOrder.OrderId"
+            Alias = "_itemCount"
+            OnClause = ""
+            RowType = None
+        }
+    )
+
     complexPlan.WhereClauses.Add("EXISTS (SELECT 1 FROM VIPStatus _v WHERE _v.CustomerId = _c.CustomerId)")
     complexPlan.GroupBy.Add("_c.CustomerId")
     complexPlan.GroupBy.Add("_c.CustomerName")
     complexPlan.Having.Add("COUNT(_latestOrder.OrderId) >= 1")
-    complexPlan.OrderBy.Add({ ColumnName = "_c.CustomerName"; Direction = Ascending })
-    complexPlan.Projection <- Some "_c.CustomerId, _c.CustomerName, MAX(_latestOrder.Amount) AS HighestOrder, (SELECT COUNT(*) FROM Invoices _inv WHERE _inv.CustomerId = _c.CustomerId) AS InvoiceCount"
+
+    complexPlan.OrderBy.Add(
+        {
+            ColumnName = "_c.CustomerName"
+            Direction = Ascending
+        }
+    )
+
+    complexPlan.Projection <-
+        Some
+            "_c.CustomerId, _c.CustomerName, MAX(_latestOrder.Amount) AS HighestOrder, (SELECT COUNT(*) FROM Invoices _inv WHERE _inv.CustomerId = _c.CustomerId) AS InvoiceCount"
+
     complexPlan.Skip <- Some 0
     complexPlan.Take <- Some 25
 
     let sqlComplex = complexPlan.BuildSql(SqlDialect.SqlServer)
-    Assert.Contains("CROSS APPLY (SELECT TOP (1) * FROM Orders _o WHERE _o.CustomerId = _c.CustomerId ORDER BY _o.Amount DESC) AS _latestOrder", sqlComplex)
-    Assert.Contains("OUTER APPLY (SELECT COUNT(*) AS TotalItems FROM OrderItems _oi WHERE _oi.OrderId = _latestOrder.OrderId) AS _itemCount", sqlComplex)
+
+    Assert.Contains(
+        "CROSS APPLY (SELECT TOP (1) * FROM Orders _o WHERE _o.CustomerId = _c.CustomerId ORDER BY _o.Amount DESC) AS _latestOrder",
+        sqlComplex
+    )
+
+    Assert.Contains(
+        "OUTER APPLY (SELECT COUNT(*) AS TotalItems FROM OrderItems _oi WHERE _oi.OrderId = _latestOrder.OrderId) AS _itemCount",
+        sqlComplex
+    )
+
     Assert.Contains("WHERE EXISTS (SELECT 1 FROM VIPStatus _v WHERE _v.CustomerId = _c.CustomerId)", sqlComplex)
     Assert.Contains("GROUP BY _c.CustomerId, _c.CustomerName", sqlComplex)
     Assert.Contains("HAVING COUNT(_latestOrder.OrderId) >= 1", sqlComplex)
     Assert.Contains("ORDER BY _c.CustomerName ASC OFFSET 0 ROWS FETCH NEXT 25 ROWS ONLY", sqlComplex)
-    Assert.Contains("(SELECT COUNT(*) FROM Invoices _inv WHERE _inv.CustomerId = _c.CustomerId) AS InvoiceCount", sqlComplex)
+
+    Assert.Contains(
+        "(SELECT COUNT(*) FROM Invoices _inv WHERE _inv.CustomerId = _c.CustomerId) AS InvoiceCount",
+        sqlComplex
+    )
 
 [<Fact>]
 let ``PostgreSQL advanced DQL features generate 100% compliant Postgres SQL`` () =
     let complexPlan = PushdownQueryPlan.Create("customers", [], baseAlias = "_c")
-    complexPlan.Joins.Add({
-        JoinType = "CROSS APPLY"
-        SourceTable = "SELECT * FROM orders _o WHERE _o.customer_id = _c.customer_id ORDER BY _o.amount DESC LIMIT 1"
-        Alias = "_latestOrder"
-        OnClause = ""
-        RowType = None
-    })
-    complexPlan.Joins.Add({
-        JoinType = "OUTER APPLY"
-        SourceTable = "SELECT COUNT(*) AS total_items FROM order_items _oi WHERE _oi.order_id = _latestOrder.order_id"
-        Alias = "_itemCount"
-        OnClause = ""
-        RowType = None
-    })
+
+    complexPlan.Joins.Add(
+        {
+            JoinType = "CROSS APPLY"
+            SourceTable =
+                "SELECT * FROM orders _o WHERE _o.customer_id = _c.customer_id ORDER BY _o.amount DESC LIMIT 1"
+            Alias = "_latestOrder"
+            OnClause = ""
+            RowType = None
+        }
+    )
+
+    complexPlan.Joins.Add(
+        {
+            JoinType = "OUTER APPLY"
+            SourceTable =
+                "SELECT COUNT(*) AS total_items FROM order_items _oi WHERE _oi.order_id = _latestOrder.order_id"
+            Alias = "_itemCount"
+            OnClause = ""
+            RowType = None
+        }
+    )
+
     complexPlan.WhereClauses.Add("EXISTS (SELECT 1 FROM vip_status _v WHERE _v.customer_id = _c.customer_id)")
     complexPlan.GroupBy.Add("_c.customer_id")
     complexPlan.GroupBy.Add("_c.customer_name")
     complexPlan.Having.Add("COUNT(_latestOrder.order_id) >= 1")
-    complexPlan.OrderBy.Add({ ColumnName = "_c.customer_name"; Direction = Ascending })
+
+    complexPlan.OrderBy.Add(
+        {
+            ColumnName = "_c.customer_name"
+            Direction = Ascending
+        }
+    )
+
     complexPlan.Projection <- Some "_c.customer_id, _c.customer_name, MAX(_latestOrder.amount) AS highest_order"
     complexPlan.Skip <- Some 10
     complexPlan.Take <- Some 20
 
     let sqlPostgres = complexPlan.BuildSql(SqlDialect.PostgreSql)
-    Assert.Contains("CROSS JOIN LATERAL (SELECT * FROM orders _o WHERE _o.customer_id = _c.customer_id ORDER BY _o.amount DESC LIMIT 1) AS _latestOrder", sqlPostgres)
-    Assert.Contains("LEFT JOIN LATERAL (SELECT COUNT(*) AS total_items FROM order_items _oi WHERE _oi.order_id = _latestOrder.order_id) AS _itemCount ON true", sqlPostgres)
+
+    Assert.Contains(
+        "CROSS JOIN LATERAL (SELECT * FROM orders _o WHERE _o.customer_id = _c.customer_id ORDER BY _o.amount DESC LIMIT 1) AS _latestOrder",
+        sqlPostgres
+    )
+
+    Assert.Contains(
+        "LEFT JOIN LATERAL (SELECT COUNT(*) AS total_items FROM order_items _oi WHERE _oi.order_id = _latestOrder.order_id) AS _itemCount ON true",
+        sqlPostgres
+    )
+
     Assert.Contains("WHERE EXISTS (SELECT 1 FROM vip_status _v WHERE _v.customer_id = _c.customer_id)", sqlPostgres)
     Assert.Contains("GROUP BY _c.customer_id, _c.customer_name", sqlPostgres)
     Assert.Contains("HAVING COUNT(_latestOrder.order_id) >= 1", sqlPostgres)
@@ -1099,7 +1393,11 @@ let ``SQLite advanced DQL query executes live with sub-select, cross join, and g
 
     // Execute sub-select in projection live against SQLite
     let plan = PushdownQueryPlan.Create("Customers", [], baseAlias = "_c")
-    plan.Projection <- Some "_c.CustomerId, _c.CustomerName, (SELECT COUNT(*) FROM Orders _o WHERE _o.CustomerId = _c.CustomerId) AS OrderCount"
+
+    plan.Projection <-
+        Some
+            "_c.CustomerId, _c.CustomerName, (SELECT COUNT(*) FROM Orders _o WHERE _o.CustomerId = _c.CustomerId) AS OrderCount"
+
     let sql = plan.BuildSql(SqlDialect.Sqlite)
 
     let res = connector.ExecuteQuery sql []
@@ -1129,6 +1427,7 @@ let ``SqlPushdownQueryable GroupBy and Having generate expected SQL`` () =
             .GroupBy("Category")
             .SelectProjection("Category, COUNT(*) AS ItemCount")
             .Having("COUNT(*) >= @minItems", [ "@minItems", box 2 ])
+
     let sql = grouped.ToRawSql()
     Assert.Contains("GROUP BY Category", sql)
     Assert.Contains("HAVING (COUNT(*) >= @minItems)", sql)
@@ -1142,9 +1441,10 @@ let ``SqlPushdownQueryable translates pure F# query select column and count`` ()
     let total =
         query {
             for p in products do
-            select p.Id
-            count
+                select p.Id
+                count
         }
+
     Assert.Equal(5, total)
 
 [<Fact>]
@@ -1153,9 +1453,23 @@ let ``SqlPushdownQueryable translates pure F# query maxBy minBy sumBy`` () =
     let connector = SqliteConnector(db.Path)
     let products = SqlPushdownQueryable<TestProduct>(connector, "Products")
 
-    let maxPrice = query { for p in products do maxBy p.Price }
-    let minPrice = query { for p in products do minBy p.Price }
-    let sumPrice = query { for p in products do sumBy p.Price }
+    let maxPrice =
+        query {
+            for p in products do
+                maxBy p.Price
+        }
+
+    let minPrice =
+        query {
+            for p in products do
+                minBy p.Price
+        }
+
+    let sumPrice =
+        query {
+            for p in products do
+                sumBy p.Price
+        }
 
     Assert.Equal(299.99M, maxPrice)
     Assert.Equal(1.50M, minPrice)
@@ -1171,9 +1485,18 @@ let ``SqlPushdownQueryable translates pure F# query subquery in where with Conta
     let q =
         query {
             for p in products do
-            where ((query { for o in orders do where (o.Amount >= 100.0M); select o.CustomerId }).Contains(p.Id))
-            select p.Name
+                where (
+                    (query {
+                        for o in orders do
+                            where (o.Amount >= 100.0M)
+                            select o.CustomerId
+                    })
+                        .Contains(p.Id)
+                )
+
+                select p.Name
         }
+
     let sql = SqlPushdownQuery.extractRawSql q
     Assert.Contains("WHERE (Id IN (SELECT CustomerId AS CustomerId FROM Orders WHERE (Amount >= @p0)))", sql)
     let result = q |> Seq.toList
@@ -1190,9 +1513,19 @@ let ``SqlPushdownQueryable translates pure F# query subquery in where count grea
     let q =
         query {
             for p in products do
-            where (query { for o in orders do where (o.CustomerId = p.Id); count } > 0)
-            select p.Name
+                where (
+                    query {
+                        for o in orders do
+                            where (o.CustomerId = p.Id)
+                            count
+                    }
+                        >
+                        0
+                )
+
+                select p.Name
         }
+
     let sql = SqlPushdownQuery.extractRawSql q
     Assert.Contains("EXISTS (SELECT 1 FROM Orders", sql)
     let result = q |> Seq.toList
@@ -1210,11 +1543,18 @@ let ``SqlPushdownQueryable translates pure F# scalar subquery in select projecti
     let q =
         query {
             for p in products do
-            select {|
-                ProductName = p.Name
-                OrderCount = query { for o in orders do where (o.CustomerId = p.Id); count }
-            |}
+                select
+                    {|
+                        ProductName = p.Name
+                        OrderCount =
+                            query {
+                                for o in orders do
+                                    where (o.CustomerId = p.Id)
+                                    count
+                            }
+                    |}
         }
+
     let sql = SqlPushdownQuery.extractRawSql q
     Assert.Contains("(SELECT COUNT(*) FROM Orders _sub1 WHERE (_sub1.CustomerId = _t0.Id)) AS OrderCount", sql)
     let result = q |> Seq.toList
@@ -1233,10 +1573,27 @@ let ``SqlPushdownQueryable translates pure F# query groupBy into g where count a
     let q =
         query {
             for o in orders do
-            groupBy o.CustomerId into g
-            where (query { for x in g do count } >= 2)
-            select {| CustomerId = g.Key; TotalOrders = query { for x in g do count } |}
+                groupBy o.CustomerId into g
+
+                where (
+                    query {
+                        for x in g do
+                            count
+                    }
+                    >= 2
+                )
+
+                select
+                    {|
+                        CustomerId = g.Key
+                        TotalOrders =
+                            query {
+                                for x in g do
+                                    count
+                            }
+                    |}
         }
+
     let sql = SqlPushdownQuery.extractRawSql q
     Assert.Contains("GROUP BY _t0.CustomerId", sql)
     Assert.Contains("HAVING (COUNT(*) >= @p0)", sql)
@@ -1254,11 +1611,27 @@ let ``SqlPushdownQueryable translates pure F# correlated SelectMany on SQL Serve
     let q =
         query {
             for p in products do
-            for o in (query { for o in orders do where (o.CustomerId = p.Id); sortByDescending o.Amount; take 1 }) do
-            select {| ProductName = p.Name; OrderId = o.OrderId; Amount = o.Amount |}
+                for o in
+                    (query {
+                        for o in orders do
+                            where (o.CustomerId = p.Id)
+                            sortByDescending o.Amount
+                            take 1
+                    }) do
+                    select
+                        {|
+                            ProductName = p.Name
+                            OrderId = o.OrderId
+                            Amount = o.Amount
+                        |}
         }
+
     let sql = SqlPushdownQuery.extractRawSql q
-    Assert.Contains("CROSS APPLY (SELECT * FROM Orders _t1 WHERE (_t1.CustomerId = _t0.Id) ORDER BY _t1.Amount DESC OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY) AS _t1", sql)
+
+    Assert.Contains(
+        "CROSS APPLY (SELECT * FROM Orders _t1 WHERE (_t1.CustomerId = _t0.Id) ORDER BY _t1.Amount DESC OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY) AS _t1",
+        sql
+    )
 
 [<Fact>]
 let ``SqlPushdownQueryable translates pure F# correlated SelectMany on PostgreSQL to CROSS JOIN LATERAL`` () =
@@ -1269,11 +1642,27 @@ let ``SqlPushdownQueryable translates pure F# correlated SelectMany on PostgreSQ
     let q =
         query {
             for p in products do
-            for o in (query { for o in orders do where (o.CustomerId = p.Id); sortByDescending o.Amount; take 1 }) do
-            select {| ProductName = p.Name; OrderId = o.OrderId; Amount = o.Amount |}
+                for o in
+                    (query {
+                        for o in orders do
+                            where (o.CustomerId = p.Id)
+                            sortByDescending o.Amount
+                            take 1
+                    }) do
+                    select
+                        {|
+                            ProductName = p.Name
+                            OrderId = o.OrderId
+                            Amount = o.Amount
+                        |}
         }
+
     let sql = SqlPushdownQuery.extractRawSql q
-    Assert.Contains("CROSS JOIN LATERAL (SELECT * FROM orders _t1 WHERE (_t1.CustomerId = _t0.Id) ORDER BY _t1.Amount DESC LIMIT 1) AS _t1", sql)
+
+    Assert.Contains(
+        "CROSS JOIN LATERAL (SELECT * FROM orders _t1 WHERE (_t1.CustomerId = _t0.Id) ORDER BY _t1.Amount DESC LIMIT 1) AS _t1",
+        sql
+    )
 
 [<Fact>]
 let ``fsql computation expression with whereExists compiles to SQL EXISTS subquery`` () =
@@ -1284,9 +1673,16 @@ let ``fsql computation expression with whereExists compiles to SQL EXISTS subque
     let q =
         fsql {
             for p in products do
-            whereExists (fsql { for o in orders do where (o.CustomerId = p.Id) })
-            select p.Name
+                whereExists (
+                    fsql {
+                        for o in orders do
+                            where (o.CustomerId = p.Id)
+                    }
+                )
+
+                select p.Name
         }
+
     let sql = toRawSql q
     Assert.Contains("WHERE EXISTS (SELECT 1 FROM Orders _sub1 WHERE (_sub1.CustomerId = _t0.Id))", sql)
 
@@ -1299,9 +1695,16 @@ let ``fsql computation expression with whereNotExists compiles to SQL NOT EXISTS
     let q =
         fsql {
             for p in products do
-            whereNotExists (fsql { for o in orders do where (o.CustomerId = p.Id) })
-            select p.Name
+                whereNotExists (
+                    fsql {
+                        for o in orders do
+                            where (o.CustomerId = p.Id)
+                    }
+                )
+
+                select p.Name
         }
+
     let sql = toRawSql q
     Assert.Contains("WHERE NOT EXISTS (SELECT 1 FROM orders _sub1 WHERE (_sub1.CustomerId = _t0.Id))", sql)
 
@@ -1313,10 +1716,27 @@ let ``fsql computation expression with having compiles to SQL HAVING clause`` ()
     let q =
         fsql {
             for o in orders do
-            groupBy o.CustomerId into g
-            having (fsql { for x in g do count } >= 2)
-            select {| CustomerId = g.Key; Count = fsql { for x in g do count } |}
+                groupBy o.CustomerId into g
+
+                having (
+                    fsql {
+                        for x in g do
+                            count
+                    }
+                    >= 2
+                )
+
+                select
+                    {|
+                        CustomerId = g.Key
+                        Count =
+                            fsql {
+                                for x in g do
+                                    count
+                            }
+                    |}
         }
+
     let sql = toRawSql q
     Assert.Contains("HAVING (COUNT(*) >= @p0)", sql)
 
@@ -1329,9 +1749,21 @@ let ``toRawQuery formats SQL with indentations and clause line breaks on complex
     let q =
         fsql {
             for p in products do
-            for o in (crossApply (fsql { for o in orders do where (o.CustomerId = p.Id); take 1 })) do
-            select {| ProductName = p.Name; OrderId = o.OrderId |}
+                for o in
+                    (crossApply (
+                        fsql {
+                            for o in orders do
+                                where (o.CustomerId = p.Id)
+                                take 1
+                        }
+                    )) do
+                    select
+                        {|
+                            ProductName = p.Name
+                            OrderId = o.OrderId
+                        |}
         }
+
     let formatted = toRawQuery q
     Assert.Contains("SELECT", formatted)
     Assert.Contains("\nFROM Products _t0", formatted)
@@ -1346,11 +1778,18 @@ let ``fsql computation expression with scalar subquery in select projection comp
     let q =
         fsql {
             for p in products do
-            select {|
-                ProductName = p.Name
-                TotalOrders = fsql { for o in orders do where (o.CustomerId = p.Id); count }
-            |}
+                select
+                    {|
+                        ProductName = p.Name
+                        TotalOrders =
+                            fsql {
+                                for o in orders do
+                                    where (o.CustomerId = p.Id)
+                                    count
+                            }
+                    |}
         }
+
     let sql = toRawSql q
     Assert.Contains("(SELECT COUNT(*) FROM Orders _sub1 WHERE (_sub1.CustomerId = _t0.Id)) AS TotalOrders", sql)
 
@@ -1363,9 +1802,18 @@ let ``fsql computation expression with IN subquery compiles to WHERE IN subquery
     let q =
         fsql {
             for p in products do
-            where ((fsql { for o in orders do where (o.Amount > 100.0M); select o.CustomerId }).Contains(p.Id))
-            select p.Name
+                where (
+                    (fsql {
+                        for o in orders do
+                            where (o.Amount > 100.0M)
+                            select o.CustomerId
+                    })
+                        .Contains(p.Id)
+                )
+
+                select p.Name
         }
+
     let sql = toRawSql q
     Assert.Contains("WHERE (Id IN (SELECT CustomerId AS CustomerId FROM Orders WHERE (Amount > @p0)))", sql)
 
@@ -1377,15 +1825,18 @@ let ``fsql window functions compile to native OVER clause with partition and sor
     let q =
         fsql {
             for p in products do
-            select {|
-                ProductName = p.Name
-                Category = p.Category
-                RankInCategory = fsql.rowNumber(fsql.window(partitionBy = p.Category, sortByDescending = p.Price))
-                RunningTotal = fsql.sum(p.Price, fsql.window(partitionBy = p.Category, sortBy = p.Id))
-                PrevPrice = fsql.lag(p.Price, offset = 1, over = fsql.window(sortBy = p.Id))
-                NextPrice = fsql.lead(p.Price, offset = 1, over = fsql.window(sortBy = p.Id))
-            |}
+                select
+                    {|
+                        ProductName = p.Name
+                        Category = p.Category
+                        RankInCategory =
+                            fsql.rowNumber (fsql.window (partitionBy = p.Category, sortByDescending = p.Price))
+                        RunningTotal = fsql.sum (p.Price, fsql.window (partitionBy = p.Category, sortBy = p.Id))
+                        PrevPrice = fsql.lag (p.Price, offset = 1, over = fsql.window (sortBy = p.Id))
+                        NextPrice = fsql.lead (p.Price, offset = 1, over = fsql.window (sortBy = p.Id))
+                    |}
         }
+
     let sql = toRawSql q
     Assert.Contains("ROW_NUMBER() OVER (PARTITION BY Category ORDER BY Price DESC) AS RankInCategory", sql)
     Assert.Contains("SUM(Price) OVER (PARTITION BY Category ORDER BY Id ASC) AS RunningTotal", sql)
@@ -1400,11 +1851,13 @@ let ``fsql window functions on SQL Server inject safe ORDER BY when none provide
     let q =
         fsql {
             for p in products do
-            select {|
-                ProductName = p.Name
-                RowId = fsql.rowNumber(fsql.window(partitionBy = p.Category))
-            |}
+                select
+                    {|
+                        ProductName = p.Name
+                        RowId = fsql.rowNumber (fsql.window (partitionBy = p.Category))
+                    |}
         }
+
     let sql = toRawSql q
     Assert.Contains("ROW_NUMBER() OVER (PARTITION BY Category ORDER BY (SELECT NULL)) AS RowId", sql)
 
@@ -1417,22 +1870,34 @@ let ``fsql jsonValue compiles to dialect-specific JSON extraction across SQL Ser
     let qServer =
         fsql {
             for p in SqlPushdownQueryable<TestProduct>(sqlServerConn, "Products") do
-            select {| Tag = fsql.jsonValue(p.Name, "$.tag") |}
+                select
+                    {|
+                        Tag = fsql.jsonValue (p.Name, "$.tag")
+                    |}
         }
+
     Assert.Contains("JSON_VALUE(Name, '$.tag') AS Tag", toRawSql qServer)
 
     let qPg =
         fsql {
             for p in SqlPushdownQueryable<TestProduct>(pgConn, "Products") do
-            select {| Tag = fsql.jsonValue(p.Name, "$.tag") |}
+                select
+                    {|
+                        Tag = fsql.jsonValue (p.Name, "$.tag")
+                    |}
         }
+
     Assert.Contains("(Name ->> 'tag') AS Tag", toRawSql qPg)
 
     let qSqlite =
         fsql {
             for p in SqlPushdownQueryable<TestProduct>(sqliteConn, "Products") do
-            select {| Tag = fsql.jsonValue(p.Name, "$.tag") |}
+                select
+                    {|
+                        Tag = fsql.jsonValue (p.Name, "$.tag")
+                    |}
         }
+
     Assert.Contains("json_extract(Name, '$.tag') AS Tag", toRawSql qSqlite)
 
 [<Fact>]
@@ -1444,13 +1909,15 @@ let ``fsql window functions execute live against SQLite with row_number and runn
     let results =
         fsql {
             for p in products do
-            sortBy p.Id
-            select {|
-                Id = p.Id
-                Category = p.Category
-                Price = p.Price
-                RowInCat = fsql.rowNumber(fsql.window(partitionBy = p.Category, sortByDescending = p.Price))
-            |}
+                sortBy p.Id
+
+                select
+                    {|
+                        Id = p.Id
+                        Category = p.Category
+                        Price = p.Price
+                        RowInCat = fsql.rowNumber (fsql.window (partitionBy = p.Category, sortByDescending = p.Price))
+                    |}
         }
         |> Seq.toList
 
@@ -1471,7 +1938,9 @@ let ``SqlPushdownQueryable FullOuterJoin and RightOuterJoin generate compliant S
     let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
     let customers = SqlPushdownQueryable<TestCustomer>(dummyConn, "Customers")
 
-    let fullJoinQ = customers.FullOuterJoin("Orders", "_o", "_t0.CustomerId = _o.CustomerId")
+    let fullJoinQ =
+        customers.FullOuterJoin("Orders", "_o", "_t0.CustomerId = _o.CustomerId")
+
     let sqlServerFull = fullJoinQ.Plan.BuildSql(SqlDialect.SqlServer)
     let pgFull = fullJoinQ.Plan.BuildSql(SqlDialect.PostgreSql)
     let sqliteFull = fullJoinQ.Plan.BuildSql(SqlDialect.Sqlite)
@@ -1480,7 +1949,9 @@ let ``SqlPushdownQueryable FullOuterJoin and RightOuterJoin generate compliant S
     Assert.Contains("FULL OUTER JOIN Orders _o ON _t0.CustomerId = _o.CustomerId", pgFull)
     Assert.Contains("FULL OUTER JOIN Orders _o ON _t0.CustomerId = _o.CustomerId", sqliteFull)
 
-    let rightJoinQ = customers.RightOuterJoin("Orders", "_o", "_t0.CustomerId = _o.CustomerId")
+    let rightJoinQ =
+        customers.RightOuterJoin("Orders", "_o", "_t0.CustomerId = _o.CustomerId")
+
     let sqlServerRight = rightJoinQ.Plan.BuildSql(SqlDialect.SqlServer)
     let pgRight = rightJoinQ.Plan.BuildSql(SqlDialect.PostgreSql)
     let sqliteRight = rightJoinQ.Plan.BuildSql(SqlDialect.Sqlite)
@@ -1493,7 +1964,9 @@ let ``SqlPushdownQueryable FullOuterJoin and RightOuterJoin generate compliant S
 let ``SqlPushdownQueryable Set operations Union Intersect and Except generate valid SQL across dialects`` () =
     let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
     let activeCust = SqlPushdownQueryable<TestCustomer>(dummyConn, "ActiveCustomers")
-    let archivedCust = SqlPushdownQueryable<TestCustomer>(dummyConn, "ArchivedCustomers")
+
+    let archivedCust =
+        SqlPushdownQueryable<TestCustomer>(dummyConn, "ArchivedCustomers")
 
     let unionQ = activeCust.Union(archivedCust)
     let unionSql = unionQ.Plan.BuildSql(SqlDialect.SqlServer)
@@ -1519,8 +1992,12 @@ let ``SqlPushdownQueryable Set operations Union Intersect and Except generate va
 let ``SqlPushdownQueryable Set operations execute live against SQLite`` () =
     use db = new TempSqliteDb()
     let conn = SqliteConnector(db.Path)
-    let pHigh = SqlPushdownQueryable<TestProduct>(conn, "Products").Where("_t0.Price > 40")
-    let pLow = SqlPushdownQueryable<TestProduct>(conn, "Products").Where("_t0.Price < 10")
+
+    let pHigh =
+        SqlPushdownQueryable<TestProduct>(conn, "Products").Where("_t0.Price > 40")
+
+    let pLow =
+        SqlPushdownQueryable<TestProduct>(conn, "Products").Where("_t0.Price < 10")
 
     let unionList = pHigh.Union(pLow) |> Seq.toList
     // High > 40: Keyboard(45.50), Monitor(299.99) -> 2
@@ -1536,16 +2013,32 @@ let ``SqlPushdownQueryable CTE and recursive CTE generate compliant WITH syntax`
     let dummyConn = SqlServerConnector("Server=dummy;Database=dummy;")
     let baseQ = SqlPushdownQueryable<TestCustomer>(dummyConn, "HighValueCust")
 
-    let cteQ = baseQ.WithCte("HighValueCust", "SELECT CustomerId, Name FROM Customers WHERE TotalSpent > 1000")
+    let cteQ =
+        baseQ.WithCte("HighValueCust", "SELECT CustomerId, Name FROM Customers WHERE TotalSpent > 1000")
+
     let cteSql = cteQ.Plan.BuildSql(SqlDialect.SqlServer)
     let ctePgSql = cteQ.Plan.BuildSql(SqlDialect.PostgreSql)
     let cteSqliteSql = cteQ.Plan.BuildSql(SqlDialect.Sqlite)
 
     Assert.StartsWith("WITH HighValueCust AS (SELECT CustomerId, Name FROM Customers WHERE TotalSpent > 1000)", cteSql)
-    Assert.StartsWith("WITH HighValueCust AS (SELECT CustomerId, Name FROM Customers WHERE TotalSpent > 1000)", ctePgSql)
-    Assert.StartsWith("WITH HighValueCust AS (SELECT CustomerId, Name FROM Customers WHERE TotalSpent > 1000)", cteSqliteSql)
 
-    let recQ = baseQ.WithCte("Hierarchy", "SELECT EmpId, MgrId FROM Employees WHERE MgrId IS NULL UNION ALL SELECT e.EmpId, e.MgrId FROM Employees e INNER JOIN Hierarchy h ON e.MgrId = h.EmpId", isRecursive = true)
+    Assert.StartsWith(
+        "WITH HighValueCust AS (SELECT CustomerId, Name FROM Customers WHERE TotalSpent > 1000)",
+        ctePgSql
+    )
+
+    Assert.StartsWith(
+        "WITH HighValueCust AS (SELECT CustomerId, Name FROM Customers WHERE TotalSpent > 1000)",
+        cteSqliteSql
+    )
+
+    let recQ =
+        baseQ.WithCte(
+            "Hierarchy",
+            "SELECT EmpId, MgrId FROM Employees WHERE MgrId IS NULL UNION ALL SELECT e.EmpId, e.MgrId FROM Employees e INNER JOIN Hierarchy h ON e.MgrId = h.EmpId",
+            isRecursive = true
+        )
+
     let recSql = recQ.Plan.BuildSql(SqlDialect.SqlServer)
     let recPgSql = recQ.Plan.BuildSql(SqlDialect.PostgreSql)
     let recSqliteSql = recQ.Plan.BuildSql(SqlDialect.Sqlite)
@@ -1576,14 +2069,24 @@ let ``fsql CE supports withCte and union directly inside query expression`` () =
     let combined =
         fsql {
             for p in products do
-            withCte "HighEnd" (fsql { for p2 in products do where (p2.Price >= 100.0M); select p2 })
-            where (p.Price >= 100.0M)
-            select p
-            union (fsql {
-                for p3 in products do
-                where (p3.Price < 10.0M)
-                select p3
-            })
+                withCte
+                    "HighEnd"
+                    (fsql {
+                        for p2 in products do
+                            where (p2.Price >= 100.0M)
+                            select p2
+                    })
+
+                where (p.Price >= 100.0M)
+                select p
+
+                union (
+                    fsql {
+                        for p3 in products do
+                            where (p3.Price < 10.0M)
+                            select p3
+                    }
+                )
         }
 
     let raw = toRawQuery combined
@@ -1604,14 +2107,24 @@ let ``fsql CE supports withCte without name directly inside query expression`` (
     let combined =
         fsql {
             for p in products do
-            withCte (fsql { for p2 in products do where (p2.Price >= 100.0M); select p2 })
-            where (p.Price >= 100.0M)
-            select p
-            union (fsql {
-                for p3 in products do
-                where (p3.Price < 10.0M)
-                select p3
-            })
+                withCte (
+                    fsql {
+                        for p2 in products do
+                            where (p2.Price >= 100.0M)
+                            select p2
+                    }
+                )
+
+                where (p.Price >= 100.0M)
+                select p
+
+                union (
+                    fsql {
+                        for p3 in products do
+                            where (p3.Price < 10.0M)
+                            select p3
+                    }
+                )
         }
 
     let raw = toRawQuery combined
@@ -1621,7 +2134,13 @@ let ``fsql CE supports withCte without name directly inside query expression`` (
     Assert.Equal(3, list.Length)
 
     // Also test fluent API without name
-    let sub = fsql { for p in products do where (p.Price >= 200.0M); select p }
+    let sub =
+        fsql {
+            for p in products do
+                where (p.Price >= 200.0M)
+                select p
+        }
+
     let fluentCte = products.WithCte(sub)
     let fluentRaw = toRawQuery fluentCte
     Assert.Contains("WITH cte_1 AS", fluentRaw)
@@ -1636,26 +2155,26 @@ let ``fsql supports composing cte and union in separate variables executed in th
     let highPriceCte =
         fsql {
             for p in products do
-            where (p.Price >= 100.0M)
-            select p
+                where (p.Price >= 100.0M)
+                select p
         }
 
     // Parte 2: a query de união (RHS) isolada em uma variável
     let lowPriceProducts =
         fsql {
             for p in products do
-            where (p.Price < 10.0M)
-            select p
+                where (p.Price < 10.0M)
+                select p
         }
 
     // Parte 3: a terceira query combinando a CTE e a união
     let combined =
         fsql {
             for p in products do
-            withCte highPriceCte
-            where (p.Price >= 100.0M)
-            select p
-            union lowPriceProducts
+                withCte highPriceCte
+                where (p.Price >= 100.0M)
+                select p
+                union lowPriceProducts
         }
 
     let raw = toRawQuery combined
@@ -1668,11 +2187,12 @@ let ``fsql supports composing cte and union in separate variables executed in th
     let combinedNamed =
         fsql {
             for p in products do
-            withCte "HighEndProducts" highPriceCte
-            where (p.Price >= 100.0M)
-            select p
-            union lowPriceProducts
+                withCte "HighEndProducts" highPriceCte
+                where (p.Price >= 100.0M)
+                select p
+                union lowPriceProducts
         }
+
     let rawNamed = toRawQuery combinedNamed
     Assert.Contains("WITH HighEndProducts AS", rawNamed)
     Assert.Contains("UNION", rawNamed)
@@ -1690,17 +2210,17 @@ let ``fsql supports useful CTE with JOIN and SELECT from CTE`` () =
     let vipCustomers =
         fsql {
             for c in customers do
-            where (c.CustomerId = 1)
-            select c
+                where (c.CustomerId = 1)
+                select c
         }
 
     // 2. Query que realmente faz JOIN com a CTE usando o próprio objeto da CTE diretamente (sem dummy table!)
     let queryWithJoin =
         fsql {
             for o in orders do
-            withCte "VipCustomers" vipCustomers
-            join v in vipCustomers on (o.CustomerId = v.CustomerId)
-            select (o.OrderId, o.Amount, (v: TestCustomer).CustomerName)
+                withCte "VipCustomers" vipCustomers
+                join v in vipCustomers on (o.CustomerId = v.CustomerId)
+                select (o.OrderId, o.Amount, (v: TestCustomer).CustomerName)
         }
 
     let raw = toRawQuery queryWithJoin
@@ -1713,8 +2233,8 @@ let ``fsql supports useful CTE with JOIN and SELECT from CTE`` () =
     let queryFromCte =
         fsql {
             for v in vipCustomers do
-            withCte "VipCustomers" vipCustomers
-            select (v: TestCustomer).CustomerName
+                withCte "VipCustomers" vipCustomers
+                select (v: TestCustomer).CustomerName
         }
 
     let rawFrom = toRawQuery queryFromCte
@@ -1728,8 +2248,8 @@ let ``fsql supports useful CTE with JOIN and SELECT from CTE`` () =
     let queryAutoCte =
         fsql {
             for o in orders do
-            join v in vipCustomers on (o.CustomerId = v.CustomerId)
-            select (o.OrderId, o.Amount, (v: TestCustomer).CustomerName)
+                join v in vipCustomers on (o.CustomerId = v.CustomerId)
+                select (o.OrderId, o.Amount, (v: TestCustomer).CustomerName)
         }
 
     let rawAuto = toRawQuery queryAutoCte
@@ -1742,8 +2262,8 @@ let ``fsql supports useful CTE with JOIN and SELECT from CTE`` () =
     let queryFromCteUnnamed =
         fsql {
             for v in vipCustomers do
-            withCte vipCustomers
-            select (v: TestCustomer).CustomerName
+                withCte vipCustomers
+                select (v: TestCustomer).CustomerName
         }
 
     let rawFromUnnamed = toRawQuery queryFromCteUnnamed
@@ -1762,28 +2282,36 @@ let ``fsql CE supports unionAll intersect except directly inside query expressio
     let uAll =
         fsql {
             for p in products do
-            where (p.Price >= 200.0M)
-            select p
-            unionAll (fsql {
-                for p2 in products do
-                where (p2.Price < 10.0M)
-                select p2
-            })
+                where (p.Price >= 200.0M)
+                select p
+
+                unionAll (
+                    fsql {
+                        for p2 in products do
+                            where (p2.Price < 10.0M)
+                            select p2
+                    }
+                )
         }
+
     let uAllList = uAll |> Seq.toList
     Assert.Equal(3, uAllList.Length)
 
     let inter =
         fsql {
             for p in products do
-            where (p.Price >= 40.0M)
-            select p
-            intersect (fsql {
-                for p2 in products do
-                where (p2.Price <= 50.0M)
-                select p2
-            })
+                where (p.Price >= 40.0M)
+                select p
+
+                intersect (
+                    fsql {
+                        for p2 in products do
+                            where (p2.Price <= 50.0M)
+                            select p2
+                    }
+                )
         }
+
     let interList = inter |> Seq.toList
     // Keyboard is 45.50
     Assert.Single(interList) |> ignore
@@ -1791,14 +2319,18 @@ let ``fsql CE supports unionAll intersect except directly inside query expressio
     let exc =
         fsql {
             for p in products do
-            where (p.Price >= 40.0M)
-            select p
-            except (fsql {
-                for p2 in products do
-                where (p2.Price > 100.0M)
-                select p2
-            })
+                where (p.Price >= 40.0M)
+                select p
+
+                except (
+                    fsql {
+                        for p2 in products do
+                            where (p2.Price > 100.0M)
+                            select p2
+                    }
+                )
         }
+
     let excList = exc |> Seq.toList
     // Keyboard(45.50) is kept, Monitor(299.99) is excluded
     Assert.Single(excList) |> ignore
@@ -1812,8 +2344,8 @@ let ``fsql explain and explainQuery report execution plan for fsql queries`` () 
     let q =
         fsql {
             for p in products do
-            where (p.Price > 20.0M)
-            select p
+                where (p.Price > 20.0M)
+                select p
         }
 
     let rep1 = explainQuery q
@@ -1833,12 +2365,14 @@ let ``fsql CE supports fullOuterJoin directly inside query expression`` () =
     let q =
         fsql {
             for c in customers do
-            fullOuterJoin o in orders on (c.CustomerId = o.CustomerId) into ords
-            for o in ords.DefaultIfEmpty() do
-            select {|
-                Customer = c.CustomerName
-                OrderId = if isNull (box o) then 0 else o.OrderId
-            |}
+                fullOuterJoin o in orders on (c.CustomerId = o.CustomerId) into ords
+
+                for o in ords.DefaultIfEmpty() do
+                    select
+                        {|
+                            Customer = c.CustomerName
+                            OrderId = if isNull (box o) then 0 else o.OrderId
+                        |}
         }
 
     let raw = toRawQuery q
@@ -1854,25 +2388,40 @@ let ``fsql combines separate query variables with CTEs in union without duplicat
     let q1 =
         fsql {
             for p in products do
-            withCte "HighEnd" (fsql { for p2 in products do where (p2.Price >= 50.0M); select p2 })
-            where (p.Price >= 40.0M)
-            select p
+                withCte
+                    "HighEnd"
+                    (fsql {
+                        for p2 in products do
+                            where (p2.Price >= 50.0M)
+                            select p2
+                    })
+
+                where (p.Price >= 40.0M)
+                select p
         }
 
     let q2 =
         fsql {
             for p in products do
-            withCte "Budget" (fsql { for p2 in products do where (p2.Price <= 20.0M); select p2 })
-            where (p.Price < 10.0M)
-            select p
+                withCte
+                    "Budget"
+                    (fsql {
+                        for p2 in products do
+                            where (p2.Price <= 20.0M)
+                            select p2
+                    })
+
+                where (p.Price < 10.0M)
+                select p
         }
 
     // 1. CE union
     let q3 =
         fsql {
             for p in q1 do
-            union q2
+                union q2
         }
+
     let sql3 = toRawQuery q3
     Assert.Contains("WITH HighEnd AS", sql3)
     Assert.Contains("Budget AS", sql3)
@@ -1918,22 +2467,23 @@ let ``fsql combines separate query variables using unionAll, intersect, and exce
     let q1 =
         fsql {
             for p in products do
-            where (p.Price >= 25.0M)
-            select p
+                where (p.Price >= 25.0M)
+                select p
         }
 
     let q2 =
         fsql {
             for p in products do
-            where (p.Price <= 50.0M)
-            select p
+                where (p.Price <= 50.0M)
+                select p
         }
 
     let qUAll =
         fsql {
             for p in q1 do
-            unionAll q2
+                unionAll q2
         }
+
     let sqlUAll = toRawQuery qUAll
     Assert.Contains("UNION ALL", sqlUAll)
     let rowsUAll = qUAll |> Seq.toList
@@ -1942,8 +2492,9 @@ let ``fsql combines separate query variables using unionAll, intersect, and exce
     let qInter =
         fsql {
             for p in q1 do
-            intersect q2
+                intersect q2
         }
+
     let sqlInter = toRawQuery qInter
     Assert.Contains("INTERSECT", sqlInter)
     let rowsInter = qInter |> Seq.toList
@@ -1952,8 +2503,9 @@ let ``fsql combines separate query variables using unionAll, intersect, and exce
     let qExc =
         fsql {
             for p in q1 do
-            except q2
+                except q2
         }
+
     let sqlExc = toRawQuery qExc
     Assert.Contains("EXCEPT", sqlExc)
     let rowsExc = qExc |> Seq.toList
@@ -1969,15 +2521,21 @@ let ``fsql whereExists preserves filters on pre-defined subquery variables and b
     let bigOrders =
         fsql {
             for o in orders do
-            where (o.Amount >= 150.0M)
-            select o
+                where (o.Amount >= 150.0M)
+                select o
         }
 
     let q =
         fsql {
             for c in customers do
-            whereExists (fsql { for o in bigOrders do where (o.CustomerId = c.CustomerId) })
-            select c
+                whereExists (
+                    fsql {
+                        for o in bigOrders do
+                            where (o.CustomerId = c.CustomerId)
+                    }
+                )
+
+                select c
         }
 
     let raw = toRawQuery q
@@ -1998,20 +2556,23 @@ let ``fsql crossApply preserves filters on pre-defined subquery variables`` () =
     let bigOrders =
         fsql {
             for o in orders do
-            where (o.Amount >= 150.0M)
-            select o
+                where (o.Amount >= 150.0M)
+                select o
         }
 
     let q =
         fsql {
             for c in customers do
-            for topOrder in (crossApply (fsql {
-                for o in bigOrders do
-                where (o.CustomerId = c.CustomerId)
-                take 1
-                select o
-            })) do
-            select (c.CustomerName, topOrder.Amount)
+                for topOrder in
+                    (crossApply (
+                        fsql {
+                            for o in bigOrders do
+                                where (o.CustomerId = c.CustomerId)
+                                take 1
+                                select o
+                        }
+                    )) do
+                    select (c.CustomerName, topOrder.Amount)
         }
 
     let raw = toRawQuery q
@@ -2033,12 +2594,14 @@ let ``fsql CE supports fully idiomatic fullOuterJoin with into and DefaultIfEmpt
     let q =
         fsql {
             for c in customers do
-            fullOuterJoin o in orders on (c.CustomerId = o.CustomerId) into ords
-            for o in ords.DefaultIfEmpty() do
-            select {|
-                Customer = c.CustomerName
-                OrderId = if isNull (box o) then 0 else o.OrderId
-            |}
+                fullOuterJoin o in orders on (c.CustomerId = o.CustomerId) into ords
+
+                for o in ords.DefaultIfEmpty() do
+                    select
+                        {|
+                            Customer = c.CustomerName
+                            OrderId = if isNull (box o) then 0 else o.OrderId
+                        |}
         }
 
     let sql = toRawQuery q
@@ -2054,9 +2617,9 @@ let ``fsql CE supports withRecursiveCteSql and withRecursiveCte with raw subquer
     let q1 =
         fsql {
             for p in products do
-            withRecursiveCteSql "NumSeries" "SELECT 1 AS n UNION ALL SELECT n + 1 FROM NumSeries WHERE n < 5"
-            take 5
-            select p
+                withRecursiveCteSql "NumSeries" "SELECT 1 AS n UNION ALL SELECT n + 1 FROM NumSeries WHERE n < 5"
+                take 5
+                select p
         }
 
     let sql1 = toRawQuery q1
@@ -2067,9 +2630,9 @@ let ``fsql CE supports withRecursiveCteSql and withRecursiveCte with raw subquer
     let q2 =
         fsql {
             for p in products do
-            withRecursiveCte "Series2" "SELECT 1 AS n UNION ALL SELECT n + 1 FROM Series2 WHERE n < 10"
-            take 2
-            select p
+                withRecursiveCte "Series2" "SELECT 1 AS n UNION ALL SELECT n + 1 FROM Series2 WHERE n < 10"
+                take 2
+                select p
         }
 
     let sql2 = toRawQuery q2
@@ -2085,22 +2648,31 @@ let ``SqlPushdownPlan generates dialect-specific SQL for MySql, MariaDb and Orac
     let q =
         fsql {
             for p in products do
-            where (p.Price > 10.0M)
-            sortBy p.Price
-            skip 5
-            take 10
-            select p
+                where (p.Price > 10.0M)
+                sortBy p.Price
+                skip 5
+                take 10
+                select p
         }
 
     let expr = (q :> IQueryable).Expression
 
-    let mysqlSql = (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.MySql).BuildSql(SqlDialect.MySql)
+    let mysqlSql =
+        (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.MySql)
+            .BuildSql(SqlDialect.MySql)
+
     Assert.Contains("LIMIT 10 OFFSET 5", mysqlSql)
 
-    let mariaSql = (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.MariaDb).BuildSql(SqlDialect.MariaDb)
+    let mariaSql =
+        (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.MariaDb)
+            .BuildSql(SqlDialect.MariaDb)
+
     Assert.Contains("LIMIT 10 OFFSET 5", mariaSql)
 
-    let oracleSql = (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.Oracle).BuildSql(SqlDialect.Oracle)
+    let oracleSql =
+        (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.Oracle)
+            .BuildSql(SqlDialect.Oracle)
+
     Assert.Contains("OFFSET 5 ROWS FETCH NEXT 10 ROWS ONLY", oracleSql)
 
 [<Fact>]
@@ -2121,21 +2693,31 @@ let ``SqlPushdownQuery translates JSON extraction according to target dialect`` 
     let q =
         fsql {
             for p in products do
-            select {|
-                Name = p.Name
-                Brand = fsql.jsonValue(p.Name, "$.brand")
-            |}
+                select
+                    {|
+                        Name = p.Name
+                        Brand = fsql.jsonValue (p.Name, "$.brand")
+                    |}
         }
 
     let expr = (q :> IQueryable).Expression
 
-    let mysqlSql = (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.MySql).BuildSql(SqlDialect.MySql)
+    let mysqlSql =
+        (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.MySql)
+            .BuildSql(SqlDialect.MySql)
+
     Assert.Contains("JSON_UNQUOTE(JSON_EXTRACT(", mysqlSql)
 
-    let oracleSql = (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.Oracle).BuildSql(SqlDialect.Oracle)
+    let oracleSql =
+        (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.Oracle)
+            .BuildSql(SqlDialect.Oracle)
+
     Assert.Contains("JSON_VALUE(", oracleSql)
 
-    let pgSql = (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.PostgreSql).BuildSql(SqlDialect.PostgreSql)
+    let pgSql =
+        (ExpressionPushdownTranslator.extractPlanFromExpression expr "Products" [] SqlDialect.PostgreSql)
+            .BuildSql(SqlDialect.PostgreSql)
+
     Assert.Contains("->>", pgSql)
 
 [<Fact>]
@@ -2144,7 +2726,10 @@ let ``fsql translates where (not (isNull col)) and where (isNull col) to IS NOT 
     use rawConn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path}")
     rawConn.Open()
     use insertCmd = rawConn.CreateCommand()
-    insertCmd.CommandText <- "INSERT INTO Products (Id, Name, Price, Category, InStock) VALUES (99, 'NullCatItem', 10.00, NULL, 1);"
+
+    insertCmd.CommandText <-
+        "INSERT INTO Products (Id, Name, Price, Category, InStock) VALUES (99, 'NullCatItem', 10.00, NULL, 1);"
+
     insertCmd.ExecuteNonQuery() |> ignore
 
     let conn = SqliteConnector(db.Path)
@@ -2154,9 +2739,10 @@ let ``fsql translates where (not (isNull col)) and where (isNull col) to IS NOT 
     let qNotNull =
         fsql {
             for p in products do
-            where (not (isNull p.Category))
-            select p.Name
+                where (not (isNull p.Category))
+                select p.Name
         }
+
     let sqlNotNull = toRawSql qNotNull
     Assert.Contains("Category IS NOT NULL", sqlNotNull)
     let notNullRows = qNotNull |> Seq.toList
@@ -2167,9 +2753,10 @@ let ``fsql translates where (not (isNull col)) and where (isNull col) to IS NOT 
     let qIsNull =
         fsql {
             for p in products do
-            where (isNull p.Category)
-            select p.Name
+                where (isNull p.Category)
+                select p.Name
         }
+
     let sqlIsNull = toRawSql qIsNull
     Assert.Contains("Category IS NULL", sqlIsNull)
     let isNullRows = qIsNull |> Seq.toList
@@ -2185,27 +2772,30 @@ let ``fsql translates double negation and compound boolean negations with isNull
     let qDoubleNeg =
         fsql {
             for p in products do
-            where (not (not (isNull p.Category)))
-            select p.Name
+                where (not (not (isNull p.Category)))
+                select p.Name
         }
+
     Assert.Contains("Category IS NULL", toRawSql qDoubleNeg)
 
     // 2. Negation of ReferenceEquals / equality with null
     let qNotRefEq =
         fsql {
             for p in products do
-            where (not (obj.ReferenceEquals(p.Category, null)))
-            select p.Name
+                where (not (obj.ReferenceEquals(p.Category, null)))
+                select p.Name
         }
+
     Assert.Contains("Category IS NOT NULL", toRawSql qNotRefEq)
 
     // 3. Compound boolean negation: not (isNull p.Category || p.Price < 20.0M)
     let qCompound =
         fsql {
             for p in products do
-            where (not (isNull p.Category || p.Price < 20.0M))
-            select p.Name
+                where (not (isNull p.Category || p.Price < 20.0M))
+                select p.Name
         }
+
     let sqlCompound = toRawSql qCompound
     Assert.Contains("NOT", sqlCompound)
     Assert.Contains("Category IS NULL", sqlCompound)
@@ -2218,18 +2808,27 @@ let ``fsql translates dedicated isNotNull, isNotEmpty, and isNotNullOrEmpty pred
     use rawConn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path}")
     rawConn.Open()
     use insertCmd = rawConn.CreateCommand()
-    insertCmd.CommandText <- """
+
+    insertCmd.CommandText <-
+        """
     INSERT INTO Products (Id, Name, Price, Category, InStock) VALUES (101, 'NullCat', 12.00, NULL, 1);
     INSERT INTO Products (Id, Name, Price, Category, InStock) VALUES (102, 'EmptyCat', 15.00, '', 1);
     INSERT INTO Products (Id, Name, Price, Category, InStock) VALUES (103, 'SpaceCat', 18.00, '   ', 1);
     """
+
     insertCmd.ExecuteNonQuery() |> ignore
 
     let conn = SqliteConnector(db.Path)
     let products = SqlPushdownQueryable<TestProduct>(conn, "Products")
 
     // 1. isNotNull
-    let q1 = fsql { for p in products do where (isNotNull p.Category && isNotNull p.Name); select p.Name }
+    let q1 =
+        fsql {
+            for p in products do
+                where (isNotNull p.Category && isNotNull p.Name)
+                select p.Name
+        }
+
     let sql1 = toRawSql q1
     Assert.Contains("(Category IS NOT NULL)", sql1)
     Assert.Contains("(Name IS NOT NULL)", sql1)
@@ -2238,7 +2837,13 @@ let ``fsql translates dedicated isNotNull, isNotEmpty, and isNotNullOrEmpty pred
     Assert.Contains("EmptyCat", r1)
 
     // 2. isNotEmpty / isNotNullOrEmpty
-    let q2 = fsql { for p in products do where (isNotEmpty p.Category && isNotNullOrEmpty p.Name); select p.Name }
+    let q2 =
+        fsql {
+            for p in products do
+                where (isNotEmpty p.Category && isNotNullOrEmpty p.Name)
+                select p.Name
+        }
+
     let sql2 = toRawSql q2
     Assert.Contains("(Category IS NOT NULL AND Category <> '')", sql2)
     let r2 = q2 |> Seq.toList
@@ -2247,16 +2852,21 @@ let ``fsql translates dedicated isNotNull, isNotEmpty, and isNotNullOrEmpty pred
     Assert.Contains("SpaceCat", r2)
 
 [<Fact>]
-let ``fsql builder methods isNotNull, isNotEmpty, isNotNullOrEmpty and conditional CASE WHEN projections work across dialects`` () =
+let ``fsql builder methods isNotNull, isNotEmpty, isNotNullOrEmpty and conditional CASE WHEN projections work across dialects``
+    ()
+    =
     use db = new TempSqliteDb()
     use rawConn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path}")
     rawConn.Open()
     use insertCmd = rawConn.CreateCommand()
-    insertCmd.CommandText <- """
+
+    insertCmd.CommandText <-
+        """
     INSERT INTO Products (Id, Name, Price, Category, InStock) VALUES (201, 'NullCat', 12.00, NULL, 1);
     INSERT INTO Products (Id, Name, Price, Category, InStock) VALUES (202, 'EmptyCat', 15.00, '', 1);
     INSERT INTO Products (Id, Name, Price, Category, InStock) VALUES (203, 'SpaceCat', 18.00, '   ', 1);
     """
+
     insertCmd.ExecuteNonQuery() |> ignore
 
     let conn = SqliteConnector(db.Path)
@@ -2266,25 +2876,40 @@ let ``fsql builder methods isNotNull, isNotEmpty, isNotNullOrEmpty and condition
     let qBuilder =
         fsql {
             for p in products do
-            where (fsql.isNotNull p.Category && fsql.isNotEmpty p.Category && fsql.isNotNullOrEmpty p.Name)
-            select p.Name
+                where (
+                    fsql.isNotNull p.Category
+                    && fsql.isNotEmpty p.Category
+                    && fsql.isNotNullOrEmpty p.Name
+                )
+
+                select p.Name
         }
+
     Assert.Equal(6, qBuilder |> Seq.length)
 
     let exprOracle = (qBuilder :> IQueryable).Expression
-    let oracleSql = (ExpressionPushdownTranslator.extractPlanFromExpression exprOracle "Products" [] SqlDialect.Oracle).BuildSql(SqlDialect.Oracle)
+
+    let oracleSql =
+        (ExpressionPushdownTranslator.extractPlanFromExpression exprOracle "Products" [] SqlDialect.Oracle)
+            .BuildSql(SqlDialect.Oracle)
+
     Assert.Contains("LENGTH(Category) > 0", oracleSql)
 
     // Conditional CASE WHEN with isNull / isNotNull / isNotEmpty / isNotNullOrEmpty in SELECT projection
     let qCase =
         fsql {
             for p in products do
-            select {|
-                Name = p.Name
-                CatStatus = if isNotEmpty p.Category then p.Category elif isNull p.Category then "Missing" else "Empty"
-                CoalescedCat = if isNotNull p.Category then p.Category else "DefaultCat"
-            |}
+                select
+                    {|
+                        Name = p.Name
+                        CatStatus =
+                            if isNotEmpty p.Category then p.Category
+                            elif isNull p.Category then "Missing"
+                            else "Empty"
+                        CoalescedCat = if isNotNull p.Category then p.Category else "DefaultCat"
+                    |}
         }
+
     let sqlCase = toRawSql qCase
     Assert.Contains("CASE WHEN", sqlCase)
     Assert.Contains("COALESCE(Category, 'DefaultCat')", sqlCase)
@@ -2302,7 +2927,9 @@ let ``fsql builder methods isNotNull, isNotEmpty, isNotNullOrEmpty and condition
     Assert.False(isNotNullOrEmpty (null: string))
 
 [<Fact>]
-let ``verify only requested methods isNotNull, isNotEmpty, and isNotNullOrEmpty exist and redundant operations are removed`` () =
+let ``verify only requested methods isNotNull, isNotEmpty, and isNotNullOrEmpty exist and redundant operations are removed``
+    ()
+    =
     let builderType = typeof<FSqlQueryBuilder>
     let queryableType = typeof<SqlPushdownQueryable<TestProduct>>
 
@@ -2312,32 +2939,36 @@ let ``verify only requested methods isNotNull, isNotEmpty, and isNotNullOrEmpty 
     Assert.NotNull(builderType.GetMethod("isNotNullOrEmpty"))
 
     // 2. Assert removed custom operations / builder methods do NOT exist
-    let disallowedBuilderMethods = [
-        "whereNotNull"
-        "whereNotEmpty"
-        "whereNotNullOrEmpty"
-        "whereIsNull"
-        "whereIsEmpty"
-        "whereNotNullOrWhiteSpace"
-        "notNull"
-        "notEmpty"
-        "notNullOrEmpty"
-    ]
+    let disallowedBuilderMethods =
+        [
+            "whereNotNull"
+            "whereNotEmpty"
+            "whereNotNullOrEmpty"
+            "whereIsNull"
+            "whereIsEmpty"
+            "whereNotNullOrWhiteSpace"
+            "notNull"
+            "notEmpty"
+            "notNullOrEmpty"
+        ]
+
     for m in disallowedBuilderMethods do
         Assert.Null(builderType.GetMethod(m))
 
     // 3. Assert removed fluent methods on SqlPushdownQueryable do NOT exist
-    let disallowedQueryableMethods = [
-        "WhereNotNull"
-        "WhereNotEmpty"
-        "WhereNotNullOrEmpty"
-        "WhereIsNull"
-        "WhereIsEmpty"
-        "WhereNotNullOrWhiteSpace"
-        "NotNull"
-        "NotEmpty"
-        "NotNullOrEmpty"
-    ]
+    let disallowedQueryableMethods =
+        [
+            "WhereNotNull"
+            "WhereNotEmpty"
+            "WhereNotNullOrEmpty"
+            "WhereIsNull"
+            "WhereIsEmpty"
+            "WhereNotNullOrWhiteSpace"
+            "NotNull"
+            "NotEmpty"
+            "NotNullOrEmpty"
+        ]
+
     for m in disallowedQueryableMethods do
         Assert.Null(queryableType.GetMethod(m))
 
@@ -2351,8 +2982,16 @@ let ``fsql where notExists filters entities without matching records`` () =
     let customersWithoutOrders =
         fsql {
             for c in customers do
-            where (notExists (fsql { for o in orders do where (o.CustomerId = c.CustomerId) }))
-            select c.CustomerName
+                where (
+                    notExists (
+                        fsql {
+                            for o in orders do
+                                where (o.CustomerId = c.CustomerId)
+                        }
+                    )
+                )
+
+                select c.CustomerName
         }
         |> Seq.toList
 
@@ -2368,8 +3007,16 @@ let ``fsql where fsql.notExists method syntax filters entities without matching 
     let customersWithoutOrders =
         fsql {
             for c in customers do
-            where (fsql.notExists (fsql { for o in orders do where (o.CustomerId = c.CustomerId) }))
-            select c.CustomerName
+                where (
+                    fsql.notExists (
+                        fsql {
+                            for o in orders do
+                                where (o.CustomerId = c.CustomerId)
+                        }
+                    )
+                )
+
+                select c.CustomerName
         }
         |> Seq.toList
 
@@ -2383,9 +3030,10 @@ let ``fsql jsonValue normalizes bare path to dollar prefix for SQL Server dialec
     let q =
         fsql {
             for p in products do
-            where (fsql.jsonValue(p.Category, "type") = "Gadget")
-            select p.Name
+                where (fsql.jsonValue (p.Category, "type") = "Gadget")
+                select p.Name
         }
+
     let sql = toRawSql q
     Assert.Contains("JSON_VALUE(Category, '$.type')", sql)
 
@@ -2397,9 +3045,10 @@ let ``fsql jsonValue preserves existing dollar prefix path without duplicate pre
     let q =
         fsql {
             for p in products do
-            where (fsql.jsonValue(p.Category, "$.wireless") = "true")
-            select p.Name
+                where (fsql.jsonValue (p.Category, "$.wireless") = "true")
+                select p.Name
         }
+
     let sql = toRawSql q
     Assert.Contains("JSON_VALUE(Category, '$.wireless')", sql)
 
@@ -2412,9 +3061,15 @@ let ``Oracle pushdown plan sanitizes aliases so no identifier starts with unders
     let q =
         fsql {
             for c in customers do
-            join o in orders on (c.CustomerId = o.CustomerId)
-            select {| Customer = c.CustomerName; OrderId = o.OrderId |}
+                join o in orders on (c.CustomerId = o.CustomerId)
+
+                select
+                    {|
+                        Customer = c.CustomerName
+                        OrderId = o.OrderId
+                    |}
         }
+
     let sql = toRawSql q
     Assert.DoesNotContain(" _t0", sql)
     Assert.DoesNotContain(" _t1", sql)
@@ -2423,26 +3078,11 @@ let ``Oracle pushdown plan sanitizes aliases so no identifier starts with unders
 
 [<Fact>]
 let ``OracleConnector PrepareSql strips leading underscore from unquoted aliases`` () =
-    let rawSql = "SELECT _t0.ID, _t1.NAME FROM CUSTOMERS _t0 JOIN ORDERS _t1 ON _t0.ID = _t1.CUST_ID"
+    let rawSql =
+        "SELECT _t0.ID, _t1.NAME FROM CUSTOMERS _t0 JOIN ORDERS _t1 ON _t0.ID = _t1.CUST_ID"
+
     let prepared = OracleConnector.PrepareSql(rawSql)
     Assert.DoesNotContain("_t0", prepared)
     Assert.DoesNotContain("_t1", prepared)
     Assert.Contains("t0.ID", prepared)
     Assert.Contains("t1.NAME", prepared)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

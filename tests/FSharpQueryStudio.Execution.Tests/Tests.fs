@@ -31,6 +31,7 @@ let ``create returns a session that evaluates a trivial expression without hangi
             let! outcome = work |> withTimeout 30.0
 
             Assert.True(outcome.Exception.IsNone)
+
             match outcome.Value with
             | Some v -> Assert.Equal(box 2, v.ReflectionValue)
             | None -> failwith "expected a value, got none"
@@ -44,6 +45,7 @@ let ``create returns a session that evaluates a trivial expression without hangi
 let ``refreshGeneratedEntities resolves generated/GeneratedEntities.fs and throws on invalid syntax`` () =
     let workDir = tempWorkingDirectory ()
     let wsDir = tempWorkingDirectory ()
+
     try
         let session = FsiSession.createInWorkspace workDir ""
         // 1. Test local generated/GeneratedEntities.fs (line 49)
@@ -61,9 +63,11 @@ let ``refreshGeneratedEntities resolves generated/GeneratedEntities.fs and throw
         IO.File.WriteAllText(wsGenFile, "namespace FSharpQueryStudio.Generated\nlet = syntax error\n")
         let prefixedWs = "/" + wsDir.Replace("\\", "/")
         session.GeneratedTimestamp <- DateTime.MinValue
-        let ex = Assert.Throws<Exception>(fun () -> FsiSession.refreshGeneratedEntities workDir prefixedWs session)
+
+        let ex =
+            Assert.Throws<Exception>(fun () -> FsiSession.refreshGeneratedEntities workDir prefixedWs session)
+
         Assert.Contains("#load of", ex.Message)
     finally
         cleanupWorkingDirectory workDir
         cleanupWorkingDirectory wsDir
-

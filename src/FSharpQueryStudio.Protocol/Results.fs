@@ -13,6 +13,7 @@ module private ResultKindState =
             try
                 let t = other.GetType()
                 let m = t.GetMethod("ToRawSql", System.Type.EmptyTypes)
+
                 if not (isNull m) then
                     m.Invoke(other, [||]) :?> string
                 else
@@ -34,15 +35,17 @@ type ResultKind =
     | Error
     | NoValue
 
-    static member RegisterRawSqlExtractor(extractor: obj -> string, ?withParamsExtractor: obj -> string * (string * obj) list) =
+    static member RegisterRawSqlExtractor
+        (extractor: obj -> string, ?withParamsExtractor: obj -> string * (string * obj) list)
+        =
         ResultKindState.rawSqlExtractor <- extractor
+
         match withParamsExtractor with
         | Some wpe -> ResultKindState.rawSqlWithParamsExtractor <- wpe
         | None -> ()
 
     /// Extracts the raw SQL query generated for a queryable or SQL expression without executing it against the database.
-    static member toRawSql(query: obj) : string =
-        ResultKindState.rawSqlExtractor query
+    static member toRawSql(query: obj) : string = ResultKindState.rawSqlExtractor query
 
     /// Extracts the raw SQL query and parameter bindings for a queryable or SQL expression without executing it against the database.
     static member toRawSqlWithParameters(query: obj) : string * (string * obj) list =
@@ -57,11 +60,13 @@ type OutputStream =
 type OutputLine = { Stream: OutputStream; Text: string }
 
 type ResultEnvelope =
-    { Kind: ResultKind
-      DisplayText: string option
-      Schema: Column list
-      Rows: obj array array
-      IsTruncated: bool
-      ContinuationToken: string option
-      ElapsedMs: int64
-      Output: OutputLine list }
+    {
+        Kind: ResultKind
+        DisplayText: string option
+        Schema: Column list
+        Rows: obj array array
+        IsTruncated: bool
+        ContinuationToken: string option
+        ElapsedMs: int64
+        Output: OutputLine list
+    }

@@ -87,6 +87,7 @@ let ``Save overwrites secret and TryReadAsync sees updated secret`` () =
 let ``Multiple sequential updates are accurately reflected by TryReadAsync`` () =
     task {
         let store = InMemorySecretStore() :> ISecretStore
+
         for i in 1..5 do
             store.Save "counter" $"pass-{i}"
 
@@ -161,6 +162,8 @@ let ``TryReadAsync with cancelled token throws TaskCanceledException when awaite
         use cts = new CancellationTokenSource()
         cts.Cancel()
 
-        let! ex = Assert.ThrowsAsync<TaskCanceledException>(fun () -> store.TryReadAsync("token-ref", cts.Token))
+        let! ex =
+            Assert.ThrowsAsync<TaskCanceledException>(fun () -> store.TryReadAsync("token-ref", cts.Token))
+
         Assert.NotNull(ex)
     }

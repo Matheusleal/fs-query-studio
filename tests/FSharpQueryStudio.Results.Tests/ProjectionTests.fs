@@ -17,8 +17,14 @@ let private retainedOf (value: obj) =
 [<Fact>]
 let ``a ConnectorQueryResult tail value projects to a Table with the connector's own columns`` () =
     let query: ConnectorQueryResult =
-        { Columns = [ "id"; "name" ]
-          Rows = seq { yield [| box 1; box "Ada" |]; yield [| box 2; box "Grace" |] } }
+        {
+            Columns = [ "id"; "name" ]
+            Rows =
+                seq {
+                    yield [| box 1; box "Ada" |]
+                    yield [| box 2; box "Grace" |]
+                }
+        }
 
     let env = envOf (box query)
 
@@ -31,14 +37,18 @@ let ``a ConnectorQueryResult tail value projects to a Table with the connector's
 [<Fact>]
 let ``a ConnectorQueryResult tail value is fully retained for export, even past the preview limit`` () =
     let rowCount = Projection.PreviewRowLimit + 10
+
     let query: ConnectorQueryResult =
-        { Columns = [ "n" ]; Rows = seq { for i in 1..rowCount -> [| box i |] } }
+        {
+            Columns = [ "n" ]
+            Rows = seq { for i in 1..rowCount -> [| box i |] }
+        }
 
     let env, cursor, retained = Projection.projectWithCursor (box query) 0L
 
     Assert.True(env.IsTruncated)
     Assert.Equal(Projection.PreviewRowLimit, env.Rows.Length)
-    Assert.True(cursor.IsNone)                       // materialized, not streamed
+    Assert.True(cursor.IsNone) // materialized, not streamed
     Assert.True(retained.IsSome)
     Assert.Equal(rowCount, retained.Value.Rows.Length)
     Assert.Equal<string list>([ "n" ], retained.Value.Columns)
@@ -80,8 +90,11 @@ let ``a tuple sequence maps each element to a positional Item column`` () =
 [<Fact>]
 let ``a Map sequence infers the union of keys in first-seen order`` () =
     let rows =
-        [ Map.ofList [ ("id", box 1); ("name", box "Ada") ]
-          Map.ofList [ ("id", box 2); ("extra", box "x") ] ]
+        [
+            Map.ofList [ ("id", box 1); ("name", box "Ada") ]
+            Map.ofList [ ("id", box 2); ("extra", box "x") ]
+        ]
+
     let env = envOf (box rows)
     Assert.Equal<string list>([ "id"; "name"; "extra" ], env.Schema |> List.map (fun c -> c.Name))
     Assert.Equal<obj array>([| box 1; box "Ada"; null |], env.Rows.[0])
@@ -91,8 +104,11 @@ let ``a Map sequence infers the union of keys in first-seen order`` () =
 [<Fact>]
 let ``a Map of string,int sequence keeps sorted keys but first-seen column order`` () =
     let rows =
-        [ Map.ofList [ ("id", 1); ("count", 5) ]
-          Map.ofList [ ("id", 2); ("extra", 10) ] ]
+        [
+            Map.ofList [ ("id", 1); ("count", 5) ]
+            Map.ofList [ ("id", 2); ("extra", 10) ]
+        ]
+
     let env = envOf (box rows)
     Assert.Equal<string list>([ "count"; "id"; "extra" ], env.Schema |> List.map (fun c -> c.Name))
     Assert.Equal<obj array>([| box 5; box 1; null |], env.Rows.[0])
@@ -101,9 +117,11 @@ let ``a Map of string,int sequence keeps sorted keys but first-seen column order
 [<Fact>]
 let ``a Dictionary<string,obj> sequence infers union-of-keys columns`` () =
     let d1 = Dictionary<string, obj>()
-    d1.Add("id", box 1); d1.Add("name", box "Alice")
+    d1.Add("id", box 1)
+    d1.Add("name", box "Alice")
     let d2 = Dictionary<string, obj>()
-    d2.Add("id", box 2); d2.Add("age", box 30)
+    d2.Add("id", box 2)
+    d2.Add("age", box 30)
     let env = envOf (box [ d1; d2 ])
     Assert.Equal<string list>([ "id"; "name"; "age" ], env.Schema |> List.map (fun c -> c.Name))
     Assert.Equal<obj array>([| box 1; box "Alice"; null |], env.Rows.[0])
@@ -112,8 +130,10 @@ let ``a Dictionary<string,obj> sequence infers union-of-keys columns`` () =
 [<Fact>]
 let ``large sequence of FSharpMap rows projects accurately and efficiently with cached accessors`` () =
     let maps =
-        [ for i in 1..200 ->
-            Map.ofList [ ("id", box i); ("name", box $"Item {i}"); ("active", box (i % 2 = 0)) ] ]
+        [
+            for i in 1..200 -> Map.ofList [ ("id", box i); ("name", box $"Item {i}"); ("active", box (i % 2 = 0)) ]
+        ]
+
     let env = envOf (box maps)
     Assert.Equal<string list>([ "active"; "id"; "name" ], env.Schema |> List.map (fun c -> c.Name))
     Assert.Equal(200, env.Rows.Length)
@@ -132,7 +152,12 @@ let ``a nested collection consumes row 0 as headers`` () =
 [<Fact>]
 let ``ragged nested rows pad short rows with null and truncate long rows`` () =
     let grid: obj array list =
-        [ [| box "a"; box "b"; box "c" |]; [| box 1 |]; [| box 2; box 3; box 4; box 5 |] ]
+        [
+            [| box "a"; box "b"; box "c" |]
+            [| box 1 |]
+            [| box 2; box 3; box 4; box 5 |]
+        ]
+
     let env = envOf (box grid)
     Assert.Equal<string list>([ "a"; "b"; "c" ], env.Schema |> List.map (fun c -> c.Name))
     Assert.Equal<obj array>([| box 1; null; null |], env.Rows.[0])
@@ -156,7 +181,9 @@ let ``a scalar sequence within the preview limit is one Value column, no cursor,
 
 [<Fact>]
 let ``a scalar sequence past the preview limit keeps a streaming cursor and is not retained`` () =
-    let env, cursor, retained = Projection.projectWithCursor (box [ 1 .. Projection.PreviewRowLimit + 10 ]) 0L
+    let env, cursor, retained =
+        Projection.projectWithCursor (box [ 1 .. Projection.PreviewRowLimit + 10 ]) 0L
+
     Assert.True(env.IsTruncated)
     Assert.Equal(Projection.PreviewRowLimit, env.Rows.Length)
     Assert.True(cursor.IsSome)
@@ -164,7 +191,9 @@ let ``a scalar sequence past the preview limit keeps a streaming cursor and is n
 
 [<Fact>]
 let ``an empty sequence is an empty Table that retains nothing`` () =
-    let env, cursor, retained = Projection.projectWithCursor (box (List.empty<Person>)) 0L
+    let env, cursor, retained =
+        Projection.projectWithCursor (box (List.empty<Person>)) 0L
+
     Assert.Equal(ResultKind.Table, env.Kind)
     Assert.Empty(env.Schema)
     Assert.Empty(env.Rows)
@@ -174,7 +203,9 @@ let ``an empty sequence is an empty Table that retains nothing`` () =
 
 [<Fact>]
 let ``a single record is a one-row Table and is retained`` () =
-    let env, _, retained = Projection.projectWithCursor (box { Id = 1; Name = "Ada" }) 0L
+    let env, _, retained =
+        Projection.projectWithCursor (box { Id = 1; Name = "Ada" }) 0L
+
     Assert.Equal(ResultKind.Table, env.Kind)
     Assert.Equal<string list>([ "Id"; "Name" ], env.Schema |> List.map (fun c -> c.Name))
     Assert.Equal<obj array>([| box 1; box "Ada" |], env.Rows.[0])
@@ -218,14 +249,17 @@ let ``an infinite scalar sequence streams a bounded preview instead of hanging``
 
 [<Fact>]
 let ``extractAnonymousRecordBlocks extracts property names from single line record`` () =
-    let code = """let item = {| Order = 1001; Date = "2026-01-01"; Status = "Completed" |}"""
+    let code =
+        """let item = {| Order = 1001; Date = "2026-01-01"; Status = "Completed" |}"""
+
     let blocks = Projection.extractAnonymousRecordBlocks code
     Assert.Single(blocks) |> ignore
     Assert.Equal<string list>([ "Order"; "Date"; "Status" ], blocks.[0])
 
 [<Fact>]
 let ``extractAnonymousRecordBlocks extracts property names from query select clause in user declared order`` () =
-    let code = """
+    let code =
+        """
 query {
     for c in Connections.csv do
     leftOuterJoin o in Connections.orders on (c.Id = o.CustomerId) into ords
@@ -245,14 +279,29 @@ query {
     |}
 }
 """
+
     let blocks = Projection.extractAnonymousRecordBlocks code
     Assert.Single(blocks) |> ignore
-    let expected = [ "Order"; "Date"; "Status"; "Ccy"; "Item"; "Qtt"; "Total"; "Carrier"; "Returned" ]
+
+    let expected =
+        [
+            "Order"
+            "Date"
+            "Status"
+            "Ccy"
+            "Item"
+            "Qtt"
+            "Total"
+            "Carrier"
+            "Returned"
+        ]
+
     Assert.Equal<string list>(expected, blocks.[0])
 
 [<Fact>]
 let ``extractAnonymousRecordBlocks handles backticks and comments inside anonymous record`` () =
-    let code = """
+    let code =
+        """
 select {|
     // Header id
     ``Order ID`` = ord.Id
@@ -261,19 +310,22 @@ select {|
     Status = if ord.Total > 0M then "Paid" else "Unpaid"
 |}
 """
+
     let blocks = Projection.extractAnonymousRecordBlocks code
     Assert.Single(blocks) |> ignore
     Assert.Equal<string list>([ "Order ID"; "Date"; "Status" ], blocks.[0])
 
 [<Fact>]
 let ``extractAnonymousRecordBlocks ignores nested anonymous record properties in outer block`` () =
-    let code = """
+    let code =
+        """
 {|
     Order = 1
     Customer = {| Name = "Alice"; City = "Paris" |}
     Total = 50.0M
 |}
 """
+
     let blocks = Projection.extractAnonymousRecordBlocks code
     Assert.Equal(2, blocks.Length)
     Assert.Equal<string list>([ "Name"; "City" ], blocks.[0])
@@ -281,8 +333,15 @@ let ``extractAnonymousRecordBlocks ignores nested anonymous record properties in
 
 [<Fact>]
 let ``projectWithCursorDetailed renders anonymous record columns in declared select order instead of alphabetical`` () =
-    let item = {| Order = 1001; Date = "2026-01-01"; Status = "Completed" |}
-    let code = """
+    let item =
+        {|
+            Order = 1001
+            Date = "2026-01-01"
+            Status = "Completed"
+        |}
+
+    let code =
+        """
 select {|
     Order = 1001
     Date = "2026-01-01"
@@ -295,7 +354,9 @@ select {|
     Assert.Equal<obj array>([| box "2026-01-01"; box 1001; box "Completed" |], envDefault.Rows.[0])
 
     // With source code containing the select clause, the order is transformed to Order, Date, Status
-    let envOrdered, _, retained = Projection.projectWithCursorDetailed (box item) 0L (Some code) None
+    let envOrdered, _, retained =
+        Projection.projectWithCursorDetailed (box item) 0L (Some code) None
+
     Assert.Equal<string list>([ "Order"; "Date"; "Status" ], envOrdered.Schema |> List.map (fun c -> c.Name))
     Assert.Equal<obj array>([| box 1001; box "2026-01-01"; box "Completed" |], envOrdered.Rows.[0])
     Assert.True(retained.IsSome)
@@ -303,7 +364,9 @@ select {|
     Assert.Equal<obj array>([| box 1001; box "2026-01-01"; box "Completed" |], retained.Value.Rows.[0])
 
 [<Fact>]
-let ``projectWithCursorDetailed renders a sequence of anonymous records in declared order matching 9 fields from user request`` () =
+let ``projectWithCursorDetailed renders a sequence of anonymous records in declared order matching 9 fields from user request``
+    ()
+    =
     let items =
         [
             {|
@@ -319,7 +382,8 @@ let ``projectWithCursorDetailed renders a sequence of anonymous records in decla
             |}
         ]
 
-    let code = """
+    let code =
+        """
 query {
     for c in Connections.csv do
     select {|
@@ -335,10 +399,38 @@ query {
     |}
 }
 """
-    let env, _, retained = Projection.projectWithCursorDetailed (box items) 0L (Some code) None
-    let expectedCols = [ "Order"; "Date"; "Status"; "Ccy"; "Item"; "Qtt"; "Total"; "Carrier"; "Returned" ]
+
+    let env, _, retained =
+        Projection.projectWithCursorDetailed (box items) 0L (Some code) None
+
+    let expectedCols =
+        [
+            "Order"
+            "Date"
+            "Status"
+            "Ccy"
+            "Item"
+            "Qtt"
+            "Total"
+            "Carrier"
+            "Returned"
+        ]
+
     Assert.Equal<string list>(expectedCols, env.Schema |> List.map (fun c -> c.Name))
-    let expectedRow: obj array = [| box 101; box "2026-01-01"; box "Delivered"; box "USD"; box "Laptop"; box 2; box 1500M; box "DHL"; box "No" |]
+
+    let expectedRow: obj array =
+        [|
+            box 101
+            box "2026-01-01"
+            box "Delivered"
+            box "USD"
+            box "Laptop"
+            box 2
+            box 1500M
+            box "DHL"
+            box "No"
+        |]
+
     Assert.Equal<obj array>(expectedRow, env.Rows.[0])
     Assert.True(retained.IsSome)
     Assert.Equal<string list>(expectedCols, retained.Value.Columns)
@@ -346,7 +438,8 @@ query {
 
 [<Fact>]
 let ``registerSourceCode preserves column ordering across notebook cells without passing source to second cell`` () =
-    let cell1Code = """
+    let cell1Code =
+        """
 let myQuery =
     select {|
         Zed = 1
@@ -354,6 +447,7 @@ let myQuery =
         Middle = 3
     |}
 """
+
     Projection.registerSourceCode cell1Code
 
     let item = {| Zed = 10; Alpha = 20; Middle = 30 |}
@@ -363,22 +457,27 @@ let myQuery =
     Assert.Equal<obj array>([| box 10; box 20; box 30 |], env.Rows.[0])
 
 type private ComplexRecord =
-    { DVal: double
-      SVal: single
-      OptInt: int option
-      OptDouble: double option
-      OptNull: string option
-      ObjVal: obj }
+    {
+        DVal: double
+        SVal: single
+        OptInt: int option
+        OptDouble: double option
+        OptNull: string option
+        ObjVal: obj
+    }
 
 [<Fact>]
 let ``sanitizeCell handles non-finite floats, DBNull, and options in records`` () =
     let recVal =
-        { DVal = System.Double.NaN
-          SVal = System.Single.PositiveInfinity
-          OptInt = Some 42
-          OptDouble = Some System.Double.NegativeInfinity
-          OptNull = None
-          ObjVal = box System.DBNull.Value }
+        {
+            DVal = System.Double.NaN
+            SVal = System.Single.PositiveInfinity
+            OptInt = Some 42
+            OptDouble = Some System.Double.NegativeInfinity
+            OptNull = None
+            ObjVal = box System.DBNull.Value
+        }
+
     let env, _, _ = Projection.projectWithCursor (box [ recVal ]) 0L
     Assert.Equal(ResultKind.Table, env.Kind)
     let row = env.Rows.[0]
@@ -391,7 +490,12 @@ let ``sanitizeCell handles non-finite floats, DBNull, and options in records`` (
 
 [<Fact>]
 let ``tuple sequence with 3 elements maps to Item1, Item2, Item3`` () =
-    let triples: (int * string * bool) seq = seq { yield (1, "A", true); yield (2, "B", false) }
+    let triples: (int * string * bool) seq =
+        seq {
+            yield (1, "A", true)
+            yield (2, "B", false)
+        }
+
     let env = envOf (box triples)
     Assert.Equal(ResultKind.Table, env.Kind)
     Assert.Equal<string list>([ "Item1"; "Item2"; "Item3" ], env.Schema |> List.map (fun c -> c.Name))
@@ -400,7 +504,12 @@ let ``tuple sequence with 3 elements maps to Item1, Item2, Item3`` () =
 
 [<Fact>]
 let ``tuple sequence with mixed types falls back to Text envelope`` () =
-    let mixed: obj seq = seq { yield box (1, "A"); yield box (2, "B", true) }
+    let mixed: obj seq =
+        seq {
+            yield box (1, "A")
+            yield box (2, "B", true)
+        }
+
     let env, _, _ = Projection.projectWithCursor (box mixed) 0L
     Assert.Equal(ResultKind.Text, env.Kind)
 
@@ -421,10 +530,25 @@ let ``IDictionary sequence such as Hashtable projects to Table`` () =
 let ``sequence of sequences consumes first row as headers and data rows as content`` () =
     let rawSeq: obj seq seq =
         seq {
-            yield seq { yield box "ColA"; yield box "ColB" }
-            yield seq { yield box 10; yield box 20 }
-            yield seq { yield box 30; yield box 40 }
+            yield
+                seq {
+                    yield box "ColA"
+                    yield box "ColB"
+                }
+
+            yield
+                seq {
+                    yield box 10
+                    yield box 20
+                }
+
+            yield
+                seq {
+                    yield box 30
+                    yield box 40
+                }
         }
+
     let env = envOf (box rawSeq)
     Assert.Equal(ResultKind.Table, env.Kind)
     Assert.Equal<string list>([ "ColA"; "ColB" ], env.Schema |> List.map (fun c -> c.Name))
@@ -434,21 +558,42 @@ let ``sequence of sequences consumes first row as headers and data rows as conte
 
 [<Fact>]
 let ``sequence of ConnectorQueryResult falls back to Text envelope with expected failure message`` () =
-    let q1: ConnectorQueryResult = { Columns = [ "x" ]; Rows = seq { yield [| box 1 |] } }
-    let q2: ConnectorQueryResult = { Columns = [ "y" ]; Rows = seq { yield [| box 2 |] } }
+    let q1: ConnectorQueryResult =
+        {
+            Columns = [ "x" ]
+            Rows = seq { yield [| box 1 |] }
+        }
+
+    let q2: ConnectorQueryResult =
+        {
+            Columns = [ "y" ]
+            Rows = seq { yield [| box 2 |] }
+        }
+
     let env, _, _ = Projection.projectWithCursor (box [ q1; q2 ]) 0L
     Assert.Equal(ResultKind.Text, env.Kind)
     Assert.True(env.DisplayText.IsSome)
 
 [<Fact>]
 let ``record sequence with mixed types falls back to Text envelope`` () =
-    let mixedRecords: obj seq = seq { yield box { Id = 1; Name = "A" }; yield box {| Extra = 42 |} }
+    let mixedRecords: obj seq =
+        seq {
+            yield box { Id = 1; Name = "A" }
+            yield box {| Extra = 42 |}
+        }
+
     let env, _, _ = Projection.projectWithCursor (box mixedRecords) 0L
     Assert.Equal(ResultKind.Text, env.Kind)
 
 [<Fact>]
 let ``record sequence containing null elements ignores null and continues reading`` () =
-    let records: Person seq = seq { yield { Id = 1; Name = "A" }; yield Unchecked.defaultof<Person>; yield { Id = 2; Name = "B" } }
+    let records: Person seq =
+        seq {
+            yield { Id = 1; Name = "A" }
+            yield Unchecked.defaultof<Person>
+            yield { Id = 2; Name = "B" }
+        }
+
     let env = envOf (box records)
     Assert.Equal(ResultKind.Table, env.Kind)
     Assert.Equal(2, env.Rows.Length)
@@ -474,7 +619,10 @@ let ``unwrapException and projectError unwrap TargetInvocationException and Aggr
 [<Fact>]
 let ``projectErrorWithDetails handles Operation could not be completed and details`` () =
     let exBlocked = System.Exception("Operation could not be completed")
-    let envBlocked = Projection.projectErrorWithDetails exBlocked (Some "Compiler error details") 10L
+
+    let envBlocked =
+        Projection.projectErrorWithDetails exBlocked (Some "Compiler error details") 10L
+
     Assert.Equal("Compiler error details", envBlocked.DisplayText.Value)
 
     let exOther = System.Exception("Other error")
@@ -510,7 +658,12 @@ let ``projectErrorWithDetails includes docker compose tips for mysql, mariadb an
 
 [<Fact>]
 let ``projectWorkerError creates Error envelope from WorkerErrorInfo`` () =
-    let info = { Code = "worker/crash"; Message = "Process terminated unexpectedly" }
+    let info =
+        {
+            Code = "worker/crash"
+            Message = "Process terminated unexpectedly"
+        }
+
     let env = Projection.projectWorkerError info
     Assert.Equal(ResultKind.Error, env.Kind)
     Assert.Equal(Some "Process terminated unexpectedly", env.DisplayText)
@@ -528,18 +681,21 @@ let ``toOutputLines formats stdout and stderr streams correctly`` () =
     Assert.Equal("err1", lines.[2].Text)
 
 [<Fact>]
-let ``extractAnonymousRecordBlocks handles nested block comments, triple quoted strings, verbatim strings, and expressions`` () =
+let ``extractAnonymousRecordBlocks handles nested block comments, triple quoted strings, verbatim strings, and expressions``
+    ()
+    =
     let code =
-        "let x = {|\n" +
-        "    (* outer (* nested block comment *) outer *)\n" +
-        "    PropA = \"\"\" triple \"quoted\" string \"\"\"\n" +
-        "    PropB = @\" verbatim \"\"quote\"\" inside \"\n" +
-        "    PropC = \" escaped \\\"string\\\" \"\n" +
-        "    PropD = (1 + 2)\n" +
-        "    PropE = [ 3; 4 ]\n" +
-        "    PropF = { Name = \"test\" }\n" +
-        "    PropG = if true then 1 else 0\n" +
-        "|}"
+        "let x = {|\n"
+        + "    (* outer (* nested block comment *) outer *)\n"
+        + "    PropA = \"\"\" triple \"quoted\" string \"\"\"\n"
+        + "    PropB = @\" verbatim \"\"quote\"\" inside \"\n"
+        + "    PropC = \" escaped \\\"string\\\" \"\n"
+        + "    PropD = (1 + 2)\n"
+        + "    PropE = [ 3; 4 ]\n"
+        + "    PropF = { Name = \"test\" }\n"
+        + "    PropG = if true then 1 else 0\n"
+        + "|}"
+
     let blocks = Projection.extractAnonymousRecordBlocks code
     Assert.Single(blocks) |> ignore
     let expected = [ "PropA"; "PropB"; "PropC"; "PropD"; "PropE"; "PropF"; "PropG" ]
@@ -562,7 +718,10 @@ let ``tryFindMatchingPropertyOrder matches partial target fields`` () =
 [<Fact>]
 let ``projectWithCursor handles case-insensitive preferred column reordering`` () =
     let item = {| foo = 1; bar = 2 |}
-    let env, _, _ = Projection.projectWithCursorDetailed (box item) 0L None (Some [ "BAR"; "FOO" ])
+
+    let env, _, _ =
+        Projection.projectWithCursorDetailed (box item) 0L None (Some [ "BAR"; "FOO" ])
+
     Assert.Equal<string list>([ "bar"; "foo" ], env.Schema |> List.map (fun c -> c.Name))
     Assert.Equal<obj array>([| box 2; box 1 |], env.Rows.[0])
 
@@ -591,18 +750,19 @@ let ``projectWithCursor surfaces database and evaluation exceptions during enume
     Assert.Contains("Database connection timeout during execution", env.DisplayText.Value)
 
 [<Fact>]
-let ``projectWithCursor surfaces mid-stream record sequence exceptions as Error envelope instead of silent truncation`` () =
+let ``projectWithCursor surfaces mid-stream record sequence exceptions as Error envelope instead of silent truncation``
+    ()
+    =
     let failingRecords =
         seq {
             yield { Id = 1; Name = "Row1" }
             raise (System.InvalidOperationException("ORA-00936: missing expression in database"))
             yield { Id = 2; Name = "Row2" }
         }
+
     let env, cursor, retained = Projection.projectWithCursor failingRecords 0L
     Assert.Equal(ResultKind.Error, env.Kind)
     Assert.True(cursor.IsNone)
     Assert.True(retained.IsNone)
     Assert.True(env.DisplayText.IsSome)
     Assert.Contains("ORA-00936", env.DisplayText.Value)
-
-

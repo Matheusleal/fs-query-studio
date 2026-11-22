@@ -12,7 +12,8 @@ open FSharpQueryStudio.Connectors
 /// data rows) and "NoHeader" (no header row, just raw data). Deleted
 /// when the caller's `use` scope ends.
 type private TempWorkbook() =
-    let path = Path.Combine(Path.GetTempPath(), "fqs-xlsx-" + Guid.NewGuid().ToString("N") + ".xlsx")
+    let path =
+        Path.Combine(Path.GetTempPath(), "fqs-xlsx-" + Guid.NewGuid().ToString("N") + ".xlsx")
 
     do
         use workbook = new XLWorkbook()
@@ -62,7 +63,12 @@ let ``ReadRows selects the named sheet when multiple sheets exist`` () =
     use workbook = new TempWorkbook()
 
     let connector =
-        ExcelConnector(workbook.Path, { ExcelOptions.Default with SheetName = Some "NoHeader" })
+        ExcelConnector(
+            workbook.Path,
+            { ExcelOptions.Default with
+                SheetName = Some "NoHeader"
+            }
+        )
 
     let result = connector.ReadRows()
 
@@ -80,7 +86,8 @@ let ``ReadRows generates Column1/Column2 names and treats every row as data when
             workbook.Path,
             { ExcelOptions.Default with
                 SheetName = Some "NoHeader"
-                HasHeader = false }
+                HasHeader = false
+            }
         )
 
     let result = connector.ReadRows()
@@ -142,16 +149,23 @@ let ``DiscoverSchemaAsync reports inferred types instead of hardcoded string`` (
         Assert.Equal("int", colMap.["Id"])
         Assert.Equal("int", colMap.["CustomerId"])
         // Total has floating point 100.0, 50.0, 25.0
-        Assert.True(colMap.["Total"] = "int" || colMap.["Total"] = "decimal" || colMap.["Total"] = "double")
+        Assert.True(
+            colMap.["Total"] = "int"
+            || colMap.["Total"] = "decimal"
+            || colMap.["Total"] = "double"
+        )
     }
 
 [<Fact>]
 let ``DiscoverSchemaAsync respects explicit ColumnTypes override`` () =
     task {
         use workbook = new TempWorkbook()
+
         let opts =
             { ExcelOptions.Default with
-                ColumnTypes = Map.ofList [ "Total", "decimal"; "CustomerId", "int64" ] }
+                ColumnTypes = Map.ofList [ "Total", "decimal"; "CustomerId", "int64" ]
+            }
+
         let connector = ExcelConnector(workbook.Path, opts) :> IConnector
 
         let! tables = connector.DiscoverSchemaAsync(CancellationToken.None)
@@ -164,7 +178,9 @@ let ``DiscoverSchemaAsync respects explicit ColumnTypes override`` () =
 
 [<Fact>]
 let ``ExcelConnector applies column transformations such as replace and trim`` () =
-    let path = Path.Combine(Path.GetTempPath(), "fqs-transform-" + Guid.NewGuid().ToString("N") + ".xlsx")
+    let path =
+        Path.Combine(Path.GetTempPath(), "fqs-transform-" + Guid.NewGuid().ToString("N") + ".xlsx")
+
     try
         do
             use wb = new XLWorkbook()
@@ -177,12 +193,9 @@ let ``ExcelConnector applies column transformations such as replace and trim`` (
 
         let opts =
             { ExcelOptions.Default with
-                ColumnTransforms =
-                    Map.ofList [
-                        "RawPrice", "replace('.', '').replace(',', '.')"
-                        "RawCode", "trim"
-                    ]
-                ColumnTypes = Map.ofList [ "RawPrice", "decimal" ] }
+                ColumnTransforms = Map.ofList [ "RawPrice", "replace('.', '').replace(',', '.')"; "RawCode", "trim" ]
+                ColumnTypes = Map.ofList [ "RawPrice", "decimal" ]
+            }
 
         let connector = ExcelConnector(path, opts)
         let qr = connector.ReadRows()
@@ -191,38 +204,55 @@ let ``ExcelConnector applies column transformations such as replace and trim`` (
         Assert.Equal(box "1234.56", rows.[0].[0])
         Assert.Equal(box "ABC-123", rows.[0].[1])
     finally
-        if File.Exists path then File.Delete path
+        if File.Exists path then
+            File.Delete path
 
 [<Fact>]
 let ``FileSqliteEngine preserves long numbers with many decimal places without rounding to int`` () =
-    let dbPath = Path.Combine(Path.GetTempPath(), "fqs-decimal-" + Guid.NewGuid().ToString("N") + ".db")
-    let csvPath = Path.Combine(Path.GetTempPath(), "fqs-decimal-" + Guid.NewGuid().ToString("N") + ".csv")
+    let dbPath =
+        Path.Combine(Path.GetTempPath(), "fqs-decimal-" + Guid.NewGuid().ToString("N") + ".db")
+
+    let csvPath =
+        Path.Combine(Path.GetTempPath(), "fqs-decimal-" + Guid.NewGuid().ToString("N") + ".csv")
+
     try
-        File.WriteAllLines(csvPath, [|
-            "Id,HighPrecision"
-            "1,1234567.890123456"
-            "2,9876543.210987654"
-        |])
+        File.WriteAllLines(csvPath, [| "Id,HighPrecision"; "1,1234567.890123456"; "2,9876543.210987654" |])
 
         let engine = FileSqliteEngine(dbPath)
         let connector = CsvConnector(csvPath)
 
-        let stagedTable = engine.EnsureStaged("PrecisionData", csvPath, (fun () -> connector.ReadRows()))
+        let stagedTable =
+            engine.EnsureStaged("PrecisionData", csvPath, (fun () -> connector.ReadRows()))
+
         Assert.Equal("PrecisionData", stagedTable)
 
-        let res = engine.ExecuteQuery("SELECT HighPrecision FROM PrecisionData ORDER BY Id;")
+        let res =
+            engine.ExecuteQuery("SELECT HighPrecision FROM PrecisionData ORDER BY Id;")
+
         let rows = res.Rows |> Seq.toList
         Assert.Equal(2, rows.Length)
 
-        let val1 = Convert.ToDouble(rows.[0].[0], System.Globalization.CultureInfo.InvariantCulture)
-        let val2 = Convert.ToDouble(rows.[1].[0], System.Globalization.CultureInfo.InvariantCulture)
+        let val1 =
+            Convert.ToDouble(rows.[0].[0], System.Globalization.CultureInfo.InvariantCulture)
+
+        let val2 =
+            Convert.ToDouble(rows.[1].[0], System.Globalization.CultureInfo.InvariantCulture)
 
         // Must preserve the decimals, NOT rounded to 1234568 or 9876543
         Assert.True(Math.Abs(val1 - 1234567.890123456) < 0.000001)
         Assert.True(Math.Abs(val2 - 9876543.210987654) < 0.000001)
     finally
-        try if File.Exists dbPath then File.Delete dbPath with _ -> ()
-        try if File.Exists csvPath then File.Delete csvPath with _ -> ()
+        try
+            if File.Exists dbPath then
+                File.Delete dbPath
+        with _ ->
+            ()
+
+        try
+            if File.Exists csvPath then
+                File.Delete csvPath
+        with _ ->
+            ()
 
 [<Fact>]
 let ``ExcelConnector reports its Kind as Excel`` () =
@@ -241,26 +271,37 @@ let ``ExcelDescriptor and ExcelConnectorFactory coverage`` () =
     Assert.Equal(4, descriptor.FormFields.Length)
     Assert.True(descriptor.EntityGenerator.IsNone)
 
-    let validJson = System.Text.Json.JsonDocument.Parse("""{"filePath": "test.xlsx"}""").RootElement
+    let validJson =
+        System.Text.Json.JsonDocument.Parse("""{"filePath": "test.xlsx"}""").RootElement
+
     Assert.True(descriptor.ValidateConfiguration(validJson).IsOk)
     let invalidJson = System.Text.Json.JsonDocument.Parse("""{}""").RootElement
     Assert.True(descriptor.ValidateConfiguration(invalidJson).IsError)
 
     let factory = descriptor.Factory
-    let dummyStore = { new FSharpQueryStudio.Security.ISecretStore with
-        member _.TryRead(_) = None
-        member _.TryReadAsync(_, _) = System.Threading.Tasks.Task.FromResult None
-        member _.Save _ _ = ()
-        member _.Delete _ = ()
-    }
+
+    let dummyStore =
+        { new FSharpQueryStudio.Security.ISecretStore with
+            member _.TryRead(_) = None
+
+            member _.TryReadAsync(_, _) =
+                System.Threading.Tasks.Task.FromResult None
+
+            member _.Save _ _ = ()
+            member _.Delete _ = ()
+        }
+
     let strDoc = System.Text.Json.JsonDocument.Parse("\"test.xlsx\"")
     let conn1 = factory.Create(strDoc.RootElement, dummyStore, None) :?> ExcelConnector
     Assert.Equal("test.xlsx", conn1.FilePath)
 
-    let objDoc = System.Text.Json.JsonDocument.Parse("""{"filePath": "data.xlsx", "sheetName": "Sheet2", "hasHeader": false, "columnTypes": {"Col1": "int"}, "columnTransforms": {"Col1": "trim"}}""")
+    let objDoc =
+        System.Text.Json.JsonDocument.Parse(
+            """{"filePath": "data.xlsx", "sheetName": "Sheet2", "hasHeader": false, "columnTypes": {"Col1": "int"}, "columnTransforms": {"Col1": "trim"}}"""
+        )
+
     let conn2 = factory.Create(objDoc.RootElement, dummyStore, None) :?> ExcelConnector
     Assert.Equal(Some "Sheet2", conn2.Options.SheetName)
     Assert.False(conn2.Options.HasHeader)
     Assert.Equal(Some "int", conn2.Options.ColumnTypes.TryFind "Col1")
     Assert.Equal(Some "trim", conn2.Options.ColumnTransforms.TryFind "Col1")
-

@@ -35,12 +35,17 @@ module SampleDataGenerator =
     let createSampleCsv = SampleDataFiles.createSampleCsv
     let createSampleCustomersCsv = SampleDataFiles.createSampleCustomersCsv
     let createSampleExcelWorkbook = SampleDataFiles.createSampleExcelWorkbook
-    let createSampleCommerceExcelWorkbook = SampleDataFiles.createSampleCommerceExcelWorkbook
+
+    let createSampleCommerceExcelWorkbook =
+        SampleDataFiles.createSampleCommerceExcelWorkbook
+
     let createSampleJsonFile = SampleDataFiles.createSampleJsonFile
     let createSampleXmlFile = SampleDataFiles.createSampleXmlFile
 
     let getSampleDemoEnglishNotebook = SampleDemoNotebookEn.getSampleDemoEnglishNotebook
-    let getSampleDemoPortugueseNotebook = SampleDemoNotebookPt.getSampleDemoPortugueseNotebook
+
+    let getSampleDemoPortugueseNotebook =
+        SampleDemoNotebookPt.getSampleDemoPortugueseNotebook
 
     let createSampleDemoNotebook (filePath: string) : unit =
         let dir = Path.GetDirectoryName(filePath)

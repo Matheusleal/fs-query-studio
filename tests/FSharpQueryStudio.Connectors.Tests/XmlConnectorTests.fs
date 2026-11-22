@@ -9,9 +9,12 @@ open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Connectors
 
 type private TempXmlFile(content: string) =
-    let path = Path.Combine(Path.GetTempPath(), "fqs-xml-" + Guid.NewGuid().ToString("N") + ".xml")
+    let path =
+        Path.Combine(Path.GetTempPath(), "fqs-xml-" + Guid.NewGuid().ToString("N") + ".xml")
+
     do File.WriteAllText(path, content)
     member _.Path = path
+
     interface IDisposable with
         member _.Dispose() =
             if File.Exists path then
@@ -20,7 +23,8 @@ type private TempXmlFile(content: string) =
 [<Fact>]
 let ``DiscoverSchemaAsync discovers multiple repeating element collections and extracts attributes plus elements`` () =
     task {
-        let xml = """<?xml version="1.0" encoding="utf-8"?>
+        let xml =
+            """<?xml version="1.0" encoding="utf-8"?>
 <LogisticsHub>
   <Carriers>
     <Carrier CarrierId="1" Code="DHL-INT" Name="DHL Global Express" OnTimeRate="98.4" />
@@ -37,6 +41,7 @@ let ``DiscoverSchemaAsync discovers multiple repeating element collections and e
     </Shipment>
   </Shipments>
 </LogisticsHub>"""
+
         use f = new TempXmlFile(xml)
         let connector = XmlConnector(f.Path) :> IConnector
 
@@ -45,7 +50,10 @@ let ``DiscoverSchemaAsync discovers multiple repeating element collections and e
         Assert.Equal<string list>([ "Carriers"; "Shipments" ], tableNames)
 
         let shipments = tables |> List.find (fun t -> t.Name = "Shipments")
-        let colMap = shipments.Columns |> List.map (fun c -> c.Name, c.DataType) |> Map.ofList
+
+        let colMap =
+            shipments.Columns |> List.map (fun c -> c.Name, c.DataType) |> Map.ofList
+
         Assert.Equal("int", colMap.["ShipmentId"])
         Assert.Equal("int", colMap.["CarrierId"])
         Assert.Equal("string", colMap.["Destination"])
@@ -54,7 +62,8 @@ let ``DiscoverSchemaAsync discovers multiple repeating element collections and e
 
 [<Fact>]
 let ``XmlConnector prohibits DTD processing to prevent XXE attacks`` () =
-    let xxeXml = """<?xml version="1.0" encoding="utf-8"?>
+    let xxeXml =
+        """<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE foo [
   <!ELEMENT foo ANY >
   <!ENTITY xxe SYSTEM "file:///etc/passwd" >
@@ -63,6 +72,7 @@ let ``XmlConnector prohibits DTD processing to prevent XXE attacks`` () =
   <Item><Name>&xxe;</Name></Item>
   <Item><Name>Safe</Name></Item>
 </Root>"""
+
     use f = new TempXmlFile(xxeXml)
     let connector = XmlConnector(f.Path)
 
@@ -84,9 +94,16 @@ let ``ReadRows respects maxRows limit in XML`` () =
 
 [<Fact>]
 let ``ReadRows respects RowElement option path`` () =
-    let xml = """<Store><Inventory><Gadget Name="Drone" Price="500"/><Gadget Name="Cam" Price="300"/></Inventory></Store>"""
+    let xml =
+        """<Store><Inventory><Gadget Name="Drone" Price="500"/><Gadget Name="Cam" Price="300"/></Inventory></Store>"""
+
     use f = new TempXmlFile(xml)
-    let opts = { XmlOptions.Default with RowElement = Some "Gadget" }
+
+    let opts =
+        { XmlOptions.Default with
+            RowElement = Some "Gadget"
+        }
+
     let connector = XmlConnector(f.Path, opts)
     let result = connector.ReadRows()
     Assert.Equal<string list>([ "Name"; "Price" ], result.Columns)
@@ -94,9 +111,16 @@ let ``ReadRows respects RowElement option path`` () =
 
 [<Fact>]
 let ``ReadRows flattens nested elements with underscore`` () =
-    let xml = """<Catalog><Item><Id>1</Id><Details><Origin>BR</Origin></Details></Item></Catalog>"""
+    let xml =
+        """<Catalog><Item><Id>1</Id><Details><Origin>BR</Origin></Details></Item></Catalog>"""
+
     use f = new TempXmlFile(xml)
-    let opts = { XmlOptions.Default with FlattenNested = true }
+
+    let opts =
+        { XmlOptions.Default with
+            FlattenNested = true
+        }
+
     let connector = XmlConnector(f.Path, opts)
     let result = connector.ReadRows()
     Assert.Contains("Details_Origin", result.Columns)
@@ -105,7 +129,12 @@ let ``ReadRows flattens nested elements with underscore`` () =
 let ``ReadRows applies column transforms on XML columns`` () =
     let xml = """<Catalog><Item><Name>banana</Name></Item></Catalog>"""
     use f = new TempXmlFile(xml)
-    let opts = { XmlOptions.Default with ColumnTransforms = Map.ofList [ "Name", "replace('banana', 'fruit')" ] }
+
+    let opts =
+        { XmlOptions.Default with
+            ColumnTransforms = Map.ofList [ "Name", "replace('banana', 'fruit')" ]
+        }
+
     let connector = XmlConnector(f.Path, opts)
     let result = connector.ReadRows()
     let rows = result.Rows |> Seq.toList
@@ -138,13 +167,18 @@ let ``XmlConnector handles missing files, FlattenNested false, IncludeAttributes
     Assert.Empty(missing.ReadRows().Columns)
     Assert.Empty((missing :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result)
 
-    let xml = """<Root><Item Code="A1"><Nested><Child>Val1</Child></Nested><Leaf Attr="X">TextVal</Leaf></Item><Item Code="A2"><Nested><Child>Val2</Child></Nested><Leaf Attr="Y">TextVal2</Leaf></Item></Root>"""
+    let xml =
+        """<Root><Item Code="A1"><Nested><Child>Val1</Child></Nested><Leaf Attr="X">TextVal</Leaf></Item><Item Code="A2"><Nested><Child>Val2</Child></Nested><Leaf Attr="Y">TextVal2</Leaf></Item></Root>"""
+
     use f = new TempXmlFile(xml)
+
     let opts =
         { XmlOptions.Default with
             FlattenNested = false
             IncludeAttributes = false
-            ColumnTypes = Map.ofList [ "Leaf", "string" ] }
+            ColumnTypes = Map.ofList [ "Leaf", "string" ]
+        }
+
     let conn = XmlConnector(f.Path, opts)
     let qr = conn.ReadRows()
     Assert.Contains("Nested", qr.Columns)
@@ -153,6 +187,3 @@ let ``XmlConnector handles missing files, FlattenNested false, IncludeAttributes
     let tables = (conn :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result
     let leafCol = tables.[0].Columns |> List.find (fun c -> c.Name = "Leaf")
     Assert.Equal("string", leafCol.DataType)
-
-
-

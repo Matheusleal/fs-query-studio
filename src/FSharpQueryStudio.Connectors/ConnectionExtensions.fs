@@ -8,8 +8,7 @@ open FSharpQueryStudio.Protocol
 module QueryInspectionExtensions =
     type ResultKind = FSharpQueryStudio.Protocol.ResultKind
 
-    do
-        ResultKind.RegisterRawSqlExtractor(SqlPushdownQuery.extractRawSql, SqlPushdownQuery.extractSqlWithParameters)
+    do ResultKind.RegisterRawSqlExtractor(SqlPushdownQuery.extractRawSql, SqlPushdownQuery.extractSqlWithParameters)
 
     /// Displays the raw generated SQL query for a queryable or SQL expression without executing it against the database.
     let toRawSql (query: obj) : string = ResultKind.toRawSql query
@@ -25,20 +24,26 @@ module ConnectorQueryResultExtensions =
     type ConnectorQueryResult with
         member this.As<'T>() : 'T seq =
             let mapper = Connections.getMapper<'T> this.Columns
+
             seq {
                 for row in this.Rows do
                     yield mapper row
             }
 
-        member this.AsQueryable<'T>() : IQueryable<'T> =
-            this.As<'T>().AsQueryable()
+        member this.AsQueryable<'T>() : IQueryable<'T> = this.As<'T>().AsQueryable()
 
 [<AutoOpen>]
 module SequencePivotExtensions =
     /// Module with pivot / cross-tabulation functions for in-memory sequences.
     module Seq =
         /// Performs an in-memory pivot / cross-tabulation of any sequence of records.
-        let pivot (rowKeySelector: 'T -> 'RowKey) (colKeySelector: 'T -> 'ColKey) (valSelector: 'T -> 'Value) (aggregator: 'Value seq -> 'Result) (source: 'T seq) : ('RowKey * Map<'ColKey, 'Result>) seq =
+        let pivot
+            (rowKeySelector: 'T -> 'RowKey)
+            (colKeySelector: 'T -> 'ColKey)
+            (valSelector: 'T -> 'Value)
+            (aggregator: 'Value seq -> 'Result)
+            (source: 'T seq)
+            : ('RowKey * Map<'ColKey, 'Result>) seq =
             source
             |> Seq.groupBy rowKeySelector
             |> Seq.map (fun (rowKey, rowItems) ->
@@ -47,8 +52,7 @@ module SequencePivotExtensions =
                     |> Seq.groupBy colKeySelector
                     |> Seq.map (fun (colKey, colItems) ->
                         let vals = colItems |> Seq.map valSelector
-                        (colKey, aggregator vals)
-                    )
+                        (colKey, aggregator vals))
                     |> Map.ofSeq
-                (rowKey, colMap)
-            )
+
+                (rowKey, colMap))

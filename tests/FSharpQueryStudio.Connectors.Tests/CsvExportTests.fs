@@ -11,7 +11,8 @@ open FSharpQueryStudio.Results
 /// deleted (pool cleared first — see SqliteConnectorTests) when the
 /// caller's `use` scope ends.
 type private TempSqliteFile(rowCount: int) =
-    let path = Path.Combine(Path.GetTempPath(), "fqs-csv-export-" + Guid.NewGuid().ToString("N") + ".db")
+    let path =
+        Path.Combine(Path.GetTempPath(), "fqs-csv-export-" + Guid.NewGuid().ToString("N") + ".db")
 
     do
         let connector = SqliteConnector(path)

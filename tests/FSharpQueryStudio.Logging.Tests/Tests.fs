@@ -22,11 +22,9 @@ let private scalarValue (evt: LogEvent) (propertyName: string) : obj =
 [<Fact>]
 let ``pushCorrelationId attaches CorrelationId to events emitted within its scope`` () =
     let events = List<LogEvent>()
+
     let logger =
-        LoggerConfiguration()
-            .Enrich.FromLogContext()
-            .WriteTo.Sink(CollectingSink(events))
-            .CreateLogger()
+        LoggerConfiguration().Enrich.FromLogContext().WriteTo.Sink(CollectingSink(events)).CreateLogger()
 
     use _ = Correlation.pushCorrelationId "abc-123"
     logger.Information("inside scope")
@@ -37,11 +35,9 @@ let ``pushCorrelationId attaches CorrelationId to events emitted within its scop
 [<Fact>]
 let ``events emitted outside a pushCorrelationId scope carry no CorrelationId`` () =
     let events = List<LogEvent>()
+
     let logger =
-        LoggerConfiguration()
-            .Enrich.FromLogContext()
-            .WriteTo.Sink(CollectingSink(events))
-            .CreateLogger()
+        LoggerConfiguration().Enrich.FromLogContext().WriteTo.Sink(CollectingSink(events)).CreateLogger()
 
     (use _scope = Correlation.pushCorrelationId "abc-123" in ())
     logger.Information("outside scope")
@@ -52,6 +48,7 @@ let ``events emitted outside a pushCorrelationId scope carry no CorrelationId`` 
 [<Fact>]
 let ``redacts a property whose name is a known secret key`` () =
     let events = List<LogEvent>()
+
     let logger =
         LoggerConfiguration()
             .Enrich.With(Redaction.RedactingEnricher())
@@ -66,6 +63,7 @@ let ``redacts a property whose name is a known secret key`` () =
 [<Fact>]
 let ``redacts a value shaped like a connection string with an embedded password`` () =
     let events = List<LogEvent>()
+
     let logger =
         LoggerConfiguration()
             .Enrich.With(Redaction.RedactingEnricher())
@@ -81,6 +79,7 @@ let ``redacts a value shaped like a connection string with an embedded password`
 [<Fact>]
 let ``leaves ordinary properties untouched`` () =
     let events = List<LogEvent>()
+
     let logger =
         LoggerConfiguration()
             .Enrich.With(Redaction.RedactingEnricher())
@@ -120,25 +119,36 @@ let ``LoggerSetup defaultLogsDirectory returns non-empty path`` () =
 
 [<Fact>]
 let ``LoggerSetup build worker role builds functional logger routing to stderr and file`` () =
-    let tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString("N"))
+    let tempDir =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString("N"))
+
     System.IO.Directory.CreateDirectory(tempDir) |> ignore
+
     try
         let logger = LoggerSetup.build "worker" "worker" tempDir
         logger.Information("Test worker log message with {Count}", 42)
         (logger :?> System.IDisposable).Dispose()
     finally
         if System.IO.Directory.Exists(tempDir) then
-            try System.IO.Directory.Delete(tempDir, true) with _ -> ()
+            try
+                System.IO.Directory.Delete(tempDir, true)
+            with _ ->
+                ()
 
 [<Fact>]
 let ``LoggerSetup build host role builds functional logger with standard console`` () =
-    let tempDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString("N"))
+    let tempDir =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), System.Guid.NewGuid().ToString("N"))
+
     System.IO.Directory.CreateDirectory(tempDir) |> ignore
+
     try
         let logger = LoggerSetup.build "host" "host" tempDir
         logger.Information("Test host log message with {Count}", 100)
         (logger :?> System.IDisposable).Dispose()
     finally
         if System.IO.Directory.Exists(tempDir) then
-            try System.IO.Directory.Delete(tempDir, true) with _ -> ()
-
+            try
+                System.IO.Directory.Delete(tempDir, true)
+            with _ ->
+                ()

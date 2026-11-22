@@ -5,7 +5,8 @@ open System.Text
 
 module AdvancedSampleInitScripts =
 
-    let getPostgresInitSql () = """
+    let getPostgresInitSql () =
+        """
 -- PostgreSQL Advanced Schema Initialization
 CREATE TABLE IF NOT EXISTS categories (
     id SERIAL PRIMARY KEY,
@@ -93,7 +94,8 @@ INSERT INTO order_items (id, order_id, product_id, quantity, unit_price, line_to
 ON CONFLICT (id) DO NOTHING;
 """
 
-    let getSqlServerInitSql () = """
+    let getSqlServerInitSql () =
+        """
 -- SQL Server Advanced Schema Initialization
 IF NOT EXISTS (SELECT * FROM sys.tables WHERE name = 'Categories')
 BEGIN
@@ -206,7 +208,8 @@ BEGIN
 END
 """
 
-    let getMySqlInitSql () = """
+    let getMySqlInitSql () =
+        """
 -- MySQL Advanced Schema Initialization
 CREATE DATABASE IF NOT EXISTS fsqs_demo;
 USE fsqs_demo;
@@ -302,7 +305,8 @@ ON DUPLICATE KEY UPDATE quantity=VALUES(quantity);
 
     let getMariaDbInitSql () = getMySqlInitSql ()
 
-    let getOracleInitSql () = """
+    let getOracleInitSql () =
+        """
 -- Oracle Advanced Schema Initialization
 ALTER SESSION SET CONTAINER = FREEPDB1;
 ALTER SESSION SET CURRENT_SCHEMA = SYSTEM;
@@ -410,7 +414,13 @@ INSERT INTO ORDER_ITEMS (ID, ORDER_ID, PRODUCT_ID, QUANTITY, UNIT_PRICE, LINE_TO
 COMMIT;
 """
 
-    let getDockerComposeYamlWithEngines (hasPostgres: bool) (hasSqlServer: bool) (hasMySql: bool) (hasMariaDb: bool) (hasOracle: bool) : string =
+    let getDockerComposeYamlWithEngines
+        (hasPostgres: bool)
+        (hasSqlServer: bool)
+        (hasMySql: bool)
+        (hasMariaDb: bool)
+        (hasOracle: bool)
+        : string =
         let sb = StringBuilder()
         sb.AppendLine("version: '3.8'") |> ignore
         sb.AppendLine() |> ignore
@@ -428,9 +438,15 @@ COMMIT;
             sb.AppendLine("    ports:") |> ignore
             sb.AppendLine("      - \"5432:5432\"") |> ignore
             sb.AppendLine("    volumes:") |> ignore
-            sb.AppendLine("      - ./init-scripts/init_postgres.sql:/docker-entrypoint-initdb.d/init.sql") |> ignore
+
+            sb.AppendLine("      - ./init-scripts/init_postgres.sql:/docker-entrypoint-initdb.d/init.sql")
+            |> ignore
+
             sb.AppendLine("    healthcheck:") |> ignore
-            sb.AppendLine("      test: [\"CMD-SHELL\", \"pg_isready -U postgres\"]") |> ignore
+
+            sb.AppendLine("      test: [\"CMD-SHELL\", \"pg_isready -U postgres\"]")
+            |> ignore
+
             sb.AppendLine("      interval: 5s") |> ignore
             sb.AppendLine("      timeout: 5s") |> ignore
             sb.AppendLine("      retries: 5") |> ignore
@@ -453,8 +469,13 @@ COMMIT;
             sb.AppendLine("      /opt/mssql/bin/sqlservr &") |> ignore
             sb.AppendLine("      echo 'Waiting for SQL Server to boot...' &&") |> ignore
             sb.AppendLine("      sleep 15 &&") |> ignore
-            sb.AppendLine("      /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Password123!' -C -i /init.sql &&") |> ignore
-            sb.AppendLine("      echo 'SQL Server init script executed successfully.' &&") |> ignore
+
+            sb.AppendLine("      /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Password123!' -C -i /init.sql &&")
+            |> ignore
+
+            sb.AppendLine("      echo 'SQL Server init script executed successfully.' &&")
+            |> ignore
+
             sb.AppendLine("      wait") |> ignore
             sb.AppendLine("      \"") |> ignore
             sb.AppendLine() |> ignore
@@ -470,9 +491,17 @@ COMMIT;
             sb.AppendLine("    ports:") |> ignore
             sb.AppendLine("      - \"3306:3306\"") |> ignore
             sb.AppendLine("    volumes:") |> ignore
-            sb.AppendLine("      - ./init-scripts/init_mysql.sql:/docker-entrypoint-initdb.d/init.sql") |> ignore
+
+            sb.AppendLine("      - ./init-scripts/init_mysql.sql:/docker-entrypoint-initdb.d/init.sql")
+            |> ignore
+
             sb.AppendLine("    healthcheck:") |> ignore
-            sb.AppendLine("      test: [\"CMD\", \"mysqladmin\", \"ping\", \"-h\", \"localhost\", \"-u\", \"root\", \"-pPassword123!\"]") |> ignore
+
+            sb.AppendLine(
+                "      test: [\"CMD\", \"mysqladmin\", \"ping\", \"-h\", \"localhost\", \"-u\", \"root\", \"-pPassword123!\"]"
+            )
+            |> ignore
+
             sb.AppendLine("      interval: 5s") |> ignore
             sb.AppendLine("      timeout: 5s") |> ignore
             sb.AppendLine("      retries: 5") |> ignore
@@ -489,9 +518,15 @@ COMMIT;
             sb.AppendLine("    ports:") |> ignore
             sb.AppendLine("      - \"3307:3306\"") |> ignore
             sb.AppendLine("    volumes:") |> ignore
-            sb.AppendLine("      - ./init-scripts/init_mariadb.sql:/docker-entrypoint-initdb.d/init.sql") |> ignore
+
+            sb.AppendLine("      - ./init-scripts/init_mariadb.sql:/docker-entrypoint-initdb.d/init.sql")
+            |> ignore
+
             sb.AppendLine("    healthcheck:") |> ignore
-            sb.AppendLine("      test: [\"CMD\", \"healthcheck.sh\", \"--connect\", \"--innodb_initialized\"]") |> ignore
+
+            sb.AppendLine("      test: [\"CMD\", \"healthcheck.sh\", \"--connect\", \"--innodb_initialized\"]")
+            |> ignore
+
             sb.AppendLine("      interval: 5s") |> ignore
             sb.AppendLine("      timeout: 5s") |> ignore
             sb.AppendLine("      retries: 5") |> ignore
@@ -507,7 +542,10 @@ COMMIT;
             sb.AppendLine("    ports:") |> ignore
             sb.AppendLine("      - \"1521:1521\"") |> ignore
             sb.AppendLine("    volumes:") |> ignore
-            sb.AppendLine("      - ./init-scripts/init_oracle.sql:/container-entrypoint-initdb.d/init.sql") |> ignore
+
+            sb.AppendLine("      - ./init-scripts/init_oracle.sql:/container-entrypoint-initdb.d/init.sql")
+            |> ignore
+
             sb.AppendLine("    healthcheck:") |> ignore
             sb.AppendLine("      test: [\"CMD\", \"healthcheck.sh\"]") |> ignore
             sb.AppendLine("      interval: 10s") |> ignore

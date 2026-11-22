@@ -26,21 +26,26 @@ module FsacBridge =
         ConcurrentDictionary<struct (string * int), TaskCompletionSource<Diagnostic list> list>()
 
     let private registerWaiter (key: struct (string * int)) (tcs: TaskCompletionSource<Diagnostic list>) : unit =
-        diagnosticsPending.AddOrUpdate(key, [ tcs ], (fun _ existing -> tcs :: existing)) |> ignore
+        diagnosticsPending.AddOrUpdate(key, [ tcs ], (fun _ existing -> tcs :: existing))
+        |> ignore
 
     let private originalUriByFsacUri = ConcurrentDictionary<string, string>()
     let private latestExpectedVersionByUri = ConcurrentDictionary<string, int>()
-    let private latestDiagnosticsByUriAndVersion = ConcurrentDictionary<struct (string * int), Diagnostic list>()
+
+    let private latestDiagnosticsByUriAndVersion =
+        ConcurrentDictionary<struct (string * int), Diagnostic list>()
 
     let private registerDiagnosticsHandler (client: LspClient) =
         client.OnNotification(
             "textDocument/publishDiagnostics",
             fun paramsEl ->
                 let uri = FsacUri.canonicalizeUri (paramsEl.GetProperty("uri").GetString())
+
                 let originalDocUri =
                     match originalUriByFsacUri.TryGetValue(uri) with
                     | true, orig -> orig
                     | false, _ -> uri
+
                 let diagnostics = FsacParsing.parseDiagnostics originalDocUri paramsEl
 
                 let version =
@@ -67,13 +72,16 @@ module FsacBridge =
                 | false, _ -> ()
                 | true, waiters ->
                     // Delay slightly so that post-analysis publishDiagnostics settle before resolving
-                    Task.Delay(100).ContinueWith(fun (_: Task) ->
-                        let finalDiags =
-                            match latestDiagnosticsByUriAndVersion.TryGetValue(key) with
-                            | true, d -> d
-                            | false, _ -> []
-                        waiters |> List.iter (fun tcs -> tcs.TrySetResult(finalDiags) |> ignore)
-                    ) |> ignore
+                    Task
+                        .Delay(100)
+                        .ContinueWith(fun (_: Task) ->
+                            let finalDiags =
+                                match latestDiagnosticsByUriAndVersion.TryGetValue(key) with
+                                | true, d -> d
+                                | false, _ -> []
+
+                            waiters |> List.iter (fun tcs -> tcs.TrySetResult(finalDiags) |> ignore))
+                    |> ignore
         )
 
     let private openDocuments = ConcurrentDictionary<string, bool>()
@@ -83,10 +91,13 @@ module FsacBridge =
     let private pruneOlderVersions (uri: string) (currentVersion: int) =
         for kv in latestDiagnosticsByUriAndVersion do
             let struct (u, v) = kv.Key
+
             if u = uri && v < currentVersion then
                 latestDiagnosticsByUriAndVersion.TryRemove(kv.Key) |> ignore
+
         for kv in diagnosticsPending do
             let struct (u, v) = kv.Key
+
             if u = uri && v < currentVersion then
                 match diagnosticsPending.TryRemove(kv.Key) with
                 | true, waiters ->
@@ -121,17 +132,23 @@ module FsacBridge =
         if isFirstOpenForThisDocument then
             client.SendNotification(
                 "textDocument/didOpen",
-                {| textDocument =
-                    {| uri = wireUri
-                       languageId = "fsharp"
-                       version = version
-                       text = checkedSource |} |}
+                {|
+                    textDocument =
+                        {|
+                            uri = wireUri
+                            languageId = "fsharp"
+                            version = version
+                            text = checkedSource
+                        |}
+                |}
             )
         else
             client.SendNotification(
                 "textDocument/didChange",
-                {| textDocument = {| uri = wireUri; version = version |}
-                   contentChanges = [ {| text = checkedSource |} ] |}
+                {|
+                    textDocument = {| uri = wireUri; version = version |}
+                    contentChanges = [ {| text = checkedSource |} ]
+                |}
             )
 
     /// Awaits completion of document analysis, returning diagnostics or None on timeout.
@@ -142,7 +159,9 @@ module FsacBridge =
         (checkedSource: string)
         : Task<Diagnostic list option> =
         task {
-            let tcs = TaskCompletionSource<Diagnostic list>(TaskCreationOptions.RunContinuationsAsynchronously)
+            let tcs =
+                TaskCompletionSource<Diagnostic list>(TaskCreationOptions.RunContinuationsAsynchronously)
+
             let canonical = FsacUri.canonicalizeUri (fsacUriFor documentUri)
             originalUriByFsacUri.[canonical] <- documentUri
             let pendingKey = struct (canonical, version)
@@ -162,6 +181,7 @@ module FsacBridge =
                     documentUri,
                     version
                 )
+
                 return None
         }
 
@@ -179,15 +199,28 @@ module FsacBridge =
             if winner = (requestTask :> Task) then
                 return! requestTask
             else
-                Log.Warning("FSAC request {Method} timed out after {TimeoutSeconds}s", method_, requestTimeout.TotalSeconds)
-                return LspFail { Code = -1; Message = $"FSAC request '{method_}' timed out after {requestTimeout.TotalSeconds}s" }
+                Log.Warning(
+                    "FSAC request {Method} timed out after {TimeoutSeconds}s",
+                    method_,
+                    requestTimeout.TotalSeconds
+                )
+
+                return
+                    LspFail
+                        {
+                            Code = -1
+                            Message = $"FSAC request '{method_}' timed out after {requestTimeout.TotalSeconds}s"
+                        }
         }
 
     /// Checks document for diagnostics.
     let check (documentUri: string) (version: int) (source: string) : Task<Diagnostic list> =
         task {
             let! client = sharedProcess.EnsureClient()
-            let! diagnostics = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
+
+            let! diagnostics =
+                awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
+
             return diagnostics |> Option.defaultValue []
         }
 
@@ -195,18 +228,34 @@ module FsacBridge =
     let hover (documentUri: string) (version: int) (source: string) (line: int) (column: int) : Task<HoverInfo option> =
         task {
             let! client = sharedProcess.EnsureClient()
-            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
+
+            let! _ =
+                awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
 
             let! result =
                 sendRequestWithTimeout
                     client
                     "textDocument/hover"
-                    {| textDocument = {| uri = fsacUriFor documentUri |}
-                       position = {| line = Prologue.shiftUpForDocument documentUri line - 1; character = column |} |}
+                    {|
+                        textDocument = {| uri = fsacUriFor documentUri |}
+                        position =
+                            {|
+                                line = Prologue.shiftUpForDocument documentUri line - 1
+                                character = column
+                            |}
+                    |}
 
             match result with
             | LspFail err ->
-                Log.Warning("FSAC hover failed for {DocumentUri} at ({Line},{Column}): [{Code}] {Message}", documentUri, line, column, err.Code, err.Message)
+                Log.Warning(
+                    "FSAC hover failed for {DocumentUri} at ({Line},{Column}): [{Code}] {Message}",
+                    documentUri,
+                    line,
+                    column,
+                    err.Code,
+                    err.Message
+                )
+
                 return None
             | LspOk resultEl when resultEl.ValueKind = JsonValueKind.Null -> return None
             | LspOk resultEl -> return Some(FsacParsing.parseHoverMarkdown (resultEl.GetProperty("contents")))
@@ -222,18 +271,34 @@ module FsacBridge =
         : Task<DefinitionLocation option> =
         task {
             let! client = sharedProcess.EnsureClient()
-            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
+
+            let! _ =
+                awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
 
             let! result =
                 sendRequestWithTimeout
                     client
                     "textDocument/definition"
-                    {| textDocument = {| uri = fsacUriFor documentUri |}
-                       position = {| line = Prologue.shiftUpForDocument documentUri line - 1; character = column |} |}
+                    {|
+                        textDocument = {| uri = fsacUriFor documentUri |}
+                        position =
+                            {|
+                                line = Prologue.shiftUpForDocument documentUri line - 1
+                                character = column
+                            |}
+                    |}
 
             match result with
             | LspFail err ->
-                Log.Warning("FSAC definition lookup failed for {DocumentUri} at ({Line},{Column}): [{Code}] {Message}", documentUri, line, column, err.Code, err.Message)
+                Log.Warning(
+                    "FSAC definition lookup failed for {DocumentUri} at ({Line},{Column}): [{Code}] {Message}",
+                    documentUri,
+                    line,
+                    column,
+                    err.Code,
+                    err.Message
+                )
+
                 return None
             | LspOk resultEl ->
                 match FsacParsing.parseFirstLocation resultEl with
@@ -243,20 +308,32 @@ module FsacBridge =
                     let end_ = range.GetProperty("end")
 
                     let filePath, lineAdjustment =
-                        if String.Equals(FsacUri.canonicalizeUri resolvedUri, FsacUri.canonicalizeUri (fsacUriFor documentUri), StringComparison.OrdinalIgnoreCase) then
+                        if
+                            String.Equals(
+                                FsacUri.canonicalizeUri resolvedUri,
+                                FsacUri.canonicalizeUri (fsacUriFor documentUri),
+                                StringComparison.OrdinalIgnoreCase
+                            )
+                        then
                             documentUri, true
                         else
                             resolvedUri, false
 
-                    let shift l = if lineAdjustment then Prologue.shiftDownForDocument documentUri (l + 1) - 1 else l
+                    let shift l =
+                        if lineAdjustment then
+                            Prologue.shiftDownForDocument documentUri (l + 1) - 1
+                        else
+                            l
 
                     return
                         Some
-                            { FilePath = filePath
-                              StartLine = shift (start.GetProperty("line").GetInt32())
-                              StartColumn = start.GetProperty("character").GetInt32()
-                              EndLine = shift (end_.GetProperty("line").GetInt32())
-                              EndColumn = end_.GetProperty("character").GetInt32() }
+                            {
+                                FilePath = filePath
+                                StartLine = shift (start.GetProperty("line").GetInt32())
+                                StartColumn = start.GetProperty("character").GetInt32()
+                                EndLine = shift (end_.GetProperty("line").GetInt32())
+                                EndColumn = end_.GetProperty("character").GetInt32()
+                            }
         }
 
     /// Retrieves signature help information for a callable symbol invocation site.
@@ -269,18 +346,34 @@ module FsacBridge =
         : Task<SignatureHelpInfo option> =
         task {
             let! client = sharedProcess.EnsureClient()
-            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
+
+            let! _ =
+                awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
 
             let! result =
                 sendRequestWithTimeout
                     client
                     "textDocument/signatureHelp"
-                    {| textDocument = {| uri = fsacUriFor documentUri |}
-                       position = {| line = Prologue.shiftUpForDocument documentUri line - 1; character = column |} |}
+                    {|
+                        textDocument = {| uri = fsacUriFor documentUri |}
+                        position =
+                            {|
+                                line = Prologue.shiftUpForDocument documentUri line - 1
+                                character = column
+                            |}
+                    |}
 
             match result with
             | LspFail err ->
-                Log.Warning("FSAC signatureHelp failed for {DocumentUri} at ({Line},{Column}): [{Code}] {Message}", documentUri, line, column, err.Code, err.Message)
+                Log.Warning(
+                    "FSAC signatureHelp failed for {DocumentUri} at ({Line},{Column}): [{Code}] {Message}",
+                    documentUri,
+                    line,
+                    column,
+                    err.Code,
+                    err.Message
+                )
+
                 return None
             | LspOk resultEl when resultEl.ValueKind = JsonValueKind.Null -> return None
             | LspOk resultEl ->
@@ -295,10 +388,16 @@ module FsacBridge =
                     let nameTypeSplit = stripped.Split([| ':' |], 2)
 
                     let displayName =
-                        if nameTypeSplit.Length = 2 then nameTypeSplit.[0].Trim() else stripped.Trim()
+                        if nameTypeSplit.Length = 2 then
+                            nameTypeSplit.[0].Trim()
+                        else
+                            stripped.Trim()
 
                     let typeText =
-                        if nameTypeSplit.Length = 2 then nameTypeSplit.[1].Trim() else stripped.Trim()
+                        if nameTypeSplit.Length = 2 then
+                            nameTypeSplit.[1].Trim()
+                        else
+                            stripped.Trim()
 
                     let arrowSegments = FsacParsing.splitTopLevelArrows typeText
 
@@ -310,27 +409,51 @@ module FsacBridge =
 
                         return
                             Some
-                                { DisplayName = displayName
-                                  Parameters = parameters
-                                  ReturnType = returnType }
+                                {
+                                    DisplayName = displayName
+                                    Parameters = parameters
+                                    ReturnType = returnType
+                                }
         }
 
     /// Provides autocompletion items for a cursor position.
-    let complete (documentUri: string) (version: int) (source: string) (line: int) (column: int) : Task<AnalysisCompletionItem list> =
+    let complete
+        (documentUri: string)
+        (version: int)
+        (source: string)
+        (line: int)
+        (column: int)
+        : Task<AnalysisCompletionItem list> =
         task {
             let! client = sharedProcess.EnsureClient()
-            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
+
+            let! _ =
+                awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
 
             let! result =
                 sendRequestWithTimeout
                     client
                     "textDocument/completion"
-                    {| textDocument = {| uri = fsacUriFor documentUri |}
-                       position = {| line = Prologue.shiftUpForDocument documentUri line - 1; character = column |} |}
+                    {|
+                        textDocument = {| uri = fsacUriFor documentUri |}
+                        position =
+                            {|
+                                line = Prologue.shiftUpForDocument documentUri line - 1
+                                character = column
+                            |}
+                    |}
 
             match result with
             | LspFail err ->
-                Log.Warning("FSAC completion failed for {DocumentUri} at ({Line},{Column}): [{Code}] {Message}", documentUri, line, column, err.Code, err.Message)
+                Log.Warning(
+                    "FSAC completion failed for {DocumentUri} at ({Line},{Column}): [{Code}] {Message}",
+                    documentUri,
+                    line,
+                    column,
+                    err.Code,
+                    err.Message
+                )
+
                 return []
             | LspOk resultEl ->
                 let itemsList =
@@ -360,11 +483,15 @@ module FsacBridge =
 
                                 let shouldResolve =
                                     match kindOpt with
-                                    | Some 5 | Some 10 | Some 6 | Some 12 -> true
+                                    | Some 5
+                                    | Some 10
+                                    | Some 6
+                                    | Some 12 -> true
                                     | _ -> itemsList.Length <= 40
 
                                 if shouldResolve then
                                     let! res = sendRequestWithTimeout client "completionItem/resolve" el
+
                                     match res with
                                     | LspOk resolvedEl -> return FsacParsing.parseItem resolvedEl
                                     | _ -> return FsacParsing.parseItem el
@@ -381,22 +508,44 @@ module FsacBridge =
         }
 
     /// Finds symbol references for rename refactoring across the document.
-    let rename (documentUri: string) (version: int) (source: string) (line: int) (column: int) : Task<RenameEdit list option> =
+    let rename
+        (documentUri: string)
+        (version: int)
+        (source: string)
+        (line: int)
+        (column: int)
+        : Task<RenameEdit list option> =
         task {
             let! client = sharedProcess.EnsureClient()
-            let! _ = awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
+
+            let! _ =
+                awaitDocumentAnalyzed client documentUri version (Prologue.sourceForCheckForDocument documentUri source)
 
             let! result =
                 sendRequestWithTimeout
                     client
                     "textDocument/references"
-                    {| textDocument = {| uri = fsacUriFor documentUri |}
-                       position = {| line = Prologue.shiftUpForDocument documentUri line - 1; character = column |}
-                       context = {| includeDeclaration = true |} |}
+                    {|
+                        textDocument = {| uri = fsacUriFor documentUri |}
+                        position =
+                            {|
+                                line = Prologue.shiftUpForDocument documentUri line - 1
+                                character = column
+                            |}
+                        context = {| includeDeclaration = true |}
+                    |}
 
             match result with
             | LspFail err ->
-                Log.Warning("FSAC rename (references) lookup failed for {DocumentUri} at ({Line},{Column}): [{Code}] {Message}", documentUri, line, column, err.Code, err.Message)
+                Log.Warning(
+                    "FSAC rename (references) lookup failed for {DocumentUri} at ({Line},{Column}): [{Code}] {Message}",
+                    documentUri,
+                    line,
+                    column,
+                    err.Code,
+                    err.Message
+                )
+
                 return None
             | LspOk resultEl when resultEl.ValueKind = JsonValueKind.Null -> return None
             | LspOk resultEl when resultEl.GetArrayLength() = 0 -> return None
@@ -405,16 +554,23 @@ module FsacBridge =
 
                 let edits =
                     resultEl.EnumerateArray()
-                    |> Seq.filter (fun loc -> FsacUri.canonicalizeUri (loc.GetProperty("uri").GetString()) = canonicalDocumentUri)
+                    |> Seq.filter (fun loc ->
+                        FsacUri.canonicalizeUri (loc.GetProperty("uri").GetString()) = canonicalDocumentUri)
                     |> Seq.map (fun loc ->
                         let range = loc.GetProperty("range")
                         let start = range.GetProperty("start")
                         let end_ = range.GetProperty("end")
 
-                        { StartLine = Prologue.shiftDownForDocument documentUri (start.GetProperty("line").GetInt32() + 1) - 1
-                          StartColumn = start.GetProperty("character").GetInt32()
-                          EndLine = Prologue.shiftDownForDocument documentUri (end_.GetProperty("line").GetInt32() + 1) - 1
-                          EndColumn = end_.GetProperty("character").GetInt32() })
+                        {
+                            StartLine =
+                                Prologue.shiftDownForDocument documentUri (start.GetProperty("line").GetInt32() + 1)
+                                - 1
+                            StartColumn = start.GetProperty("character").GetInt32()
+                            EndLine =
+                                Prologue.shiftDownForDocument documentUri (end_.GetProperty("line").GetInt32() + 1)
+                                - 1
+                            EndColumn = end_.GetProperty("character").GetInt32()
+                        })
                     |> List.ofSeq
 
                 return Some edits

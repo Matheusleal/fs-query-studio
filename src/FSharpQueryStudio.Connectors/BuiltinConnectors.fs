@@ -14,22 +14,24 @@ module BuiltinConnectors =
 
     /// Central catalog of all built-in connector descriptors and their entity generators.
     let all () : IConnectorDescriptor list =
-        [ CustomDescriptorWithGenerator(SqliteDescriptor.Instance, sqlGen) :> IConnectorDescriptor
-          CustomDescriptorWithGenerator(SqlServerDescriptor.Instance, sqlGen) :> IConnectorDescriptor
-          CustomDescriptorWithGenerator(PostgreSqlDescriptor.Instance, sqlGen) :> IConnectorDescriptor
-          CustomDescriptorWithGenerator(MySqlDescriptor.Instance, sqlGen) :> IConnectorDescriptor
-          CustomDescriptorWithGenerator(MariaDbDescriptor.Instance, sqlGen) :> IConnectorDescriptor
-          CustomDescriptorWithGenerator(OracleDescriptor.Instance, sqlGen) :> IConnectorDescriptor
-          CustomDescriptorWithGenerator(CsvDescriptor.Instance, csvGen) :> IConnectorDescriptor
-          CustomDescriptorWithGenerator(ExcelDescriptor.Instance, excelGen) :> IConnectorDescriptor
-          CustomDescriptorWithGenerator(JsonDescriptor.Instance, jsonGen) :> IConnectorDescriptor
-          CustomDescriptorWithGenerator(XmlDescriptor.Instance, xmlGen) :> IConnectorDescriptor
-          CustomDescriptorWithGenerator(RestDescriptor.Instance, restGen) :> IConnectorDescriptor ]
+        [
+            CustomDescriptorWithGenerator(SqliteDescriptor.Instance, sqlGen) :> IConnectorDescriptor
+            CustomDescriptorWithGenerator(SqlServerDescriptor.Instance, sqlGen) :> IConnectorDescriptor
+            CustomDescriptorWithGenerator(PostgreSqlDescriptor.Instance, sqlGen) :> IConnectorDescriptor
+            CustomDescriptorWithGenerator(MySqlDescriptor.Instance, sqlGen) :> IConnectorDescriptor
+            CustomDescriptorWithGenerator(MariaDbDescriptor.Instance, sqlGen) :> IConnectorDescriptor
+            CustomDescriptorWithGenerator(OracleDescriptor.Instance, sqlGen) :> IConnectorDescriptor
+            CustomDescriptorWithGenerator(CsvDescriptor.Instance, csvGen) :> IConnectorDescriptor
+            CustomDescriptorWithGenerator(ExcelDescriptor.Instance, excelGen) :> IConnectorDescriptor
+            CustomDescriptorWithGenerator(JsonDescriptor.Instance, jsonGen) :> IConnectorDescriptor
+            CustomDescriptorWithGenerator(XmlDescriptor.Instance, xmlGen) :> IConnectorDescriptor
+            CustomDescriptorWithGenerator(RestDescriptor.Instance, restGen) :> IConnectorDescriptor
+        ]
 
     let registerDefaults () =
         let r = ConnectorRegistry.Instance
+
         for descriptor in all () do
             r.Register(descriptor)
 
     do registerDefaults ()
-

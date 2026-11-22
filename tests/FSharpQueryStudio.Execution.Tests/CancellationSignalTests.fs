@@ -6,7 +6,9 @@ open Xunit
 open FSharpQueryStudio.Execution
 
 let private tempDir () =
-    let dir = Path.Combine(Path.GetTempPath(), "fqs-cancel-tests-" + Guid.NewGuid().ToString("N"))
+    let dir =
+        Path.Combine(Path.GetTempPath(), "fqs-cancel-tests-" + Guid.NewGuid().ToString("N"))
+
     Directory.CreateDirectory(dir) |> ignore
     dir
 
