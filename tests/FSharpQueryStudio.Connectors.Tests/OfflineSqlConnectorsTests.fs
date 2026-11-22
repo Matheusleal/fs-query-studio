@@ -90,6 +90,20 @@ let ``Sql connectors share the Sql ConnectorCategory definition`` () =
     Assert.Equal("Db", ConnectorCategory.Sql.ModuleSuffix)
     Assert.Equal("FSharpQueryStudio.Connectors.Connections.SqlCategory", ConnectorCategory.Sql.CategoryTypeName)
 
+[<Fact>]
+let ``MySqlConnector NormalizeConnectionString replaces localhost with 127.0.0.1 and preserves others`` () =
+    let norm = MySqlConnector.NormalizeConnectionString "Server=localhost;Port=3306;Database=mydb;User ID=root;Password=secret;"
+    Assert.Contains("Server=127.0.0.1", norm)
+    let other = MySqlConnector.NormalizeConnectionString "Server=192.168.1.100;Port=3306;Database=mydb;User ID=root;Password=secret;"
+    Assert.Contains("Server=192.168.1.100", other)
+
+[<Fact>]
+let ``MariaDbConnector NormalizeConnectionString replaces localhost with 127.0.0.1 and preserves others`` () =
+    let norm = MariaDbConnector.NormalizeConnectionString "Server=localhost;Port=3307;Database=mydb;User ID=root;Password=secret;"
+    Assert.Contains("Server=127.0.0.1", norm)
+    let other = MariaDbConnector.NormalizeConnectionString "Server=remote.db;Port=3307;Database=mydb;User ID=root;Password=secret;"
+    Assert.Contains("Server=remote.db", other)
+
 // -----------------------------------------------------------------------------
 // 2. Safe Connection Failure Handling (TestConnectionAsync)
 // -----------------------------------------------------------------------------

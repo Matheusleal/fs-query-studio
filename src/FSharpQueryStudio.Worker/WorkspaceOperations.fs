@@ -371,7 +371,7 @@ module WorkspaceOperations =
                           Kind = ConnectorKind.MySql
                           Configuration =
                               JsonSerializer.SerializeToElement(
-                                  {| connectionString = "Server=localhost;Port=3306;Database=fsqs_demo;User ID=root;Password=Password123!;" |},
+                                  {| connectionString = "Server=127.0.0.1;Port=3306;Database=fsqs_demo;User ID=root;Password=Password123!;" |},
                                   Serialization.options
                               )
                           SecretReference = None
@@ -384,7 +384,7 @@ module WorkspaceOperations =
                           Kind = ConnectorKind.MariaDb
                           Configuration =
                               JsonSerializer.SerializeToElement(
-                                  {| connectionString = "Server=localhost;Port=3307;Database=fsqs_demo;User ID=root;Password=Password123!;" |},
+                                  {| connectionString = "Server=127.0.0.1;Port=3307;Database=fsqs_demo;User ID=root;Password=Password123!;" |},
                                   Serialization.options
                               )
                           SecretReference = None

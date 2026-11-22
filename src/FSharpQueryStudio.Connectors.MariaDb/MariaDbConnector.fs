@@ -15,8 +15,26 @@ module MariaDbConnectorExtensions =
     type ConnectorCategory with
         static member Sql = ConnectorCategory("sql", "Db", "FSharpQueryStudio.Connectors.Connections.SqlCategory")
 
+module MariaDbConnectorDefaults =
+    /// Normalizes connection string so that `localhost` resolves to `127.0.0.1` directly,
+    /// avoiding Windows IPv6 (::1) port forwarding timeouts with Docker Desktop.
+    let normalizeConnectionString (cs: string) : string =
+        try
+            let builder = MySqlConnectionStringBuilder(cs)
+            if String.Equals(builder.Server, "localhost", StringComparison.OrdinalIgnoreCase) then
+                builder.Server <- "127.0.0.1"
+                builder.ConnectionString
+            else
+                cs
+        with _ ->
+            cs
+
 /// MariaDB connector — connection, parameterized commands, reader-based paging, schema discovery.
 type MariaDbConnector(connectionString: string) =
+    let effectiveConnectionString = MariaDbConnectorDefaults.normalizeConnectionString connectionString
+
+    static member NormalizeConnectionString(cs: string) : string =
+        MariaDbConnectorDefaults.normalizeConnectionString cs
 
     /// Binds every `(name, value)` pair as a real `MySqlParameter` — never string-concatenated into `sql`.
     static member BindParameters(command: MySqlCommand, parameters: (string * obj) list) =
@@ -30,7 +48,7 @@ type MariaDbConnector(connectionString: string) =
     /// and rows as a re-enumerable lazy sequence that manages connection/reader
     /// per enumerator lifecycle.
     member _.ExecuteQuery (sql: string) (parameters: (string * obj) list) : ConnectorQueryResult =
-        let initialConn = new MySqlConnection(connectionString)
+        let initialConn = new MySqlConnection(effectiveConnectionString)
         initialConn.Open()
         let initialCmd = initialConn.CreateCommand()
         initialCmd.CommandText <- sql
@@ -52,7 +70,7 @@ type MariaDbConnector(connectionString: string) =
                             yield [| for i in 0 .. reader.FieldCount - 1 -> reader.GetValue(i) |]
                     }
                 | None ->
-                    let conn = new MySqlConnection(connectionString)
+                    let conn = new MySqlConnection(effectiveConnectionString)
                     conn.Open()
                     let cmd = conn.CreateCommand()
                     cmd.CommandText <- sql
@@ -72,7 +90,7 @@ type MariaDbConnector(connectionString: string) =
     /// Executes `sql` and streams rows directly into a typed F# record without creating intermediate obj[] arrays per row.
     member this.ExecuteReaderStreamWithColumns<'T> (sql: string) (parameters: (string * obj) list) (mapperFactory: string list -> (System.Data.IDataRecord -> 'T)) : 'T seq =
         Seq.delay (fun () ->
-            let connection = new MySqlConnection(connectionString)
+            let connection = new MySqlConnection(effectiveConnectionString)
             connection.Open()
             let command = connection.CreateCommand()
             command.CommandText <- sql
@@ -98,7 +116,7 @@ type MariaDbConnector(connectionString: string) =
     /// Every base table, view and column across user schemas, via `information_schema`.
     member _.DiscoverSchemaAsync(ct: CancellationToken) : Task<ConnectorTable list> =
         task {
-            use connection = new MySqlConnection(connectionString)
+            use connection = new MySqlConnection(effectiveConnectionString)
             do! connection.OpenAsync(ct)
             use command = connection.CreateCommand()
 
@@ -145,7 +163,7 @@ type MariaDbConnector(connectionString: string) =
         member _.TestConnectionAsync(ct: CancellationToken) : Task<bool> =
             task {
                 try
-                    use connection = new MySqlConnection(connectionString)
+                    use connection = new MySqlConnection(effectiveConnectionString)
                     do! connection.OpenAsync(ct)
                     return true
                 with _ ->

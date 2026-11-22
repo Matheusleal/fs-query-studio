@@ -24,7 +24,7 @@ type MySqlDescriptor() =
             Label = "Connection String"
             Type = ConnectorFieldType.String
             Required = true
-            Placeholder = Some "Server=localhost;Port=3306;Database=mydb;User ID=root;Password={password};"
+            Placeholder = Some "Server=127.0.0.1;Port=3306;Database=mydb;User ID=root;Password={password};"
             DefaultValue = None
             SecretHandling = SecretHandling.EmbedInConnectionString "{password}" }
           { Name = "password"
