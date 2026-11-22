@@ -2118,6 +2118,134 @@ let ``DatabaseConnection.GenerateEntities supports PostgreSQL, MySQL, MariaDB an
     Assert.Contains("member _.users : FSharpQueryStudio.Connectors.SqlPushdownQueryable<shop_db.users> = conn.Table<shop_db.users>(\"users\")", myCode)
     Assert.Contains("payments = conn.Table<billing_db.payments>(\"billing_db.payments\")", myCode)
 
+[<Fact>]
+let ``DatabaseConnection.GenerateEntities maps string and varchar types to string, not obj`` () =
+    let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
+        { new IQueryableConnector with
+            member _.ConnectionString = connStr
+            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+          interface IConnector with
+            member _.Kind = kind
+            member _.TestConnectionAsync _ = System.Threading.Tasks.Task.FromResult true
+            member _.DiscoverSchemaAsync _ = System.Threading.Tasks.Task.FromResult tables }
+
+    let tables = [
+        { Name = "fsqs_demo.products"
+          Columns = [
+              { Name = "name"; DataType = "string" }
+              { Name = "sku"; DataType = "varchar(50)" }
+              { Name = "description"; DataType = "text" }
+              { Name = "notes"; DataType = "nvarchar(max)" }
+              { Name = "specs"; DataType = "json" }
+              { Name = "document"; DataType = "xml" }
+          ] }
+    ]
+    let conn = Connections.DatabaseConnection("TestConn", makeConnector ConnectorKind.PostgreSql "Host=localhost;Database=fsqs_demo;" tables)
+    let code = conn.GenerateEntities()
+
+    Assert.Contains("name: string", code)
+    Assert.Contains("sku: string", code)
+    Assert.Contains("description: string", code)
+    Assert.Contains("notes: string", code)
+    Assert.Contains("specs: string", code)
+    Assert.Contains("document: string", code)
+    Assert.DoesNotContain("name: obj", code)
+    Assert.DoesNotContain("sku: obj", code)
+
+[<Fact>]
+let ``DatabaseConnection.GenerateEntities maps numeric and integral types correctly without obj fallback`` () =
+    let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
+        { new IQueryableConnector with
+            member _.ConnectionString = connStr
+            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+          interface IConnector with
+            member _.Kind = kind
+            member _.TestConnectionAsync _ = System.Threading.Tasks.Task.FromResult true
+            member _.DiscoverSchemaAsync _ = System.Threading.Tasks.Task.FromResult tables }
+
+    let tables = [
+        { Name = "fsqs_demo.metrics"
+          Columns = [
+              { Name = "id"; DataType = "int" }
+              { Name = "counter"; DataType = "int64" }
+              { Name = "rate"; DataType = "double" }
+              { Name = "price"; DataType = "decimal" }
+              { Name = "is_active"; DataType = "bool" }
+              { Name = "created_at"; DataType = "DateTime" }
+          ] }
+    ]
+    let conn = Connections.DatabaseConnection("TestConn2", makeConnector ConnectorKind.SqlServer "Server=localhost;Database=fsqs_demo;" tables)
+    let code = conn.GenerateEntities()
+
+    Assert.Contains("id: int", code)
+    Assert.Contains("counter: int64", code)
+    Assert.Contains("rate: double", code)
+    Assert.Contains("price: decimal", code)
+    Assert.Contains("is_active: bool", code)
+    Assert.Contains("created_at: System.DateTime", code)
+    Assert.DoesNotContain(": obj", code)
+
+[<Fact>]
+let ``DatabaseConnection.GenerateEntities emits top-level and direct sub-schema properties for Oracle FREEPDB1.SYSTEM`` () =
+    let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
+        { new IQueryableConnector with
+            member _.ConnectionString = connStr
+            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+          interface IConnector with
+            member _.Kind = kind
+            member _.TestConnectionAsync _ = System.Threading.Tasks.Task.FromResult true
+            member _.DiscoverSchemaAsync _ = System.Threading.Tasks.Task.FromResult tables }
+
+    let oraTables = [
+        { Name = "FREEPDB1.SYSTEM.PRODUCTS"
+          Columns = [
+              { Name = "ID"; DataType = "int" }
+              { Name = "NAME"; DataType = "string" }
+              { Name = "PRICE"; DataType = "decimal" }
+          ] }
+        { Name = "FREEPDB1.SYSTEM.CATEGORIES"
+          Columns = [
+              { Name = "ID"; DataType = "int" }
+              { Name = "NAME"; DataType = "string" }
+          ] }
+    ]
+    let oraConn = Connections.DatabaseConnection("Oracle_Advanced", makeConnector ConnectorKind.Oracle "Data Source=localhost:1521/FREEPDB1;User Id=system;Password=Password123!;" oraTables)
+    let oraCode = oraConn.GenerateEntities()
+
+    // 1. Top-level property on Database for backwards compatibility and clean query writing
+    Assert.Contains("member _.PRODUCTS : FSharpQueryStudio.Connectors.SqlPushdownQueryable<FREEPDB1.SYSTEM.PRODUCTS> = conn.Table<FREEPDB1.SYSTEM.PRODUCTS>(\"PRODUCTS\")", oraCode)
+    Assert.Contains("member _.CATEGORIES : FSharpQueryStudio.Connectors.SqlPushdownQueryable<FREEPDB1.SYSTEM.CATEGORIES> = conn.Table<FREEPDB1.SYSTEM.CATEGORIES>(\"CATEGORIES\")", oraCode)
+    // 2. Direct sub-schema property on Database (e.g. Connections.sql.Oracle_Advanced.SYSTEM.PRODUCTS)
+    Assert.Contains("member _.SYSTEM =", oraCode)
+    Assert.Contains("PRODUCTS = conn.Table<FREEPDB1.SYSTEM.PRODUCTS>(\"PRODUCTS\")", oraCode)
+    // 3. Tree hierarchy property (e.g. Connections.sql.Oracle_Advanced.FREEPDB1.SYSTEM.PRODUCTS)
+    Assert.Contains("member _.FREEPDB1 =", oraCode)
+
+[<Fact>]
+let ``DatabaseConnection.GenerateEntities emits top-level and schema properties for 2-part Oracle SYSTEM.PRODUCTS`` () =
+    let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
+        { new IQueryableConnector with
+            member _.ConnectionString = connStr
+            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+          interface IConnector with
+            member _.Kind = kind
+            member _.TestConnectionAsync _ = System.Threading.Tasks.Task.FromResult true
+            member _.DiscoverSchemaAsync _ = System.Threading.Tasks.Task.FromResult tables }
+
+    let oraTables = [
+        { Name = "SYSTEM.PRODUCTS"
+          Columns = [
+              { Name = "ID"; DataType = "int" }
+              { Name = "NAME"; DataType = "string" }
+          ] }
+    ]
+    let oraConn = Connections.DatabaseConnection("Oracle_Advanced2", makeConnector ConnectorKind.Oracle "Data Source=localhost:1521/FREEPDB1;User Id=system;Password=Password123!;" oraTables)
+    let oraCode = oraConn.GenerateEntities()
+
+    Assert.Contains("member _.PRODUCTS : FSharpQueryStudio.Connectors.SqlPushdownQueryable<SYSTEM.PRODUCTS> = conn.Table<SYSTEM.PRODUCTS>(\"PRODUCTS\")", oraCode)
+    Assert.Contains("member _.SYSTEM =", oraCode)
+
+
 
 
 
