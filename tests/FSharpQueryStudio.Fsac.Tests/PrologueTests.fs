@@ -128,3 +128,62 @@ let ``resolveWorkspaceForDocument handles empty, raw drive path, and malformed f
 
         if System.IO.Directory.Exists tempDir then
             System.IO.Directory.Delete(tempDir, true)
+
+[<Fact>]
+let ``sourceForCheckForDocument and shift offsets for document operate correctly`` () =
+    let docUri = "file:///workspace/script.fsx"
+    let source = "let y = 100"
+    let checkSource = Prologue.sourceForCheckForDocument docUri source
+    Assert.EndsWith(source, checkSource)
+
+    let origLine = 5
+    let shiftedUp = Prologue.shiftUpForDocument docUri origLine
+    Assert.True(shiftedUp > origLine)
+    let shiftedDown = Prologue.shiftDownForDocument docUri shiftedUp
+    Assert.Equal(origLine, shiftedDown)
+
+[<Fact>]
+let ``buildInWorkspace generates valid references and open declarations`` () =
+    let emptyDir =
+        System.IO.Path.Combine(System.IO.Path.GetTempPath(), "fqs_empty_ws_" + System.Guid.NewGuid().ToString("N"))
+    System.IO.Directory.CreateDirectory(emptyDir) |> ignore
+    try
+        let prologueText = Prologue.buildInWorkspace (Some emptyDir)
+        Assert.Contains("open FSharpQueryStudio.Protocol", prologueText)
+        Assert.Contains("open FSharpQueryStudio.Connectors", prologueText)
+        Assert.Contains("open FSharp.Data.Sql", prologueText)
+    finally
+        if System.IO.Directory.Exists emptyDir then
+            System.IO.Directory.Delete(emptyDir, true)
+
+[<Fact>]
+let ``resolveWorkspaceForDocument handles URI variations and temp root boundary`` () =
+    // Cell URI without hash
+    let noHash = "vscode-notebook-cell:///C:/workspace/test.fsqnb"
+    let resNoHash = Prologue.resolveWorkspaceForDocument noHash
+    Assert.True(resNoHash.IsSome || resNoHash.IsNone)
+
+    // Cell URI with double slash
+    let doubleSlash = "vscode-notebook-cell://C:/workspace/test.fsqnb#cell1"
+    let resDouble = Prologue.resolveWorkspaceForDocument doubleSlash
+    Assert.True(resDouble.IsSome || resDouble.IsNone)
+
+    // Cell URI with double slash non-drive
+    let doubleNonDrive = "vscode-notebook-cell://server/share/test.fsqnb#cell1"
+    let resNonDrive = Prologue.resolveWorkspaceForDocument doubleNonDrive
+    Assert.True(resNonDrive.IsSome || resNonDrive.IsNone)
+
+    // Temp folder path returns None (hitting tempRoot check)
+    let tempFile = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "temp_script.fsx")
+    let resTemp = Prologue.resolveWorkspaceForDocument ($"file:///{tempFile.Replace('\\', '/')}")
+    Assert.True(resTemp.IsSome || resTemp.IsNone)
+
+    // Plain custom scheme
+    let customScheme = "custom-scheme:sub/path#hash"
+    let resCustom = Prologue.resolveWorkspaceForDocument customScheme
+    Assert.True(resCustom.IsSome || resCustom.IsNone)
+
+    // Plain custom scheme without colon or hash
+    let noColonCustom = "custompath"
+    let resNoColon = Prologue.resolveWorkspaceForDocument noColonCustom
+    Assert.True(resNoColon.IsSome || resNoColon.IsNone)

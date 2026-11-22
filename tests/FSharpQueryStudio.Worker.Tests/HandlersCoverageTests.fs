@@ -330,3 +330,59 @@ let ``createSampleData and createAdvancedSamples wrappers use the default langua
         |> ignore
     finally
         cleanup dir
+
+[<Fact>]
+let ``dispatch connection/refresh with workspaceDir clears caches and returns ok scenario 1`` () =
+    task {
+        let dir = tempDir "refresh1"
+        try
+            let request = req "ref1" "connection/refresh" $"{{\"workspaceDir\": \"{jsonPath dir}\"}}"
+            let! response = Handlers.dispatch request
+            Assert.Equal("ref1", response.Id)
+            Assert.True(response.Error.IsNone)
+            Assert.True(response.Result.IsSome)
+        finally
+            cleanup dir
+    }
+
+[<Fact>]
+let ``dispatch workspace/refreshEntities with workspaceDirectory clears caches scenario 2`` () =
+    task {
+        let dir = tempDir "refresh2"
+        try
+            let request = req "ref2" "workspace/refreshEntities" $"{{\"workspaceDirectory\": \"{jsonPath dir}\"}}"
+            let! response = Handlers.dispatch request
+            Assert.Equal("ref2", response.Id)
+            Assert.True(response.Error.IsNone)
+            Assert.True(response.Result.IsSome)
+        finally
+            cleanup dir
+    }
+
+[<Fact>]
+let ``dispatch connection/refresh with targetDir and without params scenario 3`` () =
+    task {
+        let dir = tempDir "refresh3"
+        try
+            let request1 = req "ref3" "connection/refresh" $"{{\"targetDir\": \"{jsonPath dir}\"}}"
+            let! response1 = Handlers.dispatch request1
+            Assert.Equal("ref3", response1.Id)
+            Assert.True(response1.Error.IsNone)
+
+            let request2 = req "ref4" "workspace/refreshEntities" "{}"
+            let! response2 = Handlers.dispatch request2
+            Assert.Equal("ref4", response2.Id)
+            Assert.True(response2.Error.IsNone)
+        finally
+            cleanup dir
+    }
+
+[<Fact>]
+let ``resolveWorkspaceForDocument falls back to current directory for untitled or non-file URIs scenario 1`` () =
+    let ws1 = Handlers.resolveWorkspaceForDocument "untitled:Untitled-1"
+    Assert.False(String.IsNullOrWhiteSpace ws1)
+
+[<Fact>]
+let ``resolveWorkspaceForDocument falls back for empty URI scenario 2`` () =
+    let ws2 = Handlers.resolveWorkspaceForDocument ""
+    Assert.False(String.IsNullOrWhiteSpace ws2)

@@ -27,6 +27,8 @@
     <Compile Include="SqlPushdownCoverageTests.fs" />
     <Compile Include="OfflineSqlConnectorsTests.fs" />
     <Compile Include="ConnectorDialectDecouplingTests.fs" />
+    <Compile Include="DialectAndExtensionsFullCoverageTests.fs" />
+    <Compile Include="ExpressionPushdownExtraCoverageTests.fs" />
   </ItemGroup>
 
   <ItemGroup>

@@ -171,6 +171,10 @@ type FsacProcess(fsautocompleteDllPath: string) =
                 ()
         | _ -> ()
 
+    /// Test-only: temporarily injects a mock or loopback client.
+    member _.SetClientForTests(client: LspClient option) : unit =
+        current <- client |> Option.map (fun c -> (Process.GetCurrentProcess(), c))
+
     /// Best-effort graceful shutdown — never throws past this call, same
     /// convention as `Handlers.deleteAnalysisWorkDir`'s own best-effort
     /// cleanup. Wired to the Worker process's own exit in a later task.

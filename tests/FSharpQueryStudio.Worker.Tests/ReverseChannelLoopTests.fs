@@ -257,3 +257,61 @@ let ``loop answers execution/evaluate with a busy error while the slot is reserv
                 with _ ->
                     ()
     }
+
+[<Fact>]
+let ``loop dispatches execution/evaluate in background and replies scenario 1`` () =
+    task {
+        let channel = HostChannel(fun _ -> Task.CompletedTask)
+        let evalParams: EvaluateParams =
+            {
+                Source = "1 + 1"
+                SessionId = None
+                Mode = SessionMode.Isolated
+                DocumentUri = "untitled:eval1.fsx"
+                IsNotebookCell = false
+            }
+        let line =
+            System.Text.Json.JsonSerializer.Serialize<WorkerRequestFrame>(
+                {
+                    Id = "eval-bg-1"
+                    Method = "execution/evaluate"
+                    Params = System.Text.Json.JsonSerializer.SerializeToElement(evalParams, Serialization.options)
+                },
+                Serialization.options
+            )
+        use stdin = new StringReader(line + "\n")
+        use stdout = new StringWriter()
+        do! Program.loop stdin stdout channel
+        let! output = waitForOutput stdout "eval-bg-1"
+        Assert.Contains("\"id\":\"eval-bg-1\"", output)
+        Assert.Contains("Scalar", output)
+    }
+
+[<Fact>]
+let ``loop handles execution/evaluate with malformed parameters scenario 2`` () =
+    task {
+        let channel = HostChannel(fun _ -> Task.CompletedTask)
+        let line = """{"id":"eval-malformed","method":"execution/evaluate","params":{"BadProperty":123}}"""
+        use stdin = new StringReader(line + "\n")
+        use stdout = new StringWriter()
+        do! Program.loop stdin stdout channel
+        let! output = waitForOutput stdout "eval-malformed"
+        Assert.Contains("\"id\":\"eval-malformed\"", output)
+        Assert.Contains("worker/requestFailed", output)
+    }
+
+[<Fact>]
+let ``runMain starts and shuts down cleanly with empty input scenario 1`` () =
+    use stdin = new StringReader("")
+    use stdout = new StringWriter()
+    let exitCode = Program.runMain stdin stdout
+    Assert.Equal(0, exitCode)
+
+[<Fact>]
+let ``runMain processes request and replies before exiting on EOF scenario 2`` () =
+    let line = healthLine "main-health"
+    use stdin = new StringReader(line + "\n")
+    use stdout = new StringWriter()
+    let exitCode = Program.runMain stdin stdout
+    Assert.Equal(0, exitCode)
+    Assert.Contains("\"id\":\"main-health\"", stdout.ToString())

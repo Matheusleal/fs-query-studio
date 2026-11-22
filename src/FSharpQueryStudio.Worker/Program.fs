@@ -278,6 +278,33 @@ let rec private loopWith (stdin: TextReader) (stdout: TextWriter) (host: HostCha
 /// through here; `loopWith` stays `private` as the tail-recursive worker.
 let loop (stdin: TextReader) (stdout: TextWriter) (host: HostChannel) : Task = loopWith stdin stdout host :> Task
 
+/// Runs the worker process given custom text reader/writer streams.
+let runMain (stdinReader: TextReader) (stdoutWriter: TextWriter) : int =
+    let stdout: TextWriter = stdoutWriter
+
+    // Generalises `writeResponse`'s lock pattern to any frame: the
+    // reverse channel writes `WorkerRequestFrame`s to the same stdout,
+    // through the same `writeLock`, so a worker-initiated request never
+    // interleaves with a response frame.
+    let writeFrameLocked (frame: WorkerRequestFrame) : Task =
+        task {
+            do! writeLock.WaitAsync()
+
+            try
+                do! NdjsonStream.writeFrame stdout frame
+            finally
+                writeLock.Release() |> ignore
+        }
+        :> Task
+
+    let hostChannel = HostChannel(writeFrameLocked)
+    Handlers.configureSecretStore (BridgeSecretStore hostChannel)
+    Handlers.configureHostChannel hostChannel
+
+    (loop stdinReader stdout hostChannel).GetAwaiter().GetResult()
+    Log.Information("F# Query Studio worker stopping")
+    0
+
 [<EntryPoint>]
 let main _argv =
     let utf8NoBom = System.Text.UTF8Encoding(false)
@@ -296,31 +323,7 @@ let main _argv =
         use stdinReader = new StreamReader(System.Console.OpenStandardInput(), utf8NoBom)
         use stdoutWriter = new StreamWriter(System.Console.OpenStandardOutput(), utf8NoBom)
         stdoutWriter.AutoFlush <- true
-
-        let stdout: TextWriter = stdoutWriter
-
-        // Generalises `writeResponse`'s lock pattern to any frame: the
-        // reverse channel writes `WorkerRequestFrame`s to the same stdout,
-        // through the same `writeLock`, so a worker-initiated request never
-        // interleaves with a response frame.
-        let writeFrameLocked (frame: WorkerRequestFrame) : Task =
-            task {
-                do! writeLock.WaitAsync()
-
-                try
-                    do! NdjsonStream.writeFrame stdout frame
-                finally
-                    writeLock.Release() |> ignore
-            }
-            :> Task
-
-        let hostChannel = HostChannel(writeFrameLocked)
-        Handlers.configureSecretStore (BridgeSecretStore hostChannel)
-        Handlers.configureHostChannel hostChannel
-
-        (loop stdinReader stdout hostChannel).GetAwaiter().GetResult()
-        Log.Information("F# Query Studio worker stopping")
-        0
+        runMain stdinReader stdoutWriter
     finally
         FSharpQueryStudio.Fsac.FsacBridge.sharedProcess.Shutdown()
         Log.CloseAndFlush()

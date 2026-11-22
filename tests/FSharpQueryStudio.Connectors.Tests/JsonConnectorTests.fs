@@ -238,3 +238,48 @@ let ``JsonConnector handles missing files, primitive arrays with transforms, Jso
     use fScalar = new TempJsonFile("42")
     let connScalar = JsonConnector(fScalar.Path)
     Assert.Equal(1, connScalar.ReadRows().Rows |> Seq.length)
+
+[<Fact>]
+let ``JsonDescriptor properties and validation scenario 1`` () =
+    let desc = JsonDescriptor.Instance :> IConnectorDescriptor
+    Assert.Equal("Json", desc.KindId)
+    Assert.Equal("JSON File", desc.DisplayName)
+    Assert.Equal(ConnectorCategory.Json, desc.Category)
+    Assert.Equal("json", desc.Icon)
+    Assert.True(Option.isNone desc.EntityGenerator)
+    Assert.NotEmpty(desc.FormFields)
+
+    use doc = System.Text.Json.JsonDocument.Parse("""{"filePath": "/path/to/data.json"}""")
+    let validRes = desc.ValidateConfiguration doc.RootElement
+    Assert.True(Result.isOk validRes)
+
+[<Fact>]
+let ``JsonDescriptor properties and validation scenario 2`` () =
+    let desc = JsonDescriptor.Instance :> IConnectorDescriptor
+    use docInvalid = System.Text.Json.JsonDocument.Parse("""{}""")
+    let invalidRes = desc.ValidateConfiguration docInvalid.RootElement
+    Assert.True(Result.isError invalidRes)
+
+[<Fact>]
+let ``JsonConnectorFactory creates connector from string or raw text scenario 1`` () =
+    let desc = JsonDescriptor.Instance :> IConnectorDescriptor
+    let factory = desc.Factory
+    let secretStore = FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
+
+    use docStr = System.Text.Json.JsonDocument.Parse("\"/my/file.json\"")
+    let conn = factory.Create(docStr.RootElement, secretStore, None)
+    Assert.NotNull(conn)
+    Assert.Equal(ConnectorKind.Json, conn.Kind)
+
+[<Fact>]
+let ``JsonConnectorFactory creates connector from empty or object configuration scenario 2`` () =
+    let factory = JsonConnectorFactory() :> IConnectorFactory
+    let secretStore = FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
+
+    use docEmptyStr = System.Text.Json.JsonDocument.Parse("\"\"")
+    let conn1 = factory.Create(docEmptyStr.RootElement, secretStore, None)
+    Assert.NotNull(conn1)
+
+    use docObj = System.Text.Json.JsonDocument.Parse("{\"filePath\": \"/data/test.json\", \"flattenNested\": false}")
+    let conn2 = factory.Create(docObj.RootElement, secretStore, None)
+    Assert.NotNull(conn2)

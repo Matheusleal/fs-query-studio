@@ -1,6 +1,7 @@
 namespace FSharpQueryStudio.Results
 
 open System.Collections.Concurrent
+open System.Runtime.CompilerServices
 
 /// The full, materialized rows of a cell's connector-query or materialized-table
 /// tail value, retained so **Export CSV** can write the whole result set — not
@@ -22,37 +23,43 @@ module ResultRetention =
     let private store =
         ConcurrentDictionary<string, RetainedResult>(System.StringComparer.OrdinalIgnoreCase)
 
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     let private normalizeKey (uri: string) =
-        if System.String.IsNullOrEmpty uri then
-            ""
-        else
-            let unescaped = System.Uri.UnescapeDataString(uri).Replace('\\', '/')
-            unescaped.ToLowerInvariant()
+        let unescaped = System.Uri.UnescapeDataString(uri).Replace('\\', '/')
+        unescaped.ToLowerInvariant()
 
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     let set (documentUri: string) (result: RetainedResult) : unit =
-        store.[documentUri] <- result
-        let norm = normalizeKey documentUri
-
-        if not (System.String.IsNullOrEmpty norm) then
-            store.[norm] <- result
-
-    let tryGet (documentUri: string) : RetainedResult option =
-        match store.TryGetValue(documentUri) with
-        | true, result -> Some result
-        | false, _ ->
+        if not (System.String.IsNullOrEmpty documentUri) then
+            store.[documentUri] <- result
             let norm = normalizeKey documentUri
 
-            match store.TryGetValue(norm) with
+            if not (System.String.IsNullOrEmpty norm) then
+                store.[norm] <- result
+
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
+    let tryGet (documentUri: string) : RetainedResult option =
+        if System.String.IsNullOrEmpty documentUri then
+            None
+        else
+            match store.TryGetValue(documentUri) with
             | true, result -> Some result
-            | false, _ -> None
+            | false, _ ->
+                let norm = normalizeKey documentUri
 
+                match store.TryGetValue(norm) with
+                | true, result -> Some result
+                | false, _ -> None
+
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     let discard (documentUri: string) : unit =
-        let norm = normalizeKey documentUri
-        store.TryRemove(documentUri) |> ignore
+        if not (System.String.IsNullOrEmpty documentUri) then
+            let norm = normalizeKey documentUri
+            store.TryRemove(documentUri) |> ignore
 
-        if not (System.String.IsNullOrEmpty norm) then
-            store.TryRemove(norm) |> ignore
+            if not (System.String.IsNullOrEmpty norm) then
+                store.TryRemove(norm) |> ignore
 
-            for kv in store.ToArray() do
-                if normalizeKey kv.Key = norm then
-                    store.TryRemove(kv.Key) |> ignore
+                for kv in store.ToArray() do
+                    if normalizeKey kv.Key = norm then
+                        store.TryRemove(kv.Key) |> ignore

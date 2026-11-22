@@ -305,3 +305,95 @@ let ``ExcelDescriptor and ExcelConnectorFactory coverage`` () =
     Assert.False(conn2.Options.HasHeader)
     Assert.Equal(Some "int", conn2.Options.ColumnTypes.TryFind "Col1")
     Assert.Equal(Some "trim", conn2.Options.ColumnTransforms.TryFind "Col1")
+
+[<Fact>]
+let ``ExcelOptions Default record values scenario 1`` () =
+    let def = ExcelOptions.Default
+    Assert.True(def.SheetName.IsNone)
+    Assert.True(def.HasHeader)
+    Assert.True(def.ColumnTypes.IsEmpty)
+    Assert.True(def.ColumnTransforms.IsEmpty)
+
+[<Fact>]
+let ``ExcelOptions Default copy with modified options scenario 2`` () =
+    let custom = { ExcelOptions.Default with SheetName = Some "CustomSheet"; HasHeader = false }
+    Assert.Equal(Some "CustomSheet", custom.SheetName)
+    Assert.False(custom.HasHeader)
+    Assert.True(custom.ColumnTypes.IsEmpty)
+
+[<Fact>]
+let ``ExcelConnector reads boolean, datetime, timespan and blank cell values scenario 1`` () =
+    let path = Path.Combine(Path.GetTempPath(), $"fqs-excel-types-{Guid.NewGuid():N}.xlsx")
+    try
+        do
+            use wb = new ClosedXML.Excel.XLWorkbook()
+            let ws = wb.Worksheets.Add("Types")
+            ws.Cell(1, 1).Value <- "IsActive"
+            ws.Cell(1, 2).Value <- "CreatedDate"
+            ws.Cell(1, 3).Value <- "Duration"
+            ws.Cell(1, 4).Value <- "BlankCol"
+
+            ws.Cell(2, 1).Value <- true
+            ws.Cell(2, 2).Value <- DateTime(2026, 1, 1, 10, 30, 0)
+            ws.Cell(2, 3).Value <- TimeSpan.FromHours(2.5)
+            ws.Cell(2, 4).Value <- ClosedXML.Excel.Blank.Value
+
+            wb.SaveAs(path)
+
+        let conn = ExcelConnector(path)
+        let qr = conn.ReadRows()
+        let rows = qr.Rows |> Seq.toArray
+        Assert.Single(rows) |> ignore
+        Assert.Equal(box true, rows.[0].[0])
+        Assert.Equal(box (DateTime(2026, 1, 1, 10, 30, 0)), rows.[0].[1])
+        Assert.Equal(box (TimeSpan.FromHours(2.5).ToString()), rows.[0].[2])
+        Assert.Null(rows.[0].[3])
+    finally
+        if File.Exists path then File.Delete path
+
+[<Fact>]
+let ``ExcelConnector reads false boolean and custom datetime scenario 2`` () =
+    let path = Path.Combine(Path.GetTempPath(), $"fqs-excel-types2-{Guid.NewGuid():N}.xlsx")
+    try
+        do
+            use wb = new ClosedXML.Excel.XLWorkbook()
+            let ws = wb.Worksheets.Add("Types")
+            ws.Cell(1, 1).Value <- "Flag"
+            ws.Cell(1, 2).Value <- "Date"
+            ws.Cell(2, 1).Value <- false
+            ws.Cell(2, 2).Value <- DateTime(2025, 12, 31, 23, 59, 59)
+            wb.SaveAs(path)
+
+        let conn = ExcelConnector(path)
+        let qr = conn.ReadRows()
+        let rows = qr.Rows |> Seq.toArray
+        Assert.Single(rows) |> ignore
+        Assert.Equal(box false, rows.[0].[0])
+        Assert.Equal(box (DateTime(2025, 12, 31, 23, 59, 59)), rows.[0].[1])
+    finally
+        if File.Exists path then File.Delete path
+
+[<Fact>]
+let ``ExcelConnector ReadRaw and StagePrimaryTable scenario 1`` () =
+    use wb = new TempWorkbook()
+    let conn = ExcelConnector(wb.Path) :> IStagableConnector
+    let rawLimited = conn.ReadRaw(Some 1)
+    Assert.Equal(1, rawLimited.Rows |> Seq.length)
+    let rawAll = conn.ReadRaw(None)
+    Assert.True(rawAll.Rows |> Seq.length >= 2)
+
+[<Fact>]
+let ``ExcelConnector StagePrimaryTable with specific and default sheet scenario 2`` () =
+    use wb = new TempWorkbook()
+    let dbPath = Path.Combine(Path.GetTempPath(), $"fqs-excel-stage-{Guid.NewGuid():N}.db")
+    try
+        let engine = FileSqliteEngine(dbPath) :> IStagingEngine
+        let conn1 = ExcelConnector(wb.Path) :> IStagableConnector
+        let tbl1 = conn1.StagePrimaryTable(engine, "conn1")
+        Assert.False(String.IsNullOrWhiteSpace tbl1)
+
+        let conn2 = ExcelConnector(wb.Path, { ExcelOptions.Default with SheetName = Some "Orders" }) :> IStagableConnector
+        let tbl2 = conn2.StagePrimaryTable(engine, "conn2")
+        Assert.False(String.IsNullOrWhiteSpace tbl2)
+    finally
+        if File.Exists dbPath then File.Delete dbPath

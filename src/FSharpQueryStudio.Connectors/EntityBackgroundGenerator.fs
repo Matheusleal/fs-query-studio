@@ -16,7 +16,7 @@ module EntityBackgroundGenerator =
     let generatedDir (workspaceDir: string) : string =
         let baseDir =
             if String.IsNullOrWhiteSpace workspaceDir then
-                workspaceDir
+                ""
             else
                 let trimmed =
                     workspaceDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)

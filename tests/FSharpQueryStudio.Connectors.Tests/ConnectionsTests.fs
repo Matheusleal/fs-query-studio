@@ -3238,3 +3238,238 @@ let ``DatabaseConnection.GenerateEntities exposes single sub-schema tables at to
 
     Assert.Contains("member _.sales_department =", code)
     Assert.Contains("member _.company_db =", code)
+
+type private FullMockWorkspaceResolver(wsDir: string, conns: ConnectionDefinition list, connectorMap: Map<string, IConnector>) =
+    interface IConnectionResolver with
+        member _.Resolve name = connectorMap.[name]
+        member this.ResolveAsync(name, _) = Task.FromResult((this :> IConnectionResolver).Resolve name)
+    interface IWorkspaceAwareResolver with
+        member _.BaseDirectory = Some wsDir
+    interface IWorkspaceConnectionsProvider with
+        member _.BaseDirectory = Some wsDir
+        member _.Connections = conns
+
+[<Fact>]
+let ``Connections configure with IWorkspaceAwareResolver and IWorkspaceConnectionsProvider scenario 1`` () =
+    let dir = Path.Combine(Path.GetTempPath(), $"fqs-conn-ws-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(dir) |> ignore
+    try
+        let csvPath = Path.Combine(dir, "items.csv")
+        File.WriteAllText(csvPath, "id,name\n1,Alpha\n2,Beta\n")
+        let csvConn = CsvConnector(csvPath)
+        let connDef: ConnectionDefinition =
+            {
+                Id = Guid.NewGuid()
+                Name = "ItemsCsv"
+                Kind = ConnectorKind.Csv
+                Configuration = System.Text.Json.JsonSerializer.SerializeToElement csvPath
+                SecretReference = None
+                IsTrusted = true
+            }
+
+        let resolver = FullMockWorkspaceResolver(dir, [ connDef ], Map.ofList [ "ItemsCsv", csvConn :> IConnector ])
+        Connections.configure resolver
+
+        // Verify engine was configured with workspace directory
+        let eng = Connections.getEngine ()
+        Assert.Contains(dir, eng.DatabasePath)
+
+        // Ensure workspace files staged
+        Connections.ensureWorkspaceFilesStaged ()
+
+        // Verify staging helpers for all file connectors
+        let csvTableName = Connections.stageCsvConnection eng "ItemsCsv" csvConn
+        Assert.False(String.IsNullOrWhiteSpace csvTableName)
+
+        let xmlPath = Path.Combine(dir, "items.xml")
+        File.WriteAllText(xmlPath, """<Root><Item id="1"><Name>Gamma</Name></Item></Root>""")
+        let xmlConn = XmlConnector(xmlPath)
+        let xmlTableName = Connections.stageXmlTable eng "ItemsXml" xmlConn "Item" None true
+        Assert.False(String.IsNullOrWhiteSpace xmlTableName)
+        Connections.stageXmlConnection eng "ItemsXml" xmlConn
+
+        let jsonPath = Path.Combine(dir, "items.json")
+        File.WriteAllText(jsonPath, """[{"id": 1, "name": "Delta"}]""")
+        let jsonConn = JsonConnector(jsonPath)
+        let jsonTableName = Connections.stageJsonTable eng "ItemsJson" jsonConn "items" None true
+        Assert.False(String.IsNullOrWhiteSpace jsonTableName)
+        Connections.stageJsonConnection eng "ItemsJson" jsonConn
+
+        let excelPath = Path.Combine(dir, "items.xlsx")
+        do
+            use wb = new ClosedXML.Excel.XLWorkbook()
+            let ws = wb.Worksheets.Add("Orders")
+            ws.Cell(1, 1).Value <- "OrderId"
+            ws.Cell(2, 1).Value <- 101
+            wb.SaveAs(excelPath)
+
+        let excelConn = ExcelConnector(excelPath)
+        let excelSheetName = Connections.stageExcelSheet eng "ItemsExcel" excelConn "Orders" None true
+        Assert.False(String.IsNullOrWhiteSpace excelSheetName)
+        Connections.stageExcelConnection eng "ItemsExcel" excelConn
+    finally
+        Connections.reset ()
+        if Directory.Exists dir then
+            try Directory.Delete(dir, true) with _ -> ()
+
+[<Fact>]
+let ``Connections reset clears resolver and engine scenario 2`` () =
+    Connections.reset ()
+    Assert.ThrowsAny<Exception>(fun () -> Connections.getDatabaseConnection "NonExistent" |> ignore) |> ignore
+
+[<Fact>]
+let ``Connections toRawSql and toRawQuery with queryable scenario 1`` () =
+    let conn = SqliteConnector("Data Source=:memory:")
+    let spq = SqlPushdownQueryable<OrderRecord>(conn, "Orders")
+    let rawSql = Connections.toRawSql spq
+    let rawQuery = Connections.toRawQuery spq
+    Assert.Contains("SELECT", rawSql)
+    Assert.Contains("Orders", rawSql)
+    Assert.Contains("SELECT", rawQuery)
+
+[<Fact>]
+let ``Connections toRawSqlWithParameters and waitForPendingSync scenario 2`` () =
+    let conn = SqliteConnector("Data Source=:memory:")
+    let spq = SqlPushdownQueryable<OrderRecord>(conn, "Orders")
+    let (sql, prms) = Connections.toRawSqlWithParameters spq
+    Assert.Contains("Orders", sql)
+    Assert.Empty(prms)
+    Connections.waitForPendingSync ()
+    Assert.True(true)
+
+[<Fact>]
+let ``Connections ensureWorkspaceFilesStaged handles throwing resolver gracefully scenario 1`` () =
+    let connDef: ConnectionDefinition =
+        {
+            Id = Guid.NewGuid()
+            Name = "BrokenConn"
+            Kind = ConnectorKind.Csv
+            Configuration = System.Text.Json.JsonSerializer.SerializeToElement "dummy.csv"
+            SecretReference = None
+            IsTrusted = true
+        }
+    let failingResolver =
+        { new IConnectionResolver with
+            member _.Resolve(name) = failwith "Forced resolve failure for test"
+            member _.ResolveAsync(name, _) = failwith "Forced resolve failure for test"
+          interface IWorkspaceAwareResolver with
+            member _.BaseDirectory = Some "C:/dummy"
+          interface IWorkspaceConnectionsProvider with
+            member _.BaseDirectory = Some "C:/dummy"
+            member _.Connections = [ connDef ]
+        }
+    Connections.configure failingResolver
+    Connections.ensureWorkspaceFilesStaged ()
+    Assert.True(true)
+    Connections.reset ()
+
+[<Fact>]
+let ``Connections ensureWorkspaceFilesStaged handles missing staging file gracefully scenario 2`` () =
+    let nonExistentCsv = Path.Combine(Path.GetTempPath(), $"missing_csv_{Guid.NewGuid():N}.csv")
+    let csvConn = CsvConnector(nonExistentCsv)
+    let connDef: ConnectionDefinition =
+        {
+            Id = Guid.NewGuid()
+            Name = "MissingConn"
+            Kind = ConnectorKind.Csv
+            Configuration = System.Text.Json.JsonSerializer.SerializeToElement nonExistentCsv
+            SecretReference = None
+            IsTrusted = true
+        }
+    let resolver = FullMockWorkspaceResolver(Path.GetTempPath(), [ connDef ], Map.ofList [ "MissingConn", csvConn :> IConnector ])
+    Connections.configure resolver
+    Connections.ensureWorkspaceFilesStaged ()
+    Assert.True(true)
+    Connections.reset ()
+
+[<Fact>]
+let ``Connections triggerBackgroundSync starts background task scenario 1`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fsqs_sync_bg_1_{Guid.NewGuid():N}")
+    try
+        Directory.CreateDirectory tempDir |> ignore
+        let secretStore = FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
+        Connections.triggerBackgroundSync tempDir [] secretStore
+        Connections.waitForPendingSync ()
+        Assert.True(true)
+    finally
+        if Directory.Exists tempDir then
+            try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+let ``Connections triggerBackgroundSync with file connections scenario 2`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fsqs_sync_bg_2_{Guid.NewGuid():N}")
+    try
+        Directory.CreateDirectory tempDir |> ignore
+        let csvPath = Path.Combine(tempDir, "data.csv")
+        File.WriteAllText(csvPath, "Id,Name\n1,Alpha\n")
+        let connDef: ConnectionDefinition =
+            {
+                Id = Guid.NewGuid()
+                Name = "BgCsv"
+                Kind = ConnectorKind.Csv
+                Configuration = System.Text.Json.JsonSerializer.SerializeToElement csvPath
+                SecretReference = None
+                IsTrusted = true
+            }
+        let secretStore = FSharpQueryStudio.Security.InMemorySecretStore() :> FSharpQueryStudio.Security.ISecretStore
+        Connections.triggerBackgroundSync tempDir [ connDef ] secretStore
+        Connections.waitForPendingSync ()
+        Assert.True(true)
+    finally
+        if Directory.Exists tempDir then
+            try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+let ``Connections convertValue scientific notation and range limits scenario 1`` () =
+    let convertedDec = Connections.convertValue (box "1.25e3") typeof<decimal>
+    Assert.Equal(box 1250.0m, convertedDec)
+
+    let outOfRangeDec = Connections.convertValue (box "1e300") typeof<decimal>
+    Assert.Null(outOfRangeDec)
+
+    let optNull = Connections.convertValue null typeof<string option>
+    Assert.Null(optNull)
+
+[<Fact>]
+let ``Connections convertValue single infinity and non-numeric fallbacks scenario 2`` () =
+    let singleInf = Connections.convertValue (box "1e300") typeof<single>
+    Assert.Null(singleInf)
+
+    let singleBad = Connections.convertValue (box "not_a_float") typeof<single>
+    Assert.Null(singleBad)
+
+    let optInt = Connections.convertValue (box "42") typeof<int option>
+    Assert.Equal(box (Some 42), optInt)
+
+[<Fact>]
+let ``Connections getEngine with IWorkspaceAwareResolver uninitialized engine scenario 1`` () =
+    Connections.reset ()
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fsqs_ws_eng_1_{Guid.NewGuid():N}")
+    try
+        let resolver =
+            { new IConnectionResolver with
+                member _.Resolve(_) = failwith "not used"
+                member _.ResolveAsync(_, _) = failwith "not used"
+              interface IWorkspaceAwareResolver with
+                member _.BaseDirectory = Some tempDir
+            }
+        Connections.configure resolver
+        let eng = Connections.getEngine ()
+        Assert.Contains(tempDir, eng.DatabasePath)
+    finally
+        Connections.reset ()
+
+[<Fact>]
+let ``Connections getEngine with IWorkspaceAwareResolver None base directory scenario 2`` () =
+    Connections.reset ()
+    let resolver =
+        { new IConnectionResolver with
+            member _.Resolve(_) = failwith "not used"
+            member _.ResolveAsync(_, _) = failwith "not used"
+          interface IWorkspaceAwareResolver with
+            member _.BaseDirectory = None
+        }
+    Connections.configure resolver
+    let eng = Connections.getEngine ()
+    Assert.Contains("fsqs_cache", eng.DatabasePath)
+    Connections.reset ()

@@ -1,6 +1,7 @@
 ﻿namespace FSharpQueryStudio.Connectors
 
 open System
+open System.Runtime.CompilerServices
 open System.Text.Encodings.Web
 open System.Text.Json
 
@@ -13,6 +14,7 @@ module AdvancedSampleNotebookCommon =
             value: string
         }
 
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     let mkMarkdown (text: string) : NotebookCell =
         {
             kind = "markdown"
@@ -20,6 +22,7 @@ module AdvancedSampleNotebookCommon =
             value = text.Trim()
         }
 
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     let mkCode (code: string) : NotebookCell =
         {
             kind = "code"
@@ -27,6 +30,7 @@ module AdvancedSampleNotebookCommon =
             value = code.Trim()
         }
 
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     let serializeNotebook (cells: NotebookCell list) : string =
         let mapped =
             cells

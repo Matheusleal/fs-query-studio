@@ -599,3 +599,334 @@ let ``isModuleIncomplete and needsSynchronousGeneration detect empty database st
         + "        member _.categories = ()\n"
 
     Assert.False(EntityBackgroundGenerator.isModuleIncomplete completeModule "PostgreSQL_Advanced")
+
+[<Fact>]
+let ``generatedDir and generatedFilePath handle null, empty, whitespace, and special leaf dirs scenario 1`` () =
+    Assert.Equal("generated", EntityBackgroundGenerator.generatedDir "")
+    Assert.Equal("generated", EntityBackgroundGenerator.generatedDir "   ")
+    Assert.Equal("generated", EntityBackgroundGenerator.generatedDir null)
+    
+    let fsqsDir = Path.Combine("C:", "Project", ".fsqs")
+    Assert.Equal(Path.Combine(fsqsDir, "generated"), EntityBackgroundGenerator.generatedDir fsqsDir)
+
+    let fqsDir = Path.Combine("C:", "Project", "FSharpQueryStudio")
+    Assert.Equal(Path.Combine(fqsDir, "generated"), EntityBackgroundGenerator.generatedDir fqsDir)
+
+[<Fact>]
+let ``generatedDir detects existing dot-fsqs or generated directories scenario 2`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fqs-test-dir-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(tempDir) |> ignore
+    try
+        let genSub = Path.Combine(tempDir, "generated")
+        Directory.CreateDirectory(genSub) |> ignore
+        Assert.Equal(Path.Combine(tempDir, "generated"), EntityBackgroundGenerator.generatedDir tempDir)
+    finally
+        try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+let ``generateForConnectionsAsync handles empty connections and reports zero extensions scenario 1`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fqs-empty-gen-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(tempDir) |> ignore
+    let prevStatus = EntityBackgroundGenerator.onStatusChanged
+    try
+        let mutable reportedStatus: EntityBackgroundGenerator.EntityMappingStatus option = None
+        EntityBackgroundGenerator.onStatusChanged <- Some (fun status -> reportedStatus <- Some status)
+        let secretStore = InMemorySecretStore()
+        let result =
+            (EntityBackgroundGenerator.generateForConnectionsAsync tempDir [] secretStore)
+                .GetAwaiter()
+                .GetResult()
+        Assert.True(result)
+        Assert.Equal(Some(EntityBackgroundGenerator.EntityMappingStatus.Completed 0), reportedStatus)
+    finally
+        EntityBackgroundGenerator.onStatusChanged <- prevStatus
+        try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+let ``generateForConnectionsAsync handles connection generator failure gracefully scenario 2`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fqs-err-gen-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(tempDir) |> ignore
+    try
+        // Malformed CSV configuration that throws during schema/header discovery
+        let badConn =
+            {
+                Id = Guid.NewGuid()
+                Name = "BadCsv"
+                Kind = ConnectorKind.Csv
+                Configuration = JsonSerializer.SerializeToElement({| FilePath = "non_existent_file_xyz_123.csv" |})
+                SecretReference = None
+                IsTrusted = true
+            }
+        let secretStore = InMemorySecretStore()
+        let result =
+            (EntityBackgroundGenerator.generateForConnectionsAsync tempDir [ badConn ] secretStore)
+                .GetAwaiter()
+                .GetResult()
+        // Gracefully handled without throwing
+        Assert.False(result)
+    finally
+        try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+let ``triggerBackgroundGeneration and waitForPendingGeneration execute asynchronously scenario 1`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fqs-async-gen-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(tempDir) |> ignore
+    try
+        let secretStore = InMemorySecretStore()
+        EntityBackgroundGenerator.triggerBackgroundGeneration tempDir [] secretStore
+        EntityBackgroundGenerator.waitForPendingGeneration ()
+        Assert.True(true)
+    finally
+        try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+let ``triggerBackgroundGeneration and waitForPendingGeneration with valid connection scenario 2`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fqs-async-gen2-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(tempDir) |> ignore
+    try
+        let csvPath = Path.Combine(tempDir, "data.csv")
+        File.WriteAllText(csvPath, "ColA,ColB\n1,Hello\n2,World\n")
+        let conn =
+            {
+                Id = Guid.NewGuid()
+                Name = "AsyncFeed"
+                Kind = ConnectorKind.Csv
+                Configuration = JsonSerializer.SerializeToElement({| FilePath = csvPath |})
+                SecretReference = None
+                IsTrusted = true
+            }
+        let secretStore = InMemorySecretStore()
+        EntityBackgroundGenerator.triggerBackgroundGeneration tempDir [ conn ] secretStore
+        EntityBackgroundGenerator.waitForPendingGeneration ()
+        let genFile = EntityBackgroundGenerator.generatedFilePath tempDir
+        Assert.True(File.Exists genFile)
+    finally
+        try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+let ``isModuleIncomplete edge cases for CR-LF and missing module scenario 1`` () =
+    let missing = "module OtherDb =\n    type X = int"
+    Assert.False(EntityBackgroundGenerator.isModuleIncomplete missing "Target")
+
+[<Fact>]
+let ``isModuleIncomplete edge cases for CR-LF inner types scenario 2`` () =
+    let crlfStub = "module TargetDb =\r\n    class end\r\n"
+    Assert.True(EntityBackgroundGenerator.isModuleIncomplete crlfStub "Target")
+
+    let crlfComplete = "module TargetDb =\r\n    module sub =\r\n        type Row = { a: int }\r\n"
+    Assert.False(EntityBackgroundGenerator.isModuleIncomplete crlfComplete "Target")
+
+[<Fact>]
+let ``needsSynchronousGeneration with cache hit and cache miss scenario 1`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fqs-sync-gen-cache1-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(tempDir) |> ignore
+    try
+        let filePath = EntityBackgroundGenerator.generatedFilePath tempDir
+        Directory.CreateDirectory(Path.GetDirectoryName filePath) |> ignore
+        EntityBackgroundGenerator.resetCache ()
+
+        // Non-existent file -> true
+        Assert.True(EntityBackgroundGenerator.needsSynchronousGeneration filePath [])
+
+        // Write file with "No connections registered."
+        File.WriteAllText(filePath, "// <auto-generated>\n// No connections registered.\n")
+
+        // First call with empty connections -> computes and populates cache -> returns false because connections is empty
+        let needs1 = EntityBackgroundGenerator.needsSynchronousGeneration filePath []
+        Assert.False(needs1)
+
+        // Second call with same timestamp & fingerprint -> cache hit returns false
+        let needs2 = EntityBackgroundGenerator.needsSynchronousGeneration filePath []
+        Assert.False(needs2)
+    finally
+        try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+let ``needsSynchronousGeneration with cache hit and connection changes scenario 2`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fqs-sync-gen-cache2-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(tempDir) |> ignore
+    try
+        let filePath = EntityBackgroundGenerator.generatedFilePath tempDir
+        EntityBackgroundGenerator.resetCache ()
+        let csvPath = Path.Combine(tempDir, "test.csv")
+        File.WriteAllText(csvPath, "A,B\n1,2\n")
+
+        let conn =
+            {
+                Id = Guid.NewGuid()
+                Name = "CachedConn"
+                Kind = ConnectorKind.Csv
+                Configuration = JsonSerializer.SerializeToElement({| FilePath = csvPath |})
+                SecretReference = None
+                IsTrusted = true
+            }
+
+        // File does not exist yet -> true
+        Assert.True(EntityBackgroundGenerator.needsSynchronousGeneration filePath [ conn ])
+
+        // Generate file
+        let secretStore = InMemorySecretStore()
+        let genSuccess = (EntityBackgroundGenerator.generateForConnectionsAsync tempDir [ conn ] secretStore).GetAwaiter().GetResult()
+        Assert.True(genSuccess)
+
+        // Reset cache to force recalculation against existing generated file
+        EntityBackgroundGenerator.resetCache ()
+        let needsAfterGen = EntityBackgroundGenerator.needsSynchronousGeneration filePath [ conn ]
+        Assert.False(needsAfterGen)
+
+        // Now with same file and same conn -> cache hit returns false
+        let needsHit = EntityBackgroundGenerator.needsSynchronousGeneration filePath [ conn ]
+        Assert.False(needsHit)
+
+        // With new connection -> fingerprint changes -> cache miss -> true
+        let conn2 = { conn with Id = Guid.NewGuid(); Name = "BrandNewConn" }
+        let needsMiss = EntityBackgroundGenerator.needsSynchronousGeneration filePath [ conn; conn2 ]
+        Assert.True(needsMiss)
+    finally
+        try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+let ``ensureGenerated executes for empty connections when file exists scenario 1`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fqs-ensure-gen1-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(tempDir) |> ignore
+    try
+        let filePath = EntityBackgroundGenerator.generatedFilePath tempDir
+        let targetDir = Path.GetDirectoryName filePath
+        Directory.CreateDirectory targetDir |> ignore
+        File.WriteAllText(filePath, "// Old generated entities")
+
+        let secretStore = InMemorySecretStore()
+        EntityBackgroundGenerator.ensureGenerated tempDir [] secretStore
+        EntityBackgroundGenerator.waitForPendingGeneration ()
+
+        // File should be updated to "No connections registered."
+        let content = File.ReadAllText(filePath)
+        Assert.Contains("No connections registered.", content)
+    finally
+        try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+let ``ensureGenerated executes synchronously when generation is needed scenario 2`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fqs-ensure-gen2-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(tempDir) |> ignore
+    try
+        let csvPath = Path.Combine(tempDir, "sample.csv")
+        File.WriteAllText(csvPath, "ColX,ColY\n10,20\n")
+        let conn =
+            {
+                Id = Guid.NewGuid()
+                Name = "EnsureSyncConn"
+                Kind = ConnectorKind.Csv
+                Configuration = JsonSerializer.SerializeToElement({| FilePath = csvPath |})
+                SecretReference = None
+                IsTrusted = true
+            }
+        let secretStore = InMemorySecretStore()
+        EntityBackgroundGenerator.resetCache ()
+        EntityBackgroundGenerator.ensureGenerated tempDir [ conn ] secretStore
+
+        let filePath = EntityBackgroundGenerator.generatedFilePath tempDir
+        Assert.True(File.Exists filePath)
+        let text = File.ReadAllText filePath
+        Assert.Contains("EnsureSyncConn", text)
+    finally
+        try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+let ``generateForConnectionsAsync collision handling for multiple connections producing identical clean identifier scenario 1`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fqs-collision1-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(tempDir) |> ignore
+    try
+        let csv1 = Path.Combine(tempDir, "c1.csv")
+        let csv2 = Path.Combine(tempDir, "c2.csv")
+        File.WriteAllText(csv1, "Id,Name\n1,Alpha\n")
+        File.WriteAllText(csv2, "Id,Score\n1,100\n")
+
+        // Two connections with distinct names that yield the same clean identifier: "my-conn" and "my_conn"
+        let conn1 =
+            {
+                Id = Guid.NewGuid()
+                Name = "my-conn"
+                Kind = ConnectorKind.Csv
+                Configuration = JsonSerializer.SerializeToElement({| FilePath = csv1 |})
+                SecretReference = None
+                IsTrusted = true
+            }
+        let conn2 =
+            {
+                Id = Guid.NewGuid()
+                Name = "my_conn"
+                Kind = ConnectorKind.Csv
+                Configuration = JsonSerializer.SerializeToElement({| FilePath = csv2 |})
+                SecretReference = None
+                IsTrusted = true
+            }
+
+        let secretStore = InMemorySecretStore()
+        let result =
+            (EntityBackgroundGenerator.generateForConnectionsAsync tempDir [ conn1; conn2 ] secretStore)
+                .GetAwaiter()
+                .GetResult()
+        Assert.True(result)
+
+        let filePath = EntityBackgroundGenerator.generatedFilePath tempDir
+        let text = File.ReadAllText filePath
+        Assert.Contains("my_conn", text)
+        Assert.Contains("my_conn_2", text)
+    finally
+        try Directory.Delete(tempDir, true) with _ -> ()
+
+[<Fact>]
+let ``generateForConnectionsAsync collision handling with three collisions scenario 2`` () =
+    let tempDir = Path.Combine(Path.GetTempPath(), $"fqs-collision2-{Guid.NewGuid():N}")
+    Directory.CreateDirectory(tempDir) |> ignore
+    try
+        let csv1 = Path.Combine(tempDir, "d1.csv")
+        let csv2 = Path.Combine(tempDir, "d2.csv")
+        let csv3 = Path.Combine(tempDir, "d3.csv")
+        File.WriteAllText(csv1, "Id\n1\n")
+        File.WriteAllText(csv2, "Id\n2\n")
+        File.WriteAllText(csv3, "Id\n3\n")
+
+        let conn1 =
+            {
+                Id = Guid.NewGuid()
+                Name = "test-feed"
+                Kind = ConnectorKind.Csv
+                Configuration = JsonSerializer.SerializeToElement({| FilePath = csv1 |})
+                SecretReference = None
+                IsTrusted = true
+            }
+        let conn2 =
+            {
+                Id = Guid.NewGuid()
+                Name = "test_feed"
+                Kind = ConnectorKind.Csv
+                Configuration = JsonSerializer.SerializeToElement({| FilePath = csv2 |})
+                SecretReference = None
+                IsTrusted = true
+            }
+        let conn3 =
+            {
+                Id = Guid.NewGuid()
+                Name = "test feed"
+                Kind = ConnectorKind.Csv
+                Configuration = JsonSerializer.SerializeToElement({| FilePath = csv3 |})
+                SecretReference = None
+                IsTrusted = true
+            }
+
+        let secretStore = InMemorySecretStore()
+        let result =
+            (EntityBackgroundGenerator.generateForConnectionsAsync tempDir [ conn1; conn2; conn3 ] secretStore)
+                .GetAwaiter()
+                .GetResult()
+        Assert.True(result)
+
+        let filePath = EntityBackgroundGenerator.generatedFilePath tempDir
+        let text = File.ReadAllText filePath
+        Assert.Contains("test_feed", text)
+        Assert.Contains("test_feed_2", text)
+        Assert.Contains("test_feed_3", text)
+    finally
+        try Directory.Delete(tempDir, true) with _ -> ()

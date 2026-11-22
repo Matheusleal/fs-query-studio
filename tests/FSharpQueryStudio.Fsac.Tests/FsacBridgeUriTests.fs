@@ -48,3 +48,17 @@ let ``fsacUriFor keeps two different cell handles distinct`` () =
 let ``fsacUriFor passes a file:// caller uri through unchanged`` () =
     let uri = "file:///d%3A/repo/loose-script.fsx"
     Assert.Equal(uri, FsacBridge.fsacUriFor uri)
+
+[<Fact>]
+let ``fsacUriFor handles document identifiers without scheme or colon prefix`` () =
+    let res = FsacBridge.fsacUriFor "simple_document"
+    Assert.StartsWith("file:///", res)
+    Assert.EndsWith(".fsx", res)
+    Assert.Contains("simple_document", res)
+
+[<Fact>]
+let ``fsacUriFor handles document identifiers with extension but no colon`` () =
+    let res = FsacBridge.fsacUriFor "script.fsx"
+    Assert.StartsWith("file:///", res)
+    Assert.EndsWith(".fsx", res)
+    Assert.False(res.EndsWith(".fsx.fsx"))

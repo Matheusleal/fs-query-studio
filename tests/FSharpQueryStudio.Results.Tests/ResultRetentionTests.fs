@@ -75,5 +75,57 @@ let ``tryGet matches case-insensitively and across URL-encoded URI variants`` ()
     Assert.True((ResultRetention.tryGet "file:///d%3A/Projects/test.fsqnb").IsNone)
 
 [<Fact>]
+let ``tryGet hits normalized key fallback when query key is URL encoded scenario 1`` () =
+    let result: RetainedResult =
+        {
+            Columns = [ "id" ]
+            Rows = [| [| box 101 |] |]
+        }
+    // Store under raw unencoded path
+    ResultRetention.set "file:///C:/Workspace/doc1.fsqnb" result
+    // Query with URL-encoded colon (%3A) which misses direct match and hits normalized fallback
+    let retrieved = ResultRetention.tryGet "file:///C%3A/Workspace/doc1.fsqnb"
+    Assert.True(retrieved.IsSome)
+    Assert.Equal<string list>([ "id" ], retrieved.Value.Columns)
+    Assert.Equal(box 101, retrieved.Value.Rows.[0].[0])
+    ResultRetention.discard "file:///C:/Workspace/doc1.fsqnb"
+
+[<Fact>]
+let ``tryGet hits normalized key fallback when query key has backslashes and encoded chars scenario 2`` () =
+    let result: RetainedResult =
+        {
+            Columns = [ "colA" ]
+            Rows = [| [| box "data" |] |]
+        }
+    // Store under clean forward-slash URI
+    ResultRetention.set "file:///D:/MyProject/notebook.fsqnb" result
+    // Query with backslash and encoded drive letter
+    let retrieved = ResultRetention.tryGet "file:///D%3A\\MyProject\\notebook.fsqnb"
+    Assert.True(retrieved.IsSome)
+    Assert.Equal<string list>([ "colA" ], retrieved.Value.Columns)
+    ResultRetention.discard "file:///D:/MyProject/notebook.fsqnb"
+
+[<Fact>]
+let ``tryGet and set with empty or null URI returns None and handles gracefully scenario 1`` () =
+    Assert.True((ResultRetention.tryGet "").IsNone)
+    Assert.True((ResultRetention.tryGet null).IsNone)
+    ResultRetention.discard ""
+    ResultRetention.discard null
+
+[<Fact>]
+let ``set and discard with empty or null URI does not throw or corrupt store scenario 2`` () =
+    let result: RetainedResult =
+        {
+            Columns = [ "x" ]
+            Rows = [| [| box 1 |] |]
+        }
+    ResultRetention.set "" result
+    ResultRetention.set null result
+    Assert.True((ResultRetention.tryGet "").IsNone)
+    Assert.True((ResultRetention.tryGet null).IsNone)
+    ResultRetention.discard ""
+    ResultRetention.discard null
+
+[<Fact>]
 let ``discard on a key nothing was ever set under does not throw`` () =
     ResultRetention.discard "untitled:NeverSetEither.fsx" // Must not throw.

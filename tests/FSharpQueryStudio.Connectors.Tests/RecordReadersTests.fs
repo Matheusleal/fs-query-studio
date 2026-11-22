@@ -1768,3 +1768,62 @@ let ``RecordReaders Read primitives unexpected object and fallback branches`` ()
     let mapped = mapper recObj
     Assert.Equal(10, mapped.Id)
     Assert.Null(mapped.Other)
+
+[<Fact>]
+let ``RecordReaders Read primitives with null object values return type defaults`` () =
+    let recNull: IDataRecord = MockDataRecord([| null |])
+    Assert.Equal(0, RecordReaders.ReadInt32(recNull, 0))
+    Assert.Equal(0L, RecordReaders.ReadInt64(recNull, 0))
+    Assert.Equal(0s, RecordReaders.ReadInt16(recNull, 0))
+    Assert.Equal(0M, RecordReaders.ReadDecimal(recNull, 0))
+    Assert.Equal(0.0, RecordReaders.ReadDouble(recNull, 0))
+    Assert.False(RecordReaders.ReadBool(recNull, 0))
+    Assert.Equal(DateTime.MinValue, RecordReaders.ReadDateTime(recNull, 0))
+    Assert.Equal(DateOnly.MinValue, RecordReaders.ReadDateOnly(recNull, 0))
+    Assert.Equal(TimeOnly.MinValue, RecordReaders.ReadTimeOnly(recNull, 0))
+    Assert.Empty(RecordReaders.ReadByteArray(recNull, 0))
+
+[<Fact>]
+let ``RecordReaders ReadDouble with int64 and float finite checks`` () =
+    let recInt64: IDataRecord = MockDataRecord([| box 1234567890123L |])
+    Assert.Equal(1234567890123.0, RecordReaders.ReadDouble(recInt64, 0))
+
+    let recNanFloat: IDataRecord = MockDataRecord([| box Single.NaN |])
+    Assert.Equal(0.0f, RecordReaders.ReadSingle(recNanFloat, 0))
+
+    let recInfFloat: IDataRecord = MockDataRecord([| box Single.PositiveInfinity |])
+    Assert.Equal(0.0f, RecordReaders.ReadSingle(recInfFloat, 0))
+
+[<Fact>]
+let ``RecordReaders ReadDateOnly and ReadTimeOnly with DateTimeOffset`` () =
+    let dto = DateTimeOffset(2025, 6, 15, 14, 30, 0, TimeSpan.FromHours(-3.0))
+    let recDto: IDataRecord = MockDataRecord([| box dto |])
+    Assert.Equal(DateOnly(2025, 6, 15), RecordReaders.ReadDateOnly(recDto, 0))
+    Assert.Equal(TimeOnly(14, 30, 0), RecordReaders.ReadTimeOnly(recDto, 0))
+
+    // String date with time
+    let recTimeStr: IDataRecord = MockDataRecord([| box "2025-06-15 14:30:00" |])
+    Assert.Equal(TimeOnly(14, 30, 0), RecordReaders.ReadTimeOnly(recTimeStr, 0))
+
+[<Fact>]
+let ``RecordReaders ReadNullable functions with DBNull return Nullable without value`` () =
+    let recDbNull: IDataRecord = MockDataRecord([| box DBNull.Value |])
+    Assert.False(RecordReaders.ReadNullableInt32(recDbNull, 0).HasValue)
+    Assert.False(RecordReaders.ReadNullableInt64(recDbNull, 0).HasValue)
+    Assert.False(RecordReaders.ReadNullableDecimal(recDbNull, 0).HasValue)
+    Assert.False(RecordReaders.ReadNullableDouble(recDbNull, 0).HasValue)
+    Assert.False(RecordReaders.ReadNullableDateTime(recDbNull, 0).HasValue)
+
+[<Fact>]
+let ``RecordReaders ConvertValue converts string decimal to clamped int and int64`` () =
+    let resInt = RecordReaders.ConvertValue "1234.56" typeof<int>
+    Assert.Equal(box 1235, resInt)
+
+    let resInt64 = RecordReaders.ConvertValue "9876543210.45" typeof<int64>
+    Assert.Equal(box 9876543210L, resInt64)
+
+    let resInt64Str = RecordReaders.ConvertValue "9876543210" typeof<int64>
+    Assert.Equal(box 9876543210L, resInt64Str)
+
+    let resInt64Invalid = RecordReaders.ConvertValue "not-a-number" typeof<int64>
+    Assert.Equal(box 0L, resInt64Invalid)

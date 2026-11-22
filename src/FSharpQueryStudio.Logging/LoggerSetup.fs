@@ -2,6 +2,7 @@ namespace FSharpQueryStudio.Logging
 
 open System
 open System.IO
+open System.Runtime.CompilerServices
 open Serilog
 open Serilog.Events
 open Serilog.Formatting.Json
@@ -17,6 +18,7 @@ module LoggerSetup =
 
     /// The real per-user app-data logs folder used in production. Tests
     /// pass an explicit temp directory to `build` instead of this.
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     let defaultLogsDirectory () =
         Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
