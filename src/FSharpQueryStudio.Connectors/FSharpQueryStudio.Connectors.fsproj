@@ -17,14 +17,27 @@
     <Compile Include="SqlDialect.fs" />
     <Compile Include="SqlPushdownPlan.fs" />
     <Compile Include="RecordReaders.fs" />
+    <Compile Include="ExpressionPushdownTranslator.fs" />
     <Compile Include="SqlPushdownQuery.fs" />
+    <Compile Include="SqlComputationExtensions.fs" />
     <Compile Include="FileSqliteEngine.fs" />
+    <Compile Include="AdvancedSampleInitScripts.fs" />
+    <Compile Include="AdvancedSampleNotebookCommon.fs" />
+    <Compile Include="AdvancedSampleNotebooksPostgres.fs" />
+    <Compile Include="AdvancedSampleNotebooksSqlServer.fs" />
+    <Compile Include="AdvancedSampleNotebooksEngines.fs" />
     <Compile Include="AdvancedSampleGenerator.fs" />
+    <Compile Include="DatabaseEntityGenerator.fs" />
     <Compile Include="Connections.fs" />
+    <Compile Include="ConnectionExtensions.fs" />
     <Compile Include="ModularEntityGenerators.fs" />
     <Compile Include="BuiltinConnectors.fs" />
     <Compile Include="WorkspaceConnectionResolver.fs" />
     <Compile Include="EntityBackgroundGenerator.fs" />
+    <Compile Include="SampleDemoNotebookEn.fs" />
+    <Compile Include="SampleDemoNotebookPt.fs" />
+    <Compile Include="SampleDataSqlite.fs" />
+    <Compile Include="SampleDataFiles.fs" />
     <Compile Include="SampleDataGenerator.fs" />
   </ItemGroup>
 

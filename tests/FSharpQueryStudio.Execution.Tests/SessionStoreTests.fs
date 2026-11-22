@@ -15,7 +15,9 @@ let ``invalidates is false when the new source is unchanged or a pure append`` (
 [<InlineData("let x = 1", "let x = 2")>] // edited already-run text
 [<InlineData("let x = 1\nlet y = 2", "let x = 1")>] // deleted already-run text
 [<InlineData("let x = 1", "let y = 2")>] // unrelated replacement
-let ``invalidates is true when the new source is not a pure append of the last-executed one`` (lastSource: string, newSource: string) =
+let ``invalidates is true when the new source is not a pure append of the last-executed one``
+    (lastSource: string, newSource: string)
+    =
     Assert.True(SessionStore.invalidates lastSource newSource)
 
 [<Fact>]
@@ -139,4 +141,3 @@ let ``reset drops a session built up via appendFragment too`` () =
     finally
         SessionStore.reset key
         cleanupWorkingDirectory workDir
-

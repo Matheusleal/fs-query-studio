@@ -1,5 +1,7 @@
 namespace FSharpQueryStudio.Connectors
 
+open System.Threading
+open System.Threading.Tasks
 open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Security
 
@@ -8,7 +10,8 @@ open FSharpQueryStudio.Security
 /// When `workspaceDirectory` is provided, relative local file paths declared by a
 /// connector's `File` form fields are resolved against the workspace project root
 /// (the folder containing `.fsqs`), never against the worker's transient working directory.
-type WorkspaceConnectionResolver(connections: ConnectionDefinition list, secretStore: ISecretStore, ?workspaceDirectory: string) =
+type WorkspaceConnectionResolver
+    (connections: ConnectionDefinition list, secretStore: ISecretStore, ?workspaceDirectory: string) =
     do BuiltinConnectors.registerDefaults ()
 
     let baseDirectory =
@@ -18,11 +21,10 @@ type WorkspaceConnectionResolver(connections: ConnectionDefinition list, secretS
 
     let build (definition: ConnectionDefinition) : IConnector =
         let kindId = ConnectorRegistry.KindIdOf definition.Kind
+
         match ConnectorRegistry.Instance.TryGet kindId with
-        | Some _ ->
-            ConnectorRegistry.Instance.Resolve(definition, secretStore, baseDirectory)
-        | None ->
-            failwith $"No connector descriptor registered for kind '{kindId}' (connection '{definition.Name}')."
+        | Some _ -> ConnectorRegistry.Instance.Resolve(definition, secretStore, baseDirectory)
+        | None -> failwith $"No connector descriptor registered for kind '{kindId}' (connection '{definition.Name}')."
 
     /// The project root used to resolve relative file paths, if any.
     member _.BaseDirectory = baseDirectory
@@ -30,11 +32,33 @@ type WorkspaceConnectionResolver(connections: ConnectionDefinition list, secretS
     /// The registered connection definitions known to this resolver.
     member _.Connections = connections
 
+    member this.ResolveAsync(name: string, ?cancellationToken: CancellationToken) : Task<IConnector> =
+        let ct = defaultArg cancellationToken CancellationToken.None
+
+        task {
+            ct.ThrowIfCancellationRequested()
+
+            match
+                connections
+                |> List.tryFindBack (fun c ->
+                    System.String.Equals(c.Name, name, System.StringComparison.OrdinalIgnoreCase))
+            with
+            | Some definition -> return build definition
+            | None -> return failwith $"No connection named '{name}' is registered."
+        }
+
     interface IConnectionResolver with
         member _.Resolve(name: string) : IConnector =
-            match connections |> List.tryFindBack (fun c -> System.String.Equals(c.Name, name, System.StringComparison.OrdinalIgnoreCase)) with
+            match
+                connections
+                |> List.tryFindBack (fun c ->
+                    System.String.Equals(c.Name, name, System.StringComparison.OrdinalIgnoreCase))
+            with
             | Some definition -> build definition
             | None -> failwith $"No connection named '{name}' is registered."
+
+        member this.ResolveAsync(name: string, cancellationToken: CancellationToken) : Task<IConnector> =
+            this.ResolveAsync(name, cancellationToken)
 
     interface IWorkspaceAwareResolver with
         member _.BaseDirectory = baseDirectory

@@ -14,23 +14,28 @@ module CsvConnectorExtensions =
         static member Csv = ConnectorKind("Csv")
 
     type ConnectorCategory with
-        static member TabularFile = ConnectorCategory("csv", "Csv", "FSharpQueryStudio.Connectors.Connections.CsvCategory")
+        static member TabularFile =
+            ConnectorCategory("csv", "Csv", "FSharpQueryStudio.Connectors.Connections.CsvCategory")
 
 /// Delimiter/encoding/header options — Section 10's CSV connector
 /// capability shape.
 type CsvOptions =
-    { Delimiter: char
-      Encoding: Encoding
-      HasHeader: bool
-      ColumnTypes: Map<string, string>
-      ColumnTransforms: Map<string, string> }
+    {
+        Delimiter: char
+        Encoding: Encoding
+        HasHeader: bool
+        ColumnTypes: Map<string, string>
+        ColumnTransforms: Map<string, string>
+    }
 
     static member Default =
-        { Delimiter = ','
-          Encoding = Encoding.UTF8
-          HasHeader = true
-          ColumnTypes = Map.empty
-          ColumnTransforms = Map.empty }
+        {
+            Delimiter = ','
+            Encoding = Encoding.UTF8
+            HasHeader = true
+            ColumnTypes = Map.empty
+            ColumnTransforms = Map.empty
+        }
 
 /// A small RFC4180 streaming parser. `StreamReader.ReadLine` can't be
 /// used directly for this: a quoted field may itself contain a raw
@@ -90,7 +95,12 @@ module private CsvParsing =
 
     /// Fast streaming parser that reuses `field` and directly returns `obj array`
     /// without intermediate `string list` -> `obj list` -> `obj array` allocations per row.
-    let readRecordAsObjArray (reader: TextReader) (delimiter: char) (field: StringBuilder) (expectedCols: int) : obj array option =
+    let readRecordAsObjArray
+        (reader: TextReader)
+        (delimiter: char)
+        (field: StringBuilder)
+        (expectedCols: int)
+        : obj array option =
         if reader.Peek() = -1 then
             None
         else
@@ -157,6 +167,7 @@ module CsvConversions =
 
     let tryParseDecimal (s: string) : decimal option =
         let style = NumberStyles.AllowDecimalPoint ||| NumberStyles.AllowLeadingSign
+
         match Decimal.TryParse(s, style, CultureInfo.InvariantCulture) with
         | true, v -> Some v
         | false, _ ->
@@ -177,15 +188,22 @@ module CsvConversions =
 module CsvDelimiter =
     let detect (path: string) (encoding: Encoding option) : char =
         let enc = defaultArg encoding Encoding.UTF8
+
         let clean =
-            if String.IsNullOrWhiteSpace path then ""
-            else path.Trim().Trim('"', '\'')
+            if String.IsNullOrWhiteSpace path then
+                ""
+            else
+                path.Trim().Trim('"', '\'')
+
         try
-            if not (File.Exists clean) then ','
+            if not (File.Exists clean) then
+                ','
             else
                 use reader = new StreamReader(clean, enc)
                 let firstLine = reader.ReadLine()
-                if String.IsNullOrEmpty firstLine then ','
+
+                if String.IsNullOrEmpty firstLine then
+                    ','
                 else
                     let mutable commas = 0
                     let mutable semicolons = 0
@@ -194,7 +212,8 @@ module CsvDelimiter =
                     let mutable inQuotes = false
 
                     for ch in firstLine do
-                        if ch = '"' then inQuotes <- not inQuotes
+                        if ch = '"' then
+                            inQuotes <- not inQuotes
                         elif not inQuotes then
                             match ch with
                             | ',' -> commas <- commas + 1
@@ -212,25 +231,26 @@ module CsvDelimiter =
 /// Type inference helpers for CSV data sources.
 module CsvTypeInference =
     let cleanSample (s: string) : string =
-        if isNull s then ""
-        else s.Trim().Trim('"', '\'')
+        if isNull s then "" else s.Trim().Trim('"', '\'')
 
     let isSentinel (s: string) : bool =
-        if isNull s then false
+        if isNull s then
+            false
         else
             let t = s.Trim().Trim('"', '\'')
+
             String.Equals(t, "n/a", StringComparison.OrdinalIgnoreCase)
             || t = "-"
             || String.Equals(t, "null", StringComparison.OrdinalIgnoreCase)
 
     let isEmpty (s: string) : bool =
-        if isNull s then true
+        if isNull s then
+            true
         else
             let t = s.Trim().Trim('"', '\'')
             String.IsNullOrEmpty t
 
-    let isMissingOrSentinel (s: string) : bool =
-        isEmpty s || isSentinel s
+    let isMissingOrSentinel (s: string) : bool = isEmpty s || isSentinel s
 
     /// Infers an F# type from up to 200 sample string values.
     /// When sentinel values ("N/A", "-", "null") are encountered,
@@ -250,46 +270,68 @@ module CsvTypeInference =
             if hasSentinel then "string option" else "string"
         else
             let baseType =
-                if validValues |> List.forall (fun s ->
-                    match Int32.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture) with
-                    | true, _ -> true | false, _ -> false) then
+                if
+                    validValues
+                    |> List.forall (fun s ->
+                        match Int32.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+                        | true, _ -> true
+                        | false, _ -> false)
+                then
                     "int"
-                elif validValues |> List.forall (fun s ->
-                    match Int64.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture) with
-                    | true, _ -> true | false, _ -> false) then
+                elif
+                    validValues
+                    |> List.forall (fun s ->
+                        match Int64.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture) with
+                        | true, _ -> true
+                        | false, _ -> false)
+                then
                     "int64"
-                elif validValues |> List.forall (fun s ->
-                    let style = NumberStyles.Number ||| NumberStyles.AllowLeadingSign
-                    match Decimal.TryParse(s, style, CultureInfo.InvariantCulture) with
-                    | true, _ -> true
-                    | false, _ ->
-                        match Decimal.TryParse(s.Replace(",", "."), style, CultureInfo.InvariantCulture) with
+                elif
+                    validValues
+                    |> List.forall (fun s ->
+                        let style = NumberStyles.Number ||| NumberStyles.AllowLeadingSign
+
+                        match Decimal.TryParse(s, style, CultureInfo.InvariantCulture) with
                         | true, _ -> true
-                        | false, _ -> false) then
+                        | false, _ ->
+                            match Decimal.TryParse(s.Replace(",", "."), style, CultureInfo.InvariantCulture) with
+                            | true, _ -> true
+                            | false, _ -> false)
+                then
                     "decimal"
-                elif validValues |> List.forall (fun s ->
-                    let style = NumberStyles.Float ||| NumberStyles.AllowThousands
-                    match Double.TryParse(s, style, CultureInfo.InvariantCulture) with
-                    | true, _ -> true
-                    | false, _ ->
-                        match Double.TryParse(s.Replace(",", "."), style, CultureInfo.InvariantCulture) with
+                elif
+                    validValues
+                    |> List.forall (fun s ->
+                        let style = NumberStyles.Float ||| NumberStyles.AllowThousands
+
+                        match Double.TryParse(s, style, CultureInfo.InvariantCulture) with
                         | true, _ -> true
-                        | false, _ -> false) then
+                        | false, _ ->
+                            match Double.TryParse(s.Replace(",", "."), style, CultureInfo.InvariantCulture) with
+                            | true, _ -> true
+                            | false, _ -> false)
+                then
                     "double"
-                elif validValues |> List.forall (fun s ->
-                    match Boolean.TryParse(s) with
-                    | true, _ -> true
-                    | false, _ ->
-                        let l = s.ToLowerInvariant()
-                        l = "true" || l = "false" || l = "1" || l = "0") then
-                    "bool"
-                elif validValues |> List.forall (fun s ->
-                    match DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None) with
-                    | true, _ -> true
-                    | false, _ ->
-                        match DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.None) with
+                elif
+                    validValues
+                    |> List.forall (fun s ->
+                        match Boolean.TryParse(s) with
                         | true, _ -> true
-                        | false, _ -> false) then
+                        | false, _ ->
+                            let l = s.ToLowerInvariant()
+                            l = "true" || l = "false" || l = "1" || l = "0")
+                then
+                    "bool"
+                elif
+                    validValues
+                    |> List.forall (fun s ->
+                        match DateTime.TryParse(s, CultureInfo.InvariantCulture, DateTimeStyles.None) with
+                        | true, _ -> true
+                        | false, _ ->
+                            match DateTime.TryParse(s, CultureInfo.CurrentCulture, DateTimeStyles.None) with
+                            | true, _ -> true
+                            | false, _ -> false)
+                then
                     "System.DateTime"
                 else
                     "string"
@@ -305,21 +347,25 @@ module CsvTypeInference =
 /// delimiter (comma, semicolon, tab, pipe) when not explicitly specified.
 type CsvConnector(filePath: string, ?options: CsvOptions) =
     let cleanPath =
-        if String.IsNullOrWhiteSpace filePath then ""
-        else filePath.Trim().Trim('"', '\'')
+        if String.IsNullOrWhiteSpace filePath then
+            ""
+        else
+            filePath.Trim().Trim('"', '\'')
 
     let resolvedOptions =
         match options with
         | Some opt -> opt
         | None ->
             let autoDelim = CsvDelimiter.detect cleanPath None
-            { CsvOptions.Default with Delimiter = autoDelim }
+
+            { CsvOptions.Default with
+                Delimiter = autoDelim
+            }
 
     member _.FilePath = cleanPath
     member _.Options = resolvedOptions
 
-    static member DetectDelimiter(path: string, ?encoding: Encoding) : char =
-        CsvDelimiter.detect path encoding
+    static member DetectDelimiter(path: string, ?encoding: Encoding) : char = CsvDelimiter.detect path encoding
 
     /// Streams rows as a lazy sequence — Section 10's streaming-read
     /// requirement. `Rows` is genuinely re-enumerable: each enumeration
@@ -337,7 +383,15 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
     /// throwaway reader closed before this method returns.
     member _.ReadRows() : ConnectorQueryResult =
         let columns =
-            use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete, 4096)
+            use fs =
+                new FileStream(
+                    cleanPath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite ||| FileShare.Delete,
+                    4096
+                )
+
             use headerReader = new StreamReader(fs, resolvedOptions.Encoding, true, 4096)
 
             match CsvParsing.readRecord headerReader resolvedOptions.Delimiter with
@@ -349,29 +403,47 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
                     [ for i in 1 .. record.Length -> $"Column{i}" ]
 
         let expectedCols = columns.Length
+
         let isBlankLine (record: obj array) =
             expectedCols > 1
             && record.Length = 1
-            && (match record.[0] with :? string as s -> String.IsNullOrWhiteSpace s | _ -> false)
+            && (match record.[0] with
+                | :? string as s -> String.IsNullOrWhiteSpace s
+                | _ -> false)
 
         let hasTransforms = not resolvedOptions.ColumnTransforms.IsEmpty
+
         let applyRowTransforms (row: obj array) : obj array =
-            if not hasTransforms then row
+            if not hasTransforms then
+                row
             else
                 let mapped = Array.copy row
+
                 for i = 0 to min (columns.Length - 1) (mapped.Length - 1) do
                     let colName = columns.[i]
+
                     match resolvedOptions.ColumnTransforms.TryFind colName with
                     | Some expr -> mapped.[i] <- ColumnTransformation.applyTransform expr mapped.[i]
                     | None -> ()
+
                 mapped
 
         let rows =
             seq {
-                use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete, 65536)
+                use fs =
+                    new FileStream(
+                        cleanPath,
+                        FileMode.Open,
+                        FileAccess.Read,
+                        FileShare.ReadWrite ||| FileShare.Delete,
+                        65536
+                    )
+
                 use streamReader = new StreamReader(fs, resolvedOptions.Encoding, true, 65536)
                 let sb = StringBuilder(256)
-                let first = CsvParsing.readRecordAsObjArray streamReader resolvedOptions.Delimiter sb expectedCols
+
+                let first =
+                    CsvParsing.readRecordAsObjArray streamReader resolvedOptions.Delimiter sb expectedCols
 
                 match first, resolvedOptions.HasHeader with
                 | Some record, false when not (isBlankLine record) -> yield applyRowTransforms record
@@ -406,17 +478,123 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
                 columns
                 |> List.mapi (fun idx colName ->
                     let explicitType = resolvedOptions.ColumnTypes.TryFind colName
+
                     let colType =
                         match explicitType with
                         | Some t -> t
                         | None ->
-                            let samples = rowsSample |> Seq.map (fun r -> if idx < r.Length then string r.[idx] else "")
+                            let samples =
+                                rowsSample |> Seq.map (fun r -> if idx < r.Length then string r.[idx] else "")
+
                             TabularTypeInference.inferType samples
-                    { Name = colName; DataType = colType }: ConnectorColumn
-                )
+
+                    { Name = colName; DataType = colType }: ConnectorColumn)
 
             let table: ConnectorTable =
-                { Name = Path.GetFileNameWithoutExtension(cleanPath)
-                  Columns = colsWithTypes }
+                {
+                    Name = Path.GetFileNameWithoutExtension(cleanPath)
+                    Columns = colsWithTypes
+                }
 
             Task.FromResult [ table ]
+
+    member this.StagePrimaryTable(engine: IStagingEngine, connName: string) : string =
+        let colTypes =
+            if resolvedOptions.ColumnTypes.IsEmpty then
+                None
+            else
+                Some resolvedOptions.ColumnTypes
+
+        let cleanTableName =
+            engine.EnsureStaged(connName, cleanPath, (fun () -> this.ReadRows()), ?columnTypes = colTypes)
+
+        let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(cleanPath)
+
+        if not (String.IsNullOrWhiteSpace fileBaseName) then
+            engine.EnsureAliasView(fileBaseName, cleanTableName)
+            engine.EnsureAliasView($"{connName}_{fileBaseName}", cleanTableName)
+
+        cleanTableName
+
+    interface IStagableConnector with
+        member _.FilePath = cleanPath
+
+        member this.StageConnection
+            (
+                engine: IStagingEngine,
+                connName: string,
+                currentIndex: int,
+                totalCount: int,
+                onProgress: (StagingProgressEvent -> unit) option
+            ) : StagingResult =
+            let fullPath = cleanPath
+
+            if engine.IsStagedAndCurrent(connName, fullPath) then
+                match onProgress with
+                | Some cb ->
+                    cb
+                        {
+                            TableName = connName
+                            FilePath = fullPath
+                            Phase = "Skipped"
+                            RowCount = None
+                            CurrentIndex = Some currentIndex
+                            TotalCount = Some totalCount
+                            ElapsedMs = Some 0L
+                            Message = Some $"'{connName}' is up-to-date in cache"
+                        }
+                | None -> ()
+
+                let clean = CodeGenerationHelpers.cleanIdentifier connName
+
+                let cleanTableName =
+                    if String.IsNullOrWhiteSpace clean then
+                        "StagedFile"
+                    else
+                        clean
+
+                let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(fullPath)
+
+                if not (String.IsNullOrWhiteSpace fileBaseName) then
+                    engine.EnsureAliasView(fileBaseName, cleanTableName)
+                    engine.EnsureAliasView($"{connName}_{fileBaseName}", cleanTableName)
+
+                { StagedCount = 0; SkippedCount = 1 }
+            else
+                let colTypes =
+                    if resolvedOptions.ColumnTypes.IsEmpty then
+                        None
+                    else
+                        Some resolvedOptions.ColumnTypes
+
+                let cleanTableName =
+                    engine.EnsureStaged(
+                        connName,
+                        fullPath,
+                        (fun () -> this.ReadRows()),
+                        ?columnTypes = colTypes,
+                        currentIndex = currentIndex,
+                        totalCount = totalCount,
+                        ?onProgress = onProgress
+                    )
+
+                let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(fullPath)
+
+                if not (String.IsNullOrWhiteSpace fileBaseName) then
+                    engine.EnsureAliasView(fileBaseName, cleanTableName)
+                    engine.EnsureAliasView($"{connName}_{fileBaseName}", cleanTableName)
+
+                { StagedCount = 1; SkippedCount = 0 }
+
+        member this.StagePrimaryTable(engine: IStagingEngine, connName: string) =
+            this.StagePrimaryTable(engine, connName)
+
+        member this.ReadRaw(maxRows: int option) =
+            let result = this.ReadRows()
+
+            match maxRows with
+            | Some m when m >= 0 ->
+                { result with
+                    Rows = result.Rows |> Seq.truncate m
+                }
+            | _ -> result

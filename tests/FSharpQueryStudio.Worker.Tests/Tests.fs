@@ -18,9 +18,11 @@ type private OneByteAtATimeStream(data: byte[]) =
     override _.CanSeek = false
     override _.CanWrite = false
     override _.Length = int64 data.Length
+
     override _.Position
         with get () = int64 pos
         and set _ = failwith "not supported"
+
     override _.Flush() = ()
     override _.Seek(_, _) = failwith "not supported"
     override _.SetLength(_) = failwith "not supported"
@@ -34,9 +36,7 @@ type private OneByteAtATimeStream(data: byte[]) =
             pos <- pos + 1
             1
 
-    override _.ReadAsync
-        (buffer: Memory<byte>, _cancellationToken: CancellationToken)
-        : ValueTask<int> =
+    override _.ReadAsync(buffer: Memory<byte>, _cancellationToken: CancellationToken) : ValueTask<int> =
         if pos >= data.Length then
             ValueTask<int>(0)
         else
@@ -45,9 +45,11 @@ type private OneByteAtATimeStream(data: byte[]) =
             ValueTask<int>(1)
 
 let private sampleRequest (paramsJson: string) =
-    { Id = "req-1"
-      Method = "worker/health"
-      Params = Text.Json.JsonDocument.Parse(paramsJson).RootElement }
+    {
+        Id = "req-1"
+        Method = "worker/health"
+        Params = Text.Json.JsonDocument.Parse(paramsJson).RootElement
+    }
 
 [<Fact>]
 let ``readFrame reassembles a full line from a stream that delivers one byte at a time`` () =
@@ -70,9 +72,11 @@ let ``readFrame reassembles a full line from a stream that delivers one byte at 
 let ``a string value containing a newline round-trips as exactly one frame`` () =
     task {
         let frame = sampleRequest """{"note":"line one"}"""
+
         let framWithNewline =
             { frame with
-                Params = Text.Json.JsonDocument.Parse("""{"note":"line one\nline two"}""").RootElement }
+                Params = Text.Json.JsonDocument.Parse("""{"note":"line one\nline two"}""").RootElement
+            }
 
         use stream = new MemoryStream()
         use writer = new StreamWriter(stream, Encoding.UTF8, leaveOpen = true)

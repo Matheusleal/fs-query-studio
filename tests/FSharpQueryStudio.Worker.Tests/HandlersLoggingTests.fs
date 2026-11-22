@@ -22,10 +22,7 @@ let private withCollectingLogger (test: List<LogEvent> -> unit) =
     let events = List<LogEvent>()
 
     let testLogger =
-        LoggerConfiguration()
-            .Enrich.FromLogContext()
-            .WriteTo.Sink(CollectingSink(events))
-            .CreateLogger()
+        LoggerConfiguration().Enrich.FromLogContext().WriteTo.Sink(CollectingSink(events)).CreateLogger()
 
     let original = Log.Logger
     Log.Logger <- testLogger
@@ -41,17 +38,21 @@ let private scalarValue (evt: LogEvent) (propertyName: string) : obj =
     | other -> failwithf "expected a ScalarValue for %s, got %A" propertyName other
 
 let private evaluateRequest (id: string) (source: string) : WorkerRequestFrame =
-    { Id = id
-      Method = "execution/evaluate"
-      Params =
-        JsonSerializer.SerializeToElement<EvaluateParams>(
-            { Source = source
-              SessionId = None
-              Mode = Isolated
-              DocumentUri = "untitled:Test.fsx"
-              IsNotebookCell = false },
-            Serialization.options
-        ) }
+    {
+        Id = id
+        Method = "execution/evaluate"
+        Params =
+            JsonSerializer.SerializeToElement<EvaluateParams>(
+                {
+                    Source = source
+                    SessionId = None
+                    Mode = Isolated
+                    DocumentUri = "untitled:Test.fsx"
+                    IsNotebookCell = false
+                },
+                Serialization.options
+            )
+    }
 
 [<Fact>]
 let ``runEvaluate logs session creation and execution outcome, both carrying the request's CorrelationId`` () =
@@ -63,14 +64,16 @@ let ``runEvaluate logs session creation and execution outcome, both carrying the
         | Choice1Of2 workDir -> Handlers.runEvaluate (evaluateRequest "corr-eval-1" "1 + 1") workDir |> ignore
 
         let sessionEvent =
-            events |> Seq.tryFind (fun e -> e.MessageTemplate.Text.Contains("Creating FSI session"))
+            events
+            |> Seq.tryFind (fun e -> e.MessageTemplate.Text.Contains("Creating FSI session"))
 
         match sessionEvent with
         | None -> failwith "expected a session-creation log event"
         | Some evt -> Assert.Equal(box "corr-eval-1", scalarValue evt Correlation.CorrelationIdPropertyName)
 
         let outcomeEvent =
-            events |> Seq.tryFind (fun e -> e.MessageTemplate.Text.Contains("Execution completed"))
+            events
+            |> Seq.tryFind (fun e -> e.MessageTemplate.Text.Contains("Execution completed"))
 
         match outcomeEvent with
         | None -> failwith "expected an execution-completed log event"
@@ -84,13 +87,16 @@ let ``handleCancel logs a cancellation-requested event carrying the request's Co
         use _ = Correlation.pushCorrelationId "corr-cancel-1"
 
         Handlers.handleCancel
-            { Id = "corr-cancel-1"
-              Method = "execution/cancel"
-              Params = JsonDocument.Parse("{}").RootElement }
+            {
+                Id = "corr-cancel-1"
+                Method = "execution/cancel"
+                Params = JsonDocument.Parse("{}").RootElement
+            }
         |> ignore
 
         let cancelEvent =
-            events |> Seq.tryFind (fun e -> e.MessageTemplate.Text.Contains("Cancellation requested"))
+            events
+            |> Seq.tryFind (fun e -> e.MessageTemplate.Text.Contains("Cancellation requested"))
 
         match cancelEvent with
         | None -> failwith "expected a cancellation-requested log event"

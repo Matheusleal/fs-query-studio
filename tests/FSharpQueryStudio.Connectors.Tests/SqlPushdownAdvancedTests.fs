@@ -9,34 +9,40 @@ open FSharpQueryStudio.Connectors
 open FSharpQueryStudio.Protocol
 
 [<CLIMutable>]
-type AdvProduct = {
-    Id: int
-    Name: string
-    Price: decimal
-    Category: string
-    InStock: bool
-}
+type AdvProduct =
+    {
+        Id: int
+        Name: string
+        Price: decimal
+        Category: string
+        InStock: bool
+    }
 
 [<CLIMutable>]
-type AdvCustomer = {
-    CustomerId: int
-    CustomerName: string
-}
+type AdvCustomer =
+    {
+        CustomerId: int
+        CustomerName: string
+    }
 
 [<CLIMutable>]
-type AdvOrder = {
-    OrderId: int
-    CustomerId: int
-    Amount: decimal
-    Status: string
-}
+type AdvOrder =
+    {
+        OrderId: int
+        CustomerId: int
+        Amount: decimal
+        Status: string
+    }
 
 type AdvTempSqliteDb() =
-    let path = Path.Combine(Path.GetTempPath(), $"pushdown_adv_test_{Guid.NewGuid():N}.db")
+    let path =
+        Path.Combine(Path.GetTempPath(), $"pushdown_adv_test_{Guid.NewGuid():N}.db")
+
     do
         use conn = new SqliteConnection($"Data Source={path}")
         conn.Open()
         use cmd = conn.CreateCommand()
+
         cmd.CommandText <-
             "CREATE TABLE Products (Id INTEGER PRIMARY KEY, Name TEXT, Price NUMERIC, Category TEXT, InStock INTEGER); \
              INSERT INTO Products VALUES (1, '  Keyboard  ', 45.50, 'Electronics', 1); \
@@ -55,12 +61,18 @@ type AdvTempSqliteDb() =
              INSERT INTO Orders VALUES (102, 1, 200.00, 'Completed'); \
              INSERT INTO Orders VALUES (103, 2, 50.00, 'Pending'); \
              INSERT INTO Orders VALUES (104, 999, 99.00, 'Guest');"
+
         cmd.ExecuteNonQuery() |> ignore
 
     member _.Path = path
+
     interface IDisposable with
         member _.Dispose() =
-            try if File.Exists(path) then File.Delete(path) with _ -> ()
+            try
+                if File.Exists(path) then
+                    File.Delete(path)
+            with _ ->
+                ()
 
 // =========================================================================
 // 1. RIGHT OUTER JOIN TESTS
@@ -76,12 +88,16 @@ let ``fsql rightOuterJoin generates RIGHT OUTER JOIN and executes correctly on S
     let q =
         fsql {
             for c in customers do
-            rightOuterJoin o in orders on (c.CustomerId = o.CustomerId)
-            select (c.CustomerName, o.Amount)
+                rightOuterJoin o in orders on (c.CustomerId = o.CustomerId)
+                select (c.CustomerName, o.Amount)
         }
 
     let sql = toRawSql q
-    Assert.True(sql.Contains("RIGHT OUTER JOIN Orders") || sql.Contains("RIGHT JOIN Orders"), $"Expected RIGHT JOIN in SQL: {sql}")
+
+    Assert.True(
+        sql.Contains("RIGHT OUTER JOIN Orders") || sql.Contains("RIGHT JOIN Orders"),
+        $"Expected RIGHT JOIN in SQL: {sql}"
+    )
 
     let rows = q |> Seq.toList
     // All 4 orders (101, 102, 103, 104) must be in the result
@@ -110,27 +126,38 @@ let ``fsql rightOuterJoin generates compliant SQL across multiple dialects`` () 
     let qSqlServer =
         fsql {
             for c in SqlPushdownQueryable<AdvCustomer>(sqlServerConn, "Customers") do
-            rightOuterJoin o in SqlPushdownQueryable<AdvOrder>(sqlServerConn, "Orders") on (c.CustomerId = o.CustomerId)
-            select (c.CustomerName, o.Amount)
+                rightOuterJoin o in SqlPushdownQueryable<AdvOrder>
+                                        (sqlServerConn, "Orders")
+                                        on
+                                        (c.CustomerId = o.CustomerId)
+
+                select (c.CustomerName, o.Amount)
         }
+
     let sqlServerRaw = toRawSql qSqlServer
     Assert.Contains("RIGHT OUTER JOIN Orders", sqlServerRaw)
 
     let qPg =
         fsql {
             for c in SqlPushdownQueryable<AdvCustomer>(pgConn, "customers") do
-            rightOuterJoin o in SqlPushdownQueryable<AdvOrder>(pgConn, "orders") on (c.CustomerId = o.CustomerId)
-            select (c.CustomerName, o.Amount)
+                rightOuterJoin o in SqlPushdownQueryable<AdvOrder> (pgConn, "orders") on (c.CustomerId = o.CustomerId)
+                select (c.CustomerName, o.Amount)
         }
+
     let pgRaw = toRawSql qPg
     Assert.Contains("RIGHT OUTER JOIN orders", pgRaw)
 
     let qSqlite =
         fsql {
             for c in SqlPushdownQueryable<AdvCustomer>(sqliteConn, "Customers") do
-            rightOuterJoin o in SqlPushdownQueryable<AdvOrder>(sqliteConn, "Orders") on (c.CustomerId = o.CustomerId)
-            select (c.CustomerName, o.Amount)
+                rightOuterJoin o in SqlPushdownQueryable<AdvOrder>
+                                        (sqliteConn, "Orders")
+                                        on
+                                        (c.CustomerId = o.CustomerId)
+
+                select (c.CustomerName, o.Amount)
         }
+
     let sqliteRaw = toRawSql qSqlite
     Assert.Contains("RIGHT OUTER JOIN Orders", sqliteRaw)
 
@@ -144,10 +171,10 @@ let ``fsql rightOuterJoin with where filtering and sorting pushes down predicate
     let q =
         fsql {
             for c in customers do
-            rightOuterJoin o in orders on (c.CustomerId = o.CustomerId)
-            where (o.Amount > 70.0M)
-            sortByDescending o.Amount
-            select (c.CustomerName, o.Amount)
+                rightOuterJoin o in orders on (c.CustomerId = o.CustomerId)
+                where (o.Amount > 70.0M)
+                sortByDescending o.Amount
+                select (c.CustomerName, o.Amount)
         }
 
     let sql = toRawSql q
@@ -177,13 +204,15 @@ let ``fsql denseRank compiles to DENSE_RANK OVER clause and executes with dense 
     let q =
         fsql {
             for p in products do
-            let w = fsql.window(partitionBy = p.Category, sortBy = p.Price)
-            select {|
-                Name = p.Name
-                Category = p.Category
-                Price = p.Price
-                DRank = fsql.denseRank(over = w)
-            |}
+                let w = fsql.window (partitionBy = p.Category, sortBy = p.Price)
+
+                select
+                    {|
+                        Name = p.Name
+                        Category = p.Category
+                        Price = p.Price
+                        DRank = fsql.denseRank (over = w)
+                    |}
         }
 
     let sql = toRawSql q
@@ -193,14 +222,22 @@ let ``fsql denseRank compiles to DENSE_RANK OVER clause and executes with dense 
     Assert.Equal(7, rows.Length)
 
     // Electronics: Mouse (25.00 -> 1), Keyboard (45.50 -> 2), Monitor (299.99 -> 3)
-    let elec = rows |> List.filter (fun r -> r.Category = "Electronics") |> List.sortBy (fun r -> r.Price)
+    let elec =
+        rows
+        |> List.filter (fun r -> r.Category = "Electronics")
+        |> List.sortBy (fun r -> r.Price)
+
     Assert.Equal(3, elec.Length)
     Assert.Equal(1L, elec.[0].DRank)
     Assert.Equal(2L, elec.[1].DRank)
     Assert.Equal(3L, elec.[2].DRank)
 
     // Stationery: Pen (1.50 -> 1), Notebook (5.99 -> 2), Stapler (12.00 -> 3), Desk Pad (25.00 -> 4)
-    let stat = rows |> List.filter (fun r -> r.Category = "Stationery") |> List.sortBy (fun r -> r.Price)
+    let stat =
+        rows
+        |> List.filter (fun r -> r.Category = "Stationery")
+        |> List.sortBy (fun r -> r.Price)
+
     Assert.Equal(4, stat.Length)
     Assert.Equal(1L, stat.[0].DRank)
     Assert.Equal(2L, stat.[1].DRank)
@@ -216,13 +253,16 @@ let ``fsql ntile compiles to NTILE(2) and NTILE(4) and divides rows on SQLite`` 
     let q2 =
         fsql {
             for p in products do
-            let w = fsql.window(sortBy = p.Price)
-            select {|
-                Name = p.Name
-                Price = p.Price
-                Tile2 = fsql.ntile(2, over = w)
-            |}
+                let w = fsql.window (sortBy = p.Price)
+
+                select
+                    {|
+                        Name = p.Name
+                        Price = p.Price
+                        Tile2 = fsql.ntile (2, over = w)
+                    |}
         }
+
     let sql2 = toRawSql q2
     Assert.Contains("NTILE(2) OVER (ORDER BY Price ASC) AS Tile2", sql2)
 
@@ -237,20 +277,29 @@ let ``fsql ntile compiles to NTILE(2) and NTILE(4) and divides rows on SQLite`` 
     let q4 =
         fsql {
             for p in products do
-            let w = fsql.window(sortBy = p.Price)
-            select {|
-                Name = p.Name
-                Price = p.Price
-                Quartile = fsql.ntile(4, over = w)
-            |}
+                let w = fsql.window (sortBy = p.Price)
+
+                select
+                    {|
+                        Name = p.Name
+                        Price = p.Price
+                        Quartile = fsql.ntile (4, over = w)
+                    |}
         }
+
     let sql4 = toRawSql q4
     Assert.Contains("NTILE(4) OVER (ORDER BY Price ASC) AS Quartile", sql4)
 
     let rows4 = q4 |> Seq.toList
     Assert.Equal(7, rows4.Length)
     let quartiles = rows4 |> List.map (fun r -> r.Quartile) |> Set.ofList
-    Assert.True(quartiles.Contains(1L) && quartiles.Contains(2L) && quartiles.Contains(3L) && quartiles.Contains(4L))
+
+    Assert.True(
+        quartiles.Contains(1L)
+        && quartiles.Contains(2L)
+        && quartiles.Contains(3L)
+        && quartiles.Contains(4L)
+    )
 
 [<Fact>]
 let ``fsql firstValue and lastValue compile to FIRST_VALUE and LAST_VALUE and execute on SQLite`` () =
@@ -261,14 +310,16 @@ let ``fsql firstValue and lastValue compile to FIRST_VALUE and LAST_VALUE and ex
     let q =
         fsql {
             for p in products do
-            let w = fsql.window(partitionBy = p.Category, sortBy = p.Price)
-            select {|
-                Name = p.Name
-                Category = p.Category
-                Price = p.Price
-                CheapestInCat = fsql.firstValue(p.Price, over = w)
-                LastInCat = fsql.lastValue(p.Price, over = w)
-            |}
+                let w = fsql.window (partitionBy = p.Category, sortBy = p.Price)
+
+                select
+                    {|
+                        Name = p.Name
+                        Category = p.Category
+                        Price = p.Price
+                        CheapestInCat = fsql.firstValue (p.Price, over = w)
+                        LastInCat = fsql.lastValue (p.Price, over = w)
+                    |}
         }
 
     let sql = toRawSql q
@@ -280,11 +331,13 @@ let ``fsql firstValue and lastValue compile to FIRST_VALUE and LAST_VALUE and ex
 
     // In Electronics, cheapest is Mouse (25.00)
     let elec = rows |> List.filter (fun r -> r.Category = "Electronics")
+
     for item in elec do
         Assert.Equal(25.00M, item.CheapestInCat)
 
     // In Stationery, cheapest is Pen (1.50)
     let stat = rows |> List.filter (fun r -> r.Category = "Stationery")
+
     for item in stat do
         Assert.Equal(1.50M, item.CheapestInCat)
 
@@ -297,14 +350,16 @@ let ``fsql lag and lead with offset and defaultValue compile and execute correct
     let q =
         fsql {
             for p in products do
-            let w = fsql.window(partitionBy = p.Category, sortBy = p.Price)
-            select {|
-                Id = p.Id
-                Category = p.Category
-                Price = p.Price
-                PrevPrice = fsql.lag(p.Price, 1, 0.0M, over = w)
-                NextPrice = fsql.lead(p.Price, 1, 999.0M, over = w)
-            |}
+                let w = fsql.window (partitionBy = p.Category, sortBy = p.Price)
+
+                select
+                    {|
+                        Id = p.Id
+                        Category = p.Category
+                        Price = p.Price
+                        PrevPrice = fsql.lag (p.Price, 1, 0.0M, over = w)
+                        NextPrice = fsql.lead (p.Price, 1, 999.0M, over = w)
+                    |}
         }
 
     let sql = toRawSql q
@@ -315,7 +370,10 @@ let ``fsql lag and lead with offset and defaultValue compile and execute correct
     Assert.Equal(7, rows.Length)
 
     // In Electronics sorted by Price (25.00 Mouse, 45.50 Keyboard, 299.99 Monitor)
-    let elec = rows |> List.filter (fun r -> r.Category = "Electronics") |> List.sortBy (fun r -> r.Price)
+    let elec =
+        rows
+        |> List.filter (fun r -> r.Category = "Electronics")
+        |> List.sortBy (fun r -> r.Price)
     // First item has no prev -> defaultValue 0.0M
     Assert.Equal(0.0M, elec.[0].PrevPrice)
     Assert.Equal(45.50M, elec.[0].NextPrice)
@@ -337,20 +395,26 @@ let ``fsql window with sortByDescending orders rankings from highest to lowest``
     let q =
         fsql {
             for p in products do
-            let w = fsql.window(partitionBy = p.Category, sortByDescending = p.Price)
-            select {|
-                Name = p.Name
-                Category = p.Category
-                Price = p.Price
-                RankDesc = fsql.denseRank(over = w)
-            |}
+                let w = fsql.window (partitionBy = p.Category, sortByDescending = p.Price)
+
+                select
+                    {|
+                        Name = p.Name
+                        Category = p.Category
+                        Price = p.Price
+                        RankDesc = fsql.denseRank (over = w)
+                    |}
         }
 
     let sql = toRawSql q
     Assert.Contains("DENSE_RANK() OVER (PARTITION BY Category ORDER BY Price DESC) AS RankDesc", sql)
 
     let rows = q |> Seq.toList
-    let elec = rows |> List.filter (fun r -> r.Category = "Electronics") |> List.sortByDescending (fun r -> r.Price)
+
+    let elec =
+        rows
+        |> List.filter (fun r -> r.Category = "Electronics")
+        |> List.sortByDescending (fun r -> r.Price)
     // Monitor (299.99 -> 1), Keyboard (45.50 -> 2), Mouse (25.00 -> 3)
     Assert.Equal(1L, elec.[0].RankDesc)
     Assert.Equal(2L, elec.[1].RankDesc)
@@ -369,8 +433,8 @@ let ``fsql scalar text projections ToUpper ToLower and Trim push down to SQL fun
     let q =
         fsql {
             for p in products do
-            where (p.Id = 1) // Product 1 is '  Keyboard  '
-            select (p.Name.ToUpper(), p.Name.ToLower(), p.Name.Trim())
+                where (p.Id = 1) // Product 1 is '  Keyboard  '
+                select (p.Name.ToUpper(), p.Name.ToLower(), p.Name.Trim())
         }
 
     let sql = toRawSql q
@@ -393,8 +457,8 @@ let ``fsql string concatenation in projection generates SQL concatenation operat
     let q =
         fsql {
             for p in products do
-            where (p.Id = 2) // Mouse
-            select (p.Category + ": " + p.Name)
+                where (p.Id = 2) // Mouse
+                select (p.Category + ": " + p.Name)
         }
 
     let sql = toRawSql q
@@ -412,8 +476,15 @@ let ``fsql and query groupBy with count compile to GROUP BY and COUNT and execut
     let q =
         fsql {
             for p in products do
-            groupBy p.Category into g
-            select (g.Key, fsql { for x in g do count })
+                groupBy p.Category into g
+
+                select (
+                    g.Key,
+                    fsql {
+                        for x in g do
+                            count
+                    }
+                )
         }
 
     let sql = toRawSql q
@@ -437,8 +508,8 @@ let ``fsql distinct aggregate queries compile to COUNT DISTINCT and SUM DISTINCT
     let distinctCats =
         fsql {
             for p in products do
-            distinct
-            select p.Category
+                distinct
+                select p.Category
         }
         |> Seq.toList
 
@@ -446,8 +517,7 @@ let ``fsql distinct aggregate queries compile to COUNT DISTINCT and SUM DISTINCT
     Assert.Contains("Electronics", distinctCats)
     Assert.Contains("Stationery", distinctCats)
 
-    let distinctCountSql =
-        toRawSql (products.Distinct().Select(fun p -> p.Category))
+    let distinctCountSql = toRawSql (products.Distinct().Select(fun p -> p.Category))
     Assert.Contains("SELECT DISTINCT", distinctCountSql)
 
 // =========================================================================
@@ -464,13 +534,14 @@ let ``fsql whereNotExists with multiple conditions compiles to NOT EXISTS subque
     let q =
         fsql {
             for c in customers do
-            whereNotExists (
-                fsql {
-                    for o in orders do
-                    where (o.CustomerId = c.CustomerId && o.Amount > 100.0M)
-                }
-            )
-            select c.CustomerName
+                whereNotExists (
+                    fsql {
+                        for o in orders do
+                            where (o.CustomerId = c.CustomerId && o.Amount > 100.0M)
+                    }
+                )
+
+                select c.CustomerName
         }
 
     let sql = toRawSql q
@@ -496,16 +567,24 @@ let ``fsql withCte combined with unionAll compiles to WITH CTE and UNION ALL and
     let combined =
         fsql {
             for p in products do
-            withCte "HighEnd" (fsql { for p1 in products do where (p1.Price >= 100.0M); select p1 })
-            where (p.Price >= 100.0M)
-            select p
-            unionAll (
-                fsql {
-                    for p2 in products do
-                    where (p2.Price <= 10.0M)
-                    select p2
-                }
-            )
+                withCte
+                    "HighEnd"
+                    (fsql {
+                        for p1 in products do
+                            where (p1.Price >= 100.0M)
+                            select p1
+                    })
+
+                where (p.Price >= 100.0M)
+                select p
+
+                unionAll (
+                    fsql {
+                        for p2 in products do
+                            where (p2.Price <= 10.0M)
+                            select p2
+                    }
+                )
         }
 
     let sql = toRawQuery combined
@@ -530,16 +609,24 @@ let ``fsql withCte combined with intersect compiles to WITH CTE and INTERSECT an
     let intersected =
         fsql {
             for p in products do
-            withCte "ElectronicsCte" (fsql { for p1 in products do where (p1.Category = "Electronics"); select p1 })
-            where (p.Category = "Electronics")
-            select p
-            intersect (
-                fsql {
-                    for p2 in products do
-                    where (p2.Price >= 30.0M)
-                    select p2
-                }
-            )
+                withCte
+                    "ElectronicsCte"
+                    (fsql {
+                        for p1 in products do
+                            where (p1.Category = "Electronics")
+                            select p1
+                    })
+
+                where (p.Category = "Electronics")
+                select p
+
+                intersect (
+                    fsql {
+                        for p2 in products do
+                            where (p2.Price >= 30.0M)
+                            select p2
+                    }
+                )
         }
 
     let sql = toRawQuery intersected
@@ -564,16 +651,24 @@ let ``fsql withCte combined with except compiles to WITH CTE and EXCEPT and exec
     let exceptQuery =
         fsql {
             for p in products do
-            withCte "ElectronicsCte" (fsql { for p1 in products do where (p1.Category = "Electronics"); select p1 })
-            where (p.Category = "Electronics")
-            select p
-            except (
-                fsql {
-                    for p2 in products do
-                    where (p2.Price >= 30.0M)
-                    select p2
-                }
-            )
+                withCte
+                    "ElectronicsCte"
+                    (fsql {
+                        for p1 in products do
+                            where (p1.Category = "Electronics")
+                            select p1
+                    })
+
+                where (p.Category = "Electronics")
+                select p
+
+                except (
+                    fsql {
+                        for p2 in products do
+                            where (p2.Price >= 30.0M)
+                            select p2
+                    }
+                )
         }
 
     let sql = toRawQuery exceptQuery

@@ -15,7 +15,11 @@ module SessionStore =
     /// `appendFragment` (E.4's notebook/cell mode) are two different
     /// update policies over the same log: the former treats it as a
     /// single revise-in-place entry, the latter always grows it by one.
-    type private Entry = { Session: FsiSession.Session; LastFragments: string list }
+    type private Entry =
+        {
+            Session: FsiSession.Session
+            LastFragments: string list
+        }
 
     let private sessions = ConcurrentDictionary<string, Entry>()
 
@@ -33,27 +37,42 @@ module SessionStore =
     /// stale bindings can never leak into the new evaluation. Every call
     /// leaves the log holding exactly `[source]`, replacing whatever was
     /// there before.
-    let getOrCreateInWorkspace (key: string) (workingDirectory: string) (source: string) (workspaceDirectory: string) : FsiSession.Session =
+    let getOrCreateInWorkspace
+        (key: string)
+        (workingDirectory: string)
+        (source: string)
+        (workspaceDirectory: string)
+        : FsiSession.Session =
         let session =
             match sessions.TryGetValue(key) with
             | true, existing ->
                 let lastSource = existing.LastFragments |> List.tryLast |> Option.defaultValue ""
+
                 if invalidates lastSource source then
                     FsiSession.createInWorkspace workingDirectory workspaceDirectory
                 else
                     Directory.SetCurrentDirectory(workingDirectory)
                     FsiSession.refreshGeneratedEntities workingDirectory workspaceDirectory existing.Session
                     existing.Session
-            | false, _ ->
-                FsiSession.createInWorkspace workingDirectory workspaceDirectory
+            | false, _ -> FsiSession.createInWorkspace workingDirectory workspaceDirectory
 
-        sessions.[key] <- { Session = session; LastFragments = [ source ] }
+        sessions.[key] <-
+            {
+                Session = session
+                LastFragments = [ source ]
+            }
+
         session
 
     let getOrCreate (key: string) (workingDirectory: string) (source: string) : FsiSession.Session =
         getOrCreateInWorkspace key workingDirectory source ""
 
-    let appendFragmentInWorkspace (key: string) (workingDirectory: string) (fragment: string) (workspaceDirectory: string) : FsiSession.Session =
+    let appendFragmentInWorkspace
+        (key: string)
+        (workingDirectory: string)
+        (fragment: string)
+        (workspaceDirectory: string)
+        : FsiSession.Session =
         let entry =
             match sessions.TryGetValue(key) with
             | true, existing ->
@@ -61,10 +80,15 @@ module SessionStore =
                 FsiSession.refreshGeneratedEntities workingDirectory workspaceDirectory existing.Session
                 existing
             | false, _ ->
-                { Session = FsiSession.createInWorkspace workingDirectory workspaceDirectory; LastFragments = [] }
+                {
+                    Session = FsiSession.createInWorkspace workingDirectory workspaceDirectory
+                    LastFragments = []
+                }
 
         let updated =
-            { entry with LastFragments = [ fragment ] }
+            { entry with
+                LastFragments = [ fragment ]
+            }
 
         sessions.[key] <- updated
         updated.Session

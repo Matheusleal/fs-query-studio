@@ -10,14 +10,17 @@ open FSharp.Compiler.Interactive.Shell
 module Evaluation =
 
     type EvaluationOutcome =
-        { Value: FsiValue option
-          Output: string
-          ErrorOutput: string
-          Diagnostics: FSharpDiagnostic[]
-          Exception: exn option }
+        {
+            Value: FsiValue option
+            Output: string
+            ErrorOutput: string
+            Diagnostics: FSharpDiagnostic[]
+            Exception: exn option
+        }
 
     let private trimStringBuilder (sb: System.Text.StringBuilder) =
         sb.Clear() |> ignore
+
         if sb.Capacity > 4096 then
             sb.Capacity <- 4096
 
@@ -42,8 +45,10 @@ module Evaluation =
         trimStringBuilder (session.Output.GetStringBuilder())
         trimStringBuilder (session.Errors.GetStringBuilder())
 
-        { Value = value
-          Output = outputStr
-          ErrorOutput = errorStr
-          Diagnostics = diagnostics
-          Exception = exn }
+        {
+            Value = value
+            Output = outputStr
+            ErrorOutput = errorStr
+            Diagnostics = diagnostics
+            Exception = exn
+        }

@@ -14,18 +14,22 @@ module OracleConnectorExtensions =
         static member Oracle = ConnectorKind("Oracle")
 
     type ConnectorCategory with
-        static member Sql = ConnectorCategory("sql", "Db", "FSharpQueryStudio.Connectors.Connections.SqlCategory")
+        static member Sql =
+            ConnectorCategory("sql", "Db", "FSharpQueryStudio.Connectors.Connections.SqlCategory")
 
 /// Oracle connector — connection, parameterized commands, reader-based paging, schema discovery.
 type OracleConnector(connectionString: string) =
 
     /// Adapts `@param` syntax to Oracle `:param` bind variable syntax and strips illegal leading underscores from unquoted identifiers.
     static member PrepareSql(sql: string) =
-        if String.IsNullOrEmpty sql then sql
+        if String.IsNullOrEmpty sql then
+            sql
         else
             let paramPrepared =
-                if sql.Contains("@") then Regex.Replace(sql, @"@([a-zA-Z0-9_]+)", ":$1")
-                else sql
+                if sql.Contains("@") then
+                    Regex.Replace(sql, @"@([a-zA-Z0-9_]+)", ":$1")
+                else
+                    sql
             // In Oracle SQL, unquoted identifiers cannot begin with an underscore '_'.
             // Automatically strip leading underscores from generated aliases like _t0, _sub1, _src.
             Regex.Replace(paramPrepared, @"\b_([a-zA-Z0-9_]+)\b", "$1")
@@ -33,6 +37,7 @@ type OracleConnector(connectionString: string) =
     /// Binds every `(name, value)` pair as a real `OracleParameter` — never string-concatenated into `sql`.
     static member BindParameters(command: OracleCommand, parameters: (string * obj) list) =
         command.BindByName <- true
+
         for name, value in parameters do
             let cleanName = name.TrimStart('@', ':')
             let paramValue = if isNull value then box DBNull.Value else value
@@ -50,18 +55,23 @@ type OracleConnector(connectionString: string) =
         initialCmd.CommandText <- targetSql
         OracleConnector.BindParameters(initialCmd, parameters)
         let initialReader = initialCmd.ExecuteReader(CommandBehavior.CloseConnection)
-        let columns = [ for i in 0 .. initialReader.FieldCount - 1 -> initialReader.GetName(i) ]
-        let mutable firstRun = Some (initialConn, initialCmd, initialReader)
+
+        let columns =
+            [ for i in 0 .. initialReader.FieldCount - 1 -> initialReader.GetName(i) ]
+
+        let mutable firstRun = Some(initialConn, initialCmd, initialReader)
 
         let rows =
             Seq.delay (fun () ->
                 match firstRun with
-                | Some (conn, cmd, reader) ->
+                | Some(conn, cmd, reader) ->
                     firstRun <- None
+
                     seq {
                         use _c = conn
                         use _cmd = cmd
                         use _r = reader
+
                         while reader.Read() do
                             yield [| for i in 0 .. reader.FieldCount - 1 -> reader.GetValue(i) |]
                     }
@@ -72,20 +82,26 @@ type OracleConnector(connectionString: string) =
                     cmd.CommandText <- targetSql
                     OracleConnector.BindParameters(cmd, parameters)
                     let reader = cmd.ExecuteReader(CommandBehavior.CloseConnection)
+
                     seq {
                         use _c = conn
                         use _cmd = cmd
                         use _r = reader
+
                         while reader.Read() do
                             yield [| for i in 0 .. reader.FieldCount - 1 -> reader.GetValue(i) |]
-                    }
-            )
+                    })
 
         { Columns = columns; Rows = rows }
 
     /// Executes `sql` and streams rows directly into a typed F# record without creating intermediate obj[] arrays per row.
-    member this.ExecuteReaderStreamWithColumns<'T> (sql: string) (parameters: (string * obj) list) (mapperFactory: string list -> (System.Data.IDataRecord -> 'T)) : 'T seq =
+    member this.ExecuteReaderStreamWithColumns<'T>
+        (sql: string)
+        (parameters: (string * obj) list)
+        (mapperFactory: string list -> (System.Data.IDataRecord -> 'T))
+        : 'T seq =
         let targetSql = OracleConnector.PrepareSql sql
+
         Seq.delay (fun () ->
             let connection = new OracleConnection(connectionString)
             connection.Open()
@@ -93,6 +109,7 @@ type OracleConnector(connectionString: string) =
             command.CommandText <- targetSql
             OracleConnector.BindParameters(command, parameters)
             let reader = command.ExecuteReader(CommandBehavior.CloseConnection)
+
             seq {
                 use _conn = connection
                 use _cmd = command
@@ -103,11 +120,14 @@ type OracleConnector(connectionString: string) =
 
                 while reader.Read() do
                     yield mapper record
-            }
-        )
+            })
 
     /// Executes `sql` and streams rows directly into a typed F# record using a pre-configured mapper.
-    member this.ExecuteReaderStream<'T> (sql: string) (parameters: (string * obj) list) (mapper: System.Data.IDataRecord -> 'T) : 'T seq =
+    member this.ExecuteReaderStream<'T>
+        (sql: string)
+        (parameters: (string * obj) list)
+        (mapper: System.Data.IDataRecord -> 'T)
+        : 'T seq =
         this.ExecuteReaderStreamWithColumns sql parameters (fun _ -> mapper)
 
     /// Every base table, view and column across user schemas, via data dictionary views.
@@ -156,14 +176,24 @@ type OracleConnector(connectionString: string) =
             return
                 rows
                 |> Seq.groupBy (fun (owner, tableName, _, _) ->
-                    if String.IsNullOrWhiteSpace owner then tableName
-                    else $"{owner}.{tableName}")
+                    if String.IsNullOrWhiteSpace owner then
+                        tableName
+                    else
+                        $"{owner}.{tableName}")
                 |> Seq.map (fun (displayName, tableRows) ->
-                    { Name = displayName
-                      Columns =
-                        tableRows
-                        |> Seq.map (fun (_, _, columnName, dataType) -> ({ Name = columnName; DataType = dataType }: ConnectorColumn))
-                        |> List.ofSeq }: ConnectorTable)
+                    {
+                        Name = displayName
+                        Columns =
+                            tableRows
+                            |> Seq.map (fun (_, _, columnName, dataType) ->
+                                ({
+                                    Name = columnName
+                                    DataType = dataType
+                                }
+                                : ConnectorColumn))
+                            |> List.ofSeq
+                    }
+                    : ConnectorTable)
                 |> List.ofSeq
         }
 
@@ -183,13 +213,26 @@ type OracleConnector(connectionString: string) =
         member this.DiscoverSchemaAsync(ct: CancellationToken) = this.DiscoverSchemaAsync(ct)
 
     member _.ConnectionString = connectionString
+    member _.Dialect: ISqlDialect = OracleDialect.Instance
+
+    interface ISqlDialectProvider with
+        member _.Dialect = OracleDialect.Instance
 
     interface IQueryableConnector with
         member _.ConnectionString = connectionString
         member this.ExecuteQuery (sql: string) (parameters: (string * obj) list) = this.ExecuteQuery sql parameters
 
     interface IStreamingQueryableConnector with
-        member this.ExecuteReaderStream (sql: string) (parameters: (string * obj) list) (mapper: System.Data.IDataRecord -> 'T) : 'T seq =
+        member this.ExecuteReaderStream
+            (sql: string)
+            (parameters: (string * obj) list)
+            (mapper: System.Data.IDataRecord -> 'T)
+            : 'T seq =
             this.ExecuteReaderStream sql parameters mapper
-        member this.ExecuteReaderStreamWithColumns (sql: string) (parameters: (string * obj) list) (mapperFactory: string list -> (System.Data.IDataRecord -> 'T)) : 'T seq =
+
+        member this.ExecuteReaderStreamWithColumns
+            (sql: string)
+            (parameters: (string * obj) list)
+            (mapperFactory: string list -> (System.Data.IDataRecord -> 'T))
+            : 'T seq =
             this.ExecuteReaderStreamWithColumns sql parameters mapperFactory

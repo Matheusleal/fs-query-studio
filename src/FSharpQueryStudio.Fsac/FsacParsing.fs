@@ -33,13 +33,19 @@ module FsacParsing =
                 | true, c when c.ValueKind = JsonValueKind.Number -> Some(string (c.GetInt32()))
                 | _ -> None
 
-            { Message = d.GetProperty("message").GetString()
-              Severity = mapSeverity severity
-              StartLine = Prologue.shiftDownForDocument originalDocUri (start.GetProperty("line").GetInt32() + 1) - 1
-              StartColumn = start.GetProperty("character").GetInt32()
-              EndLine = Prologue.shiftDownForDocument originalDocUri (end_.GetProperty("line").GetInt32() + 1) - 1
-              EndColumn = end_.GetProperty("character").GetInt32()
-              Code = code })
+            {
+                Message = d.GetProperty("message").GetString()
+                Severity = mapSeverity severity
+                StartLine =
+                    Prologue.shiftDownForDocument originalDocUri (start.GetProperty("line").GetInt32() + 1)
+                    - 1
+                StartColumn = start.GetProperty("character").GetInt32()
+                EndLine =
+                    Prologue.shiftDownForDocument originalDocUri (end_.GetProperty("line").GetInt32() + 1)
+                    - 1
+                EndColumn = end_.GetProperty("character").GetInt32()
+                Code = code
+            })
         |> List.ofSeq
 
     let private elementText (el: JsonElement) : string =
@@ -54,18 +60,22 @@ module FsacParsing =
         | _ -> [ elementText contentsEl ]
 
     let private isBoilerplateLine (line: string) : bool =
-        line.StartsWith("<a href") || line.StartsWith("*Full name:") || line.StartsWith("*Assembly:")
+        line.StartsWith("<a href")
+        || line.StartsWith("*Full name:")
+        || line.StartsWith("*Assembly:")
 
     let private symbolKindPrefixes =
-        [ "static member "
-          "abstract member "
-          "active pattern "
-          "member "
-          "property "
-          "val "
-          "type "
-          "module "
-          "namespace " ]
+        [
+            "static member "
+            "abstract member "
+            "active pattern "
+            "member "
+            "property "
+            "val "
+            "type "
+            "module "
+            "namespace "
+        ]
 
     let stripSymbolKind (signature: string) : string =
         match symbolKindPrefixes |> List.tryFind signature.StartsWith with
@@ -96,15 +106,31 @@ module FsacParsing =
         let nameTypeSplit = strippedSignature.Split([| ':' |], 2)
 
         let displayName =
-            if nameTypeSplit.Length = 2 then nameTypeSplit.[0].Trim() else strippedSignature.Trim()
+            if nameTypeSplit.Length = 2 then
+                nameTypeSplit.[0].Trim()
+            else
+                strippedSignature.Trim()
 
         let typeText =
-            if nameTypeSplit.Length = 2 then nameTypeSplit.[1].Trim() else signatureText
+            if nameTypeSplit.Length = 2 then
+                nameTypeSplit.[1].Trim()
+            else
+                signatureText
 
-        { DisplayName = displayName
-          Type = typeText
-          Signature = if signatureText.Contains("->") then Some signatureText else None
-          XmlDoc = if docLines.IsEmpty then None else Some(docLines |> String.concat "\n") }
+        {
+            DisplayName = displayName
+            Type = typeText
+            Signature =
+                if signatureText.Contains("->") then
+                    Some signatureText
+                else
+                    None
+            XmlDoc =
+                if docLines.IsEmpty then
+                    None
+                else
+                    Some(docLines |> String.concat "\n")
+        }
 
     /// Parses the first resolved location from a textDocument/definition result (Location or LocationLink).
     let parseFirstLocation (resultEl: JsonElement) : (string * JsonElement) option =
@@ -113,14 +139,17 @@ module FsacParsing =
         | JsonValueKind.Array when resultEl.GetArrayLength() = 0 -> None
         | JsonValueKind.Array ->
             let first = resultEl.[0]
+
             let rangeEl =
                 match first.TryGetProperty("range") with
                 | true, r -> r
                 | false, _ -> first.GetProperty("targetRange")
+
             let uri =
                 match first.TryGetProperty("uri") with
                 | true, u -> u.GetString()
                 | false, _ -> first.GetProperty("targetUri").GetString()
+
             Some(uri, rangeEl)
         | JsonValueKind.Object -> Some(resultEl.GetProperty("uri").GetString(), resultEl.GetProperty("range"))
         | _ -> None
@@ -154,33 +183,50 @@ module FsacParsing =
 
     let simplifyTypeName (t: string) : string =
         let trimmed = t.Trim()
+
         match trimmed with
-        | "System.String" | "String" -> "string"
-        | "System.Int32" | "Int32" -> "int"
-        | "System.Int64" | "Int64" -> "int64"
-        | "System.Int16" | "Int16" -> "int16"
-        | "System.Boolean" | "Boolean" -> "bool"
-        | "System.Decimal" | "Decimal" -> "decimal"
-        | "System.Double" | "Double" -> "float"
-        | "System.Single" | "Single" -> "float32"
-        | "System.Byte" | "Byte" -> "byte"
+        | "System.String"
+        | "String" -> "string"
+        | "System.Int32"
+        | "Int32" -> "int"
+        | "System.Int64"
+        | "Int64" -> "int64"
+        | "System.Int16"
+        | "Int16" -> "int16"
+        | "System.Boolean"
+        | "Boolean" -> "bool"
+        | "System.Decimal"
+        | "Decimal" -> "decimal"
+        | "System.Double"
+        | "Double" -> "float"
+        | "System.Single"
+        | "Single" -> "float32"
+        | "System.Byte"
+        | "Byte" -> "byte"
         | "System.DateTime" -> "DateTime"
         | "System.Guid" -> "Guid"
-        | "System.Object" | "Object" -> "obj"
+        | "System.Object"
+        | "Object" -> "obj"
         | other -> other
 
     let extractTypeFromDetail (detail: string) : string =
         let clean =
             let idx = detail.LastIndexOf(':')
+
             if idx >= 0 && idx + 1 < detail.Length then
                 let afterColon = detail.Substring(idx + 1).Trim()
                 let withIdx = afterColon.IndexOf("with", StringComparison.OrdinalIgnoreCase)
+
                 let withoutWith =
-                    if withIdx > 0 then afterColon.Substring(0, withIdx).Trim()
-                    else afterColon
+                    if withIdx > 0 then
+                        afterColon.Substring(0, withIdx).Trim()
+                    else
+                        afterColon
+
                 withoutWith
             else
                 detail.Trim()
+
         let finalType = if String.IsNullOrWhiteSpace clean then detail else clean
         simplifyTypeName finalType
 
@@ -221,10 +267,11 @@ module FsacParsing =
                 match rawDetailOpt with
                 | Some rawDetail ->
                     match kindOpt with
-                    | Some 5 | Some 10 | Some 6 | Some 12 ->
-                        Some(extractTypeFromDetail rawDetail)
-                    | Some 2 ->
-                        Some "method"
+                    | Some 5
+                    | Some 10
+                    | Some 6
+                    | Some 12 -> Some(extractTypeFromDetail rawDetail)
+                    | Some 2 -> Some "method"
                     | _ ->
                         if rawDetail.Contains(":") then
                             Some(extractTypeFromDetail rawDetail)
@@ -253,6 +300,7 @@ module FsacParsing =
                     | Some 24 -> Some "operator"
                     | Some 25 -> Some "type"
                     | _ -> None
+
             Some { Label = label; Detail = detail }
 
     /// Parses completion results from raw JSON response element, removing duplicates.
@@ -260,18 +308,12 @@ module FsacParsing =
         let raw =
             match resultEl.ValueKind with
             | JsonValueKind.Null -> []
-            | JsonValueKind.Array ->
-                resultEl.EnumerateArray()
-                |> Seq.choose parseItem
-                |> List.ofSeq
+            | JsonValueKind.Array -> resultEl.EnumerateArray() |> Seq.choose parseItem |> List.ofSeq
             | JsonValueKind.Object ->
                 match resultEl.TryGetProperty("items") with
                 | true, itemsEl when itemsEl.ValueKind = JsonValueKind.Array ->
-                    itemsEl.EnumerateArray()
-                    |> Seq.choose parseItem
-                    |> List.ofSeq
+                    itemsEl.EnumerateArray() |> Seq.choose parseItem |> List.ofSeq
                 | _ -> []
             | _ -> []
 
         raw |> List.distinctBy (fun i -> i.Label)
-

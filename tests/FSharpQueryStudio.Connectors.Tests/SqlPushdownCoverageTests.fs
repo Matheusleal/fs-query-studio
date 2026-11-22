@@ -10,37 +10,43 @@ open FSharpQueryStudio.Connectors
 open FSharpQueryStudio.Protocol
 
 [<CLIMutable>]
-type CovProduct = {
-    Id: int
-    Name: string
-    Price: decimal
-    Category: string
-    InStock: bool
-    Score: Nullable<decimal>
-    Timestamp: DateTime
-}
+type CovProduct =
+    {
+        Id: int
+        Name: string
+        Price: decimal
+        Category: string
+        InStock: bool
+        Score: Nullable<decimal>
+        Timestamp: DateTime
+    }
 
 [<CLIMutable>]
-type CovOrder = {
-    OrderId: int
-    CustomerId: int
-    Amount: decimal
-    Status: string
-}
+type CovOrder =
+    {
+        OrderId: int
+        CustomerId: int
+        Amount: decimal
+        Status: string
+    }
 
 [<CLIMutable>]
-type CovOptionItem = {
-    Id: int
-    Rating: decimal option
-    Comment: string option
-}
+type CovOptionItem =
+    {
+        Id: int
+        Rating: decimal option
+        Comment: string option
+    }
 
 type CovTempSqliteDb() =
-    let path = Path.Combine(Path.GetTempPath(), $"pushdown_cov_test_{Guid.NewGuid():N}.db")
+    let path =
+        Path.Combine(Path.GetTempPath(), $"pushdown_cov_test_{Guid.NewGuid():N}.db")
+
     do
         use conn = new SqliteConnection($"Data Source={path}")
         conn.Open()
         use cmd = conn.CreateCommand()
+
         cmd.CommandText <-
             "CREATE TABLE Products (Id INTEGER PRIMARY KEY, Name TEXT, Price NUMERIC, Category TEXT, InStock INTEGER, Score NUMERIC, Timestamp TEXT); \
              INSERT INTO Products VALUES (1, '  Keyboard  ', 45.50, 'Electronics', 1, 85.5, '2024-05-15 14:30:45'); \
@@ -53,30 +59,51 @@ type CovTempSqliteDb() =
              INSERT INTO Orders VALUES (102, 1, 200.00, 'Completed'); \
              INSERT INTO Orders VALUES (103, 2, 50.00, 'Pending'); \
              INSERT INTO Orders VALUES (104, 999, 99.00, 'Guest');"
+
         cmd.ExecuteNonQuery() |> ignore
 
     member _.Path = path
+
     interface IDisposable with
         member _.Dispose() =
-            try if File.Exists(path) then File.Delete(path) with _ -> ()
+            try
+                if File.Exists(path) then
+                    File.Delete(path)
+            with _ ->
+                ()
 
 type AdvancedMockConnector(kind: ConnectorKind, ?onExecute: string -> (string * obj) list -> ConnectorQueryResult) =
     interface IQueryableConnector with
         member _.Kind = kind
         member _.ConnectionString = $"mock://{kind}"
-        member _.TestConnectionAsync(_ct) = System.Threading.Tasks.Task.FromResult true
-        member _.DiscoverSchemaAsync(_ct) = System.Threading.Tasks.Task.FromResult []
+
+        member _.TestConnectionAsync(_ct) =
+            System.Threading.Tasks.Task.FromResult true
+
+        member _.DiscoverSchemaAsync(_ct) =
+            System.Threading.Tasks.Task.FromResult []
+
         member _.ExecuteQuery (sql: string) (parameters: (string * obj) list) =
             match onExecute with
             | Some fn -> fn sql parameters
             | None ->
                 match kind.Id with
                 | "Oracle" when sql.Contains("DBMS_XPLAN") ->
-                    { Columns = ["PLAN_TABLE_OUTPUT"]; Rows = [ [| box "PLAN_LINE_1" |]; [| box "PLAN_LINE_2" |] ] }
-                | "MySql" | "MariaDb" ->
-                    { Columns = ["id"; "select_type"; "table"]; Rows = [ [| box "1"; box "SIMPLE"; box "Products" |] ] }
+                    {
+                        Columns = [ "PLAN_TABLE_OUTPUT" ]
+                        Rows = [ [| box "PLAN_LINE_1" |]; [| box "PLAN_LINE_2" |] ]
+                    }
+                | "MySql"
+                | "MariaDb" ->
+                    {
+                        Columns = [ "id"; "select_type"; "table" ]
+                        Rows = [ [| box "1"; box "SIMPLE"; box "Products" |] ]
+                    }
                 | _ ->
-                    { Columns = ["detail"]; Rows = [ [| box "1"; box "0"; box "0"; box "SCAN TABLE Products" |] ] }
+                    {
+                        Columns = [ "detail" ]
+                        Rows = [ [| box "1"; box "0"; box "0"; box "SCAN TABLE Products" |] ]
+                    }
 
 type DummyWithToRawSql() =
     member _.ToRawSql() = "SELECT * FROM DummySql"
@@ -104,14 +131,17 @@ type CustomQueryableWrapper<'T>(inner: IQueryable<'T>) =
         member _.Expression = inner.Expression
         member _.Provider = inner.Provider
         member _.GetEnumerator() = inner.GetEnumerator()
+
     interface System.Collections.IEnumerable with
-        member _.GetEnumerator() = (inner :> System.Collections.IEnumerable).GetEnumerator()
+        member _.GetEnumerator() =
+            (inner :> System.Collections.IEnumerable).GetEnumerator()
 
 type CovTuple8Holder<'T>() =
     member val Item8 = Unchecked.defaultof<Tuple<'T>> with get, set
 
 type FieldHolder() =
-    [<DefaultValue>] val mutable FieldProducts: SqlPushdownQueryable<CovProduct>
+    [<DefaultValue>]
+    val mutable FieldProducts: SqlPushdownQueryable<CovProduct>
 
 type FakeSetOps() =
     static member Union(source: obj, target: obj) : obj = null
@@ -144,14 +174,15 @@ type CustomTestFuncs() =
     static member CustomStr(x: string) : string = x
     static member CustomNull(x: string) : string = null
     static member CustomDate(x: DateTime) : DateTime = x
-    static member GetQueryable(q: IQueryable) : IQueryable = [1; 2].AsQueryable() :> IQueryable
+    static member GetQueryable(q: IQueryable) : IQueryable = [ 1; 2 ].AsQueryable() :> IQueryable
     static member defaultValue(defVal: obj, optVal: obj) : obj = defVal
     static member defaultArg(optVal: obj, defVal: obj) : obj = defVal
     static member whereExists(source: obj, pred: obj) : bool = true
     static member whereNotExists(source: obj, pred: obj) : bool = true
 
 type FieldHolderInstance() =
-    [<DefaultValue>] val mutable public ProdsField: SqlPushdownQueryable<CovProduct>
+    [<DefaultValue>]
+    val mutable public ProdsField: SqlPushdownQueryable<CovProduct>
 
 type StaticCteHolder() =
     static member ProdsWithCte: SqlPushdownQueryable<CovProduct> =
@@ -169,8 +200,23 @@ type FakeCountHolder() =
 [<Fact>]
 let ``DateTime properties Year Month Day Hour Minute Second Date across dialects`` () =
     // SQLite
-    let qSqlite = SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("Sqlite")), "Products")
-    let sSqlite = fsql { for p in qSqlite do select (p.Timestamp.Year, p.Timestamp.Month, p.Timestamp.Day, p.Timestamp.Hour, p.Timestamp.Minute, p.Timestamp.Second, p.Timestamp.Date) }
+    let qSqlite =
+        SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("Sqlite")), "Products")
+
+    let sSqlite =
+        fsql {
+            for p in qSqlite do
+                select (
+                    p.Timestamp.Year,
+                    p.Timestamp.Month,
+                    p.Timestamp.Day,
+                    p.Timestamp.Hour,
+                    p.Timestamp.Minute,
+                    p.Timestamp.Second,
+                    p.Timestamp.Date
+                )
+        }
+
     let rawSqlite = toRawSql sSqlite
     Assert.Contains("strftime('%Y'", rawSqlite)
     Assert.Contains("strftime('%m'", rawSqlite)
@@ -180,8 +226,23 @@ let ``DateTime properties Year Month Day Hour Minute Second Date across dialects
     Assert.Contains("strftime('%S'", rawSqlite)
 
     // SQL Server
-    let qSs = SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("SqlServer")), "Products")
-    let sSs = fsql { for p in qSs do select (p.Timestamp.Year, p.Timestamp.Month, p.Timestamp.Day, p.Timestamp.Hour, p.Timestamp.Minute, p.Timestamp.Second, p.Timestamp.Date) }
+    let qSs =
+        SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("SqlServer")), "Products")
+
+    let sSs =
+        fsql {
+            for p in qSs do
+                select (
+                    p.Timestamp.Year,
+                    p.Timestamp.Month,
+                    p.Timestamp.Day,
+                    p.Timestamp.Hour,
+                    p.Timestamp.Minute,
+                    p.Timestamp.Second,
+                    p.Timestamp.Date
+                )
+        }
+
     let rawSs = toRawSql sSs
     Assert.Contains("YEAR(", rawSs)
     Assert.Contains("MONTH(", rawSs)
@@ -193,8 +254,23 @@ let ``DateTime properties Year Month Day Hour Minute Second Date across dialects
     Assert.Contains("AS DATE)", rawSs)
 
     // PostgreSQL
-    let qPg = SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("PostgreSql")), "Products")
-    let sPg = fsql { for p in qPg do select (p.Timestamp.Year, p.Timestamp.Month, p.Timestamp.Day, p.Timestamp.Hour, p.Timestamp.Minute, p.Timestamp.Second, p.Timestamp.Date) }
+    let qPg =
+        SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("PostgreSql")), "Products")
+
+    let sPg =
+        fsql {
+            for p in qPg do
+                select (
+                    p.Timestamp.Year,
+                    p.Timestamp.Month,
+                    p.Timestamp.Day,
+                    p.Timestamp.Hour,
+                    p.Timestamp.Minute,
+                    p.Timestamp.Second,
+                    p.Timestamp.Date
+                )
+        }
+
     let rawPg = toRawSql sPg
     Assert.Contains("EXTRACT(YEAR FROM", rawPg)
     Assert.Contains("EXTRACT(MONTH FROM", rawPg)
@@ -206,8 +282,23 @@ let ``DateTime properties Year Month Day Hour Minute Second Date across dialects
     Assert.Contains("AS DATE)", rawPg)
 
     // MySQL / MariaDB
-    let qMy = SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("MySql")), "Products")
-    let sMy = fsql { for p in qMy do select (p.Timestamp.Year, p.Timestamp.Month, p.Timestamp.Day, p.Timestamp.Hour, p.Timestamp.Minute, p.Timestamp.Second, p.Timestamp.Date) }
+    let qMy =
+        SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("MySql")), "Products")
+
+    let sMy =
+        fsql {
+            for p in qMy do
+                select (
+                    p.Timestamp.Year,
+                    p.Timestamp.Month,
+                    p.Timestamp.Day,
+                    p.Timestamp.Hour,
+                    p.Timestamp.Minute,
+                    p.Timestamp.Second,
+                    p.Timestamp.Date
+                )
+        }
+
     let rawMy = toRawSql sMy
     Assert.Contains("YEAR(", rawMy)
     Assert.Contains("MONTH(", rawMy)
@@ -218,8 +309,23 @@ let ``DateTime properties Year Month Day Hour Minute Second Date across dialects
     Assert.Contains("DATE(", rawMy)
 
     // Oracle
-    let qOra = SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("Oracle")), "Products")
-    let sOra = fsql { for p in qOra do select (p.Timestamp.Year, p.Timestamp.Month, p.Timestamp.Day, p.Timestamp.Hour, p.Timestamp.Minute, p.Timestamp.Second, p.Timestamp.Date) }
+    let qOra =
+        SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("Oracle")), "Products")
+
+    let sOra =
+        fsql {
+            for p in qOra do
+                select (
+                    p.Timestamp.Year,
+                    p.Timestamp.Month,
+                    p.Timestamp.Day,
+                    p.Timestamp.Hour,
+                    p.Timestamp.Minute,
+                    p.Timestamp.Second,
+                    p.Timestamp.Date
+                )
+        }
+
     let rawOra = toRawSql sOra
     Assert.Contains("EXTRACT(YEAR FROM", rawOra)
     Assert.Contains("EXTRACT(MONTH FROM", rawOra)
@@ -243,12 +349,12 @@ let ``Pushdown string operations Length, IndexOf, Substring, Replace, IsNullOrEm
     // WHERE predicate string methods
     let qPreds =
         products.Where(fun p ->
-            p.Name.Contains("o") &&
-            p.Name.StartsWith("M") &&
-            p.Name.EndsWith("e") &&
-            not (String.IsNullOrEmpty(p.Category)) &&
-            not (String.IsNullOrWhiteSpace(p.Category))
-        )
+            p.Name.Contains("o")
+            && p.Name.StartsWith("M")
+            && p.Name.EndsWith("e")
+            && not (String.IsNullOrEmpty(p.Category))
+            && not (String.IsNullOrWhiteSpace(p.Category)))
+
     let sPreds = toRawSql qPreds
     Assert.Contains("LIKE @p", sPreds)
     Assert.Contains("IS NULL OR", sPreds)
@@ -257,15 +363,16 @@ let ``Pushdown string operations Length, IndexOf, Substring, Replace, IsNullOrEm
     let qProj1 =
         fsql {
             for p in products do
-            select (
-                p.Name.Length,
-                p.Name.IndexOf("e"),
-                p.Name.Substring(1, 3),
-                p.Name.Substring(2),
-                p.Name.Replace("o", "a"),
-                p.Name.Trim()
-            )
+                select (
+                    p.Name.Length,
+                    p.Name.IndexOf("e"),
+                    p.Name.Substring(1, 3),
+                    p.Name.Substring(2),
+                    p.Name.Replace("o", "a"),
+                    p.Name.Trim()
+                )
         }
+
     let sProj1 = toRawSql qProj1
     Assert.Contains("LENGTH(", sProj1)
     Assert.Contains("INSTR(", sProj1)
@@ -276,14 +383,15 @@ let ``Pushdown string operations Length, IndexOf, Substring, Replace, IsNullOrEm
     let qProj2 =
         fsql {
             for p in products do
-            select (
-                String.IsNullOrEmpty(p.Name),
-                String.IsNullOrWhiteSpace(p.Name),
-                String.Concat(p.Category, p.Name),
-                p.Name.ToUpper(),
-                p.Name.ToLower()
-            )
+                select (
+                    String.IsNullOrEmpty(p.Name),
+                    String.IsNullOrWhiteSpace(p.Name),
+                    String.Concat(p.Category, p.Name),
+                    p.Name.ToUpper(),
+                    p.Name.ToLower()
+                )
         }
+
     let sProj2 = toRawSql qProj2
     Assert.Contains("IS NULL OR", sProj2)
     Assert.Contains("UPPER(", sProj2)
@@ -291,15 +399,29 @@ let ``Pushdown string operations Length, IndexOf, Substring, Replace, IsNullOrEm
 
 [<Fact>]
 let ``Substring and IndexOf across SqlServer, PostgreSql, and Oracle`` () =
-    let qSs = SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("SqlServer")), "Products")
-    let sSs = fsql { for p in qSs do select (p.Name.Length, p.Name.IndexOf("a"), p.Name.Substring(1, 2), p.Name.Substring(2)) }
+    let qSs =
+        SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("SqlServer")), "Products")
+
+    let sSs =
+        fsql {
+            for p in qSs do
+                select (p.Name.Length, p.Name.IndexOf("a"), p.Name.Substring(1, 2), p.Name.Substring(2))
+        }
+
     let rawSs = toRawSql sSs
     Assert.Contains("LEN(", rawSs)
     Assert.Contains("CHARINDEX(", rawSs)
     Assert.Contains("SUBSTRING(", rawSs)
 
-    let qPg = SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("PostgreSql")), "Products")
-    let sPg = fsql { for p in qPg do select (p.Name.IndexOf("a")) }
+    let qPg =
+        SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("PostgreSql")), "Products")
+
+    let sPg =
+        fsql {
+            for p in qPg do
+                select (p.Name.IndexOf("a"))
+        }
+
     Assert.Contains("POSITION(", toRawSql sPg)
 
 // =========================================================================
@@ -315,16 +437,17 @@ let ``Pushdown Math methods Abs, Round, Floor, Ceiling, Sqrt, Pow across dialect
     let qMath =
         fsql {
             for p in products do
-            select (
-                Math.Abs(p.Price),
-                Math.Round(p.Price),
-                Math.Round(p.Price, 2),
-                Math.Floor(p.Price),
-                Math.Ceiling(p.Price),
-                Math.Sqrt(float p.Price),
-                Math.Pow(float p.Price, 2.0)
-            )
+                select (
+                    Math.Abs(p.Price),
+                    Math.Round(p.Price),
+                    Math.Round(p.Price, 2),
+                    Math.Floor(p.Price),
+                    Math.Ceiling(p.Price),
+                    Math.Sqrt(float p.Price),
+                    Math.Pow(float p.Price, 2.0)
+                )
         }
+
     let sMath = toRawSql qMath
     Assert.Contains("ABS(", sMath)
     Assert.Contains("ROUND(", sMath)
@@ -334,8 +457,15 @@ let ``Pushdown Math methods Abs, Round, Floor, Ceiling, Sqrt, Pow across dialect
     Assert.Contains("POWER(", sMath)
 
     // SqlServer CEILING
-    let qSs = SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("SqlServer")), "Products")
-    let sSs = fsql { for p in qSs do select (Math.Ceiling(p.Price)) }
+    let qSs =
+        SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("SqlServer")), "Products")
+
+    let sSs =
+        fsql {
+            for p in qSs do
+                select (Math.Ceiling(p.Price))
+        }
+
     Assert.Contains("CEILING(", toRawSql sSs)
 
 // =========================================================================
@@ -351,13 +481,15 @@ let ``Pushdown Nullable, Option, GetValueOrDefault, and conditional CASE WHEN`` 
     let q =
         fsql {
             for p in products do
-            where (p.Score.HasValue)
-            select (
-                p.Score.GetValueOrDefault(0.0M),
-                (if p.InStock then "InStock" else "OutOfStock"),
-                (if p.Price > 50.0M then 1 else 0)
-            )
+                where (p.Score.HasValue)
+
+                select (
+                    p.Score.GetValueOrDefault(0.0M),
+                    (if p.InStock then "InStock" else "OutOfStock"),
+                    (if p.Price > 50.0M then 1 else 0)
+                )
         }
+
     let s = toRawSql q
     Assert.Contains("IS NOT NULL", s)
     Assert.Contains("COALESCE(", s)
@@ -464,13 +596,14 @@ let ``fsql window functions and jsonValue across dialects`` () =
     let qWin1 =
         fsql {
             for p in products do
-            select (
-                fsql.rowNumber(over = fsql.window(partitionBy = p.Category, sortBy = p.Price)),
-                fsql.rank(over = fsql.window(sortByDescending = p.Price)),
-                fsql.denseRank(over = fsql.window(partitionBy = (p.Category, p.InStock))),
-                fsql.ntile(3, over = fsql.window(sortBy = p.Price))
-            )
+                select (
+                    fsql.rowNumber (over = fsql.window (partitionBy = p.Category, sortBy = p.Price)),
+                    fsql.rank (over = fsql.window (sortByDescending = p.Price)),
+                    fsql.denseRank (over = fsql.window (partitionBy = (p.Category, p.InStock))),
+                    fsql.ntile (3, over = fsql.window (sortBy = p.Price))
+                )
         }
+
     let sWin1 = toRawSql qWin1
     Assert.Contains("ROW_NUMBER() OVER", sWin1)
     Assert.Contains("RANK() OVER", sWin1)
@@ -480,13 +613,14 @@ let ``fsql window functions and jsonValue across dialects`` () =
     let qWin2 =
         fsql {
             for p in products do
-            select (
-                fsql.lag(p.Price, offset = 1, defaultValue = 0.0M, over = fsql.window(sortBy = p.Price)),
-                fsql.lead(p.Price, offset = 2, defaultValue = 99.9M, over = fsql.window(sortBy = p.Price)),
-                fsql.firstValue(p.Name, over = fsql.window(partitionBy = p.Category, sortBy = p.Price)),
-                fsql.lastValue(p.Name, over = fsql.window(partitionBy = p.Category, sortBy = p.Price))
-            )
+                select (
+                    fsql.lag (p.Price, offset = 1, defaultValue = 0.0M, over = fsql.window (sortBy = p.Price)),
+                    fsql.lead (p.Price, offset = 2, defaultValue = 99.9M, over = fsql.window (sortBy = p.Price)),
+                    fsql.firstValue (p.Name, over = fsql.window (partitionBy = p.Category, sortBy = p.Price)),
+                    fsql.lastValue (p.Name, over = fsql.window (partitionBy = p.Category, sortBy = p.Price))
+                )
         }
+
     let sWin2 = toRawSql qWin2
     Assert.Contains("LAG(", sWin2)
     Assert.Contains("LEAD(", sWin2)
@@ -496,14 +630,15 @@ let ``fsql window functions and jsonValue across dialects`` () =
     let qWin3 =
         fsql {
             for p in products do
-            select (
-                fsql.sum(p.Price, over = fsql.window(partitionBy = p.Category)),
-                fsql.avg(p.Price, over = fsql.window(partitionBy = p.Category)),
-                fsql.min(p.Price, over = fsql.window(partitionBy = p.Category)),
-                fsql.max(p.Price, over = fsql.window(partitionBy = p.Category)),
-                fsql.count(over = fsql.window(partitionBy = p.Category))
-            )
+                select (
+                    fsql.sum (p.Price, over = fsql.window (partitionBy = p.Category)),
+                    fsql.avg (p.Price, over = fsql.window (partitionBy = p.Category)),
+                    fsql.min (p.Price, over = fsql.window (partitionBy = p.Category)),
+                    fsql.max (p.Price, over = fsql.window (partitionBy = p.Category)),
+                    fsql.count (over = fsql.window (partitionBy = p.Category))
+                )
         }
+
     let sWin3 = toRawSql qWin3
     Assert.Contains("SUM(", sWin3)
     Assert.Contains("AVG(", sWin3)
@@ -512,27 +647,67 @@ let ``fsql window functions and jsonValue across dialects`` () =
     Assert.Contains("COUNT(", sWin3)
 
     // JSON Value across dialects
-    let qSqlite = SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("Sqlite")), "Products")
-    let sSqlite = fsql { for p in qSqlite do select (fsql.jsonValue(p.Name, "$.key")) }
+    let qSqlite =
+        SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("Sqlite")), "Products")
+
+    let sSqlite =
+        fsql {
+            for p in qSqlite do
+                select (fsql.jsonValue (p.Name, "$.key"))
+        }
+
     Assert.Contains("json_extract(", toRawSql sSqlite)
 
-    let qSs = SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("SqlServer")), "Products")
-    let sSs = fsql { for p in qSs do select (fsql.jsonValue(p.Name, "$.key")) }
+    let qSs =
+        SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("SqlServer")), "Products")
+
+    let sSs =
+        fsql {
+            for p in qSs do
+                select (fsql.jsonValue (p.Name, "$.key"))
+        }
+
     Assert.Contains("JSON_VALUE(", toRawSql sSs)
 
-    let qOra = SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("Oracle")), "Products")
-    let sOra = fsql { for p in qOra do select (fsql.jsonValue(p.Name, "$.key")) }
+    let qOra =
+        SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("Oracle")), "Products")
+
+    let sOra =
+        fsql {
+            for p in qOra do
+                select (fsql.jsonValue (p.Name, "$.key"))
+        }
+
     Assert.Contains("JSON_VALUE(", toRawSql sOra)
 
-    let qMy = SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("MySql")), "Products")
-    let sMy = fsql { for p in qMy do select (fsql.jsonValue(p.Name, "$.key")) }
+    let qMy =
+        SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("MySql")), "Products")
+
+    let sMy =
+        fsql {
+            for p in qMy do
+                select (fsql.jsonValue (p.Name, "$.key"))
+        }
+
     Assert.Contains("JSON_UNQUOTE(JSON_EXTRACT(", toRawSql sMy)
 
-    let qPg = SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("PostgreSql")), "Products")
-    let sPg1 = fsql { for p in qPg do select (fsql.jsonValue(p.Name, "$.key")) }
+    let qPg =
+        SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("PostgreSql")), "Products")
+
+    let sPg1 =
+        fsql {
+            for p in qPg do
+                select (fsql.jsonValue (p.Name, "$.key"))
+        }
+
     Assert.Contains("->> 'key'", toRawSql sPg1)
 
-    let sPg2 = fsql { for p in qPg do select (fsql.jsonValue(p.Name, "$.a.b.c")) }
+    let sPg2 =
+        fsql {
+            for p in qPg do
+                select (fsql.jsonValue (p.Name, "$.a.b.c"))
+        }
+
     Assert.Contains("#>> '{a', 'b', 'c}'", toRawSql sPg2)
 
 // =========================================================================
@@ -550,66 +725,185 @@ let ``fsql computation expression custom operations whereExists, whereNotExists,
     let qExists =
         fsql {
             for p in products do
-            whereExists (fsql { for o in orders do where (o.CustomerId = p.Id); select o.OrderId })
-            select p.Id
+                whereExists (
+                    fsql {
+                        for o in orders do
+                            where (o.CustomerId = p.Id)
+                            select o.OrderId
+                    }
+                )
+
+                select p.Id
         }
+
     Assert.Contains("EXISTS (", toRawSql qExists)
 
     // whereNotExists
     let qNotExists =
         fsql {
             for p in products do
-            whereNotExists (fsql { for o in orders do where (o.CustomerId = p.Id); select o.OrderId })
-            select p.Id
+                whereNotExists (
+                    fsql {
+                        for o in orders do
+                            where (o.CustomerId = p.Id)
+                            select o.OrderId
+                    }
+                )
+
+                select p.Id
         }
+
     Assert.Contains("NOT EXISTS (", toRawSql qNotExists)
 
     // having
     let qHaving =
         fsql {
             for p in products do
-            groupBy p.Category into g
-            having (g.Count() > 1)
-            select (g.Key, g.Count())
+                groupBy p.Category into g
+                having (g.Count() > 1)
+                select (g.Key, g.Count())
         }
+
     let sHaving = toRawSql qHaving
     Assert.Contains("GROUP BY", sHaving)
     Assert.Contains("HAVING", sHaving)
 
     // crossJoin, fullOuterJoinRaw, rightOuterJoinRaw
-    let qCross = fsql { for p in products do crossJoin "Orders" "o"; select p.Id }
+    let qCross =
+        fsql {
+            for p in products do
+                crossJoin "Orders" "o"
+                select p.Id
+        }
+
     Assert.Contains("CROSS JOIN Orders", toRawSql qCross)
 
-    let qFull = fsql { for p in products do fullOuterJoinRaw "Orders" "o" "p.Id = o.CustomerId"; select p.Id }
+    let qFull =
+        fsql {
+            for p in products do
+                fullOuterJoinRaw "Orders" "o" "p.Id = o.CustomerId"
+                select p.Id
+        }
+
     Assert.Contains("FULL OUTER JOIN Orders", toRawSql qFull)
 
-    let qRight = fsql { for p in products do rightOuterJoinRaw "Orders" "o" "p.Id = o.CustomerId"; select p.Id }
+    let qRight =
+        fsql {
+            for p in products do
+                rightOuterJoinRaw "Orders" "o" "p.Id = o.CustomerId"
+                select p.Id
+        }
+
     Assert.Contains("RIGHT OUTER JOIN Orders", toRawSql qRight)
 
     // CTEs inside fsql
-    let qCte = fsql { for p in products do withCte "sub_cte" (fsql { for o in orders do select o.OrderId }); select p.Id }
+    let qCte =
+        fsql {
+            for p in products do
+                withCte
+                    "sub_cte"
+                    (fsql {
+                        for o in orders do
+                            select o.OrderId
+                    })
+
+                select p.Id
+        }
+
     Assert.Contains("WITH sub_cte AS", toRawSql qCte)
 
-    let qCteSql = fsql { for p in products do withCteSql "raw_cte" "SELECT 1 AS N"; select p.Id }
+    let qCteSql =
+        fsql {
+            for p in products do
+                withCteSql "raw_cte" "SELECT 1 AS N"
+                select p.Id
+        }
+
     Assert.Contains("WITH raw_cte AS (SELECT 1 AS N)", toRawSql qCteSql)
 
-    let qRecCte = fsql { for p in products do withRecursiveCte "rec_cte" (fsql { for o in orders do select o.OrderId }); select p.Id }
+    let qRecCte =
+        fsql {
+            for p in products do
+                withRecursiveCte
+                    "rec_cte"
+                    (fsql {
+                        for o in orders do
+                            select o.OrderId
+                    })
+
+                select p.Id
+        }
+
     Assert.Contains("WITH RECURSIVE rec_cte AS", toRawSql qRecCte)
 
-    let qRecCteSql = fsql { for p in products do withRecursiveCteSql "rec_raw" "SELECT 2 AS M"; select p.Id }
+    let qRecCteSql =
+        fsql {
+            for p in products do
+                withRecursiveCteSql "rec_raw" "SELECT 2 AS M"
+                select p.Id
+        }
+
     Assert.Contains("WITH RECURSIVE rec_raw AS (SELECT 2 AS M)", toRawSql qRecCteSql)
 
     // Set operations inside fsql
-    let qU = fsql { for p in products do select p.Id; union (fsql { for o in orders do select o.CustomerId }) }
+    let qU =
+        fsql {
+            for p in products do
+                select p.Id
+
+                union (
+                    fsql {
+                        for o in orders do
+                            select o.CustomerId
+                    }
+                )
+        }
+
     Assert.Contains("UNION", toRawSql qU)
 
-    let qUA = fsql { for p in products do select p.Id; unionAll (fsql { for o in orders do select o.CustomerId }) }
+    let qUA =
+        fsql {
+            for p in products do
+                select p.Id
+
+                unionAll (
+                    fsql {
+                        for o in orders do
+                            select o.CustomerId
+                    }
+                )
+        }
+
     Assert.Contains("UNION ALL", toRawSql qUA)
 
-    let qI = fsql { for p in products do select p.Id; intersect (fsql { for o in orders do select o.CustomerId }) }
+    let qI =
+        fsql {
+            for p in products do
+                select p.Id
+
+                intersect (
+                    fsql {
+                        for o in orders do
+                            select o.CustomerId
+                    }
+                )
+        }
+
     Assert.Contains("INTERSECT", toRawSql qI)
 
-    let qE = fsql { for p in products do select p.Id; except (fsql { for o in orders do select o.CustomerId }) }
+    let qE =
+        fsql {
+            for p in products do
+                select p.Id
+
+                except (
+                    fsql {
+                        for o in orders do
+                            select o.CustomerId
+                    }
+                )
+        }
+
     Assert.Contains("EXCEPT", toRawSql qE)
 
 // =========================================================================
@@ -649,7 +943,9 @@ let ``Explain diagnostics and SqlPushdownQuery explainQuery across dialects`` ()
     Assert.Contains("Oracle Execution Plan", repOra.PlanText)
 
     // Exception branch
-    let cErr = AdvancedMockConnector(ConnectorKind("Sqlite"), fun _ _ -> failwith "Simulated failure")
+    let cErr =
+        AdvancedMockConnector(ConnectorKind("Sqlite"), fun _ _ -> failwith "Simulated failure")
+
     let qErr = SqlPushdownQueryable<CovProduct>(cErr, "Products")
     let repErr = qErr.Explain()
     Assert.Contains("EXPLAIN diagnostic report", repErr.PlanText)
@@ -691,41 +987,77 @@ let ``SqlPushdownQueryProvider non-streaming execution and LINQ provider methods
             ConnectorKind("Sqlite"),
             fun sql parms ->
                 if sql.Contains("COUNT(") then
-                    { Columns = ["cnt"]; Rows = [ [| box 42 |] ] }
+                    {
+                        Columns = [ "cnt" ]
+                        Rows = [ [| box 42 |] ]
+                    }
                 elif sql.Contains("Products") then
                     {
-                        Columns = ["Id"; "Name"; "Price"; "Category"; "InStock"; "Score"; "Timestamp"]
-                        Rows = [
-                            [| box 1; box "Item1"; box 10.5M; box "CatA"; box true; box 85.0M; box (DateTime(2026, 1, 1)) |]
-                            [| box 2; box "Item2"; box 20.0M; box "CatB"; box false; null; box (DateTime(2026, 2, 2)) |]
-                        ]
+                        Columns = [ "Id"; "Name"; "Price"; "Category"; "InStock"; "Score"; "Timestamp" ]
+                        Rows =
+                            [
+                                [|
+                                    box 1
+                                    box "Item1"
+                                    box 10.5M
+                                    box "CatA"
+                                    box true
+                                    box 85.0M
+                                    box (DateTime(2026, 1, 1))
+                                |]
+                                [|
+                                    box 2
+                                    box "Item2"
+                                    box 20.0M
+                                    box "CatB"
+                                    box false
+                                    null
+                                    box (DateTime(2026, 2, 2))
+                                |]
+                            ]
                     }
                 else
-                    { Columns = ["val"]; Rows = [ [| box 99 |] ] }
+                    {
+                        Columns = [ "val" ]
+                        Rows = [ [| box 99 |] ]
+                    }
         )
 
     let provider = SqlPushdownQueryProvider(mockConn, "Products", [])
 
     // ExecutePlanOrStream with Record mapping
-    let records = provider.ExecutePlanOrStream<CovProduct>(Expression.Constant(null, typeof<IQueryable<CovProduct>>)) |> Seq.toList
+    let records =
+        provider.ExecutePlanOrStream<CovProduct>(Expression.Constant(null, typeof<IQueryable<CovProduct>>))
+        |> Seq.toList
+
     Assert.Equal(2, records.Length)
     Assert.Equal("Item1", records.[0].Name)
     Assert.Equal("Item2", records.[1].Name)
 
     // ExecutePlanOrStream with Primitive mapping
-    let primitives = provider.ExecutePlanOrStream<int>(Expression.Constant(null, typeof<IQueryable<int>>)) |> Seq.toList
+    let primitives =
+        provider.ExecutePlanOrStream<int>(Expression.Constant(null, typeof<IQueryable<int>>))
+        |> Seq.toList
+
     Assert.Equal(2, primitives.Length)
     Assert.Equal(1, primitives.[0])
     Assert.Equal(2, primitives.[1])
 
     // Fallback Predicates
     let planWithPred = PushdownQueryPlan.Create("Products", [])
+
     planWithPred.FallbackPredicates.Add(fun item ->
         match item with
         | :? CovProduct as p -> p.Price > 15.0M
         | _ -> false)
 
-    let filtered = provider.ExecutePlanOrStream<CovProduct>(Expression.Constant(null, typeof<IQueryable<CovProduct>>), planWithPred) |> Seq.toList
+    let filtered =
+        provider.ExecutePlanOrStream<CovProduct>(
+            Expression.Constant(null, typeof<IQueryable<CovProduct>>),
+            planWithPred
+        )
+        |> Seq.toList
+
     Assert.Single(filtered) |> ignore
     Assert.Equal("Item2", filtered.[0].Name)
 
@@ -756,30 +1088,46 @@ let ``Subquery Count comparisons in WHERE generate EXISTS, NOT EXISTS, and scala
     let products = SqlPushdownQueryable<CovProduct>(conn, "Products")
     let orders = SqlPushdownQueryable<CovOrder>(conn, "Orders")
 
-    let q1 = products.Where(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Count() = 0)
+    let q1 =
+        products.Where(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Count() = 0)
+
     Assert.Contains("NOT EXISTS (", toRawSql q1)
 
-    let q2 = products.Where(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Count() <= 0)
+    let q2 =
+        products.Where(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Count() <= 0)
+
     Assert.Contains("NOT EXISTS (", toRawSql q2)
 
-    let q3 = products.Where(fun p -> 0 = orders.Where(fun o -> o.CustomerId = p.Id).Count())
+    let q3 =
+        products.Where(fun p -> 0 = orders.Where(fun o -> o.CustomerId = p.Id).Count())
+
     Assert.Contains("NOT EXISTS (", toRawSql q3)
 
-    let q4 = products.Where(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Count() > 0)
+    let q4 =
+        products.Where(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Count() > 0)
+
     Assert.Contains("EXISTS (", toRawSql q4)
 
-    let q5 = products.Where(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Count() >= 1)
+    let q5 =
+        products.Where(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Count() >= 1)
+
     Assert.Contains("EXISTS (", toRawSql q5)
 
-    let q6 = products.Where(fun p -> 0 < orders.Where(fun o -> o.CustomerId = p.Id).Count())
+    let q6 =
+        products.Where(fun p -> 0 < orders.Where(fun o -> o.CustomerId = p.Id).Count())
+
     Assert.Contains("EXISTS (", toRawSql q6)
 
-    let q7 = products.Where(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Count() > 5)
+    let q7 =
+        products.Where(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Count() > 5)
+
     let s7 = toRawSql q7
     Assert.Contains("COUNT(*)", s7)
     Assert.Contains(">", s7)
 
-    let q8 = products.Where(fun p -> 5 < orders.Where(fun o -> o.CustomerId = p.Id).Count())
+    let q8 =
+        products.Where(fun p -> 5 < orders.Where(fun o -> o.CustomerId = p.Id).Count())
+
     let s8 = toRawSql q8
     Assert.Contains("COUNT(*)", s8)
     Assert.Contains("<", s8)
@@ -791,7 +1139,7 @@ let ``In-memory collection and subquery Contains in WHERE generate IN and 1=0`` 
     let products = SqlPushdownQueryable<CovProduct>(conn, "Products")
     let orders = SqlPushdownQueryable<CovOrder>(conn, "Orders")
 
-    let targetIds = [1; 3; 5]
+    let targetIds = [ 1; 3; 5 ]
     let qList = products.Where(fun p -> targetIds.Contains(p.Id))
     Assert.Contains("IN (@p", toRawSql qList)
 
@@ -799,7 +1147,9 @@ let ``In-memory collection and subquery Contains in WHERE generate IN and 1=0`` 
     let qEmpty = products.Where(fun p -> emptyIds.Contains(p.Id))
     Assert.Contains("(1=0)", toRawSql qEmpty)
 
-    let qSubContains = products.Where(fun p -> orders.Select(fun o -> o.CustomerId).Contains(p.Id))
+    let qSubContains =
+        products.Where(fun p -> orders.Select(fun o -> o.CustomerId).Contains(p.Id))
+
     Assert.Contains("IN (SELECT", toRawSql qSubContains)
 
 [<Fact>]
@@ -843,8 +1193,8 @@ let ``FSqlExtensions Union, UnionAll, Intersect, Except, and WithCte on wrapped 
     let c2 = wrapped1.WithCte("orders_cte", orders)
     Assert.Contains("WITH orders_cte AS", toRawSql c2)
 
-    let plain1 = ([1; 2; 3] :> seq<int>).AsQueryable()
-    let plain2 = ([3; 4; 5] :> seq<int>).AsQueryable()
+    let plain1 = ([ 1; 2; 3 ] :> seq<int>).AsQueryable()
+    let plain2 = ([ 3; 4; 5 ] :> seq<int>).AsQueryable()
 
     let pu = plain1.Union(plain2)
     Assert.Equal(5, pu.Count())
@@ -875,20 +1225,29 @@ let ``SqlPushdownPlan direct members, WindowDefinition, CtePlan, and dialect edg
     Assert.Equal("win", w3.Dummy)
 
     // CtePlan.Create
-    let cte = CtePlan.Create("cte_test", "SELECT 1", isRecursive = true, sourceQuery = box 123)
+    let cte =
+        CtePlan.Create("cte_test", "SELECT 1", isRecursive = true, sourceQuery = box 123)
+
     Assert.Equal("cte_test", cte.Name)
     Assert.True(cte.IsRecursive)
     Assert.True(cte.SourceQuery.IsSome)
 
     // SqlPushdownFormatting with DateTime and bool parameters
     let dtVal = DateTime(2025, 6, 15, 12, 30, 0)
-    let formatted = SqlPushdownFormatting.formatSqlAndParameters "SELECT 1" [ ("@dt", box dtVal); ("@flag", box true); ("@null", null) ]
+
+    let formatted =
+        SqlPushdownFormatting.formatSqlAndParameters
+            "SELECT 1"
+            [ ("@dt", box dtVal); ("@flag", box true); ("@null", null) ]
+
     Assert.Contains("2025-06-15 12:30:00", formatted)
     Assert.Contains("@flag = 1", formatted)
     Assert.Contains("@null = NULL", formatted)
 
     // PushdownQueryPlan.Clone with OuterAliases
-    let plan = PushdownQueryPlan.Create("Products", [], baseAlias = "_t0", dialect = SqlDialect.Sqlite)
+    let plan =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "_t0", dialect = SqlDialect.Sqlite)
+
     plan.OuterAliases.["p"] <- "_t0"
     plan.OuterAliases.["o"] <- "_t1"
     let cloned = plan.Clone()
@@ -906,57 +1265,107 @@ let ``SqlPushdownPlan direct members, WindowDefinition, CtePlan, and dialect edg
     Assert.Contains("SELECT *", toRawQPg)
 
     // SQLite OUTER APPLY with empty OnClause
-    let planOuter = PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
-    planOuter.Joins.Add({ JoinType = "OUTER APPLY"; SourceTable = "Orders"; Alias = "o"; OnClause = ""; RowType = None })
+    let planOuter =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+
+    planOuter.Joins.Add(
+        {
+            JoinType = "OUTER APPLY"
+            SourceTable = "Orders"
+            Alias = "o"
+            OnClause = ""
+            RowType = None
+        }
+    )
+
     let sqlOuter = planOuter.BuildSql(SqlDialect.Sqlite)
     Assert.Contains("LEFT JOIN Orders o ON 1=1", sqlOuter)
 
     // SQLite OUTER APPLY with non-empty OnClause
-    let planOuterOn = PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
-    planOuterOn.Joins.Add({ JoinType = "OUTER APPLY"; SourceTable = "Orders"; Alias = "o"; OnClause = "p.Id = o.CustomerId"; RowType = None })
+    let planOuterOn =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+
+    planOuterOn.Joins.Add(
+        {
+            JoinType = "OUTER APPLY"
+            SourceTable = "Orders"
+            Alias = "o"
+            OnClause = "p.Id = o.CustomerId"
+            RowType = None
+        }
+    )
+
     let sqlOuterOn = planOuterOn.BuildSql(SqlDialect.Sqlite)
     Assert.Contains("LEFT JOIN Orders o ON p.Id = o.CustomerId", sqlOuterOn)
 
     // Non-table baseSql with joins
-    let planSubFrom = PushdownQueryPlan.Create("SELECT * FROM Products WHERE Price > 10", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
-    planSubFrom.Joins.Add({ JoinType = "INNER JOIN"; SourceTable = "Orders"; Alias = "o"; OnClause = "p.Id = o.CustomerId"; RowType = None })
+    let planSubFrom =
+        PushdownQueryPlan.Create(
+            "SELECT * FROM Products WHERE Price > 10",
+            [],
+            baseAlias = "p",
+            dialect = SqlDialect.Sqlite
+        )
+
+    planSubFrom.Joins.Add(
+        {
+            JoinType = "INNER JOIN"
+            SourceTable = "Orders"
+            Alias = "o"
+            OnClause = "p.Id = o.CustomerId"
+            RowType = None
+        }
+    )
+
     let sqlSubFrom = planSubFrom.BuildSql(SqlDialect.Sqlite)
     Assert.Contains("(SELECT * FROM Products WHERE Price > 10) AS p INNER JOIN", sqlSubFrom)
 
     // Non-table baseSql without joins requiring base alias
-    let planSubAlias = PushdownQueryPlan.Create("SELECT * FROM Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+    let planSubAlias =
+        PushdownQueryPlan.Create("SELECT * FROM Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+
     planSubAlias.WhereClauses.Add("p.Price > 10")
     let sqlSubAlias = planSubAlias.BuildSql(SqlDialect.Sqlite)
     Assert.Contains("(SELECT * FROM Products) AS p WHERE p.Price > 10", sqlSubAlias)
 
     // Non-table baseSql without joins NOT requiring base alias
-    let planSubNoAlias = PushdownQueryPlan.Create("SELECT * FROM Products", [], baseAlias = "_t0", dialect = SqlDialect.Sqlite)
+    let planSubNoAlias =
+        PushdownQueryPlan.Create("SELECT * FROM Products", [], baseAlias = "_t0", dialect = SqlDialect.Sqlite)
+
     let sqlSubNoAlias = planSubNoAlias.BuildSql(SqlDialect.Sqlite)
     Assert.Contains("(SELECT * FROM Products) AS _src", sqlSubNoAlias)
 
     // SQL Server Skip without Take
-    let planSsSkip = PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.SqlServer)
+    let planSsSkip =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.SqlServer)
+
     planSsSkip.Skip <- Some 15
     planSsSkip.Take <- None
     let sqlSsSkip = planSsSkip.BuildSql(SqlDialect.SqlServer)
     Assert.Contains("OFFSET 15 ROWS", sqlSsSkip)
 
     // Oracle Skip without Take
-    let planOraSkip = PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Oracle)
+    let planOraSkip =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Oracle)
+
     planOraSkip.Skip <- Some 20
     planOraSkip.Take <- None
     let sqlOraSkip = planOraSkip.BuildSql(SqlDialect.Oracle)
     Assert.Contains("OFFSET 20 ROWS", sqlOraSkip)
 
     // Oracle Take without Skip
-    let planOraTake = PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Oracle)
+    let planOraTake =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Oracle)
+
     planOraTake.Skip <- None
     planOraTake.Take <- Some 10
     let sqlOraTake = planOraTake.BuildSql(SqlDialect.Oracle)
     Assert.Contains("OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY", sqlOraTake)
 
     // SQLite Skip without Take
-    let planLiteSkip = PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+    let planLiteSkip =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+
     planLiteSkip.Skip <- Some 25
     planLiteSkip.Take <- None
     let sqlLiteSkip = planLiteSkip.BuildSql(SqlDialect.Sqlite)
@@ -974,7 +1383,7 @@ let ``SqlPushdownQueryable direct aggregates, WhereNotIn, ToRawQuery, and set op
     let orders = SqlPushdownQueryable<CovOrder>(conn, "Orders")
 
     // WhereNotIn with values
-    let qNotIn = products.WhereNotIn("Id", [1; 2; 3])
+    let qNotIn = products.WhereNotIn("Id", [ 1; 2; 3 ])
     let sqlNotIn = toRawSql qNotIn
     Assert.Contains("Id NOT IN (@notin_p", sqlNotIn)
 
@@ -1054,8 +1463,8 @@ let ``SqlComputationExtensions direct methods, dummy builder methods, and FSql q
     let products = SqlPushdownQueryable<CovProduct>(conn, "Products")
 
     // SqlComputationExtensions module functions with plain queryable
-    let plain1 = ([1; 2] :> seq<int>).AsQueryable()
-    let plain2 = ([2; 3] :> seq<int>).AsQueryable()
+    let plain1 = ([ 1; 2 ] :> seq<int>).AsQueryable()
+    let plain2 = ([ 2; 3 ] :> seq<int>).AsQueryable()
     let uPlain = SqlComputationExtensions.union plain1 plain2
     Assert.Equal(3, uPlain.Count())
     let uaPlain = SqlComputationExtensions.unionAll plain1 plain2
@@ -1066,49 +1475,68 @@ let ``SqlComputationExtensions direct methods, dummy builder methods, and FSql q
     Assert.Equal(1, ePlain.Count())
 
     // SqlComputationExtensions module functions with SqlPushdownQueryable
-    let uSpq = SqlComputationExtensions.union (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+    let uSpq =
+        SqlComputationExtensions.union (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
     Assert.Contains("UNION", toRawSql uSpq)
-    let uaSpq = SqlComputationExtensions.unionAll (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
+    let uaSpq =
+        SqlComputationExtensions.unionAll (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
     Assert.Contains("UNION ALL", toRawSql uaSpq)
-    let iSpq = SqlComputationExtensions.intersect (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
+    let iSpq =
+        SqlComputationExtensions.intersect (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
     Assert.Contains("INTERSECT", toRawSql iSpq)
-    let eSpq = SqlComputationExtensions.except (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
+    let eSpq =
+        SqlComputationExtensions.except (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
     Assert.Contains("EXCEPT", toRawSql eSpq)
 
     // Dummy helper functions
-    let recRes = SqlComputationExtensions.recursive "cte" [10; 20] id
+    let recRes = SqlComputationExtensions.recursive "cte" [ 10; 20 ] id
     Assert.Equal(2, Seq.length recRes)
     let jsonRes = SqlComputationExtensions.jsonValue "details" "$.path"
     Assert.Equal("", jsonRes)
 
     // FSqlQueryBuilder dummy helper methods
-    fsql.withCte("my_cte", [1; 2])
-    fsql.withCte([1; 2])
-    fsql.withCte("SELECT 1")
-    fsql.withCteSql("my_cte", "SELECT 1")
-    fsql.withCteSql("SELECT 1")
-    fsql.withRecursiveCte("rec_cte", [1])
-    fsql.withRecursiveCte([1])
-    fsql.withRecursiveCte("SELECT 1")
-    fsql.withRecursiveCteSql("rec_cte", "SELECT 1")
-    fsql.withRecursiveCteSql("SELECT 1")
+    fsql.withCte ("my_cte", [ 1; 2 ])
+    fsql.withCte ([ 1; 2 ])
+    fsql.withCte ("SELECT 1")
+    fsql.withCteSql ("my_cte", "SELECT 1")
+    fsql.withCteSql ("SELECT 1")
+    fsql.withRecursiveCte ("rec_cte", [ 1 ])
+    fsql.withRecursiveCte ([ 1 ])
+    fsql.withRecursiveCte ("SELECT 1")
+    fsql.withRecursiveCteSql ("rec_cte", "SELECT 1")
+    fsql.withRecursiveCteSql ("SELECT 1")
 
-    Assert.Equal(123, fsql.max(123))
-    Assert.Equal(0L, fsql.count())
-    Assert.Equal(0L, fsql.count(123))
-    Assert.Equal("", fsql.jsonValue("col", "$.a"))
-    let rDummy = fsql.recursive("cte", [42], id)
+    Assert.Equal(123, fsql.max (123))
+    Assert.Equal(0L, fsql.count ())
+    Assert.Equal(0L, fsql.count (123))
+    Assert.Equal("", fsql.jsonValue ("col", "$.a"))
+    let rDummy = fsql.recursive ("cte", [ 42 ], id)
     Assert.Equal(1, Seq.length rDummy)
 
-    let report = fsql.explain(products)
+    let report = fsql.explain (products)
     Assert.Contains("SELECT *", report.FormattedSql)
     Assert.Contains("FROM Products", report.FormattedSql)
 
-    let uAllBuild = fsql.unionAll (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+    let uAllBuild =
+        fsql.unionAll (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
     Assert.Contains("UNION ALL", toRawSql uAllBuild)
-    let iBuild = fsql.intersect (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
+    let iBuild =
+        fsql.intersect (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
     Assert.Contains("INTERSECT", toRawSql iBuild)
-    let eBuild = fsql.except (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
+    let eBuild =
+        fsql.except (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
     Assert.Contains("EXCEPT", toRawSql eBuild)
 
 // =========================================================================
@@ -1132,7 +1560,9 @@ let ``SqlPushdownQueryProvider Execute and ExecuteOfTResult with various collect
     Assert.Equal(5, Seq.length seqRes)
 
     // Execute<IEnumerable<CovProduct>>
-    let enumRes = prov.Execute<System.Collections.Generic.IEnumerable<CovProduct>>(prodExpr)
+    let enumRes =
+        prov.Execute<System.Collections.Generic.IEnumerable<CovProduct>>(prodExpr)
+
     Assert.Equal(5, Seq.length enumRes)
 
     // Execute<int>
@@ -1145,13 +1575,14 @@ let ``SqlPushdownQueryProvider Execute and ExecuteOfTResult with various collect
 
 [<Fact>]
 let ``SqlPushdownQuery explain and explainQuery across all dialects and error paths`` () =
-    let dialects = [
-        ("SqlServer", "Microsoft.Data.SqlClient")
-        ("PostgreSql", "Npgsql")
-        ("MySql", "MySqlConnector")
-        ("MariaDb", "MySqlConnector")
-        ("Oracle", "Oracle.ManagedDataAccess.Client")
-    ]
+    let dialects =
+        [
+            ("SqlServer", "Microsoft.Data.SqlClient")
+            ("PostgreSql", "Npgsql")
+            ("MySql", "MySqlConnector")
+            ("MariaDb", "MySqlConnector")
+            ("Oracle", "Oracle.ManagedDataAccess.Client")
+        ]
 
     for (name, _) in dialects do
         let mockConn = AdvancedMockConnector(ConnectorKind(name))
@@ -1161,13 +1592,15 @@ let ``SqlPushdownQuery explain and explainQuery across all dialects and error pa
         Assert.NotEmpty(rep.PlanText)
 
     // Connector error path in explain
-    let failingConn = AdvancedMockConnector(ConnectorKind("Sqlite"), onExecute = (fun _ _ -> failwith "Simulated explain failure"))
+    let failingConn =
+        AdvancedMockConnector(ConnectorKind("Sqlite"), onExecute = (fun _ _ -> failwith "Simulated explain failure"))
+
     let qFail = SqlPushdownQueryable<CovProduct>(failingConn, "Products")
     let repFail = SqlPushdownQuery.explainQuery qFail
     Assert.Contains("Simulated explain failure", repFail.PlanText)
 
     // Query without connector
-    let plainQ = ([1; 2; 3] :> seq<int>).AsQueryable()
+    let plainQ = ([ 1; 2; 3 ] :> seq<int>).AsQueryable()
     let repPlain = SqlPushdownQuery.explainQuery plainQ
     Assert.Contains("Diagnostic execution plan estimate", repPlain.PlanText)
 
@@ -1186,6 +1619,7 @@ let ``ToString with and without format string across all dialects`` () =
 
         let qPlain = q.Select(fun p -> p.Price.ToString())
         let sqlPlain = toRawSql qPlain
+
         if dialect = "Oracle" then
             Assert.Contains("TO_CHAR(", sqlPlain)
         else
@@ -1269,8 +1703,9 @@ let ``Window functions LAG and LEAD with defaultValue`` () =
     let qLagDef =
         fsql {
             for p in products do
-            select (fsql.lag(p.Price, offset = 2, defaultValue = 0.0M))
+                select (fsql.lag (p.Price, offset = 2, defaultValue = 0.0M))
         }
+
     let sqlLag = toRawSql qLagDef
     Assert.Contains("LAG(", sqlLag)
     Assert.Contains("2, 0.0", sqlLag)
@@ -1278,8 +1713,9 @@ let ``Window functions LAG and LEAD with defaultValue`` () =
     let qLeadDef =
         fsql {
             for p in products do
-            select (fsql.lead(p.Price, offset = 1, defaultValue = 99.99M))
+                select (fsql.lead (p.Price, offset = 1, defaultValue = 99.99M))
         }
+
     let sqlLead = toRawSql qLeadDef
     Assert.Contains("LEAD(", sqlLead)
     Assert.Contains("1, 99.99", sqlLead)
@@ -1296,7 +1732,9 @@ let ``Scalar subqueries in projection and predicate`` () =
     let orders = SqlPushdownQueryable<CovOrder>(conn, "Orders")
 
     // Scalar subquery in projection
-    let qSubProj = products.Select(fun p -> (p.Name, orders.Where(fun o -> o.CustomerId = p.Id).Count()))
+    let qSubProj =
+        products.Select(fun p -> (p.Name, orders.Where(fun o -> o.CustomerId = p.Id).Count()))
+
     let sqlProj = toRawSql qSubProj
     Assert.Contains("SELECT", sqlProj)
     Assert.Contains("COUNT(", sqlProj)
@@ -1323,12 +1761,16 @@ let ``Queryable Any and Exists / NotExists predicates in Where`` () =
     Assert.Contains("EXISTS (SELECT 1 FROM Orders", sqlAnyPred)
 
     // Queryable.Any without predicate (subquery already filtered)
-    let qAnyNoPred = products.Where(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Any())
+    let qAnyNoPred =
+        products.Where(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Any())
+
     let sqlAnyNoPred = toRawSql qAnyNoPred
     Assert.Contains("EXISTS (SELECT 1 FROM Orders", sqlAnyNoPred)
 
     // Negated Any -> NOT EXISTS
-    let qNotAny = products.Where(fun p -> not (orders.Any(fun o -> o.CustomerId = p.Id)))
+    let qNotAny =
+        products.Where(fun p -> not (orders.Any(fun o -> o.CustomerId = p.Id)))
+
     let sqlNotAny = toRawSql qNotAny
     Assert.Contains("NOT EXISTS", sqlNotAny)
 
@@ -1347,9 +1789,10 @@ let ``FSql computation expression advanced DQL operations and joins`` () =
     let qWhereExists =
         fsql {
             for p in products do
-            whereExists (orders.Where(fun o -> o.CustomerId = p.Id))
-            select p
+                whereExists (orders.Where(fun o -> o.CustomerId = p.Id))
+                select p
         }
+
     let sqlWhereExists = toRawSql qWhereExists
     Assert.Contains("EXISTS", sqlWhereExists)
 
@@ -1357,9 +1800,10 @@ let ``FSql computation expression advanced DQL operations and joins`` () =
     let qWhereNotExists =
         fsql {
             for p in products do
-            whereNotExists (orders.Where(fun o -> o.CustomerId = p.Id))
-            select p
+                whereNotExists (orders.Where(fun o -> o.CustomerId = p.Id))
+                select p
         }
+
     let sqlWhereNotExists = toRawSql qWhereNotExists
     Assert.Contains("NOT EXISTS", sqlWhereNotExists)
 
@@ -1367,10 +1811,11 @@ let ``FSql computation expression advanced DQL operations and joins`` () =
     let qHaving =
         fsql {
             for p in products do
-            groupBy p.Category into g
-            having (g.Key <> "")
-            select g.Key
+                groupBy p.Category into g
+                having (g.Key <> "")
+                select g.Key
         }
+
     let sqlHaving = toRawSql qHaving
     Assert.Contains("GROUP BY", sqlHaving)
     Assert.Contains("HAVING", sqlHaving)
@@ -1379,10 +1824,12 @@ let ``FSql computation expression advanced DQL operations and joins`` () =
     let qFullJoin =
         fsql {
             for p in products do
-            fullOuterJoin o in orders on (p.Id = o.CustomerId) into g
-            for o in g.DefaultIfEmpty() do
-            select (p.Id, o.OrderId)
+                fullOuterJoin o in orders on (p.Id = o.CustomerId) into g
+
+                for o in g.DefaultIfEmpty() do
+                    select (p.Id, o.OrderId)
         }
+
     let sqlFullJoin = toRawSql qFullJoin
     Assert.Contains("FULL OUTER JOIN", sqlFullJoin)
 
@@ -1390,9 +1837,10 @@ let ``FSql computation expression advanced DQL operations and joins`` () =
     let qRightJoin =
         fsql {
             for p in products do
-            rightOuterJoin o in orders on (p.Id = o.CustomerId)
-            select (p.Id, o.OrderId)
+                rightOuterJoin o in orders on (p.Id = o.CustomerId)
+                select (p.Id, o.OrderId)
         }
+
     let sqlRightJoin = toRawSql qRightJoin
     Assert.Contains("RIGHT OUTER JOIN", sqlRightJoin)
 
@@ -1400,9 +1848,10 @@ let ``FSql computation expression advanced DQL operations and joins`` () =
     let qRightGroup =
         fsql {
             for p in products do
-            rightOuterJoinGroup o in orders on (p.Id = o.CustomerId) into g
-            select (p.Id, g.Count())
+                rightOuterJoinGroup o in orders on (p.Id = o.CustomerId) into g
+                select (p.Id, g.Count())
         }
+
     let sqlRightGroup = toRawSql qRightGroup
     Assert.Contains("RIGHT OUTER JOIN", sqlRightGroup)
 
@@ -1410,58 +1859,65 @@ let ``FSql computation expression advanced DQL operations and joins`` () =
     let qUnion =
         fsql {
             for p in products do
-            select p
-            union products
+                select p
+                union products
         }
+
     Assert.Contains("UNION", toRawSql qUnion)
 
     let qUnionAll =
         fsql {
             for p in products do
-            select p
-            unionAll products
+                select p
+                unionAll products
         }
+
     Assert.Contains("UNION ALL", toRawSql qUnionAll)
 
     let qIntersect =
         fsql {
             for p in products do
-            select p
-            intersect products
+                select p
+                intersect products
         }
+
     Assert.Contains("INTERSECT", toRawSql qIntersect)
 
     let qExcept =
         fsql {
             for p in products do
-            select p
-            except products
+                select p
+                except products
         }
+
     Assert.Contains("EXCEPT", toRawSql qExcept)
 
     // withCte and withRecursiveCte inside fsql
     let qWithCte =
         fsql {
             for p in products do
-            withCte "orders_cte" orders
-            select p
+                withCte "orders_cte" orders
+                select p
         }
+
     Assert.Contains("WITH orders_cte AS", toRawSql qWithCte)
 
     let qWithCteSql =
         fsql {
             for p in products do
-            withCteSql "sql_cte" "SELECT 1 AS Num"
-            select p
+                withCteSql "sql_cte" "SELECT 1 AS Num"
+                select p
         }
+
     Assert.Contains("WITH sql_cte AS (SELECT 1 AS Num)", toRawSql qWithCteSql)
 
     let qWithRecSql =
         fsql {
             for p in products do
-            withRecursiveCteSql "rec_cte" "SELECT 1 UNION ALL SELECT 2"
-            select p
+                withRecursiveCteSql "rec_cte" "SELECT 1 UNION ALL SELECT 2"
+                select p
         }
+
     Assert.Contains("rec_cte AS", toRawSql qWithRecSql)
 
 // =========================================================================
@@ -1491,16 +1947,18 @@ let ``Option and Nullable operations isSome isNone defaultValue and pattern matc
     let qOptDef =
         fsql {
             for x in items do
-            select (Option.defaultValue 0.0M x.Rating)
+                select (Option.defaultValue 0.0M x.Rating)
         }
+
     Assert.Contains("COALESCE(", toRawSql qOptDef)
 
     // defaultArg
     let qDefArg =
         fsql {
             for x in items do
-            select (defaultArg x.Rating 10.0M)
+                select (defaultArg x.Rating 10.0M)
         }
+
     Assert.Contains("COALESCE(", toRawSql qDefArg)
 
     // Nullable parameterless GetValueOrDefault()
@@ -1525,6 +1983,7 @@ let ``LINQ OrderBy ThenBy First Single and Terminal Aggregates`` () =
             .ThenBy(fun p -> p.Price)
             .OrderByDescending(fun p -> p.Category)
             .ThenByDescending(fun p -> p.Price)
+
     let sqlOrderThen = toRawSql qOrderThen
     Assert.Contains("ORDER BY", sqlOrderThen)
     Assert.Contains("DESC", sqlOrderThen)
@@ -1553,7 +2012,14 @@ let ``LINQ OrderBy ThenBy First Single and Terminal Aggregates`` () =
 
     // Terminal aggregate Avg on Projection
     let selExpr = products.Select(fun p -> p.Price).Expression
-    let avgMethod = typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Average" && m.GetParameters().Length = 1 && m.GetParameters().[0].ParameterType.GetGenericArguments().[0] = typeof<decimal>)
+
+    let avgMethod =
+        typeof<Queryable>.GetMethods()
+        |> Seq.find (fun m ->
+            m.Name = "Average"
+            && m.GetParameters().Length = 1
+            && m.GetParameters().[0].ParameterType.GetGenericArguments().[0] = typeof<decimal>)
+
     let avgExpr = Expression.Call(null, avgMethod, selExpr)
     let planAvg = prov.ExtractPlan(avgExpr)
     Assert.True(planAvg.Projection.IsSome)
@@ -1573,34 +2039,52 @@ let ``Non-correlated SelectMany and cross-connector LinqInMemoryFallback`` () =
     // Non-correlated SelectMany (INNER JOIN on 1=1)
     let pParam = Expression.Parameter(typeof<CovProduct>, "p")
     let ordersConst = Expression.Constant(orders)
-    let selManyLambda = Expression.Lambda<Func<CovProduct, seq<CovOrder>>>(ordersConst, pParam)
+
+    let selManyLambda =
+        Expression.Lambda<Func<CovProduct, seq<CovOrder>>>(ordersConst, pParam)
+
     let qCrossJoin = Queryable.SelectMany(products, selManyLambda)
     let sqlCrossJoin = toRawSql qCrossJoin
     Assert.Contains("INNER JOIN Orders _t1 ON 1=1", sqlCrossJoin)
 
     // Non-correlated SelectMany with DefaultIfEmpty (LEFT JOIN on 1=1)
-    let defIfEmptyMethod = typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "DefaultIfEmpty" && m.GetParameters().Length = 1)
-    let defIfEmptyCall = Expression.Call(null, defIfEmptyMethod.MakeGenericMethod(typeof<CovOrder>), ordersConst)
-    let selManyDefLambda = Expression.Lambda<Func<CovProduct, seq<CovOrder>>>(defIfEmptyCall, pParam)
+    let defIfEmptyMethod =
+        typeof<Enumerable>.GetMethods()
+        |> Seq.find (fun m -> m.Name = "DefaultIfEmpty" && m.GetParameters().Length = 1)
+
+    let defIfEmptyCall =
+        Expression.Call(null, defIfEmptyMethod.MakeGenericMethod(typeof<CovOrder>), ordersConst)
+
+    let selManyDefLambda =
+        Expression.Lambda<Func<CovProduct, seq<CovOrder>>>(defIfEmptyCall, pParam)
+
     let qOuterJoin = Queryable.SelectMany(products, selManyDefLambda)
     let sqlOuterJoin = toRawSql qOuterJoin
     Assert.Contains("LEFT JOIN Orders _t1 ON 1=1", sqlOuterJoin)
 
     // LinqInMemoryFallback.evaluate direct calls
-    let listQ = ([1; 2; 3; 4; 5] :> seq<int>).AsQueryable()
+    let listQ = ([ 1; 2; 3; 4; 5 ] :> seq<int>).AsQueryable()
     let whereExpr = Queryable.Where(listQ, fun x -> x > 2).Expression
     let whereRes = LinqInMemoryFallback.evaluate whereExpr :?> seq<int>
     Assert.Equal(3, Seq.length whereRes)
 
-    let countMethod = typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)
-    let countExpr = Expression.Call(null, countMethod.MakeGenericMethod(typeof<int>), listQ.Expression)
+    let countMethod =
+        typeof<Queryable>.GetMethods()
+        |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)
+
+    let countExpr =
+        Expression.Call(null, countMethod.MakeGenericMethod(typeof<int>), listQ.Expression)
+
     let countRes = LinqInMemoryFallback.evaluate countExpr :?> int
     Assert.Equal(5, countRes)
 
     // Cross-connector join execution triggering LinqInMemoryFallback
     let mockPg = AdvancedMockConnector(ConnectorKind("PostgreSql"))
     let pgOrders = SqlPushdownQueryable<CovOrder>(mockPg, "Orders")
-    let crossConnJoin = products.Join(pgOrders, (fun p -> p.Id), (fun o -> o.CustomerId), (fun p o -> (p.Name, o.Amount)))
+
+    let crossConnJoin =
+        products.Join(pgOrders, (fun p -> p.Id), (fun o -> o.CustomerId), (fun p o -> (p.Name, o.Amount)))
+
     let prov = (products :> IQueryable).Provider :?> SqlPushdownQueryProvider
     let res = prov.ExecutePlanOrStream (crossConnJoin :> IQueryable).Expression
     Assert.NotNull(res)
@@ -1617,7 +2101,9 @@ let ``CTE propagation in Set Operations and Queryable extensions`` () =
     let orders = SqlPushdownQueryable<CovOrder>(conn, "Orders")
 
     // WithCte on wrapped queryable
-    let withCteQ = products.WithCte("orders_cte", orders).Where(fun p -> p.Price > 10.0M)
+    let withCteQ =
+        products.WithCte("orders_cte", orders).Where(fun p -> p.Price > 10.0M)
+
     let otherQ = products.Where(fun p -> p.Price < 100.0M)
 
     let u1 = withCteQ.Union(otherQ)
@@ -1633,7 +2119,9 @@ let ``CTE propagation in Set Operations and Queryable extensions`` () =
     Assert.Contains("WITH orders_cte AS", toRawSql u4)
 
     // products.Union(otherWithCte)
-    let otherWithCte = products.WithCte("sub_cte", orders).Where(fun p -> p.Price > 5.0M)
+    let otherWithCte =
+        products.WithCte("sub_cte", orders).Where(fun p -> p.Price > 5.0M)
+
     let pu1 = products.Union(otherWithCte)
     Assert.Contains("WITH sub_cte AS", toRawSql pu1)
 
@@ -1664,12 +2152,16 @@ let ``SqlPushdownQueryProvider properties, CreateQuery, and ExpressionPushdownTr
     Assert.Equal(SqlDialect.Sqlite, prov.Dialect)
 
     // (IQueryProvider).CreateQuery non-generic
-    let nonGeneric = (prov :> IQueryProvider).CreateQuery((products :> IQueryable).Expression)
+    let nonGeneric =
+        (prov :> IQueryProvider).CreateQuery((products :> IQueryable).Expression)
+
     Assert.NotNull(nonGeneric)
     Assert.Equal(typeof<CovProduct>, nonGeneric.ElementType)
 
     // hasJoin helper
-    let joinQ = products.Join(products, (fun p -> p.Id), (fun p -> p.Id), (fun p1 p2 -> p1))
+    let joinQ =
+        products.Join(products, (fun p -> p.Id), (fun p -> p.Id), (fun p1 p2 -> p1))
+
     Assert.True(ExpressionPushdownTranslator.hasJoin (joinQ :> IQueryable).Expression)
     Assert.False(ExpressionPushdownTranslator.hasJoin (products :> IQueryable).Expression)
 
@@ -1736,7 +2228,10 @@ let ``Advanced inverted comparisons constants and null checks in Where clauses``
     Assert.Contains("InStock = 1", toRawSql qBool)
 
     let connPg = AdvancedMockConnector(ConnectorKind("PostgreSql"))
-    let qBoolPg = SqlPushdownQueryable<CovProduct>(connPg, "Products").Where(fun p -> p.InStock)
+
+    let qBoolPg =
+        SqlPushdownQueryable<CovProduct>(connPg, "Products").Where(fun p -> p.InStock)
+
     Assert.Contains("InStock = TRUE", toRawSql qBoolPg)
 
 // =========================================================================
@@ -1763,7 +2258,10 @@ let ``Deep scalar expressions Math String Arithmetic and JsonValue across dialec
     Assert.Contains("CEIL(Price)", toRawSql qMathCeilSqlite)
 
     let connSs = AdvancedMockConnector(ConnectorKind("SqlServer"))
-    let qMathCeilSs = SqlPushdownQueryable<CovProduct>(connSs, "Products").Select(fun p -> Math.Ceiling(p.Price))
+
+    let qMathCeilSs =
+        SqlPushdownQueryable<CovProduct>(connSs, "Products").Select(fun p -> Math.Ceiling(p.Price))
+
     Assert.Contains("CEILING(Price)", toRawSql qMathCeilSs)
 
     let qMathSqrt = products.Select(fun p -> Math.Sqrt(float p.Price))
@@ -1782,14 +2280,18 @@ let ``Deep scalar expressions Math String Arithmetic and JsonValue across dialec
     let qSub2 = products.Select(fun p -> p.Name.Substring(1, 3))
     Assert.Contains("SUBSTR(Name", toRawSql qSub2)
 
-    let qSubSs = SqlPushdownQueryable<CovProduct>(connSs, "Products").Select(fun p -> p.Name.Substring(1, 3))
+    let qSubSs =
+        SqlPushdownQueryable<CovProduct>(connSs, "Products").Select(fun p -> p.Name.Substring(1, 3))
+
     Assert.Contains("SUBSTRING(Name", toRawSql qSubSs)
 
     let qRepl = products.Select(fun p -> p.Name.Replace("a", "b"))
     Assert.Contains("REPLACE(Name, 'a', 'b')", toRawSql qRepl)
 
     // String Case and Trim
-    let qCaseTrim = products.Select(fun p -> (p.Name.ToUpper(), p.Name.ToLower(), p.Name.Trim()))
+    let qCaseTrim =
+        products.Select(fun p -> (p.Name.ToUpper(), p.Name.ToLower(), p.Name.Trim()))
+
     let sCaseTrim = toRawSql qCaseTrim
     Assert.Contains("UPPER(Name)", sCaseTrim)
     Assert.Contains("LOWER(Name)", sCaseTrim)
@@ -1799,29 +2301,43 @@ let ``Deep scalar expressions Math String Arithmetic and JsonValue across dialec
     let qIdxSqlite = products.Select(fun p -> p.Name.IndexOf("a"))
     Assert.Contains("INSTR(Name, 'a') - 1", toRawSql qIdxSqlite)
 
-    let qIdxSs = SqlPushdownQueryable<CovProduct>(connSs, "Products").Select(fun p -> p.Name.IndexOf("a"))
+    let qIdxSs =
+        SqlPushdownQueryable<CovProduct>(connSs, "Products").Select(fun p -> p.Name.IndexOf("a"))
+
     Assert.Contains("CHARINDEX('a', Name) - 1", toRawSql qIdxSs)
 
     let connPg = AdvancedMockConnector(ConnectorKind("PostgreSql"))
-    let qIdxPg = SqlPushdownQueryable<CovProduct>(connPg, "Products").Select(fun p -> p.Name.IndexOf("a"))
+
+    let qIdxPg =
+        SqlPushdownQueryable<CovProduct>(connPg, "Products").Select(fun p -> p.Name.IndexOf("a"))
+
     Assert.Contains("POSITION('a' IN Name) - 1", toRawSql qIdxPg)
 
     let connMy = AdvancedMockConnector(ConnectorKind("MySql"))
-    let qIdxMy = SqlPushdownQueryable<CovProduct>(connMy, "Products").Select(fun p -> p.Name.IndexOf("a"))
+
+    let qIdxMy =
+        SqlPushdownQueryable<CovProduct>(connMy, "Products").Select(fun p -> p.Name.IndexOf("a"))
+
     Assert.Contains("INSTR(Name, 'a') - 1", toRawSql qIdxMy)
 
     // String addition across dialects
     let qConcatSqlite = products.Select(fun p -> p.Name + " - " + p.Category)
     Assert.Contains("||", toRawSql qConcatSqlite)
 
-    let qConcatSs = SqlPushdownQueryable<CovProduct>(connSs, "Products").Select(fun p -> p.Name + " - " + p.Category)
+    let qConcatSs =
+        SqlPushdownQueryable<CovProduct>(connSs, "Products").Select(fun p -> p.Name + " - " + p.Category)
+
     Assert.Contains("+", toRawSql qConcatSs)
 
-    let qConcatMy = SqlPushdownQueryable<CovProduct>(connMy, "Products").Select(fun p -> p.Name + " - " + p.Category)
+    let qConcatMy =
+        SqlPushdownQueryable<CovProduct>(connMy, "Products").Select(fun p -> p.Name + " - " + p.Category)
+
     Assert.Contains("CONCAT(", toRawSql qConcatMy)
 
     // Arithmetic in projection
-    let qArith = products.Select(fun p -> (p.Price + 1.0M, p.Price - 1.0M, p.Price * 2.0M, p.Price / 2.0M, p.Id % 2))
+    let qArith =
+        products.Select(fun p -> (p.Price + 1.0M, p.Price - 1.0M, p.Price * 2.0M, p.Price / 2.0M, p.Id % 2))
+
     let sArith = toRawSql qArith
     Assert.Contains("+", sArith)
     Assert.Contains("-", sArith)
@@ -1834,20 +2350,45 @@ let ``Deep scalar expressions Math String Arithmetic and JsonValue across dialec
     Assert.Contains("||", toRawSql qStrConcat)
 
     // JsonValue across dialects
-    let qJsonSqlite = fsql { for p in products do select (fsql.jsonValue(p.Name, "$.info.title")) }
+    let qJsonSqlite =
+        fsql {
+            for p in products do
+                select (fsql.jsonValue (p.Name, "$.info.title"))
+        }
+
     Assert.Contains("json_extract(Name, '$.info.title')", toRawSql qJsonSqlite)
 
-    let qJsonSs = fsql { for p in SqlPushdownQueryable<CovProduct>(connSs, "Products") do select (fsql.jsonValue(p.Name, "$.info.title")) }
+    let qJsonSs =
+        fsql {
+            for p in SqlPushdownQueryable<CovProduct>(connSs, "Products") do
+                select (fsql.jsonValue (p.Name, "$.info.title"))
+        }
+
     Assert.Contains("JSON_VALUE(Name, '$.info.title')", toRawSql qJsonSs)
 
-    let qJsonMy = fsql { for p in SqlPushdownQueryable<CovProduct>(connMy, "Products") do select (fsql.jsonValue(p.Name, "$.info.title")) }
+    let qJsonMy =
+        fsql {
+            for p in SqlPushdownQueryable<CovProduct>(connMy, "Products") do
+                select (fsql.jsonValue (p.Name, "$.info.title"))
+        }
+
     Assert.Contains("JSON_UNQUOTE(JSON_EXTRACT(Name, '$.info.title'))", toRawSql qJsonMy)
 
-    let qJsonPgNested = fsql { for p in SqlPushdownQueryable<CovProduct>(connPg, "Products") do select (fsql.jsonValue(p.Name, "$.data.user.name")) }
+    let qJsonPgNested =
+        fsql {
+            for p in SqlPushdownQueryable<CovProduct>(connPg, "Products") do
+                select (fsql.jsonValue (p.Name, "$.data.user.name"))
+        }
+
     Assert.Contains("#>>", toRawSql qJsonPgNested)
     Assert.Contains("data", toRawSql qJsonPgNested)
 
-    let qJsonPgSingle = fsql { for p in SqlPushdownQueryable<CovProduct>(connPg, "Products") do select (fsql.jsonValue(p.Name, "$.title")) }
+    let qJsonPgSingle =
+        fsql {
+            for p in SqlPushdownQueryable<CovProduct>(connPg, "Products") do
+                select (fsql.jsonValue (p.Name, "$.title"))
+        }
+
     Assert.Contains("->> 'title'", toRawSql qJsonPgSingle)
 
 // =========================================================================
@@ -1864,34 +2405,56 @@ let ``Conditional expressions Case When and Nullable helpers in projection`` () 
     Assert.Contains("CASE WHEN", toRawSql qCase1)
     Assert.Contains("AND", toRawSql qCase1)
 
-    let qCase2 = products.Select(fun p -> if p.Price < 5.0M || p.Price >= 100.0M then "Ext" else "Mid")
+    let qCase2 =
+        products.Select(fun p -> if p.Price < 5.0M || p.Price >= 100.0M then "Ext" else "Mid")
+
     Assert.Contains("OR", toRawSql qCase2)
 
-    let qCase3 = products.Select(fun p -> if not (p.Price <= 20.0M) then "Over20" else "Under20")
+    let qCase3 =
+        products.Select(fun p -> if not (p.Price <= 20.0M) then "Over20" else "Under20")
+
     Assert.Contains("NOT", toRawSql qCase3)
 
-    let qCase4 = products.Select(fun p -> if p.Score = Nullable() then "NoScore" else "HasScore")
+    let qCase4 =
+        products.Select(fun p -> if p.Score = Nullable() then "NoScore" else "HasScore")
+
     Assert.Contains("IS NULL", toRawSql qCase4)
 
-    let qCase5 = products.Select(fun p -> if Nullable() <> p.Score then "HasScore" else "NoScore")
+    let qCase5 =
+        products.Select(fun p -> if Nullable() <> p.Score then "HasScore" else "NoScore")
+
     Assert.Contains("IS NOT NULL", toRawSql qCase5)
 
     let qCase6 = products.Select(fun p -> if p.Score.HasValue then "Val" else "NoVal")
     Assert.Contains("IS NOT NULL", toRawSql qCase6)
 
-    let qCase7 = products.Select(fun p -> if String.IsNullOrEmpty(p.Name) then "Empty" else "Filled")
+    let qCase7 =
+        products.Select(fun p -> if String.IsNullOrEmpty(p.Name) then "Empty" else "Filled")
+
     Assert.Contains("IS NULL", toRawSql qCase7)
 
-    let qCase8 = products.Select(fun p -> if String.IsNullOrWhiteSpace(p.Name) then "Blank" else "Text")
+    let qCase8 =
+        products.Select(fun p ->
+            if String.IsNullOrWhiteSpace(p.Name) then
+                "Blank"
+            else
+                "Text")
+
     Assert.Contains("TRIM(Name)", toRawSql qCase8)
 
-    let qCase9 = products.Select(fun p -> if p.Name.Contains("o") then "HasO" else "NoO")
+    let qCase9 =
+        products.Select(fun p -> if p.Name.Contains("o") then "HasO" else "NoO")
+
     Assert.Contains("LIKE", toRawSql qCase9)
 
-    let qCase10 = products.Select(fun p -> if p.Name.StartsWith("K") then "StartsK" else "Other")
+    let qCase10 =
+        products.Select(fun p -> if p.Name.StartsWith("K") then "StartsK" else "Other")
+
     Assert.Contains("LIKE", toRawSql qCase10)
 
-    let qCase11 = products.Select(fun p -> if p.Name.EndsWith("d") then "EndsD" else "Other")
+    let qCase11 =
+        products.Select(fun p -> if p.Name.EndsWith("d") then "EndsD" else "Other")
+
     Assert.Contains("LIKE", toRawSql qCase11)
 
     let qCase12 = products.Select(fun p -> if p.InStock then "In" else "Out")
@@ -1918,50 +2481,83 @@ let ``Window functions and WindowDefinition edge cases with fallback defaults`` 
     let products = SqlPushdownQueryable<CovProduct>(conn, "Products")
 
     // Window specifications with different sort and partition variants
-    let qRowNumber = products.Select(fun p -> fsql.rowNumber(over = fsql.window(partitionBy = p.Category, sortBy = p.Price)))
+    let qRowNumber =
+        products.Select(fun p -> fsql.rowNumber (over = fsql.window (partitionBy = p.Category, sortBy = p.Price)))
+
     Assert.Contains("ROW_NUMBER() OVER (PARTITION BY Category ORDER BY Price ASC)", toRawSql qRowNumber)
 
-    let qRank = products.Select(fun p -> fsql.rank(over = fsql.window(partitionBy = p.Category, sortByDescending = p.Price)))
+    let qRank =
+        products.Select(fun p -> fsql.rank (over = fsql.window (partitionBy = p.Category, sortByDescending = p.Price)))
+
     Assert.Contains("RANK() OVER (PARTITION BY Category ORDER BY Price DESC)", toRawSql qRank)
 
-    let qDenseRank = products.Select(fun p -> fsql.denseRank(over = fsql.window(sortBy = p.Price)))
+    let qDenseRank =
+        products.Select(fun p -> fsql.denseRank (over = fsql.window (sortBy = p.Price)))
+
     Assert.Contains("DENSE_RANK() OVER (ORDER BY Price ASC)", toRawSql qDenseRank)
 
-    let qNtile = products.Select(fun p -> fsql.ntile(4, over = fsql.window(sortByDescending = p.Price)))
+    let qNtile =
+        products.Select(fun p -> fsql.ntile (4, over = fsql.window (sortByDescending = p.Price)))
+
     Assert.Contains("NTILE(4) OVER (ORDER BY Price DESC)", toRawSql qNtile)
 
-    let qFirstVal = products.Select(fun p -> fsql.firstValue(p.Price, over = fsql.window(partitionBy = p.Category)))
+    let qFirstVal =
+        products.Select(fun p -> fsql.firstValue (p.Price, over = fsql.window (partitionBy = p.Category)))
+
     Assert.Contains("FIRST_VALUE(Price) OVER (PARTITION BY Category)", toRawSql qFirstVal)
 
-    let qLastVal = products.Select(fun p -> fsql.lastValue(p.Price, over = fsql.window()))
+    let qLastVal =
+        products.Select(fun p -> fsql.lastValue (p.Price, over = fsql.window ()))
+
     Assert.Contains("LAST_VALUE(Price) OVER ()", toRawSql qLastVal)
 
-    let qSumOver = products.Select(fun p -> fsql.sum(p.Price, over = fsql.window(partitionBy = p.Category)))
+    let qSumOver =
+        products.Select(fun p -> fsql.sum (p.Price, over = fsql.window (partitionBy = p.Category)))
+
     Assert.Contains("SUM(Price) OVER (PARTITION BY Category)", toRawSql qSumOver)
 
-    let qAvgOver = products.Select(fun p -> fsql.avg(p.Price, over = fsql.window(partitionBy = p.Category)))
+    let qAvgOver =
+        products.Select(fun p -> fsql.avg (p.Price, over = fsql.window (partitionBy = p.Category)))
+
     Assert.Contains("AVG(Price) OVER (PARTITION BY Category)", toRawSql qAvgOver)
 
-    let qMinOver = products.Select(fun p -> fsql.min(p.Price, over = fsql.window(partitionBy = p.Category)))
+    let qMinOver =
+        products.Select(fun p -> fsql.min (p.Price, over = fsql.window (partitionBy = p.Category)))
+
     Assert.Contains("MIN(Price) OVER (PARTITION BY Category)", toRawSql qMinOver)
 
-    let qMaxOver = products.Select(fun p -> fsql.max(p.Price, over = fsql.window(partitionBy = p.Category)))
+    let qMaxOver =
+        products.Select(fun p -> fsql.max (p.Price, over = fsql.window (partitionBy = p.Category)))
+
     Assert.Contains("MAX(Price) OVER (PARTITION BY Category)", toRawSql qMaxOver)
 
-    let qCountOverCol = products.Select(fun p -> fsql.count(p.Price, over = fsql.window(partitionBy = p.Category)))
+    let qCountOverCol =
+        products.Select(fun p -> fsql.count (p.Price, over = fsql.window (partitionBy = p.Category)))
+
     Assert.Contains("COUNT(Price) OVER (PARTITION BY Category)", toRawSql qCountOverCol)
 
     // LAG and LEAD with client-evaluated fallback defaultValue expressions
-    let qLag = products.Select(fun p -> fsql.lag(p.Price, 1, defaultValue = decimal (Math.Abs(-5)), over = fsql.window(sortBy = p.Price)))
+    let qLag =
+        products.Select(fun p ->
+            fsql.lag (p.Price, 1, defaultValue = decimal (Math.Abs(-5)), over = fsql.window (sortBy = p.Price)))
+
     Assert.Contains("LAG(Price, 1, ABS(-5))", toRawSql qLag)
 
-    let qLead = products.Select(fun p -> fsql.lead(p.Price, 1, defaultValue = decimal (Math.Sqrt(16.0)), over = fsql.window(sortBy = p.Price)))
+    let qLead =
+        products.Select(fun p ->
+            fsql.lead (p.Price, 1, defaultValue = decimal (Math.Sqrt(16.0)), over = fsql.window (sortBy = p.Price)))
+
     Assert.Contains("LEAD(Price, 1, SQRT(", toRawSql qLead)
 
-    let qLagStr = products.Select(fun p -> fsql.lag(p.Name, 1, defaultValue = String.Concat("N", "/A"), over = fsql.window(sortBy = p.Name)))
+    let qLagStr =
+        products.Select(fun p ->
+            fsql.lag (p.Name, 1, defaultValue = String.Concat("N", "/A"), over = fsql.window (sortBy = p.Name)))
+
     Assert.Contains("LAG(Name, 1, ('N' || '/A'))", toRawSql qLagStr)
 
-    let qLeadNull = products.Select(fun p -> fsql.lead(p.Name, 1, defaultValue = null, over = fsql.window(sortBy = p.Name)))
+    let qLeadNull =
+        products.Select(fun p -> fsql.lead (p.Name, 1, defaultValue = null, over = fsql.window (sortBy = p.Name)))
+
     Assert.Contains("LEAD(Name, 1, NULL)", toRawSql qLeadNull)
 
 // =========================================================================
@@ -2007,7 +2603,9 @@ let ``Terminal aggregates distinct aggregates and projection expressions`` () =
     Assert.Equal(5, qCountDistId)
 
     // Chained Select
-    let qChained = products.Select(fun p -> {| P = p; Cat = p.Category |}).Select(fun x -> x.Cat)
+    let qChained =
+        products.Select(fun p -> {| P = p; Cat = p.Category |}).Select(fun x -> x.Cat)
+
     Assert.Contains("Category", toRawSql qChained)
 
     // Projection of single expressions with AS Value
@@ -2035,9 +2633,10 @@ let ``SelectMany cross apply outer apply tuple joins and fallback predicates`` (
     let qSmNonCorr =
         fsql {
             for p in products do
-            for o in orders do
-            select (p, o)
+                for o in orders do
+                    select (p, o)
         }
+
     Assert.Contains("INNER JOIN", toRawSql qSmNonCorr)
     Assert.Contains("1=1", toRawSql qSmNonCorr)
 
@@ -2045,9 +2644,10 @@ let ``SelectMany cross apply outer apply tuple joins and fallback predicates`` (
     let qSmNonCorrLeft =
         fsql {
             for p in products do
-            for o in orders.DefaultIfEmpty() do
-            select (p, o)
+                for o in orders.DefaultIfEmpty() do
+                    select (p, o)
         }
+
     Assert.Contains("LEFT JOIN", toRawSql qSmNonCorrLeft)
     Assert.Contains("1=1", toRawSql qSmNonCorrLeft)
 
@@ -2058,17 +2658,33 @@ let ``SelectMany cross apply outer apply tuple joins and fallback predicates`` (
     let prodIdProp = Expression.Property(pParam, "Id")
     let eqPred = Expression.Equal(custIdProp, prodIdProp)
     let predLambda = Expression.Lambda<Func<CovOrder, bool>>(eqPred, oParam)
-    let whereMethod = typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Where" && m.GetParameters().Length = 2)
+
+    let whereMethod =
+        typeof<Queryable>.GetMethods()
+        |> Seq.find (fun m -> m.Name = "Where" && m.GetParameters().Length = 2)
+
     let ordersConst = Expression.Constant(orders)
-    let whereCall = Expression.Call(null, whereMethod.MakeGenericMethod(typeof<CovOrder>), ordersConst, predLambda)
-    let selManyLambda = Expression.Lambda<Func<CovProduct, seq<CovOrder>>>(whereCall, pParam)
+
+    let whereCall =
+        Expression.Call(null, whereMethod.MakeGenericMethod(typeof<CovOrder>), ordersConst, predLambda)
+
+    let selManyLambda =
+        Expression.Lambda<Func<CovProduct, seq<CovOrder>>>(whereCall, pParam)
+
     let qSmCorr = Queryable.SelectMany(products, selManyLambda)
     Assert.Contains("CROSS JOIN (SELECT * FROM Orders", toRawSql qSmCorr)
 
     // Correlated SelectMany with DefaultIfEmpty (OUTER APPLY)
-    let defIfEmptyMethod = typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "DefaultIfEmpty" && m.GetParameters().Length = 1)
-    let defCall = Expression.Call(null, defIfEmptyMethod.MakeGenericMethod(typeof<CovOrder>), whereCall)
-    let selManyDefLambda = Expression.Lambda<Func<CovProduct, seq<CovOrder>>>(defCall, pParam)
+    let defIfEmptyMethod =
+        typeof<Queryable>.GetMethods()
+        |> Seq.find (fun m -> m.Name = "DefaultIfEmpty" && m.GetParameters().Length = 1)
+
+    let defCall =
+        Expression.Call(null, defIfEmptyMethod.MakeGenericMethod(typeof<CovOrder>), whereCall)
+
+    let selManyDefLambda =
+        Expression.Lambda<Func<CovProduct, seq<CovOrder>>>(defCall, pParam)
+
     let qSmCorrOuter = Queryable.SelectMany(products, selManyDefLambda)
     Assert.Contains("LEFT JOIN (SELECT * FROM Orders", toRawSql qSmCorrOuter)
 
@@ -2081,14 +2697,23 @@ let ``SelectMany cross apply outer apply tuple joins and fallback predicates`` (
     Assert.Contains("OUTER APPLY", toRawSql qSmCorrOuterSs)
 
     // Join with composite keys using Tuple.Create
-    let qTupleJoin = products.Join(orders, (fun p -> Tuple.Create(p.Id, p.Category)), (fun o -> Tuple.Create(o.CustomerId, o.Status)), (fun p o -> (p, o)))
+    let qTupleJoin =
+        products.Join(
+            orders,
+            (fun p -> Tuple.Create(p.Id, p.Category)),
+            (fun o -> Tuple.Create(o.CustomerId, o.Status)),
+            (fun p o -> (p, o))
+        )
+
     let sTuple = toRawSql qTupleJoin
     Assert.Contains("INNER JOIN Orders", sTuple)
     Assert.Contains("_t0.Id = _t1.CustomerId", sTuple)
     Assert.Contains("_t0.Category = _t1.Status", sTuple)
 
     // Fallback predicate in Where (client evaluated)
-    let qFallback = products.Where(fun p -> (fun (s: string) -> s.Trim().Length > 3) p.Name)
+    let qFallback =
+        products.Where(fun p -> (fun (s: string) -> s.Trim().Length > 3) p.Name)
+
     let resFallback = qFallback |> Seq.toList
     Assert.NotEmpty(resFallback)
 
@@ -2109,31 +2734,47 @@ let ``Scalar subqueries in projection and list contains in Where`` () =
     let orders = SqlPushdownQueryable<CovOrder>(conn, "Orders")
 
     // Scalar subqueries in projection: Count, Sum, Min, Max, Average
-    let qSubCount = products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Count())
+    let qSubCount =
+        products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Count())
+
     Assert.Contains("(SELECT COUNT(*)", toRawSql qSubCount)
 
-    let qSubSumNoLambda = products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Select(fun o -> o.Amount).Sum())
+    let qSubSumNoLambda =
+        products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Select(fun o -> o.Amount).Sum())
+
     Assert.Contains("(SELECT SUM(*)", toRawSql qSubSumNoLambda)
 
-    let qSubMinNoLambda = products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Select(fun o -> o.Amount).Min())
+    let qSubMinNoLambda =
+        products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Select(fun o -> o.Amount).Min())
+
     Assert.Contains("(SELECT MIN(*)", toRawSql qSubMinNoLambda)
 
-    let qSubMaxNoLambda = products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Select(fun o -> o.Amount).Max())
+    let qSubMaxNoLambda =
+        products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Select(fun o -> o.Amount).Max())
+
     Assert.Contains("(SELECT MAX(*)", toRawSql qSubMaxNoLambda)
 
-    let qSubAvgNoLambda = products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Select(fun o -> o.Amount).Average())
+    let qSubAvgNoLambda =
+        products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Select(fun o -> o.Amount).Average())
+
     Assert.Contains("(SELECT AVG(*)", toRawSql qSubAvgNoLambda)
 
     // Subquery in Where via Contains
-    let qSubContains = products.Where(fun p -> orders.Where(fun o -> o.Amount > 100.0M).Select(fun o -> o.CustomerId).Contains(p.Id))
+    let qSubContains =
+        products.Where(fun p -> orders.Where(fun o -> o.Amount > 100.0M).Select(fun o -> o.CustomerId).Contains(p.Id))
+
     Assert.Contains("IN (SELECT", toRawSql qSubContains)
     Assert.Contains("FROM Orders", toRawSql qSubContains)
 
     // Exists and NotExists marker in Where
-    let qMarkerExists = products.Where(fun p -> SqlComputationExtensions.exists (orders.Where(fun o -> o.CustomerId = p.Id)))
+    let qMarkerExists =
+        products.Where(fun p -> SqlComputationExtensions.exists (orders.Where(fun o -> o.CustomerId = p.Id)))
+
     Assert.Contains("EXISTS (SELECT 1 FROM Orders", toRawSql qMarkerExists)
 
-    let qMarkerNotExists = products.Where(fun p -> SqlComputationExtensions.notExists (orders.Where(fun o -> o.CustomerId = p.Id)))
+    let qMarkerNotExists =
+        products.Where(fun p -> SqlComputationExtensions.notExists (orders.Where(fun o -> o.CustomerId = p.Id)))
+
     Assert.Contains("NOT EXISTS (SELECT 1 FROM Orders", toRawSql qMarkerNotExists)
 
     // Empty list and populated list in Where
@@ -2206,10 +2847,14 @@ let ``CTE discovery on static and instance holders recursive CTEs and fsql build
     Assert.Contains("EXCEPT", toRawSql (fsql.except uLhs uRhs))
 
     // Direct WhereExists, WhereNotExists, WhereIn, WhereNotIn on SqlPushdownQueryable
-    let qDirExists = products.WhereExists("SELECT 1 FROM Orders WHERE CustomerId = Products.Id")
+    let qDirExists =
+        products.WhereExists("SELECT 1 FROM Orders WHERE CustomerId = Products.Id")
+
     Assert.Contains("EXISTS (SELECT 1 FROM Orders WHERE CustomerId = Products.Id)", toRawSql qDirExists)
 
-    let qDirNotExists = products.WhereNotExists("SELECT 1 FROM Orders WHERE CustomerId = Products.Id")
+    let qDirNotExists =
+        products.WhereNotExists("SELECT 1 FROM Orders WHERE CustomerId = Products.Id")
+
     Assert.Contains("NOT EXISTS (SELECT 1 FROM Orders WHERE CustomerId = Products.Id)", toRawSql qDirNotExists)
 
     let qDirIn = products.WhereIn("Category", [ "Electronics"; "Stationery" ])
@@ -2225,36 +2870,36 @@ let ``CTE discovery on static and instance holders recursive CTEs and fsql build
     Assert.Same(orders, SqlComputationExtensions.lateral orders)
 
     // fsql recursive
-    let recAnchor = fsql.recursive("rec_anchor", products, fun r -> r)
+    let recAnchor = fsql.recursive ("rec_anchor", products, fun r -> r)
     Assert.Same(products, recAnchor)
 
     // All dummy methods on fsql
-    let _ = fsql.window()
-    let _ = fsql.rowNumber()
-    let _ = fsql.rank()
-    let _ = fsql.denseRank()
-    let _ = fsql.ntile(3)
-    let _ = fsql.lag(1)
-    let _ = fsql.lead(1)
-    let _ = fsql.firstValue(1)
-    let _ = fsql.lastValue(1)
-    let _ = fsql.sum(1)
-    let _ = fsql.avg(1)
-    let _ = fsql.min(1)
-    let _ = fsql.max(1)
-    let _ = fsql.count()
-    let _ = fsql.count(1)
-    let _ = fsql.jsonValue(box 1, "$")
-    let _ = fsql.withCte("c", orders)
-    let _ = fsql.withCte(orders)
-    let _ = fsql.withCte("SELECT 1")
-    let _ = fsql.withCteSql("c", "SELECT 1")
-    let _ = fsql.withCteSql("SELECT 1")
-    let _ = fsql.withRecursiveCte("c", orders)
-    let _ = fsql.withRecursiveCte(orders)
-    let _ = fsql.withRecursiveCte("SELECT 1")
-    let _ = fsql.withRecursiveCteSql("c", "SELECT 1")
-    let _ = fsql.withRecursiveCteSql("SELECT 1")
+    let _ = fsql.window ()
+    let _ = fsql.rowNumber ()
+    let _ = fsql.rank ()
+    let _ = fsql.denseRank ()
+    let _ = fsql.ntile (3)
+    let _ = fsql.lag (1)
+    let _ = fsql.lead (1)
+    let _ = fsql.firstValue (1)
+    let _ = fsql.lastValue (1)
+    let _ = fsql.sum (1)
+    let _ = fsql.avg (1)
+    let _ = fsql.min (1)
+    let _ = fsql.max (1)
+    let _ = fsql.count ()
+    let _ = fsql.count (1)
+    let _ = fsql.jsonValue (box 1, "$")
+    let _ = fsql.withCte ("c", orders)
+    let _ = fsql.withCte (orders)
+    let _ = fsql.withCte ("SELECT 1")
+    let _ = fsql.withCteSql ("c", "SELECT 1")
+    let _ = fsql.withCteSql ("SELECT 1")
+    let _ = fsql.withRecursiveCte ("c", orders)
+    let _ = fsql.withRecursiveCte (orders)
+    let _ = fsql.withRecursiveCte ("SELECT 1")
+    let _ = fsql.withRecursiveCteSql ("c", "SELECT 1")
+    let _ = fsql.withRecursiveCteSql ("SELECT 1")
     ()
 
 // =========================================================================
@@ -2272,86 +2917,108 @@ let ``FSql custom operations whereExists whereNotExists having and set operation
     let qFsqlExistsSub =
         fsql {
             for p in products do
-            whereExists (orders.Where(fun o -> o.CustomerId = p.Id))
-            select p
+                whereExists (orders.Where(fun o -> o.CustomerId = p.Id))
+                select p
         }
+
     Assert.Contains("EXISTS (SELECT", toRawSql qFsqlExistsSub)
 
     let qFsqlExistsSub2 =
         fsql {
             for p in products do
-            whereExists (orders.Where(fun o -> o.CustomerId = p.Id && o.Amount > 100.0M))
-            select p
+                whereExists (orders.Where(fun o -> o.CustomerId = p.Id && o.Amount > 100.0M))
+                select p
         }
+
     Assert.Contains("EXISTS (SELECT", toRawSql qFsqlExistsSub2)
 
     // whereNotExists with subquery
     let qFsqlNotExistsSub =
         fsql {
             for p in products do
-            whereNotExists (orders.Where(fun o -> o.CustomerId = p.Id))
-            select p
+                whereNotExists (orders.Where(fun o -> o.CustomerId = p.Id))
+                select p
         }
+
     Assert.Contains("NOT EXISTS (SELECT", toRawSql qFsqlNotExistsSub)
 
     let qFsqlNotExistsSub2 =
         fsql {
             for p in products do
-            whereNotExists (orders.Where(fun o -> o.CustomerId = p.Id && o.Amount <= 100.0M))
-            select p
+                whereNotExists (orders.Where(fun o -> o.CustomerId = p.Id && o.Amount <= 100.0M))
+                select p
         }
+
     Assert.Contains("NOT EXISTS", toRawSql qFsqlNotExistsSub2)
 
     // having in fsql
     let qFsqlHaving =
         fsql {
             for p in products do
-            having (p.Price > 10.0M)
-            select p
+                having (p.Price > 10.0M)
+                select p
         }
+
     Assert.Contains("Price > @p0", toRawSql qFsqlHaving)
 
     let qFsqlHavingGroup =
         fsql {
             for p in products do
-            groupBy p.Category into g
-            having (g.Count() > 0)
-            select g.Key
+                groupBy p.Category into g
+                having (g.Count() > 0)
+                select g.Key
         }
+
     Assert.Contains("HAVING", toRawSql qFsqlHavingGroup)
 
     // Set operations in fsql with seq/enumerable
-    let prodList = [ { Id = 1; Name = "W"; Price = 10.0M; Category = "E"; InStock = true; Score = Nullable(1.0M); Timestamp = DateTime.UtcNow } ]
+    let prodList =
+        [
+            {
+                Id = 1
+                Name = "W"
+                Price = 10.0M
+                Category = "E"
+                InStock = true
+                Score = Nullable(1.0M)
+                Timestamp = DateTime.UtcNow
+            }
+        ]
+
     let qFsqlUnionSeq =
         fsql {
             for p in products do
-            select p
-            union (prodList :> seq<CovProduct>)
+                select p
+                union (prodList :> seq<CovProduct>)
         }
+
     Assert.NotNull(qFsqlUnionSeq)
 
     let qFsqlUnionAllSeq =
         fsql {
             for p in products do
-            select p
-            unionAll (prodList :> seq<CovProduct>)
+                select p
+                unionAll (prodList :> seq<CovProduct>)
         }
+
     Assert.NotNull(qFsqlUnionAllSeq)
 
     let qFsqlIntersectSeq =
         fsql {
             for p in products do
-            select p
-            intersect (prodList :> seq<CovProduct>)
+                select p
+                intersect (prodList :> seq<CovProduct>)
         }
+
     Assert.NotNull(qFsqlIntersectSeq)
 
     let qFsqlExceptSeq =
         fsql {
             for p in products do
-            select p
-            except (prodList :> seq<CovProduct>)
+                select p
+                except (prodList :> seq<CovProduct>)
         }
+
     Assert.NotNull(qFsqlExceptSeq)
 
 // =========================================================================
@@ -2366,19 +3033,29 @@ let ``Subquery aggregates with lambda and client evaluated window defaults`` () 
     let orders = SqlPushdownQueryable<CovOrder>(conn, "Orders")
 
     // Subquery aggregates with lambda selector
-    let qSubSumLambda = products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Sum(fun o -> o.Amount))
+    let qSubSumLambda =
+        products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Sum(fun o -> o.Amount))
+
     Assert.Contains("SUM(_sub1.Amount)", toRawSql qSubSumLambda)
 
-    let qSubMinLambda = products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Min(fun o -> o.Amount))
+    let qSubMinLambda =
+        products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Min(fun o -> o.Amount))
+
     Assert.Contains("MIN(_sub1.Amount)", toRawSql qSubMinLambda)
 
-    let qSubMaxLambda = products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Max(fun o -> o.Amount))
+    let qSubMaxLambda =
+        products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Max(fun o -> o.Amount))
+
     Assert.Contains("MAX(_sub1.Amount)", toRawSql qSubMaxLambda)
 
-    let qSubAvgLambda = products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Average(fun o -> o.Amount))
+    let qSubAvgLambda =
+        products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Average(fun o -> o.Amount))
+
     Assert.Contains("AVG(_sub1.Amount)", toRawSql qSubAvgLambda)
 
-    let qSubSumDistinctLambda = products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Distinct().Sum(fun o -> o.Amount))
+    let qSubSumDistinctLambda =
+        products.Select(fun p -> orders.Where(fun o -> o.CustomerId = p.Id).Distinct().Sum(fun o -> o.Amount))
+
     Assert.Contains("DISTINCT SUM(_sub1.Amount)", toRawSql qSubSumDistinctLambda)
 
     // fsql.lag and fsql.lead with client-evaluated fallback defaultValue expressions
@@ -2388,19 +3065,34 @@ let ``Subquery aggregates with lambda and client evaluated window defaults`` () 
     let clientStr = "fallback_val"
     let clientNullObj: string = null
 
-    let qLagDec = products.Select(fun p -> fsql.lag(p.Price, 1, defaultValue = (clientDec + 1.0M), over = fsql.window(sortBy = p.Price)))
+    let qLagDec =
+        products.Select(fun p ->
+            fsql.lag (p.Price, 1, defaultValue = (clientDec + 1.0M), over = fsql.window (sortBy = p.Price)))
+
     Assert.Contains("LAG(Price, 1, (12.34 + 1.0))", toRawSql qLagDec)
 
-    let qLeadFlt = products.Select(fun p -> fsql.lead(p.Price, 1, defaultValue = decimal (clientFlt + 1.0), over = fsql.window(sortBy = p.Price)))
+    let qLeadFlt =
+        products.Select(fun p ->
+            fsql.lead (p.Price, 1, defaultValue = decimal (clientFlt + 1.0), over = fsql.window (sortBy = p.Price)))
+
     Assert.Contains("LEAD(Price, 1,", toRawSql qLeadFlt)
 
-    let qLeadInt = products.Select(fun p -> fsql.lead(p.Price, 1, defaultValue = decimal (clientInt + 1), over = fsql.window(sortBy = p.Price)))
+    let qLeadInt =
+        products.Select(fun p ->
+            fsql.lead (p.Price, 1, defaultValue = decimal (clientInt + 1), over = fsql.window (sortBy = p.Price)))
+
     Assert.Contains("LEAD(Price, 1,", toRawSql qLeadInt)
 
-    let qLagStrVal = products.Select(fun p -> fsql.lag(p.Name, 1, defaultValue = (clientStr + "_tail"), over = fsql.window(sortBy = p.Name)))
+    let qLagStrVal =
+        products.Select(fun p ->
+            fsql.lag (p.Name, 1, defaultValue = (clientStr + "_tail"), over = fsql.window (sortBy = p.Name)))
+
     Assert.Contains("LAG(Name, 1, ('fallback_val' || '_tail'))", toRawSql qLagStrVal)
 
-    let qLeadNullVal = products.Select(fun p -> fsql.lead(p.Name, 1, defaultValue = clientNullObj, over = fsql.window(sortBy = p.Name)))
+    let qLeadNullVal =
+        products.Select(fun p ->
+            fsql.lead (p.Name, 1, defaultValue = clientNullObj, over = fsql.window (sortBy = p.Name)))
+
     Assert.Contains("LEAD(Name, 1, NULL)", toRawSql qLeadNullVal)
 
 // =========================================================================
@@ -2415,16 +3107,22 @@ let ``Queryable set operations CTE propagation and inverted comparisons`` () =
     let orders = SqlPushdownQueryable<CovOrder>(conn, "Orders")
 
     // LINQ Queryable set operations
-    let qConcatLinq = Queryable.Concat(products, products.Where(fun p -> p.Price > 50.0M))
+    let qConcatLinq =
+        Queryable.Concat(products, products.Where(fun p -> p.Price > 50.0M))
+
     Assert.Contains("UNION ALL", toRawSql qConcatLinq)
 
     let qUnionLinq = Queryable.Union(products, products.Where(fun p -> p.Price > 50.0M))
     Assert.Contains("UNION", toRawSql qUnionLinq)
 
-    let qIntersectLinq = Queryable.Intersect(products, products.Where(fun p -> p.Price > 50.0M))
+    let qIntersectLinq =
+        Queryable.Intersect(products, products.Where(fun p -> p.Price > 50.0M))
+
     Assert.Contains("INTERSECT", toRawSql qIntersectLinq)
 
-    let qExceptLinq = Queryable.Except(products, products.Where(fun p -> p.Price > 50.0M))
+    let qExceptLinq =
+        Queryable.Except(products, products.Where(fun p -> p.Price > 50.0M))
+
     Assert.Contains("EXCEPT", toRawSql qExceptLinq)
 
     // Set operations with CTE preservation
@@ -2447,19 +3145,29 @@ let ``Queryable set operations CTE propagation and inverted comparisons`` () =
     Assert.Contains("EXCEPT", toRawSql qExceptCte)
 
     // Subquery referencing static/instance holders
-    let qStaticSub = products.Where(fun p -> StaticQueryHolder.StaticProducts.Where(fun s -> s.Id = p.Id).Any())
+    let qStaticSub =
+        products.Where(fun p -> StaticQueryHolder.StaticProducts.Where(fun s -> s.Id = p.Id).Any())
+
     Assert.Contains("EXISTS (SELECT", toRawSql qStaticSub)
 
     let instHolder = InstanceQueryHolder()
-    let qInstFieldSub = products.Where(fun p -> instHolder.FieldProducts.Where(fun f -> f.Id = p.Id).Any())
+
+    let qInstFieldSub =
+        products.Where(fun p -> instHolder.FieldProducts.Where(fun f -> f.Id = p.Id).Any())
+
     Assert.Contains("EXISTS (SELECT", toRawSql qInstFieldSub)
 
-    let qInstPropSub = products.Where(fun p -> instHolder.PropProducts.Where(fun pr -> pr.Id = p.Id).Any())
+    let qInstPropSub =
+        products.Where(fun p -> instHolder.PropProducts.Where(fun pr -> pr.Id = p.Id).Any())
+
     Assert.Contains("EXISTS (SELECT", toRawSql qInstPropSub)
 
     let holderWithCte = InstanceQueryHolder()
     holderWithCte.PropProducts <- products.WithCte("holder_cte", orders)
-    let qHolderCteSub = products.Where(fun p -> holderWithCte.PropProducts.Where(fun f -> f.Id = p.Id).Any())
+
+    let qHolderCteSub =
+        products.Where(fun p -> holderWithCte.PropProducts.Where(fun f -> f.Id = p.Id).Any())
+
     Assert.Contains("holder_cte", toRawSql qHolderCteSub)
 
     // Inverted comparison operators in Where
@@ -2496,18 +3204,34 @@ let ``Multi joins with transparent identifiers and non-spq extension methods`` (
     let qMultiJoin =
         query {
             for p in products do
-            leftOuterJoin o in orders on (p.Id = o.CustomerId) into go
-            for o in go.DefaultIfEmpty() do
-            join p2 in products on (p.Category = p2.Category)
-            select (p.Name, (if isNull (box o) then 0.0M else o.Amount), p2.Price)
+                leftOuterJoin o in orders on (p.Id = o.CustomerId) into go
+
+                for o in go.DefaultIfEmpty() do
+                    join p2 in products on (p.Category = p2.Category)
+                    select (p.Name, (if isNull (box o) then 0.0M else o.Amount), p2.Price)
         }
+
     let sMulti = toRawSql qMultiJoin
     Assert.Contains("LEFT JOIN Orders", sMulti)
     Assert.Contains("item1", sMulti)
     Assert.Contains("item2", sMulti)
 
     // Non-SqlPushdown IQueryable extension methods
-    let inMemProducts = ([ { Id = 1; Name = "P"; Price = 10.0M; Category = "C"; InStock = true; Score = Nullable(1.0M); Timestamp = DateTime.UtcNow } ] : CovProduct list).AsQueryable()
+    let inMemProducts =
+        ([
+            {
+                Id = 1
+                Name = "P"
+                Price = 10.0M
+                Category = "C"
+                InStock = true
+                Score = Nullable(1.0M)
+                Timestamp = DateTime.UtcNow
+            }
+        ]
+        : CovProduct list)
+            .AsQueryable()
+
     let nonSpqUnion = inMemProducts.Union(products)
     Assert.NotNull(nonSpqUnion)
 
@@ -2523,7 +3247,9 @@ let ``Multi joins with transparent identifiers and non-spq extension methods`` (
     let nonSpqCte = inMemProducts.WithCte("non_spq_cte", orders)
     Assert.NotNull(nonSpqCte)
 
-    let nonSpqCteRec = inMemProducts.WithCte("non_spq_cte_rec", orders, isRecursive = true)
+    let nonSpqCteRec =
+        inMemProducts.WithCte("non_spq_cte_rec", orders, isRecursive = true)
+
     Assert.NotNull(nonSpqCteRec)
 
     let nonSpqCteNamed = inMemProducts.WithCte("non_spq_cte_named", orders)
@@ -2543,57 +3269,64 @@ let ``FSql raw joins and auto named CTEs`` () =
     let qFullRaw =
         fsql {
             for p in products do
-            fullOuterJoinRaw "Orders" "o" "Products.Id = o.CustomerId"
-            select p
+                fullOuterJoinRaw "Orders" "o" "Products.Id = o.CustomerId"
+                select p
         }
+
     Assert.Contains("FULL OUTER JOIN Orders o ON Products.Id = o.CustomerId", toRawSql qFullRaw)
 
     let qRightRaw =
         fsql {
             for p in products do
-            rightOuterJoinRaw "Orders" "o" "Products.Id = o.CustomerId"
-            select p
+                rightOuterJoinRaw "Orders" "o" "Products.Id = o.CustomerId"
+                select p
         }
+
     Assert.Contains("RIGHT OUTER JOIN Orders o ON Products.Id = o.CustomerId", toRawSql qRightRaw)
 
     let qCrossRaw =
         fsql {
             for p in products do
-            crossJoin "Orders" "o"
-            select p
+                crossJoin "Orders" "o"
+                select p
         }
+
     Assert.Contains("CROSS JOIN Orders o", toRawSql qCrossRaw)
 
     let qWithCteAuto =
         fsql {
             for p in products do
-            withCte orders
-            select p
+                withCte orders
+                select p
         }
+
     Assert.Contains("WITH cte_1 AS", toRawSql qWithCteAuto)
 
     let qWithCteSqlAuto =
         fsql {
             for p in products do
-            withCteSql "SELECT 1 AS Num"
-            select p
+                withCteSql "SELECT 1 AS Num"
+                select p
         }
+
     Assert.Contains("WITH cte_1 AS (SELECT 1 AS Num)", toRawSql qWithCteSqlAuto)
 
     let qWithRecAuto =
         fsql {
             for p in products do
-            withRecursiveCte orders
-            select p
+                withRecursiveCte orders
+                select p
         }
+
     Assert.Contains("WITH RECURSIVE cte_1 AS", toRawSql qWithRecAuto)
 
     let qWithRecSqlAuto =
         fsql {
             for p in products do
-            withRecursiveCteSql "SELECT 1 AS Num"
-            select p
+                withRecursiveCteSql "SELECT 1 AS Num"
+                select p
         }
+
     Assert.Contains("cte_1 AS (SELECT 1 AS Num)", toRawSql qWithRecSqlAuto)
 
 // =========================================================================
@@ -2654,7 +3387,9 @@ let ``SqlPushdownQueryable WithCte overloads and direct aggregate calls`` () =
     let c15 = products.WithCte("SELECT @p AS X", parameters = [ ("@p", box 42) ])
     Assert.Contains("WITH cte_1 AS (SELECT @p", toRawSql c15)
 
-    let c16 = products.WithCte("c4_sql", "SELECT @p AS X", parameters = [ ("@p", box 42) ])
+    let c16 =
+        products.WithCte("c4_sql", "SELECT @p AS X", parameters = [ ("@p", box 42) ])
+
     Assert.Contains("WITH c4_sql AS (SELECT @p", toRawSql c16)
 
     let c17 = products.WithCte("SELECT 1 AS X", isRecursive = true)
@@ -2663,7 +3398,9 @@ let ``SqlPushdownQueryable WithCte overloads and direct aggregate calls`` () =
     let c18 = products.WithCte("rec5_sql", "SELECT 1 AS X", isRecursive = true)
     Assert.Contains("WITH RECURSIVE rec5_sql AS (SELECT 1 AS X)", toRawSql c18)
 
-    let c19 = products.WithCte("rec6_sql", "SELECT @p AS X", parameters = [ ("@p", box 42) ], isRecursive = true)
+    let c19 =
+        products.WithCte("rec6_sql", "SELECT @p AS X", parameters = [ ("@p", box 42) ], isRecursive = true)
+
     Assert.Contains("WITH RECURSIVE rec6_sql AS (SELECT @p", toRawSql c19)
 
     // Direct aggregate calls with column name strings
@@ -2704,44 +3441,84 @@ let ``ExpressionPushdownTranslator direct helper and translation tests`` () =
     let optItem = Expression.Parameter(typeof<CovOptionItem>, "x")
     let ratingProp = Expression.Property(optItem, "Rating")
     let valProp = Expression.Property(ratingProp, "Value")
-    Assert.Equal("Rating", (ExpressionPushdownTranslator.unwrapOptionOrNullableMember valProp :?> MemberExpression).Member.Name)
+
+    Assert.Equal(
+        "Rating",
+        (ExpressionPushdownTranslator.unwrapOptionOrNullableMember valProp :?> MemberExpression).Member.Name
+    )
 
     // AndAlso with one side None
     let nullBin = Expression.Equal(Expression.Constant(1), Expression.Constant(1))
     let validBin = Expression.GreaterThan(pPrice, Expression.Constant(10.0M))
     let andAlso1 = Expression.AndAlso(validBin, nullBin)
-    let andRes1 = ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite andAlso1
+
+    let andRes1 =
+        ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite andAlso1
+
     Assert.True(andRes1.IsSome)
 
     let andAlso2 = Expression.AndAlso(nullBin, validBin)
-    let andRes2 = ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite andAlso2
+
+    let andRes2 =
+        ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite andAlso2
+
     Assert.True(andRes2.IsSome)
 
     // translateScalarExpr with MethodCallExpression Count, Sum, Min, Max, Average across dialects
-    let sumMethod = typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Sum" && m.ReturnType = typeof<decimal> && m.GetParameters().Length = 2)
+    let sumMethod =
+        typeof<Enumerable>.GetMethods()
+        |> Seq.find (fun m -> m.Name = "Sum" && m.ReturnType = typeof<decimal> && m.GetParameters().Length = 2)
+
     let sumGen = sumMethod.MakeGenericMethod(typeof<CovProduct>)
     let priceLambda = Expression.Lambda<Func<CovProduct, decimal>>(pPrice, pParam)
-    let prodConst = Expression.Constant(SqlPushdownQueryable<CovProduct>(mock, "Products"))
+
+    let prodConst =
+        Expression.Constant(SqlPushdownQueryable<CovProduct>(mock, "Products"))
+
     let sumCall = Expression.Call(null, sumGen, prodConst, priceLambda)
-    let sumRes = ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan sumCall
+
+    let sumRes =
+        ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan sumCall
+
     Assert.True(sumRes.IsSome)
 
-    let minMethod = typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Min" && m.ReturnType = typeof<decimal> && m.GetParameters().Length = 2)
+    let minMethod =
+        typeof<Enumerable>.GetMethods()
+        |> Seq.find (fun m -> m.Name = "Min" && m.ReturnType = typeof<decimal> && m.GetParameters().Length = 2)
+
     let minGen = minMethod.MakeGenericMethod(typeof<CovProduct>)
     let minCall = Expression.Call(null, minGen, prodConst, priceLambda)
-    let minRes = ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan minCall
+
+    let minRes =
+        ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan minCall
+
     Assert.True(minRes.IsSome)
 
-    let maxMethod = typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Max" && m.ReturnType = typeof<decimal> && m.GetParameters().Length = 2)
+    let maxMethod =
+        typeof<Enumerable>.GetMethods()
+        |> Seq.find (fun m -> m.Name = "Max" && m.ReturnType = typeof<decimal> && m.GetParameters().Length = 2)
+
     let maxGen = maxMethod.MakeGenericMethod(typeof<CovProduct>)
     let maxCall = Expression.Call(null, maxGen, prodConst, priceLambda)
-    let maxRes = ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan maxCall
+
+    let maxRes =
+        ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan maxCall
+
     Assert.True(maxRes.IsSome)
 
-    let avgMethod = typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Average" && m.ReturnType = typeof<decimal> && m.GetParameters().Length = 2)
+    let avgMethod =
+        typeof<Enumerable>.GetMethods()
+        |> Seq.find (fun m ->
+            m.Name = "Average"
+            && m.ReturnType = typeof<decimal>
+            && m.GetParameters().Length = 2)
+
     let avgGen = avgMethod.MakeGenericMethod(typeof<CovProduct>)
     let avgCall = Expression.Call(null, avgGen, prodConst, priceLambda)
-    let avgRes = ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan avgCall
+
+    let avgRes =
+        ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan avgCall
+
     Assert.True(avgRes.IsSome)
 
 // =========================================================================
@@ -2817,57 +3594,103 @@ let ``Deep coverage of ExpressionPushdownTranslator, Set Operations, Window and 
     let products = SqlPushdownQueryable<CovProduct>(conn, "Products")
     let orders = SqlPushdownQueryable<CovOrder>(conn, "Orders")
     let mock = AdvancedMockConnector(ConnectorKind("Sqlite"))
-    let plan = PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+
+    let plan =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
 
     // --- 1. ExpressionPushdownTranslator.isHavingPredicate ---
     let pParam = Expression.Parameter(typeof<CovProduct>, "p")
     let pPrice = Expression.Property(pParam, "Price")
-    let pKey = Expression.Property(Expression.Parameter(typeof<IGrouping<string, CovProduct>>, "g"), "Key")
+
+    let pKey =
+        Expression.Property(Expression.Parameter(typeof<IGrouping<string, CovProduct>>, "g"), "Key")
+
     Assert.True(ExpressionPushdownTranslator.isHavingPredicate pKey)
     Assert.False(ExpressionPushdownTranslator.isHavingPredicate (null: Expression))
     Assert.False(ExpressionPushdownTranslator.isHavingPredicate (Expression.Constant(42)))
     let uExpr = Expression.UnaryPlus(pPrice)
     Assert.False(ExpressionPushdownTranslator.isHavingPredicate uExpr)
-    let countMethod = typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)
+
+    let countMethod =
+        typeof<Enumerable>.GetMethods()
+        |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)
+
     let countGen = countMethod.MakeGenericMethod(typeof<CovProduct>)
-    let countCall = Expression.Call(null, countGen, Expression.Parameter(typeof<seq<CovProduct>>, "seq"))
+
+    let countCall =
+        Expression.Call(null, countGen, Expression.Parameter(typeof<seq<CovProduct>>, "seq"))
+
     Assert.True(ExpressionPushdownTranslator.isHavingPredicate countCall)
     let binHaving = Expression.GreaterThan(countCall, Expression.Constant(0))
     Assert.True(ExpressionPushdownTranslator.isHavingPredicate binHaving)
 
     // --- 2. ExpressionPushdownTranslator.resolveMemberRef ---
-    let planNoGroup = PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
-    let (noGrpAlias, noGrpCol) = ExpressionPushdownTranslator.resolveMemberRef planNoGroup pKey
+    let planNoGroup =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+
+    let (noGrpAlias, noGrpCol) =
+        ExpressionPushdownTranslator.resolveMemberRef planNoGroup pKey
+
     Assert.Equal("Key", noGrpCol)
 
-    let planWithGroup = PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+    let planWithGroup =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+
     planWithGroup.GroupBy.Add("Category")
-    let (grpAlias, grpCol) = ExpressionPushdownTranslator.resolveMemberRef planWithGroup pKey
+
+    let (grpAlias, grpCol) =
+        ExpressionPushdownTranslator.resolveMemberRef planWithGroup pKey
+
     Assert.Equal("Category", grpCol)
 
-    let planOuter = PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+    let planOuter =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+
     planOuter.OuterAliases.["pOuter"] <- "po"
     let pOuterParam = Expression.Parameter(typeof<CovProduct>, "pOuter")
     let pOuterProp = Expression.Property(pOuterParam, "Price")
-    let (outAlias1, outCol1) = ExpressionPushdownTranslator.resolveMemberRef planOuter pOuterProp
+
+    let (outAlias1, outCol1) =
+        ExpressionPushdownTranslator.resolveMemberRef planOuter pOuterProp
+
     Assert.Equal(Some "po", outAlias1)
 
     planOuter.BaseRowType <- Some typeof<CovProduct>
     let pBaseParam = Expression.Parameter(typeof<CovProduct>, "pBase")
     let pBaseProp = Expression.Property(pBaseParam, "Price")
-    let (outAlias2, outCol2) = ExpressionPushdownTranslator.resolveMemberRef planOuter pBaseProp
+
+    let (outAlias2, outCol2) =
+        ExpressionPushdownTranslator.resolveMemberRef planOuter pBaseProp
+
     Assert.Equal(Some "p", outAlias2)
 
     let pDiffParam = Expression.Parameter(typeof<CovOrder>, "pDiff")
     let pDiffProp = Expression.Property(pDiffParam, "Amount")
-    let (outAlias3, outCol3) = ExpressionPushdownTranslator.resolveMemberRef planOuter pDiffProp
+
+    let (outAlias3, outCol3) =
+        ExpressionPushdownTranslator.resolveMemberRef planOuter pDiffProp
+
     Assert.Equal(Some "po", outAlias3)
 
     // Joins row type match
-    let planJoins = PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+    let planJoins =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+
     planJoins.BaseRowType <- Some typeof<CovProduct>
-    planJoins.Joins.Add({ JoinType = "INNER JOIN"; SourceTable = "Orders"; Alias = "o1"; OnClause = "p.Id = o1.CustomerId"; RowType = Some typeof<CovOrder> })
-    let (joinAlias1, _) = ExpressionPushdownTranslator.resolveMemberRef planJoins pDiffProp
+
+    planJoins.Joins.Add(
+        {
+            JoinType = "INNER JOIN"
+            SourceTable = "Orders"
+            Alias = "o1"
+            OnClause = "p.Id = o1.CustomerId"
+            RowType = Some typeof<CovOrder>
+        }
+    )
+
+    let (joinAlias1, _) =
+        ExpressionPushdownTranslator.resolveMemberRef planJoins pDiffProp
+
     Assert.Equal(Some "o1", joinAlias1)
 
     // Tuple hierarchies
@@ -2876,9 +3699,15 @@ let ``Deep coverage of ExpressionPushdownTranslator, Set Operations, Window and 
     let t2Item2 = Expression.Property(t2Param, "Item2")
     let t2ProdPrice = Expression.Property(t2Item1, "Price")
     let t2OrdAmount = Expression.Property(t2Item2, "Amount")
-    let (tAlias1, _) = ExpressionPushdownTranslator.resolveMemberRef planJoins t2ProdPrice
+
+    let (tAlias1, _) =
+        ExpressionPushdownTranslator.resolveMemberRef planJoins t2ProdPrice
+
     Assert.Equal(Some "p", tAlias1)
-    let (tAlias2, _) = ExpressionPushdownTranslator.resolveMemberRef planJoins t2OrdAmount
+
+    let (tAlias2, _) =
+        ExpressionPushdownTranslator.resolveMemberRef planJoins t2OrdAmount
+
     Assert.Equal(Some "o1", tAlias2)
 
     // Item8 overflow tuple
@@ -2889,13 +3718,28 @@ let ``Deep coverage of ExpressionPushdownTranslator, Set Operations, Window and 
     let (t8Alias1, _) = ExpressionPushdownTranslator.resolveMemberRef planJoins t8Prop
     Assert.True(t8Alias1.IsSome)
 
-    let planLeftJoins = PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
-    planLeftJoins.Joins.Add({ JoinType = "LEFT JOIN"; SourceTable = "Orders"; Alias = "j1"; OnClause = "1=1"; RowType = None })
-    let (t8Alias2, _) = ExpressionPushdownTranslator.resolveMemberRef planLeftJoins t8Prop
+    let planLeftJoins =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+
+    planLeftJoins.Joins.Add(
+        {
+            JoinType = "LEFT JOIN"
+            SourceTable = "Orders"
+            Alias = "j1"
+            OnClause = "1=1"
+            RowType = None
+        }
+    )
+
+    let (t8Alias2, _) =
+        ExpressionPushdownTranslator.resolveMemberRef planLeftJoins t8Prop
+
     Assert.Equal(Some "_t1", t8Alias2)
 
     // Nested left-associative tuple tree: root.Item1.Item2
-    let nestedParam = Expression.Parameter(typeof<Tuple<Tuple<CovProduct, CovOrder>, CovOrder>>, "nested")
+    let nestedParam =
+        Expression.Parameter(typeof<Tuple<Tuple<CovProduct, CovOrder>, CovOrder>>, "nested")
+
     let nItem1 = Expression.Property(nestedParam, "Item1")
     let nItem1Item1 = Expression.Property(nItem1, "Item1")
     let nItem1Item2 = Expression.Property(nItem1, "Item2")
@@ -2917,18 +3761,37 @@ let ``Deep coverage of ExpressionPushdownTranslator, Set Operations, Window and 
     Assert.Null(ExpressionPushdownTranslator.unwrapClientOption (box emptyDecimal))
 
     // --- 4. extractKeyColumns ---
-    let newTupleExpr = Expression.New(typeof<Tuple<decimal, string>>.GetConstructors().[0], [| pPrice :> Expression; Expression.Property(pParam, "Name") :> Expression |])
-    let tupleCols = ExpressionPushdownTranslator.extractKeyColumns plan "p" pParam newTupleExpr
+    let newTupleExpr =
+        Expression.New(
+            typeof<Tuple<decimal, string>>.GetConstructors().[0],
+            [| pPrice :> Expression; Expression.Property(pParam, "Name") :> Expression |]
+        )
+
+    let tupleCols =
+        ExpressionPushdownTranslator.extractKeyColumns plan "p" pParam newTupleExpr
+
     Assert.Equal(2, tupleCols.Length)
 
     let convExpr = Expression.Convert(pPrice, typeof<obj>)
-    let convCols = ExpressionPushdownTranslator.extractKeyColumns plan "p" pParam convExpr
+
+    let convCols =
+        ExpressionPushdownTranslator.extractKeyColumns plan "p" pParam convExpr
+
     Assert.Single(convCols) |> ignore
 
-    let tupleCreateMethod = typeof<Tuple>.GetMethods() |> Seq.find (fun m -> m.Name = "Create" && m.GetParameters().Length = 2)
-    let tupleCreateGen = tupleCreateMethod.MakeGenericMethod(typeof<decimal>, typeof<string>)
-    let tupleCreateCall = Expression.Call(null, tupleCreateGen, pPrice, Expression.Property(pParam, "Name"))
-    let createCols = ExpressionPushdownTranslator.extractKeyColumns plan "p" pParam tupleCreateCall
+    let tupleCreateMethod =
+        typeof<Tuple>.GetMethods()
+        |> Seq.find (fun m -> m.Name = "Create" && m.GetParameters().Length = 2)
+
+    let tupleCreateGen =
+        tupleCreateMethod.MakeGenericMethod(typeof<decimal>, typeof<string>)
+
+    let tupleCreateCall =
+        Expression.Call(null, tupleCreateGen, pPrice, Expression.Property(pParam, "Name"))
+
+    let createCols =
+        ExpressionPushdownTranslator.extractKeyColumns plan "p" pParam tupleCreateCall
+
     Assert.Equal(2, createCols.Length)
 
     // --- 5. tryFindPushdownSource on FieldInfo ---
@@ -2952,22 +3815,64 @@ let ``Deep coverage of ExpressionPushdownTranslator, Set Operations, Window and 
     let q2 = SqlPushdownQueryable<CovOrder>(conn1, "Orders")
     let qDiffConn = SqlPushdownQueryable<CovOrder>(conn2, "Orders")
 
-    let joinMethod = typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Join" && m.GetParameters().Length = 5)
-    let joinGen = joinMethod.MakeGenericMethod(typeof<CovProduct>, typeof<CovOrder>, typeof<int>, typeof<obj>)
-    let outerKeyLambda = Expression.Lambda<Func<CovProduct, int>>(Expression.Property(pParam, "Id"), pParam)
-    let oParam = Expression.Parameter(typeof<CovOrder>, "o")
-    let innerKeyLambda = Expression.Lambda<Func<CovOrder, int>>(Expression.Property(oParam, "CustomerId"), oParam)
-    let resLambda = Expression.Lambda<Func<CovProduct, CovOrder, obj>>(Expression.Constant("res"), pParam, oParam)
+    let joinMethod =
+        typeof<Queryable>.GetMethods()
+        |> Seq.find (fun m -> m.Name = "Join" && m.GetParameters().Length = 5)
 
-    let joinCallSame = Expression.Call(null, joinGen, (q1 :> IQueryable).Expression, (q2 :> IQueryable).Expression, outerKeyLambda, innerKeyLambda, resLambda)
+    let joinGen =
+        joinMethod.MakeGenericMethod(typeof<CovProduct>, typeof<CovOrder>, typeof<int>, typeof<obj>)
+
+    let outerKeyLambda =
+        Expression.Lambda<Func<CovProduct, int>>(Expression.Property(pParam, "Id"), pParam)
+
+    let oParam = Expression.Parameter(typeof<CovOrder>, "o")
+
+    let innerKeyLambda =
+        Expression.Lambda<Func<CovOrder, int>>(Expression.Property(oParam, "CustomerId"), oParam)
+
+    let resLambda =
+        Expression.Lambda<Func<CovProduct, CovOrder, obj>>(Expression.Constant("res"), pParam, oParam)
+
+    let joinCallSame =
+        Expression.Call(
+            null,
+            joinGen,
+            (q1 :> IQueryable).Expression,
+            (q2 :> IQueryable).Expression,
+            outerKeyLambda,
+            innerKeyLambda,
+            resLambda
+        )
+
     Assert.True(ExpressionPushdownTranslator.canPushdownAllJoins joinCallSame conn1)
 
-    let joinCallDiff = Expression.Call(null, joinGen, (q1 :> IQueryable).Expression, (qDiffConn :> IQueryable).Expression, outerKeyLambda, innerKeyLambda, resLambda)
+    let joinCallDiff =
+        Expression.Call(
+            null,
+            joinGen,
+            (q1 :> IQueryable).Expression,
+            (qDiffConn :> IQueryable).Expression,
+            outerKeyLambda,
+            innerKeyLambda,
+            resLambda
+        )
+
     Assert.True(ExpressionPushdownTranslator.canPushdownAllJoins joinCallDiff conn1)
 
     let otherKindConn = AdvancedMockConnector(ConnectorKind("PostgreSql"))
     let qDiffKind = SqlPushdownQueryable<CovOrder>(otherKindConn, "Orders")
-    let joinCallDiffKind = Expression.Call(null, joinGen, (q1 :> IQueryable).Expression, (qDiffKind :> IQueryable).Expression, outerKeyLambda, innerKeyLambda, resLambda)
+
+    let joinCallDiffKind =
+        Expression.Call(
+            null,
+            joinGen,
+            (q1 :> IQueryable).Expression,
+            (qDiffKind :> IQueryable).Expression,
+            outerKeyLambda,
+            innerKeyLambda,
+            resLambda
+        )
+
     Assert.False(ExpressionPushdownTranslator.canPushdownAllJoins joinCallDiffKind conn1)
 
     let smMethod =
@@ -2975,10 +3880,18 @@ let ``Deep coverage of ExpressionPushdownTranslator, Set Operations, Window and 
         |> Seq.find (fun m ->
             m.Name = "SelectMany"
             && m.GetParameters().Length = 3
-            && m.GetParameters().[1].ParameterType.GetGenericArguments().[0].GetGenericTypeDefinition() = typedefof<Func<_, _>>)
-    let smGen = smMethod.MakeGenericMethod(typeof<CovProduct>, typeof<CovOrder>, typeof<obj>)
-    let collSelector = Expression.Lambda<Func<CovProduct, seq<CovOrder>>>((q2 :> IQueryable).Expression, pParam)
-    let smCall = Expression.Call(null, smGen, (q1 :> IQueryable).Expression, collSelector, resLambda)
+            && m.GetParameters().[1].ParameterType.GetGenericArguments().[0].GetGenericTypeDefinition() =
+                typedefof<Func<_, _>>)
+
+    let smGen =
+        smMethod.MakeGenericMethod(typeof<CovProduct>, typeof<CovOrder>, typeof<obj>)
+
+    let collSelector =
+        Expression.Lambda<Func<CovProduct, seq<CovOrder>>>((q2 :> IQueryable).Expression, pParam)
+
+    let smCall =
+        Expression.Call(null, smGen, (q1 :> IQueryable).Expression, collSelector, resLambda)
+
     Assert.True(ExpressionPushdownTranslator.canPushdownAllJoins smCall conn1)
 
     // --- 7. tryExtractFromValue and tryExtractQueryableInfo ---
@@ -2991,110 +3904,284 @@ let ``Deep coverage of ExpressionPushdownTranslator, Set Operations, Window and 
     let extractedHolder = ExpressionPushdownTranslator.tryExtractFromValue (box holder)
     Assert.True(extractedHolder.IsSome)
 
-    let memberPropExpr = Expression.Property(Expression.Constant(holder), "PropProducts")
-    let extractedProp = ExpressionPushdownTranslator.tryExtractQueryableInfo memberPropExpr
+    let memberPropExpr =
+        Expression.Property(Expression.Constant(holder), "PropProducts")
+
+    let extractedProp =
+        ExpressionPushdownTranslator.tryExtractQueryableInfo memberPropExpr
+
     Assert.True(extractedProp.IsSome)
 
     // --- 8. translateScalarCondition ---
     let cond1 = Expression.GreaterThan(pPrice, Expression.Constant(10.0M))
     let cond2 = Expression.LessThan(pPrice, Expression.Constant(100.0M))
     let andCond = Expression.AndAlso(cond1, cond2)
-    Assert.True(ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan andCond |> Option.isSome)
+
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan andCond
+        |> Option.isSome
+    )
+
     let orCond = Expression.OrElse(cond1, cond2)
-    Assert.True(ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan orCond |> Option.isSome)
+
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan orCond
+        |> Option.isSome
+    )
 
     let pInStock = Expression.Property(pParam, "InStock")
-    let boolCondPg = ExpressionPushdownTranslator.translateScalarCondition SqlDialect.PostgreSql plan pInStock
+
+    let boolCondPg =
+        ExpressionPushdownTranslator.translateScalarCondition SqlDialect.PostgreSql plan pInStock
+
     Assert.True(boolCondPg.IsSome)
     Assert.Contains("= TRUE", boolCondPg.Value)
-    let boolCondSqlite = ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan pInStock
+
+    let boolCondSqlite =
+        ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan pInStock
+
     Assert.True(boolCondSqlite.IsSome)
     Assert.Contains("= 1", boolCondSqlite.Value)
 
     let voptParam = Expression.Parameter(typeof<ValueOption<decimal>>, "vopt")
     let isSomeProp = Expression.Property(voptParam, "IsSome")
-    Assert.True(ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan isSomeProp |> Option.isSome)
+
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan isSomeProp
+        |> Option.isSome
+    )
+
     let isNoneProp = Expression.Property(voptParam, "IsNone")
-    Assert.True(ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan isNoneProp |> Option.isSome)
+
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan isNoneProp
+        |> Option.isSome
+    )
 
     let nullParam = Expression.Parameter(typeof<Nullable<decimal>>, "nullDec")
     let hasValProp = Expression.Property(nullParam, "HasValue")
-    Assert.True(ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan hasValProp |> Option.isSome)
+
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan hasValProp
+        |> Option.isSome
+    )
 
     let notCond = Expression.Not(isSomeProp)
-    Assert.True(ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan notCond |> Option.isSome)
+
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan notCond
+        |> Option.isSome
+    )
 
     let pName = Expression.Property(pParam, "Name")
     let nullStr = Expression.Constant(null, typeof<string>)
     let eqNullRight = Expression.Equal(pName, nullStr)
-    Assert.Equal(Some "(Name IS NULL)", ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan eqNullRight)
+
+    Assert.Equal(
+        Some "(Name IS NULL)",
+        ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan eqNullRight
+    )
+
     let neNullRight = Expression.NotEqual(pName, nullStr)
-    Assert.Equal(Some "(Name IS NOT NULL)", ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan neNullRight)
+
+    Assert.Equal(
+        Some "(Name IS NOT NULL)",
+        ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan neNullRight
+    )
+
     let eqNullLeft = Expression.Equal(nullStr, pName)
-    Assert.Equal(Some "(Name IS NULL)", ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan eqNullLeft)
+
+    Assert.Equal(
+        Some "(Name IS NULL)",
+        ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan eqNullLeft
+    )
+
     let neNullLeft = Expression.NotEqual(nullStr, pName)
-    Assert.Equal(Some "(Name IS NOT NULL)", ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan neNullLeft)
+
+    Assert.Equal(
+        Some "(Name IS NOT NULL)",
+        ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan neNullLeft
+    )
 
     // --- 9. Inverted and NULL predicate translation in translatePredicate ---
-    Assert.Equal(Some "(Name IS NULL)", ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite eqNullRight)
-    Assert.Equal(Some "(Name IS NOT NULL)", ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite neNullRight)
+    Assert.Equal(
+        Some "(Name IS NULL)",
+        ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite eqNullRight
+    )
+
+    Assert.Equal(
+        Some "(Name IS NOT NULL)",
+        ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite neNullRight
+    )
+
     let pScore = Expression.Property(pParam, "Score")
     let nullDec = Expression.Constant(null, typeof<Nullable<decimal>>)
-    Assert.Equal(None, ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite (Expression.GreaterThan(pScore, nullDec)))
 
-    Assert.Equal(Some "(Name IS NULL)", ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite eqNullLeft)
-    Assert.Equal(Some "(Name IS NOT NULL)", ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite neNullLeft)
-    Assert.Equal(None, ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite (Expression.GreaterThan(nullDec, pScore)))
+    Assert.Equal(
+        None,
+        ExpressionPushdownTranslator.translatePredicate
+            pParam
+            plan
+            SqlDialect.Sqlite
+            (Expression.GreaterThan(pScore, nullDec))
+    )
 
-    let planInv = PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
-    ExpressionPushdownTranslator.translatePredicate pParam planInv SqlDialect.Sqlite (Expression.GreaterThan(Expression.Constant(10.0M), pPrice)) |> Option.isSome |> Assert.True
-    ExpressionPushdownTranslator.translatePredicate pParam planInv SqlDialect.Sqlite (Expression.GreaterThanOrEqual(Expression.Constant(10.0M), pPrice)) |> Option.isSome |> Assert.True
-    ExpressionPushdownTranslator.translatePredicate pParam planInv SqlDialect.Sqlite (Expression.LessThan(Expression.Constant(10.0M), pPrice)) |> Option.isSome |> Assert.True
-    ExpressionPushdownTranslator.translatePredicate pParam planInv SqlDialect.Sqlite (Expression.LessThanOrEqual(Expression.Constant(10.0M), pPrice)) |> Option.isSome |> Assert.True
-    ExpressionPushdownTranslator.translatePredicate pParam planInv SqlDialect.Sqlite (Expression.Equal(Expression.Constant(10.0M), pPrice)) |> Option.isSome |> Assert.True
-    ExpressionPushdownTranslator.translatePredicate pParam planInv SqlDialect.Sqlite (Expression.NotEqual(Expression.Constant(10.0M), pPrice)) |> Option.isSome |> Assert.True
+    Assert.Equal(
+        Some "(Name IS NULL)",
+        ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite eqNullLeft
+    )
+
+    Assert.Equal(
+        Some "(Name IS NOT NULL)",
+        ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite neNullLeft
+    )
+
+    Assert.Equal(
+        None,
+        ExpressionPushdownTranslator.translatePredicate
+            pParam
+            plan
+            SqlDialect.Sqlite
+            (Expression.GreaterThan(nullDec, pScore))
+    )
+
+    let planInv =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+
+    ExpressionPushdownTranslator.translatePredicate
+        pParam
+        planInv
+        SqlDialect.Sqlite
+        (Expression.GreaterThan(Expression.Constant(10.0M), pPrice))
+    |> Option.isSome
+    |> Assert.True
+
+    ExpressionPushdownTranslator.translatePredicate
+        pParam
+        planInv
+        SqlDialect.Sqlite
+        (Expression.GreaterThanOrEqual(Expression.Constant(10.0M), pPrice))
+    |> Option.isSome
+    |> Assert.True
+
+    ExpressionPushdownTranslator.translatePredicate
+        pParam
+        planInv
+        SqlDialect.Sqlite
+        (Expression.LessThan(Expression.Constant(10.0M), pPrice))
+    |> Option.isSome
+    |> Assert.True
+
+    ExpressionPushdownTranslator.translatePredicate
+        pParam
+        planInv
+        SqlDialect.Sqlite
+        (Expression.LessThanOrEqual(Expression.Constant(10.0M), pPrice))
+    |> Option.isSome
+    |> Assert.True
+
+    ExpressionPushdownTranslator.translatePredicate
+        pParam
+        planInv
+        SqlDialect.Sqlite
+        (Expression.Equal(Expression.Constant(10.0M), pPrice))
+    |> Option.isSome
+    |> Assert.True
+
+    ExpressionPushdownTranslator.translatePredicate
+        pParam
+        planInv
+        SqlDialect.Sqlite
+        (Expression.NotEqual(Expression.Constant(10.0M), pPrice))
+    |> Option.isSome
+    |> Assert.True
 
     // --- 10. Aggregates in translateScalarExpr with non-queryable parameters ---
     let seqParam = Expression.Parameter(typeof<seq<CovProduct>>, "seqItems")
     let priceLambda = Expression.Lambda<Func<CovProduct, decimal>>(pPrice, pParam)
 
-    let sumMethod = typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Sum" && m.ReturnType = typeof<decimal> && m.GetParameters().Length = 2)
+    let sumMethod =
+        typeof<Enumerable>.GetMethods()
+        |> Seq.find (fun m -> m.Name = "Sum" && m.ReturnType = typeof<decimal> && m.GetParameters().Length = 2)
+
     let sumGen = sumMethod.MakeGenericMethod(typeof<CovProduct>)
     let sumCall2 = Expression.Call(null, sumGen, seqParam, priceLambda)
-    Assert.True(ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan sumCall2 |> Option.isSome)
 
-    let distinctMethod = typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Distinct" && m.GetParameters().Length = 1)
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan sumCall2
+        |> Option.isSome
+    )
+
+    let distinctMethod =
+        typeof<Enumerable>.GetMethods()
+        |> Seq.find (fun m -> m.Name = "Distinct" && m.GetParameters().Length = 1)
+
     let distinctGen = distinctMethod.MakeGenericMethod(typeof<CovProduct>)
     let distinctCall = Expression.Call(null, distinctGen, seqParam)
     let sumDistinctCall = Expression.Call(null, sumGen, distinctCall, priceLambda)
-    let sumDistRes = ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan sumDistinctCall
+
+    let sumDistRes =
+        ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan sumDistinctCall
+
     Assert.True(sumDistRes.IsSome)
     Assert.Contains("DISTINCT", sumDistRes.Value)
 
-    let minMethod = typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Min" && m.ReturnType = typeof<decimal> && m.GetParameters().Length = 2)
+    let minMethod =
+        typeof<Enumerable>.GetMethods()
+        |> Seq.find (fun m -> m.Name = "Min" && m.ReturnType = typeof<decimal> && m.GetParameters().Length = 2)
+
     let minGen = minMethod.MakeGenericMethod(typeof<CovProduct>)
     let minCall = Expression.Call(null, minGen, seqParam, priceLambda)
-    Assert.True(ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan minCall |> Option.isSome)
 
-    let maxMethod = typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Max" && m.ReturnType = typeof<decimal> && m.GetParameters().Length = 2)
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan minCall
+        |> Option.isSome
+    )
+
+    let maxMethod =
+        typeof<Enumerable>.GetMethods()
+        |> Seq.find (fun m -> m.Name = "Max" && m.ReturnType = typeof<decimal> && m.GetParameters().Length = 2)
+
     let maxGen = maxMethod.MakeGenericMethod(typeof<CovProduct>)
     let maxCall = Expression.Call(null, maxGen, seqParam, priceLambda)
-    Assert.True(ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan maxCall |> Option.isSome)
 
-    let avgMethod = typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Average" && m.ReturnType = typeof<decimal> && m.GetParameters().Length = 2)
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan maxCall
+        |> Option.isSome
+    )
+
+    let avgMethod =
+        typeof<Enumerable>.GetMethods()
+        |> Seq.find (fun m ->
+            m.Name = "Average"
+            && m.ReturnType = typeof<decimal>
+            && m.GetParameters().Length = 2)
+
     let avgGen = avgMethod.MakeGenericMethod(typeof<CovProduct>)
     let avgCall = Expression.Call(null, avgGen, seqParam, priceLambda)
-    Assert.True(ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan avgCall |> Option.isSome)
+
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan avgCall
+        |> Option.isSome
+    )
 
     // --- 11. safeOverClause on SqlServer and Oracle ---
     let builder = FSqlQueryBuilder()
     let dummyWin = Expression.Constant(null, typeof<WindowDefinition option>)
     let winMethod = typeof<FSqlQueryBuilder>.GetMethod("rowNumber")
-    let rowNumCall = Expression.Call(Expression.Constant(builder), winMethod, [| dummyWin :> Expression |])
-    let rowNumSs = ExpressionPushdownTranslator.tryTranslateWindowFunction SqlDialect.SqlServer plan rowNumCall
+
+    let rowNumCall =
+        Expression.Call(Expression.Constant(builder), winMethod, [| dummyWin :> Expression |])
+
+    let rowNumSs =
+        ExpressionPushdownTranslator.tryTranslateWindowFunction SqlDialect.SqlServer plan rowNumCall
+
     Assert.True(rowNumSs.IsSome)
     Assert.Contains("ORDER BY (SELECT NULL)", rowNumSs.Value)
-    let rowNumOra = ExpressionPushdownTranslator.tryTranslateWindowFunction SqlDialect.Oracle plan rowNumCall
+
+    let rowNumOra =
+        ExpressionPushdownTranslator.tryTranslateWindowFunction SqlDialect.Oracle plan rowNumCall
+
     Assert.True(rowNumOra.IsSome)
     Assert.Contains("ORDER BY NULL", rowNumOra.Value)
 
@@ -3132,11 +4219,20 @@ let ``Deep coverage of ExpressionPushdownTranslator, Set Operations, Window and 
     let extU4 = wrapped.Except(products)
     Assert.Contains("EXCEPT", toRawSql extU4)
 
-    let emptyWrapped = CustomQueryableWrapper(Enumerable.Empty<CovProduct>().AsQueryable())
-    Assert.Throws<Exception>(fun () -> products.Union(emptyWrapped) |> ignore) |> ignore
-    Assert.Throws<Exception>(fun () -> products.UnionAll(emptyWrapped) |> ignore) |> ignore
-    Assert.Throws<Exception>(fun () -> products.Intersect(emptyWrapped) |> ignore) |> ignore
-    Assert.Throws<Exception>(fun () -> products.Except(emptyWrapped) |> ignore) |> ignore
+    let emptyWrapped =
+        CustomQueryableWrapper(Enumerable.Empty<CovProduct>().AsQueryable())
+
+    Assert.Throws<Exception>(fun () -> products.Union(emptyWrapped) |> ignore)
+    |> ignore
+
+    Assert.Throws<Exception>(fun () -> products.UnionAll(emptyWrapped) |> ignore)
+    |> ignore
+
+    Assert.Throws<Exception>(fun () -> products.Intersect(emptyWrapped) |> ignore)
+    |> ignore
+
+    Assert.Throws<Exception>(fun () -> products.Except(emptyWrapped) |> ignore)
+    |> ignore
 
     let cteWrapped1 = wrapped.WithCte(products)
     Assert.NotNull(cteWrapped1)
@@ -3150,10 +4246,22 @@ let ``Deep coverage of ExpressionPushdownTranslator, Set Operations, Window and 
     // --- 14. Builder marker failwith coverage via reflection ---
     for m in typeof<FSqlQueryBuilder>.GetMethods() do
         let name = m.Name
-        if name.StartsWith("With") || name.StartsWith("Where") || name.StartsWith("Union") || name.StartsWith("Intersect") || name.StartsWith("Except") || name.StartsWith("Having") || name.StartsWith("Full") || name.StartsWith("Right") || name.StartsWith("Cross") then
+
+        if
+            name.StartsWith("With")
+            || name.StartsWith("Where")
+            || name.StartsWith("Union")
+            || name.StartsWith("Intersect")
+            || name.StartsWith("Except")
+            || name.StartsWith("Having")
+            || name.StartsWith("Full")
+            || name.StartsWith("Right")
+            || name.StartsWith("Cross")
+        then
             try
                 let pCount = m.GetParameters().Length
                 let args = Array.create pCount null
+
                 if m.IsGenericMethodDefinition then
                     let genParams = m.GetGenericArguments()
                     let typeArgs = Array.create genParams.Length typeof<obj>
@@ -3161,9 +4269,12 @@ let ``Deep coverage of ExpressionPushdownTranslator, Set Operations, Window and 
                     concreteM.Invoke(builder, args) |> ignore
                 else
                     m.Invoke(builder, args) |> ignore
-            with _ -> ()
+            with _ ->
+                ()
 
-    let winDef = builder.window(partitionBy = "cat", sortBy = "price", sortByDescending = "id")
+    let winDef =
+        builder.window (partitionBy = "cat", sortBy = "price", sortByDescending = "id")
+
     Assert.Equal("window", winDef.Dummy)
 
     let bU1 = builder.union products products
@@ -3174,63 +4285,103 @@ let ``Deep coverage of ExpressionPushdownTranslator, Set Operations, Window and 
     let bI2 = builder.intersect wrapped wrapped
     let bE1 = builder.except products products
     let bE2 = builder.except wrapped wrapped
-    Assert.NotNull(bU1); Assert.NotNull(bU2); Assert.NotNull(bUA1); Assert.NotNull(bUA2)
-    Assert.NotNull(bI1); Assert.NotNull(bI2); Assert.NotNull(bE1); Assert.NotNull(bE2)
+    Assert.NotNull(bU1)
+    Assert.NotNull(bU2)
+    Assert.NotNull(bUA1)
+    Assert.NotNull(bUA2)
+    Assert.NotNull(bI1)
+    Assert.NotNull(bI2)
+    Assert.NotNull(bE1)
+    Assert.NotNull(bE2)
 
     // --- 15. fsql Computation Expression with subqueries, whereExists, having and set ops ---
-    let fsqlEx = fsql {
-        for p in products do
-        whereExists (fsql { for o in orders do where (o.CustomerId = p.Id) })
-        select p
-    }
+    let fsqlEx =
+        fsql {
+            for p in products do
+                whereExists (
+                    fsql {
+                        for o in orders do
+                            where (o.CustomerId = p.Id)
+                    }
+                )
+
+                select p
+        }
+
     Assert.NotEmpty(toRawSql fsqlEx)
 
-    let fsqlNotEx = fsql {
-        for p in products do
-        whereNotExists (fsql { for o in orders do where (o.CustomerId = p.Id) })
-        select p
-    }
+    let fsqlNotEx =
+        fsql {
+            for p in products do
+                whereNotExists (
+                    fsql {
+                        for o in orders do
+                            where (o.CustomerId = p.Id)
+                    }
+                )
+
+                select p
+        }
+
     Assert.NotEmpty(toRawSql fsqlNotEx)
 
-    let fsqlUnion = fsql {
-        for p in products do
-        select p
-        union products
-    }
+    let fsqlUnion =
+        fsql {
+            for p in products do
+                select p
+                union products
+        }
+
     Assert.NotEmpty(toRawSql fsqlUnion)
 
-    let fsqlUnionAll = fsql {
-        for p in products do
-        select p
-        unionAll products
-    }
+    let fsqlUnionAll =
+        fsql {
+            for p in products do
+                select p
+                unionAll products
+        }
+
     Assert.NotEmpty(toRawSql fsqlUnionAll)
 
-    let fsqlIntersect = fsql {
-        for p in products do
-        select p
-        intersect products
-    }
+    let fsqlIntersect =
+        fsql {
+            for p in products do
+                select p
+                intersect products
+        }
+
     Assert.NotEmpty(toRawSql fsqlIntersect)
 
-    let fsqlExcept = fsql {
-        for p in products do
-        select p
-        except products
-    }
+    let fsqlExcept =
+        fsql {
+            for p in products do
+                select p
+                except products
+        }
+
     Assert.NotEmpty(toRawSql fsqlExcept)
 
     // --- 16. ExtractPlan with targetPlan constant in set ops ---
     let prov = (products :> IQueryable).Provider :?> SqlPushdownQueryProvider
-    let dummyTargetPlan = PushdownQueryPlan.Create("OtherTable", [], baseAlias = "o", dialect = SqlDialect.Sqlite)
+
+    let dummyTargetPlan =
+        PushdownQueryPlan.Create("OtherTable", [], baseAlias = "o", dialect = SqlDialect.Sqlite)
+
     dummyTargetPlan.Parameters.Add("@p0", 123)
     let dummyPlanConst = Expression.Constant(dummyTargetPlan)
     let fakeUnion = typeof<FakeSetOps>.GetMethod("Union")
-    let unionCallWithPlan = Expression.Call(null, fakeUnion, Expression.Constant("src"), dummyPlanConst)
-    let extractedWithPlan = prov.ExtractPlan(unionCallWithPlan, seedPlan = products.Plan)
+
+    let unionCallWithPlan =
+        Expression.Call(null, fakeUnion, Expression.Constant("src"), dummyPlanConst)
+
+    let extractedWithPlan =
+        prov.ExtractPlan(unionCallWithPlan, seedPlan = products.Plan)
+
     Assert.True(extractedWithPlan.SetOperations.Count > 0)
 
-    let unionCallWithStr = Expression.Call(null, fakeUnion, Expression.Constant("src"), Expression.Constant("SELECT 1"))
+    let unionCallWithStr =
+        Expression.Call(null, fakeUnion, Expression.Constant("src"), Expression.Constant("SELECT 1"))
+
     let extractedWithStr = prov.ExtractPlan(unionCallWithStr, seedPlan = products.Plan)
     Assert.True(extractedWithStr.SetOperations.Count > 0)
 
@@ -3241,7 +4392,11 @@ let ``Deep coverage of ExpressionPushdownTranslator, Set Operations, Window and 
 [<Fact>]
 let ``Deep coverage of Pushdown internals, aggregates, window functions, and FSql operations`` () =
     let mockOnExec (sql: string) (parms: (string * obj) list) =
-        { Columns = ["val"]; Rows = [ [| box 42.0M |] ] }
+        {
+            Columns = [ "val" ]
+            Rows = [ [| box 42.0M |] ]
+        }
+
     let conn = AdvancedMockConnector(ConnectorKind("Sqlite"), onExecute = mockOnExec)
     let products = SqlPushdownQueryable<CovProduct>(conn, "Products")
     let orders = SqlPushdownQueryable<CovOrder>(conn, "Orders")
@@ -3267,19 +4422,44 @@ let ``Deep coverage of Pushdown internals, aggregates, window functions, and FSq
     Assert.Equal(42.0M, maxSel)
 
     // Also with record return and empty row fallback in ExecuteScalarWithPlan
-    let emptyConn = AdvancedMockConnector(ConnectorKind("Sqlite"), onExecute = (fun _ _ -> { Columns = []; Rows = [] }))
+    let emptyConn =
+        AdvancedMockConnector(ConnectorKind("Sqlite"), onExecute = (fun _ _ -> { Columns = []; Rows = [] }))
+
     let emptyProds = SqlPushdownQueryable<CovProduct>(emptyConn, "Products")
     let emptySum = emptyProds.Sum<decimal>("Price")
     Assert.Equal(0.0M, emptySum)
 
-    let recordConn = AdvancedMockConnector(ConnectorKind("Sqlite"), onExecute = (fun _ _ -> { Columns = ["OrderId"; "CustomerId"; "Amount"; "Status"]; Rows = [ [| box 101; box 1; box 50.0M; box "OK" |] ] }))
+    let recordConn =
+        AdvancedMockConnector(
+            ConnectorKind("Sqlite"),
+            onExecute =
+                (fun _ _ ->
+                    {
+                        Columns = [ "OrderId"; "CustomerId"; "Amount"; "Status" ]
+                        Rows = [ [| box 101; box 1; box 50.0M; box "OK" |] ]
+                    })
+        )
+
     let oParam = Expression.Parameter(typeof<CovOrder>, "o")
     let orderIdSel = Expression.Lambda<Func<CovOrder, CovOrder>>(oParam, oParam)
-    let recOrder = (SqlPushdownQueryable<CovOrder>(recordConn, "Orders")).Min(orderIdSel)
+
+    let recOrder =
+        (SqlPushdownQueryable<CovOrder>(recordConn, "Orders")).Min(orderIdSel)
+
     Assert.Equal(101, recOrder.OrderId)
 
     // 2. Queryable.Count with predicate on SqlPushdownQueryable
-    let countMockConn = AdvancedMockConnector(ConnectorKind("Sqlite"), onExecute = (fun _ _ -> { Columns = ["val"]; Rows = [ [| box 7 |] ] }))
+    let countMockConn =
+        AdvancedMockConnector(
+            ConnectorKind("Sqlite"),
+            onExecute =
+                (fun _ _ ->
+                    {
+                        Columns = [ "val" ]
+                        Rows = [ [| box 7 |] ]
+                    })
+        )
+
     let countProds = SqlPushdownQueryable<CovProduct>(countMockConn, "Products")
     let countPredRes = countProds.Count(fun p -> p.Price > 10.0M)
     Assert.Equal(7, countPredRes)
@@ -3288,18 +4468,46 @@ let ``Deep coverage of Pushdown internals, aggregates, window functions, and FSq
 
     // 3. translateScalarExpr with IQueryable constant
     let iqConst = Expression.Constant(products :> IQueryable)
-    let subquerySql = ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan iqConst
+
+    let subquerySql =
+        ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan iqConst
+
     Assert.True(subquerySql.IsSome)
 
     // 4. Nested tuple depth and leadingOnes
-    let root3Param = Expression.Parameter(typeof<Tuple<Tuple<CovProduct, CovOrder>, CovOptionItem>>, "root3")
+    let root3Param =
+        Expression.Parameter(typeof<Tuple<Tuple<CovProduct, CovOrder>, CovOptionItem>>, "root3")
+
     let rItem1 = Expression.Property(root3Param, "Item1")
     let rItem2 = Expression.Property(rItem1, "Item2")
     let rAmount = Expression.Property(rItem2, "Amount")
-    let planNested = PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
-    planNested.Joins.Add({ JoinType = "INNER JOIN"; SourceTable = "Orders"; Alias = "o"; OnClause = "p.Id = o.CustomerId"; RowType = Some typeof<CovOrder> })
-    planNested.Joins.Add({ JoinType = "INNER JOIN"; SourceTable = "Items"; Alias = "i"; OnClause = "p.Id = i.Id"; RowType = Some typeof<CovOptionItem> })
-    let (nestedAlias, _) = ExpressionPushdownTranslator.resolveMemberRef planNested rAmount
+
+    let planNested =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "p", dialect = SqlDialect.Sqlite)
+
+    planNested.Joins.Add(
+        {
+            JoinType = "INNER JOIN"
+            SourceTable = "Orders"
+            Alias = "o"
+            OnClause = "p.Id = o.CustomerId"
+            RowType = Some typeof<CovOrder>
+        }
+    )
+
+    planNested.Joins.Add(
+        {
+            JoinType = "INNER JOIN"
+            SourceTable = "Items"
+            Alias = "i"
+            OnClause = "p.Id = i.Id"
+            RowType = Some typeof<CovOptionItem>
+        }
+    )
+
+    let (nestedAlias, _) =
+        ExpressionPushdownTranslator.resolveMemberRef planNested rAmount
+
     Assert.Equal(Some "o", nestedAlias)
 
     // 5. FakeWindow Lag and Lead with various default values
@@ -3309,35 +4517,126 @@ let ``Deep coverage of Pushdown internals, aggregates, window functions, and FSq
     let pPriceObj = Expression.Convert(pPrice, typeof<obj>)
 
     for defVal in [ box 0.0M; box 0.5; box 10; box "N/A"; null; box (DateTime.UtcNow) ] do
-        let lagCall = Expression.Call(fakeLagMethod, pPriceObj, Expression.Constant(1), Expression.Constant(defVal, typeof<obj>), overParam)
-        let leadCall = Expression.Call(fakeLeadMethod, pPriceObj, Expression.Constant(2), Expression.Constant(defVal, typeof<obj>), overParam)
-        Assert.True(ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan lagCall |> Option.isSome)
-        Assert.True(ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan leadCall |> Option.isSome)
+        let lagCall =
+            Expression.Call(
+                fakeLagMethod,
+                pPriceObj,
+                Expression.Constant(1),
+                Expression.Constant(defVal, typeof<obj>),
+                overParam
+            )
+
+        let leadCall =
+            Expression.Call(
+                fakeLeadMethod,
+                pPriceObj,
+                Expression.Constant(2),
+                Expression.Constant(defVal, typeof<obj>),
+                overParam
+            )
+
+        Assert.True(
+            ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan lagCall
+            |> Option.isSome
+        )
+
+        Assert.True(
+            ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan leadCall
+            |> Option.isSome
+        )
 
     // 6. FakeAggs: 2-arg non-lambda, 1-arg
     let fakeAggSum2 = typeof<FakeAggs>.GetMethod("Sum", [| typeof<obj>; typeof<obj> |])
     let fakeAggMin2 = typeof<FakeAggs>.GetMethod("Min", [| typeof<obj>; typeof<obj> |])
     let fakeAggMax2 = typeof<FakeAggs>.GetMethod("Max", [| typeof<obj>; typeof<obj> |])
-    let fakeAggAvg2 = typeof<FakeAggs>.GetMethod("Average", [| typeof<obj>; typeof<obj> |])
-    Assert.True(ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(null, fakeAggSum2, Expression.Constant("seq", typeof<obj>), pPriceObj)) |> Option.isSome)
-    Assert.True(ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(null, fakeAggMin2, Expression.Constant("seq", typeof<obj>), pPriceObj)) |> Option.isSome)
-    Assert.True(ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(null, fakeAggMax2, Expression.Constant("seq", typeof<obj>), pPriceObj)) |> Option.isSome)
-    Assert.True(ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(null, fakeAggAvg2, Expression.Constant("seq", typeof<obj>), pPriceObj)) |> Option.isSome)
+
+    let fakeAggAvg2 =
+        typeof<FakeAggs>.GetMethod("Average", [| typeof<obj>; typeof<obj> |])
+
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(null, fakeAggSum2, Expression.Constant("seq", typeof<obj>), pPriceObj))
+        |> Option.isSome
+    )
+
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(null, fakeAggMin2, Expression.Constant("seq", typeof<obj>), pPriceObj))
+        |> Option.isSome
+    )
+
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(null, fakeAggMax2, Expression.Constant("seq", typeof<obj>), pPriceObj))
+        |> Option.isSome
+    )
+
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(null, fakeAggAvg2, Expression.Constant("seq", typeof<obj>), pPriceObj))
+        |> Option.isSome
+    )
 
     let fakeAggSum1 = typeof<FakeAggs>.GetMethod("Sum", [| typeof<obj> |])
     let fakeAggMin1 = typeof<FakeAggs>.GetMethod("Min", [| typeof<obj> |])
     let fakeAggMax1 = typeof<FakeAggs>.GetMethod("Max", [| typeof<obj> |])
     let fakeAggAvg1 = typeof<FakeAggs>.GetMethod("Average", [| typeof<obj> |])
-    Assert.True(ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(null, fakeAggSum1, pPriceObj)) |> Option.isSome)
-    Assert.True(ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(null, fakeAggMin1, pPriceObj)) |> Option.isSome)
-    Assert.True(ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(null, fakeAggMax1, pPriceObj)) |> Option.isSome)
-    Assert.True(ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(null, fakeAggAvg1, pPriceObj)) |> Option.isSome)
+
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(null, fakeAggSum1, pPriceObj))
+        |> Option.isSome
+    )
+
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(null, fakeAggMin1, pPriceObj))
+        |> Option.isSome
+    )
+
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(null, fakeAggMax1, pPriceObj))
+        |> Option.isSome
+    )
+
+    Assert.True(
+        ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(null, fakeAggAvg1, pPriceObj))
+        |> Option.isSome
+    )
 
     // 7. MemberInitExpression in extractKeyColumns and single column fallback
-    let memberInit = Expression.MemberInit(Expression.New(typeof<CovProduct>), Expression.Bind(typeof<CovProduct>.GetProperty("Price"), pPrice))
-    let initCols = ExpressionPushdownTranslator.extractKeyColumns plan "p" pParam memberInit
+    let memberInit =
+        Expression.MemberInit(
+            Expression.New(typeof<CovProduct>),
+            Expression.Bind(typeof<CovProduct>.GetProperty("Price"), pPrice)
+        )
+
+    let initCols =
+        ExpressionPushdownTranslator.extractKeyColumns plan "p" pParam memberInit
+
     Assert.NotEmpty(initCols)
-    let singleCols = ExpressionPushdownTranslator.extractKeyColumns plan "p" pParam pPrice
+
+    let singleCols =
+        ExpressionPushdownTranslator.extractKeyColumns plan "p" pParam pPrice
+
     Assert.NotEmpty(singleCols)
 
     // 8. exprHasParamName
@@ -3356,15 +4655,26 @@ let ``Deep coverage of Pushdown internals, aggregates, window functions, and FSq
     Assert.True(ExpressionPushdownTranslator.tryUnwrapOptionArg someExpr |> Option.isSome)
     let valPropExpr = Expression.Property(Expression.Constant(Some 10.0M), "Value")
     Assert.True(ExpressionPushdownTranslator.tryUnwrapOptionArg valPropExpr |> Option.isSome)
-    let noneExpr = Expression.Property(null, typeof<Option<decimal>>.GetProperty("None"))
+
+    let noneExpr =
+        Expression.Property(null, typeof<Option<decimal>>.GetProperty("None"))
+
     Assert.True(ExpressionPushdownTranslator.tryUnwrapOptionArg noneExpr |> Option.isNone)
     let nonOptExpr = Expression.Constant(42)
     Assert.True(ExpressionPushdownTranslator.tryUnwrapOptionArg nonOptExpr |> Option.isSome)
 
     // 10. tryExtractSubquerySql
     Assert.True(ExpressionPushdownTranslator.tryExtractSubquerySql plan null |> Option.isNone)
-    Assert.True(ExpressionPushdownTranslator.tryExtractSubquerySql plan "not a queryable" |> Option.isNone)
-    Assert.True(ExpressionPushdownTranslator.tryExtractSubquerySql plan products |> Option.isSome)
+
+    Assert.True(
+        ExpressionPushdownTranslator.tryExtractSubquerySql plan "not a queryable"
+        |> Option.isNone
+    )
+
+    Assert.True(
+        ExpressionPushdownTranslator.tryExtractSubquerySql plan products
+        |> Option.isSome
+    )
 
     // 11. unwrapOptionOrNullableMember
     Assert.Null(ExpressionPushdownTranslator.unwrapOptionOrNullableMember null)
@@ -3375,48 +4685,72 @@ let ``Deep coverage of Pushdown internals, aggregates, window functions, and FSq
     Assert.Equal<Expression>(pScore, ExpressionPushdownTranslator.unwrapOptionOrNullableMember convExpr)
 
     // 12. fsql operations: whereExists, whereNotExists, having, rightOuterJoin
-    let fsqlExists = fsql {
-        for p in products do
-        whereExists (orders.Where(fun o -> o.CustomerId = p.Id))
-        select p
-    }
+    let fsqlExists =
+        fsql {
+            for p in products do
+                whereExists (orders.Where(fun o -> o.CustomerId = p.Id))
+                select p
+        }
+
     Assert.NotEmpty(toRawSql fsqlExists)
 
-    let fsqlNotExists = fsql {
-        for p in products do
-        whereNotExists (orders.Where(fun o -> o.CustomerId = p.Id))
-        select p
-    }
+    let fsqlNotExists =
+        fsql {
+            for p in products do
+                whereNotExists (orders.Where(fun o -> o.CustomerId = p.Id))
+                select p
+        }
+
     Assert.NotEmpty(toRawSql fsqlNotExists)
 
-    let fsqlHaving = fsql {
-        for p in products do
-        having (p.Price > 10.0M)
-        select p
-    }
+    let fsqlHaving =
+        fsql {
+            for p in products do
+                having (p.Price > 10.0M)
+                select p
+        }
+
     Assert.NotEmpty(toRawSql fsqlHaving)
 
-    let fsqlRightJoin = fsql {
-        for p in products do
-        rightOuterJoin o in orders on (p.Id = o.CustomerId)
-        select (p, o)
-    }
+    let fsqlRightJoin =
+        fsql {
+            for p in products do
+                rightOuterJoin o in orders on (p.Id = o.CustomerId)
+                select (p, o)
+        }
+
     Assert.NotEmpty(toRawSql fsqlRightJoin)
 
     // 13. fsql Set operations with memory seq and IQueryable
-    let memList = [ { Id = 1; Name = "P1"; Price = 10.0M; Category = "C1"; InStock = true; Timestamp = DateTime.UtcNow; Score = Nullable 5.0M } ]
-    let fsqlUnionSeq = fsql {
-        for p in products do
-        select p
-        union memList
-    }
+    let memList =
+        [
+            {
+                Id = 1
+                Name = "P1"
+                Price = 10.0M
+                Category = "C1"
+                InStock = true
+                Timestamp = DateTime.UtcNow
+                Score = Nullable 5.0M
+            }
+        ]
+
+    let fsqlUnionSeq =
+        fsql {
+            for p in products do
+                select p
+                union memList
+        }
+
     Assert.NotEmpty(toRawSql fsqlUnionSeq)
 
-    let fsqlUnionIq = fsql {
-        for p in products do
-        select p
-        union (memList.AsQueryable())
-    }
+    let fsqlUnionIq =
+        fsql {
+            for p in products do
+                select p
+                union (memList.AsQueryable())
+        }
+
     Assert.NotEmpty(toRawSql fsqlUnionIq)
 
     // 14. IQueryable extension methods on CustomQueryableWrapper and in-memory IQueryable
@@ -3441,10 +4775,19 @@ let ``Deep coverage of Pushdown internals, aggregates, window functions, and FSq
     // 15. Top-level standalone functions
     let _ = recursive "rec" products (fun q -> q)
     let _ = jsonValue (box "data") "$.prop"
-    let _ = union (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
-    let _ = unionAll (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
-    let _ = intersect (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
-    let _ = except (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
+    let _ =
+        union (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
+    let _ =
+        unionAll (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
+    let _ =
+        intersect (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
+    let _ =
+        except (products :> IQueryable<CovProduct>) (products :> IQueryable<CovProduct>)
+
     let _ = union memIq memIq
     let _ = unionAll memIq memIq
     let _ = intersect memIq memIq
@@ -3456,8 +4799,11 @@ let ``Deep coverage of Pushdown internals, aggregates, window functions, and FSq
 // =========================================================================
 
 type JoinHolder() =
-    member val MyProds = (SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("Sqlite")), "Products")) with get, set
-    [<DefaultValue>] val mutable MyProdsField: SqlPushdownQueryable<CovProduct>
+    member val MyProds =
+        (SqlPushdownQueryable<CovProduct>(AdvancedMockConnector(ConnectorKind("Sqlite")), "Products")) with get, set
+
+    [<DefaultValue>]
+    val mutable MyProdsField: SqlPushdownQueryable<CovProduct>
 
 [<Fact>]
 let ``Deep coverage of Pushdown predicates, subquery Any/Count, Quotation rewriting and edge branches`` () =
@@ -3470,42 +4816,98 @@ let ``Deep coverage of Pushdown predicates, subquery Any/Count, Quotation rewrit
     let prov = (products :> IQueryable).Provider :?> SqlPushdownQueryProvider
 
     // 1. Lines 895-926: Custom method on p causing translateScalarExpr to return None
-    let customCall = Expression.Call(typeof<CustomTestFuncs>.GetMethod("Custom"), pPrice)
+    let customCall =
+        Expression.Call(typeof<CustomTestFuncs>.GetMethod("Custom"), pPrice)
+
     let customCallObj = Expression.Convert(customCall, typeof<obj>)
     let nullDec = Expression.Constant(null, typeof<obj>)
     let tenDec = Expression.Constant(10.0M)
 
     // Left has param, right is constant
-    let predLeftNull = ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite (Expression.Equal(customCallObj, nullDec))
+    let predLeftNull =
+        ExpressionPushdownTranslator.translatePredicate
+            pParam
+            plan
+            SqlDialect.Sqlite
+            (Expression.Equal(customCallObj, nullDec))
+
     Assert.True(predLeftNull.IsSome)
     Assert.Contains("IS NULL", predLeftNull.Value)
 
-    let predLeftNotNull = ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite (Expression.NotEqual(customCallObj, nullDec))
+    let predLeftNotNull =
+        ExpressionPushdownTranslator.translatePredicate
+            pParam
+            plan
+            SqlDialect.Sqlite
+            (Expression.NotEqual(customCallObj, nullDec))
+
     Assert.True(predLeftNotNull.IsSome)
     Assert.Contains("IS NOT NULL", predLeftNotNull.Value)
 
-    let predLeftVal = ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite (Expression.Equal(customCall, tenDec))
+    let predLeftVal =
+        ExpressionPushdownTranslator.translatePredicate
+            pParam
+            plan
+            SqlDialect.Sqlite
+            (Expression.Equal(customCall, tenDec))
+
     Assert.True(predLeftVal.IsSome)
 
     // Right has param, left is constant
-    let predRightNull = ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite (Expression.Equal(nullDec, customCallObj))
+    let predRightNull =
+        ExpressionPushdownTranslator.translatePredicate
+            pParam
+            plan
+            SqlDialect.Sqlite
+            (Expression.Equal(nullDec, customCallObj))
+
     Assert.True(predRightNull.IsSome)
     Assert.Contains("IS NULL", predRightNull.Value)
 
-    let predRightNotNull = ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite (Expression.NotEqual(nullDec, customCallObj))
+    let predRightNotNull =
+        ExpressionPushdownTranslator.translatePredicate
+            pParam
+            plan
+            SqlDialect.Sqlite
+            (Expression.NotEqual(nullDec, customCallObj))
+
     Assert.True(predRightNotNull.IsSome)
     Assert.Contains("IS NOT NULL", predRightNotNull.Value)
 
-    let predRightGt = ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite (Expression.GreaterThan(tenDec, customCall))
+    let predRightGt =
+        ExpressionPushdownTranslator.translatePredicate
+            pParam
+            plan
+            SqlDialect.Sqlite
+            (Expression.GreaterThan(tenDec, customCall))
+
     Assert.True(predRightGt.IsSome)
 
-    let predRightGte = ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite (Expression.GreaterThanOrEqual(tenDec, customCall))
+    let predRightGte =
+        ExpressionPushdownTranslator.translatePredicate
+            pParam
+            plan
+            SqlDialect.Sqlite
+            (Expression.GreaterThanOrEqual(tenDec, customCall))
+
     Assert.True(predRightGte.IsSome)
 
-    let predRightLt = ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite (Expression.LessThan(tenDec, customCall))
+    let predRightLt =
+        ExpressionPushdownTranslator.translatePredicate
+            pParam
+            plan
+            SqlDialect.Sqlite
+            (Expression.LessThan(tenDec, customCall))
+
     Assert.True(predRightLt.IsSome)
 
-    let predRightLte = ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite (Expression.LessThanOrEqual(tenDec, customCall))
+    let predRightLte =
+        ExpressionPushdownTranslator.translatePredicate
+            pParam
+            plan
+            SqlDialect.Sqlite
+            (Expression.LessThanOrEqual(tenDec, customCall))
+
     Assert.True(predRightLte.IsSome)
 
     // 2. Lines 1313-1320 & 1348-1355: Window Lag/Lead with defaultValue from evaluateClientValue
@@ -3514,23 +4916,56 @@ let ``Deep coverage of Pushdown predicates, subquery Any/Count, Quotation rewrit
     let pPriceObj = Expression.Convert(pPrice, typeof<obj>)
     let overParam = Expression.Constant(null, typeof<obj[]>)
 
-    let customDecCall = Expression.Call(typeof<CustomTestFuncs>.GetMethod("CustomDec"), Expression.Constant(10.0M))
-    let customFloatCall = Expression.Call(typeof<CustomTestFuncs>.GetMethod("CustomFloat"), Expression.Constant(1.5))
-    let customIntCall = Expression.Call(typeof<CustomTestFuncs>.GetMethod("CustomInt"), Expression.Constant(5))
-    let customStrCall = Expression.Call(typeof<CustomTestFuncs>.GetMethod("CustomStr"), Expression.Constant("xyz"))
-    let customNullCall = Expression.Call(typeof<CustomTestFuncs>.GetMethod("CustomNull"), Expression.Constant("x"))
-    let customDateCall = Expression.Call(typeof<CustomTestFuncs>.GetMethod("CustomDate"), Expression.Constant(DateTime.UtcNow))
+    let customDecCall =
+        Expression.Call(typeof<CustomTestFuncs>.GetMethod("CustomDec"), Expression.Constant(10.0M))
 
-    for callExpr: Expression in [ (Expression.Convert(customDecCall, typeof<obj>) :> Expression); (Expression.Convert(customFloatCall, typeof<obj>) :> Expression); (Expression.Convert(customIntCall, typeof<obj>) :> Expression); (customStrCall :> Expression); (customNullCall :> Expression); (Expression.Convert(customDateCall, typeof<obj>) :> Expression) ] do
-        let lagCall = Expression.Call(fakeLagMethod, pPriceObj, Expression.Constant(1), callExpr, overParam)
-        let leadCall = Expression.Call(fakeLeadMethod, pPriceObj, Expression.Constant(1), callExpr, overParam)
-        Assert.True(ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan lagCall |> Option.isSome)
-        Assert.True(ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan leadCall |> Option.isSome)
+    let customFloatCall =
+        Expression.Call(typeof<CustomTestFuncs>.GetMethod("CustomFloat"), Expression.Constant(1.5))
+
+    let customIntCall =
+        Expression.Call(typeof<CustomTestFuncs>.GetMethod("CustomInt"), Expression.Constant(5))
+
+    let customStrCall =
+        Expression.Call(typeof<CustomTestFuncs>.GetMethod("CustomStr"), Expression.Constant("xyz"))
+
+    let customNullCall =
+        Expression.Call(typeof<CustomTestFuncs>.GetMethod("CustomNull"), Expression.Constant("x"))
+
+    let customDateCall =
+        Expression.Call(typeof<CustomTestFuncs>.GetMethod("CustomDate"), Expression.Constant(DateTime.UtcNow))
+
+    for callExpr: Expression in
+        [
+            (Expression.Convert(customDecCall, typeof<obj>) :> Expression)
+            (Expression.Convert(customFloatCall, typeof<obj>) :> Expression)
+            (Expression.Convert(customIntCall, typeof<obj>) :> Expression)
+            (customStrCall :> Expression)
+            (customNullCall :> Expression)
+            (Expression.Convert(customDateCall, typeof<obj>) :> Expression)
+        ] do
+        let lagCall =
+            Expression.Call(fakeLagMethod, pPriceObj, Expression.Constant(1), callExpr, overParam)
+
+        let leadCall =
+            Expression.Call(fakeLeadMethod, pPriceObj, Expression.Constant(1), callExpr, overParam)
+
+        Assert.True(
+            ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan lagCall
+            |> Option.isSome
+        )
+
+        Assert.True(
+            ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan leadCall
+            |> Option.isSome
+        )
 
     // 3. Lines 237-242: FieldHolder with populated FieldProducts
     let fieldHolder = FieldHolder()
     fieldHolder.FieldProducts <- products
-    let fExpr = Expression.Field(Expression.Constant(fieldHolder), typeof<FieldHolder>.GetField("FieldProducts"))
+
+    let fExpr =
+        Expression.Field(Expression.Constant(fieldHolder), typeof<FieldHolder>.GetField("FieldProducts"))
+
     let fRes = ExpressionPushdownTranslator.tryFindPushdownSource fExpr
     Assert.True(fRes.IsSome)
 
@@ -3540,50 +4975,133 @@ let ``Deep coverage of Pushdown predicates, subquery Any/Count, Quotation rewrit
     Assert.True(eqRes.IsNone)
 
     // 5. Lines 1088-1100: tryTranslateSubqueryPredicate Any with 2 arguments
-    let anyMethod = typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Any" && m.GetParameters().Length = 2)
+    let anyMethod =
+        typeof<Queryable>.GetMethods()
+        |> Seq.find (fun m -> m.Name = "Any" && m.GetParameters().Length = 2)
+
     let anyGen = anyMethod.MakeGenericMethod(typeof<CovOrder>)
     let oParam = Expression.Parameter(typeof<CovOrder>, "o")
-    let anyPred = Expression.Lambda<Func<CovOrder, bool>>(Expression.Equal(Expression.Property(oParam, "CustomerId"), Expression.Property(pParam, "Id")), oParam)
-    let anyCall = Expression.Call(null, anyGen, (orders :> IQueryable).Expression, anyPred)
-    let anySql = ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite anyCall
+
+    let anyPred =
+        Expression.Lambda<Func<CovOrder, bool>>(
+            Expression.Equal(Expression.Property(oParam, "CustomerId"), Expression.Property(pParam, "Id")),
+            oParam
+        )
+
+    let anyCall =
+        Expression.Call(null, anyGen, (orders :> IQueryable).Expression, anyPred)
+
+    let anySql =
+        ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite anyCall
+
     Assert.True(anySql.IsSome)
     Assert.Contains("EXISTS", anySql.Value)
 
     // 6. Lines 805-815: Correlated Count subquery comparisons
-    let countMethod = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)).MakeGenericMethod(typeof<CovOrder>)
-    let whereMethod = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Where" && m.GetParameters().Length = 2)).MakeGenericMethod(typeof<CovOrder>)
-    let whereOrdersCall = Expression.Call(null, whereMethod, (orders :> IQueryable).Expression, anyPred)
+    let countMethod =
+        (typeof<Queryable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1))
+            .MakeGenericMethod(typeof<CovOrder>)
+
+    let whereMethod =
+        (typeof<Queryable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Where" && m.GetParameters().Length = 2))
+            .MakeGenericMethod(typeof<CovOrder>)
+
+    let whereOrdersCall =
+        Expression.Call(null, whereMethod, (orders :> IQueryable).Expression, anyPred)
+
     let countOrdersCall = Expression.Call(null, countMethod, whereOrdersCall)
 
     let gtCallLeft = Expression.GreaterThan(countOrdersCall, Expression.Constant(0))
-    let gtSqlLeft = ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite gtCallLeft
+
+    let gtSqlLeft =
+        ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite gtCallLeft
+
     Assert.True(gtSqlLeft.IsSome)
 
     let gtCallRight = Expression.LessThan(Expression.Constant(0), countOrdersCall)
-    let gtSqlRight = ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite gtCallRight
+
+    let gtSqlRight =
+        ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite gtCallRight
+
     Assert.True(gtSqlRight.IsSome)
 
     // 7. Lines 2419-2428: ExtractPlan with Count on bool lambda, non-bool lambda, and non-lambda
-    let count2Method = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 2)).MakeGenericMethod(typeof<CovProduct>)
-    let boolLambda = Expression.Lambda<Func<CovProduct, bool>>(Expression.GreaterThan(pPrice, tenDec), pParam)
+    let count2Method =
+        (typeof<Queryable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 2))
+            .MakeGenericMethod(typeof<CovProduct>)
+
+    let boolLambda =
+        Expression.Lambda<Func<CovProduct, bool>>(Expression.GreaterThan(pPrice, tenDec), pParam)
+
     let nonBoolLambda = Expression.Lambda<Func<CovProduct, decimal>>(pPrice, pParam)
 
-    let pCountBool = prov.ExtractPlan(Expression.Call(null, count2Method, (products :> IQueryable).Expression, boolLambda), seedPlan = plan)
+    let pCountBool =
+        prov.ExtractPlan(
+            Expression.Call(null, count2Method, (products :> IQueryable).Expression, boolLambda),
+            seedPlan = plan
+        )
+
     Assert.True(pCountBool.WhereClauses.Count > 0)
 
     let fakeCountMethod = typeof<FakeCountHolder>.GetMethod("Count")
-    let pCountNonBool = prov.ExtractPlan(Expression.Call(null, fakeCountMethod, (products :> IQueryable).Expression, nonBoolLambda), seedPlan = plan)
+
+    let pCountNonBool =
+        prov.ExtractPlan(
+            Expression.Call(null, fakeCountMethod, (products :> IQueryable).Expression, nonBoolLambda),
+            seedPlan = plan
+        )
+
     Assert.True(pCountNonBool.Projection.IsSome)
 
-    let pCountNonLambda = prov.ExtractPlan(Expression.Call(null, fakeCountMethod, (products :> IQueryable).Expression, pPriceObj), seedPlan = plan)
+    let pCountNonLambda =
+        prov.ExtractPlan(
+            Expression.Call(null, fakeCountMethod, (products :> IQueryable).Expression, pPriceObj),
+            seedPlan = plan
+        )
+
     Assert.True(pCountNonLambda.Projection.IsSome)
 
     // 8. Lines 2220-2224: Join where outerCols and innerCols length mismatch
-    let joinMethod = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Join" && m.GetParameters().Length = 5)).MakeGenericMethod(typeof<CovProduct>, typeof<CovOrder>, typeof<obj>, typeof<obj>)
-    let outerKeyMismatch = Expression.Lambda<Func<CovProduct, obj>>(Expression.New(typeof<Tuple<int, string>>.GetConstructors().[0], [| Expression.Property(pParam, "Id") :> Expression; Expression.Property(pParam, "Name") :> Expression |]), pParam)
-    let innerKeyMismatch = Expression.Lambda<Func<CovOrder, obj>>(Expression.Convert(Expression.Property(oParam, "CustomerId"), typeof<obj>), oParam)
-    let resSelector = Expression.Lambda<Func<CovProduct, CovOrder, obj>>(Expression.Constant("res", typeof<obj>), pParam, oParam)
-    let joinCallMismatch = Expression.Call(null, joinMethod, (products :> IQueryable).Expression, (orders :> IQueryable).Expression, outerKeyMismatch, innerKeyMismatch, resSelector)
+    let joinMethod =
+        (typeof<Queryable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Join" && m.GetParameters().Length = 5))
+            .MakeGenericMethod(typeof<CovProduct>, typeof<CovOrder>, typeof<obj>, typeof<obj>)
+
+    let outerKeyMismatch =
+        Expression.Lambda<Func<CovProduct, obj>>(
+            Expression.New(
+                typeof<Tuple<int, string>>.GetConstructors().[0],
+                [|
+                    Expression.Property(pParam, "Id") :> Expression
+                    Expression.Property(pParam, "Name") :> Expression
+                |]
+            ),
+            pParam
+        )
+
+    let innerKeyMismatch =
+        Expression.Lambda<Func<CovOrder, obj>>(
+            Expression.Convert(Expression.Property(oParam, "CustomerId"), typeof<obj>),
+            oParam
+        )
+
+    let resSelector =
+        Expression.Lambda<Func<CovProduct, CovOrder, obj>>(Expression.Constant("res", typeof<obj>), pParam, oParam)
+
+    let joinCallMismatch =
+        Expression.Call(
+            null,
+            joinMethod,
+            (products :> IQueryable).Expression,
+            (orders :> IQueryable).Expression,
+            outerKeyMismatch,
+            innerKeyMismatch,
+            resSelector
+        )
+
     let pJoin = prov.ExtractPlan(joinCallMismatch, seedPlan = plan)
     Assert.True(pJoin.Joins.Count > 0)
 
@@ -3592,13 +5110,51 @@ let ``Deep coverage of Pushdown predicates, subquery Any/Count, Quotation rewrit
     jHolder.MyProdsField <- products
     let joinPropExpr = Expression.Property(Expression.Constant(jHolder), "MyProds")
     let joinFieldExpr = Expression.Field(Expression.Constant(jHolder), "MyProdsField")
-    let outerKeySimple = Expression.Lambda<Func<CovProduct, obj>>(Expression.Convert(Expression.Property(pParam, "Id"), typeof<obj>), pParam)
+
+    let outerKeySimple =
+        Expression.Lambda<Func<CovProduct, obj>>(
+            Expression.Convert(Expression.Property(pParam, "Id"), typeof<obj>),
+            pParam
+        )
+
     let pParam2 = Expression.Parameter(typeof<CovProduct>, "p2")
-    let innerKeySimple = Expression.Lambda<Func<CovProduct, obj>>(Expression.Convert(Expression.Property(pParam2, "Id"), typeof<obj>), pParam2)
-    let resSelSimple = Expression.Lambda<Func<CovProduct, CovProduct, obj>>(Expression.Constant("r", typeof<obj>), pParam, pParam2)
-    let jMethod2 = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Join" && m.GetParameters().Length = 5)).MakeGenericMethod(typeof<CovProduct>, typeof<CovProduct>, typeof<obj>, typeof<obj>)
-    let callPropJoin = Expression.Call(null, jMethod2, (products :> IQueryable).Expression, joinPropExpr, outerKeySimple, innerKeySimple, resSelSimple)
-    let callFieldJoin = Expression.Call(null, jMethod2, (products :> IQueryable).Expression, joinFieldExpr, outerKeySimple, innerKeySimple, resSelSimple)
+
+    let innerKeySimple =
+        Expression.Lambda<Func<CovProduct, obj>>(
+            Expression.Convert(Expression.Property(pParam2, "Id"), typeof<obj>),
+            pParam2
+        )
+
+    let resSelSimple =
+        Expression.Lambda<Func<CovProduct, CovProduct, obj>>(Expression.Constant("r", typeof<obj>), pParam, pParam2)
+
+    let jMethod2 =
+        (typeof<Queryable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Join" && m.GetParameters().Length = 5))
+            .MakeGenericMethod(typeof<CovProduct>, typeof<CovProduct>, typeof<obj>, typeof<obj>)
+
+    let callPropJoin =
+        Expression.Call(
+            null,
+            jMethod2,
+            (products :> IQueryable).Expression,
+            joinPropExpr,
+            outerKeySimple,
+            innerKeySimple,
+            resSelSimple
+        )
+
+    let callFieldJoin =
+        Expression.Call(
+            null,
+            jMethod2,
+            (products :> IQueryable).Expression,
+            joinFieldExpr,
+            outerKeySimple,
+            innerKeySimple,
+            resSelSimple
+        )
+
     let pPropJoin = prov.ExtractPlan(callPropJoin, seedPlan = plan)
     let pFieldJoin = prov.ExtractPlan(callFieldJoin, seedPlan = plan)
     Assert.True(pPropJoin.Joins.Count > 0)
@@ -3606,57 +5162,118 @@ let ``Deep coverage of Pushdown predicates, subquery Any/Count, Quotation rewrit
 
     // 10. Lines 4203-4210: toSpq with seed plan having CTEs
     let prodsWithCte = products.WithCte("TestCte", products)
-    let fsqlWithSeedCte = fsql {
-        for p in prodsWithCte do
-        select p
-        union prodsWithCte
-    }
+
+    let fsqlWithSeedCte =
+        fsql {
+            for p in prodsWithCte do
+                select p
+                union prodsWithCte
+        }
+
     Assert.NotEmpty(toRawSql fsqlWithSeedCte)
 
     // 11. Lines 1657-1660: isNotNullCheck in ConditionalExpression -> COALESCE
-    let pScoreObj = Expression.Convert(Expression.Property(pParam, "Score"), typeof<obj>)
-    let condIsNotNull = Expression.Condition(Expression.NotEqual(pScoreObj, Expression.Constant(null, typeof<obj>)), pPrice, Expression.Constant(0.0M))
-    let coalesceSql = ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan condIsNotNull
+    let pScoreObj =
+        Expression.Convert(Expression.Property(pParam, "Score"), typeof<obj>)
+
+    let condIsNotNull =
+        Expression.Condition(
+            Expression.NotEqual(pScoreObj, Expression.Constant(null, typeof<obj>)),
+            pPrice,
+            Expression.Constant(0.0M)
+        )
+
+    let coalesceSql =
+        ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan condIsNotNull
+
     Assert.True(coalesceSql.IsSome)
     Assert.Contains("COALESCE", coalesceSql.Value)
 
-    let condIsNull = Expression.Condition(Expression.Equal(pScoreObj, Expression.Constant(null, typeof<obj>)), Expression.Constant(0.0M), pPrice)
-    let coalesceNullSql = ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan condIsNull
+    let condIsNull =
+        Expression.Condition(
+            Expression.Equal(pScoreObj, Expression.Constant(null, typeof<obj>)),
+            Expression.Constant(0.0M),
+            pPrice
+        )
+
+    let coalesceNullSql =
+        ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan condIsNull
+
     Assert.True(coalesceNullSql.IsSome)
     Assert.Contains("COALESCE", coalesceNullSql.Value)
 
     // 12. Lines 2478-2481: Count on non-MemberExpression projection body
     let addExpr = Expression.Add(pPrice, Expression.Constant(1.0M))
-    let selectAddMethod = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Select" && m.GetParameters().Length = 2)).MakeGenericMethod(typeof<CovProduct>, typeof<decimal>)
-    let selectAddCall = Expression.Call(null, selectAddMethod, (products :> IQueryable).Expression, Expression.Lambda<Func<CovProduct, decimal>>(addExpr, pParam))
-    let countAfterAdd = Expression.Call(null, countMethod.GetGenericMethodDefinition().MakeGenericMethod(typeof<decimal>), selectAddCall)
+
+    let selectAddMethod =
+        (typeof<Queryable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Select" && m.GetParameters().Length = 2))
+            .MakeGenericMethod(typeof<CovProduct>, typeof<decimal>)
+
+    let selectAddCall =
+        Expression.Call(
+            null,
+            selectAddMethod,
+            (products :> IQueryable).Expression,
+            Expression.Lambda<Func<CovProduct, decimal>>(addExpr, pParam)
+        )
+
+    let countAfterAdd =
+        Expression.Call(
+            null,
+            countMethod.GetGenericMethodDefinition().MakeGenericMethod(typeof<decimal>),
+            selectAddCall
+        )
+
     let pCountAdd = prov.ExtractPlan(countAfterAdd, seedPlan = plan)
     Assert.True(pCountAdd.Projection.IsSome)
 
     // 13. Lines 4326-4331: PropertyGet on static property with CTE
-    let fsqlStaticCte = fsql {
-        for p in StaticCteHolder.ProdsWithCte do
-        select p
-    }
+    let fsqlStaticCte =
+        fsql {
+            for p in StaticCteHolder.ProdsWithCte do
+                select p
+        }
+
     Assert.NotEmpty(toRawSql fsqlStaticCte)
 
     // 14. Subquery whereExists and whereNotExists
-    let fsqlExistsSub = fsql {
-        for p in products do
-        whereExists (fsql { for o in orders do where (o.CustomerId = p.Id); select o })
-        select p
-    }
+    let fsqlExistsSub =
+        fsql {
+            for p in products do
+                whereExists (
+                    fsql {
+                        for o in orders do
+                            where (o.CustomerId = p.Id)
+                            select o
+                    }
+                )
+
+                select p
+        }
+
     Assert.NotEmpty(toRawSql fsqlExistsSub)
 
-    let fsqlNotExistsSub = fsql {
-        for p in products do
-        whereNotExists (fsql { for o in orders do where (o.CustomerId = p.Id); select o })
-        select p
-    }
+    let fsqlNotExistsSub =
+        fsql {
+            for p in products do
+                whereNotExists (
+                    fsql {
+                        for o in orders do
+                            where (o.CustomerId = p.Id)
+                            select o
+                    }
+                )
+
+                select p
+        }
+
     Assert.NotEmpty(toRawSql fsqlNotExistsSub)
 
     // 15. Line 576-578: tryExtractQueryableInfo fallback on method call
-    let mcGetQ = Expression.Call(typeof<CustomTestFuncs>.GetMethod("GetQueryable"), (products :> IQueryable).Expression)
+    let mcGetQ =
+        Expression.Call(typeof<CustomTestFuncs>.GetMethod("GetQueryable"), (products :> IQueryable).Expression)
+
     let qInfoRes = ExpressionPushdownTranslator.tryExtractQueryableInfo mcGetQ
     Assert.True(qInfoRes.IsSome)
 
@@ -3667,7 +5284,7 @@ let ``Direct SqlPushdownQueryable and IQueryProvider API coverage`` () =
     use db = new CovTempSqliteDb()
     let conn = SqliteConnector(db.Path) :> IQueryableConnector
     let qProducts = SqlPushdownQueryable<CovProduct>(conn, "SELECT * FROM Products")
-    
+
     // Properties
     Assert.Equal("SELECT * FROM Products", qProducts.BaseSql)
     Assert.Empty(qProducts.BaseParameters)
@@ -3736,8 +5353,13 @@ let ``Direct SqlPushdownQueryable and IQueryProvider API coverage`` () =
     let cntExpr2 = qProducts.Count(fun p -> p.Price > 10.0M)
     Assert.True(cntExpr2 > 0)
     let pParam2 = Expression.Parameter(typeof<CovProduct>, "p")
-    let cntDistExprSel = Expression.Lambda<Func<CovProduct, string>>(Expression.Property(pParam2, "Category"), pParam2)
-    let priceExprSel = Expression.Lambda<Func<CovProduct, decimal>>(Expression.Property(pParam2, "Price"), pParam2)
+
+    let cntDistExprSel =
+        Expression.Lambda<Func<CovProduct, string>>(Expression.Property(pParam2, "Category"), pParam2)
+
+    let priceExprSel =
+        Expression.Lambda<Func<CovProduct, decimal>>(Expression.Property(pParam2, "Price"), pParam2)
+
     let cntDist = qProducts.CountDistinct("Category")
     Assert.Equal(2, cntDist)
     let cntDistExpr = qProducts.CountDistinct(cntDistExprSel)
@@ -3805,7 +5427,15 @@ let ``Pushdown comprehensive coverage section 53 - translation, sets, aggregates
     let conn = SqliteConnector(db.Path) :> IQueryableConnector
     let products = SqlPushdownQueryable<CovProduct>(conn, "SELECT * FROM Products")
     let orders = SqlPushdownQueryable<CovOrder>(conn, "SELECT * FROM Orders")
-    let plan = PushdownQueryPlan.Create("Products", [], baseAlias = "_t0", baseRowType = typeof<CovProduct>, dialect = SqlDialect.Sqlite)
+
+    let plan =
+        PushdownQueryPlan.Create(
+            "Products",
+            [],
+            baseAlias = "_t0",
+            baseRowType = typeof<CovProduct>,
+            dialect = SqlDialect.Sqlite
+        )
 
     // 1. Date and Time Functions across dialects
     let pParam = Expression.Parameter(typeof<CovProduct>, "p")
@@ -3818,7 +5448,16 @@ let ``Pushdown comprehensive coverage section 53 - translation, sets, aggregates
     let pMinute = Expression.Property(pTime, "Minute")
     let pSecond = Expression.Property(pTime, "Second")
 
-    let dialects = [ SqlDialect.Sqlite; SqlDialect.SqlServer; SqlDialect.PostgreSql; SqlDialect.MySql; SqlDialect.MariaDb; SqlDialect.Oracle ]
+    let dialects =
+        [
+            SqlDialect.Sqlite
+            SqlDialect.SqlServer
+            SqlDialect.PostgreSql
+            SqlDialect.MySql
+            SqlDialect.MariaDb
+            SqlDialect.Oracle
+        ]
+
     for d in dialects do
         Assert.True((ExpressionPushdownTranslator.translateScalarExpr d plan pDate).IsSome)
         Assert.True((ExpressionPushdownTranslator.translateScalarExpr d plan pYear).IsSome)
@@ -3830,7 +5469,10 @@ let ``Pushdown comprehensive coverage section 53 - translation, sets, aggregates
 
     // DateTime ToString with formats across dialects
     let toStringFmtMethod = typeof<DateTime>.GetMethod("ToString", [| typeof<string> |])
-    let callFmt = Expression.Call(pTime, toStringFmtMethod, Expression.Constant("yyyy-MM-dd HH:mm:ss"))
+
+    let callFmt =
+        Expression.Call(pTime, toStringFmtMethod, Expression.Constant("yyyy-MM-dd HH:mm:ss"))
+
     for d in dialects do
         let resFmt = ExpressionPushdownTranslator.translateScalarExpr d plan callFmt
         Assert.True(resFmt.IsSome)
@@ -3838,6 +5480,7 @@ let ``Pushdown comprehensive coverage section 53 - translation, sets, aggregates
     // DateTime ToString without format
     let toStringNoArgMethod = typeof<DateTime>.GetMethod("ToString", [||])
     let callNoArg = Expression.Call(pTime, toStringNoArgMethod)
+
     for d in dialects do
         let resNoArg = ExpressionPushdownTranslator.translateScalarExpr d plan callNoArg
         Assert.True(resNoArg.IsSome)
@@ -3846,21 +5489,35 @@ let ``Pushdown comprehensive coverage section 53 - translation, sets, aggregates
     let pName = Expression.Property(pParam, "Name")
     // Substring 1-arg and 2-arg
     let substr1Method = typeof<string>.GetMethod("Substring", [| typeof<int> |])
-    let substr2Method = typeof<string>.GetMethod("Substring", [| typeof<int>; typeof<int> |])
+
+    let substr2Method =
+        typeof<string>.GetMethod("Substring", [| typeof<int>; typeof<int> |])
+
     let callSub1 = Expression.Call(pName, substr1Method, Expression.Constant(2))
-    let callSub2 = Expression.Call(pName, substr2Method, Expression.Constant(2), Expression.Constant(4))
+
+    let callSub2 =
+        Expression.Call(pName, substr2Method, Expression.Constant(2), Expression.Constant(4))
+
     for d in [ SqlDialect.Sqlite; SqlDialect.SqlServer ] do
         Assert.True((ExpressionPushdownTranslator.translateScalarExpr d plan callSub1).IsSome)
         Assert.True((ExpressionPushdownTranslator.translateScalarExpr d plan callSub2).IsSome)
 
     // Replace
-    let replaceMethod = typeof<string>.GetMethod("Replace", [| typeof<string>; typeof<string> |])
-    let callReplace = Expression.Call(pName, replaceMethod, Expression.Constant("old"), Expression.Constant("new"))
+    let replaceMethod =
+        typeof<string>.GetMethod("Replace", [| typeof<string>; typeof<string> |])
+
+    let callReplace =
+        Expression.Call(pName, replaceMethod, Expression.Constant("old"), Expression.Constant("new"))
+
     Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan callReplace).IsSome)
 
     // Concat
-    let concatMethod = typeof<string>.GetMethod("Concat", [| typeof<string>; typeof<string> |])
-    let callConcat = Expression.Call(null, concatMethod, pName, Expression.Constant("!"))
+    let concatMethod =
+        typeof<string>.GetMethod("Concat", [| typeof<string>; typeof<string> |])
+
+    let callConcat =
+        Expression.Call(null, concatMethod, pName, Expression.Constant("!"))
+
     for d in [ SqlDialect.SqlServer; SqlDialect.MySql; SqlDialect.Sqlite ] do
         Assert.True((ExpressionPushdownTranslator.translateScalarExpr d plan callConcat).IsSome)
 
@@ -3868,17 +5525,48 @@ let ``Pushdown comprehensive coverage section 53 - translation, sets, aggregates
     let toUpperMethod = typeof<string>.GetMethod("ToUpper", [||])
     let toLowerMethod = typeof<string>.GetMethod("ToLower", [||])
     let trimMethod = typeof<string>.GetMethod("Trim", [||])
-    let isNullOrEmptyMethod = typeof<string>.GetMethod("IsNullOrEmpty", [| typeof<string> |])
-    let isNullOrWhiteSpaceMethod = typeof<string>.GetMethod("IsNullOrWhiteSpace", [| typeof<string> |])
-    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(pName, toUpperMethod))).IsSome)
-    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(pName, toLowerMethod))).IsSome)
-    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(pName, trimMethod))).IsSome)
-    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(null, isNullOrEmptyMethod, pName))).IsSome)
-    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(null, isNullOrWhiteSpaceMethod, pName))).IsSome)
+
+    let isNullOrEmptyMethod =
+        typeof<string>.GetMethod("IsNullOrEmpty", [| typeof<string> |])
+
+    let isNullOrWhiteSpaceMethod =
+        typeof<string>.GetMethod("IsNullOrWhiteSpace", [| typeof<string> |])
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(pName, toUpperMethod)))
+            .IsSome
+    )
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(pName, toLowerMethod)))
+            .IsSome
+    )
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(pName, trimMethod)))
+            .IsSome
+    )
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(null, isNullOrEmptyMethod, pName)))
+            .IsSome
+    )
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(null, isNullOrWhiteSpaceMethod, pName)))
+            .IsSome
+    )
 
     // IndexOf
     let indexOfMethod = typeof<string>.GetMethod("IndexOf", [| typeof<string> |])
     let callIndexOf = Expression.Call(pName, indexOfMethod, Expression.Constant("key"))
+
     for d in [ SqlDialect.SqlServer; SqlDialect.PostgreSql; SqlDialect.Sqlite ] do
         Assert.True((ExpressionPushdownTranslator.translateScalarExpr d plan callIndexOf).IsSome)
 
@@ -3886,14 +5574,48 @@ let ``Pushdown comprehensive coverage section 53 - translation, sets, aggregates
     let containsMethod = typeof<string>.GetMethod("Contains", [| typeof<string> |])
     let startsWithMethod = typeof<string>.GetMethod("StartsWith", [| typeof<string> |])
     let endsWithMethod = typeof<string>.GetMethod("EndsWith", [| typeof<string> |])
-    Assert.True((ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan (Expression.Call(pName, containsMethod, Expression.Constant("abc")))).IsSome)
-    Assert.True((ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan (Expression.Call(pName, startsWithMethod, Expression.Constant("abc")))).IsSome)
-    Assert.True((ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan (Expression.Call(pName, endsWithMethod, Expression.Constant("abc")))).IsSome)
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarCondition
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(pName, containsMethod, Expression.Constant("abc"))))
+            .IsSome
+    )
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarCondition
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(pName, startsWithMethod, Expression.Constant("abc"))))
+            .IsSome
+    )
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarCondition
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(pName, endsWithMethod, Expression.Constant("abc"))))
+            .IsSome
+    )
 
     // String StartsWith / EndsWith via translatePredicate with parameter registration
     let planWithP = plan.Clone()
-    let predStarts = ExpressionPushdownTranslator.translatePredicate pParam planWithP SqlDialect.Sqlite (Expression.Call(pName, startsWithMethod, Expression.Constant("foo")))
-    let predEnds = ExpressionPushdownTranslator.translatePredicate pParam planWithP SqlDialect.Sqlite (Expression.Call(pName, endsWithMethod, Expression.Constant("bar")))
+
+    let predStarts =
+        ExpressionPushdownTranslator.translatePredicate
+            pParam
+            planWithP
+            SqlDialect.Sqlite
+            (Expression.Call(pName, startsWithMethod, Expression.Constant("foo")))
+
+    let predEnds =
+        ExpressionPushdownTranslator.translatePredicate
+            pParam
+            planWithP
+            SqlDialect.Sqlite
+            (Expression.Call(pName, endsWithMethod, Expression.Constant("bar")))
+
     Assert.True(predStarts.IsSome)
     Assert.True(predEnds.IsSome)
 
@@ -3908,37 +5630,109 @@ let ``Pushdown comprehensive coverage section 53 - translation, sets, aggregates
     let mathSqrt = typeof<Math>.GetMethod("Sqrt", [| typeof<double> |])
     let mathPow = typeof<Math>.GetMethod("Pow", [| typeof<double>; typeof<double> |])
 
-    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(null, mathAbs, pPrice))).IsSome)
-    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(null, mathFloor, pPrice))).IsSome)
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(null, mathAbs, pPrice)))
+            .IsSome
+    )
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(null, mathFloor, pPrice)))
+            .IsSome
+    )
+
     for d in [ SqlDialect.PostgreSql; SqlDialect.SqlServer ] do
-        Assert.True((ExpressionPushdownTranslator.translateScalarExpr d plan (Expression.Call(null, mathCeiling, pPrice))).IsSome)
-    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(null, mathRound1, pPrice))).IsSome)
-    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(null, mathRound2, pPrice, Expression.Constant(2)))).IsSome)
-    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(null, mathSqrt, pPriceDouble))).IsSome)
-    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(null, mathPow, pPriceDouble, Expression.Constant(2.0)))).IsSome)
+        Assert.True(
+            (ExpressionPushdownTranslator.translateScalarExpr d plan (Expression.Call(null, mathCeiling, pPrice)))
+                .IsSome
+        )
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(null, mathRound1, pPrice)))
+            .IsSome
+    )
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(null, mathRound2, pPrice, Expression.Constant(2))))
+            .IsSome
+    )
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(null, mathSqrt, pPriceDouble)))
+            .IsSome
+    )
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(null, mathPow, pPriceDouble, Expression.Constant(2.0))))
+            .IsSome
+    )
 
     // 4. Nullable, Option, Coalescence
     let pScore = Expression.Property(pParam, "Score")
-    let getValDef1 = typeof<Nullable<decimal>>.GetMethod("GetValueOrDefault", [| typeof<decimal> |])
+
+    let getValDef1 =
+        typeof<Nullable<decimal>>.GetMethod("GetValueOrDefault", [| typeof<decimal> |])
+
     let getValDef0 = typeof<Nullable<decimal>>.GetMethod("GetValueOrDefault", [||])
-    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(pScore, getValDef1, Expression.Constant(0.0M)))).IsSome)
-    Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(pScore, getValDef0))).IsSome)
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarExpr
+            SqlDialect.Sqlite
+            plan
+            (Expression.Call(pScore, getValDef1, Expression.Constant(0.0M))))
+            .IsSome
+    )
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan (Expression.Call(pScore, getValDef0)))
+            .IsSome
+    )
 
     // Option defaultValue / defaultArg calls
     let miDefVal = typeof<CustomTestFuncs>.GetMethod("defaultValue")
     let miDefArg = typeof<CustomTestFuncs>.GetMethod("defaultArg")
-    let callDefVal = Expression.Call(null, miDefVal, Expression.Constant("def"), Expression.Constant("opt"))
-    let callDefArg = Expression.Call(null, miDefArg, Expression.Constant("opt"), Expression.Constant("def"))
+
+    let callDefVal =
+        Expression.Call(null, miDefVal, Expression.Constant("def"), Expression.Constant("opt"))
+
+    let callDefArg =
+        Expression.Call(null, miDefArg, Expression.Constant("opt"), Expression.Constant("def"))
+
     Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan callDefVal).IsSome)
     Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan callDefArg).IsSome)
 
     // Boolean constant in PostgreSQL
-    Assert.Equal("TRUE", (ExpressionPushdownTranslator.translateScalarExpr SqlDialect.PostgreSql plan (Expression.Constant(true))).Value)
-    Assert.Equal("FALSE", (ExpressionPushdownTranslator.translateScalarExpr SqlDialect.PostgreSql plan (Expression.Constant(false))).Value)
+    Assert.Equal(
+        "TRUE",
+        (ExpressionPushdownTranslator.translateScalarExpr SqlDialect.PostgreSql plan (Expression.Constant(true))).Value
+    )
+
+    Assert.Equal(
+        "FALSE",
+        (ExpressionPushdownTranslator.translateScalarExpr SqlDialect.PostgreSql plan (Expression.Constant(false))).Value
+    )
 
     // 5. Correlated aggregate subqueries and renumbering parameters
     let qSubParam = orders.Where(fun o -> o.Amount > 10.0M)
     let subPlanCorrelated = plan.Clone()
+
     let sumMethodDef =
         typeof<Enumerable>.GetMethods()
         |> Seq.find (fun m ->
@@ -3946,25 +5740,54 @@ let ``Pushdown comprehensive coverage section 53 - translation, sets, aggregates
             && m.IsGenericMethod
             && m.GetParameters().Length = 2
             && m.ReturnType = typeof<decimal>)
+
     let sumMethod = sumMethodDef.MakeGenericMethod(typeof<CovOrder>)
-    let sumCorrelated = Expression.Call(null, sumMethod,
-                                        (qSubParam :> IQueryable).Expression,
-                                        Expression.Lambda<Func<CovOrder, decimal>>(Expression.Property(Expression.Parameter(typeof<CovOrder>, "o"), "Amount"), Expression.Parameter(typeof<CovOrder>, "o")))
-    let resSubScalar = ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite subPlanCorrelated sumCorrelated
+
+    let sumCorrelated =
+        Expression.Call(
+            null,
+            sumMethod,
+            (qSubParam :> IQueryable).Expression,
+            Expression.Lambda<Func<CovOrder, decimal>>(
+                Expression.Property(Expression.Parameter(typeof<CovOrder>, "o"), "Amount"),
+                Expression.Parameter(typeof<CovOrder>, "o")
+            )
+        )
+
+    let resSubScalar =
+        ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite subPlanCorrelated sumCorrelated
+
     Assert.True(resSubScalar.IsSome)
 
     // Comparison with subquery Count on Left and Right
     let pId = Expression.Property(pParam, "Id")
+
     let countMethodDef =
         typeof<Queryable>.GetMethods()
         |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)
+
     let countMethod = countMethodDef.MakeGenericMethod(typeof<CovOrder>)
-    let countCorrelated = Expression.Call(null, countMethod, (qSubParam :> IQueryable).Expression)
+
+    let countCorrelated =
+        Expression.Call(null, countMethod, (qSubParam :> IQueryable).Expression)
 
     let binSubOnRight = Expression.LessThan(pId, countCorrelated)
     let binSubOnLeft = Expression.GreaterThan(countCorrelated, pId)
-    let predSubRight = ExpressionPushdownTranslator.tryTranslateSubqueryPredicate pParam subPlanCorrelated SqlDialect.Sqlite binSubOnRight
-    let predSubLeft = ExpressionPushdownTranslator.tryTranslateSubqueryPredicate pParam subPlanCorrelated SqlDialect.Sqlite binSubOnLeft
+
+    let predSubRight =
+        ExpressionPushdownTranslator.tryTranslateSubqueryPredicate
+            pParam
+            subPlanCorrelated
+            SqlDialect.Sqlite
+            binSubOnRight
+
+    let predSubLeft =
+        ExpressionPushdownTranslator.tryTranslateSubqueryPredicate
+            pParam
+            subPlanCorrelated
+            SqlDialect.Sqlite
+            binSubOnLeft
+
     Assert.True(predSubRight.IsSome)
     Assert.True(predSubLeft.IsSome)
 
@@ -3997,29 +5820,38 @@ let ``Pushdown comprehensive coverage section 53 - translation, sets, aggregates
 
     // 7. fsql quotation coverage: withCte variable used in for loop, fullOuterJoinRaw, rightOuterJoinRaw
     let cteSample = products.Where(fun p -> p.Price > 10.0M)
-    let fsqlFromCte = fsql {
-        withCte "CteSample" cteSample
-        for p in cteSample do
-        select p
-    }
+
+    let fsqlFromCte =
+        fsql {
+            withCte "CteSample" cteSample
+
+            for p in cteSample do
+                select p
+        }
+
     Assert.NotEmpty(toRawSql fsqlFromCte)
 
-    let fsqlFojStar = fsql {
-        for p in products do
-        fullOuterJoinRaw "*" "t_alias" "1=1"
-        select p
-    }
+    let fsqlFojStar =
+        fsql {
+            for p in products do
+                fullOuterJoinRaw "*" "t_alias" "1=1"
+                select p
+        }
+
     Assert.NotEmpty(toRawSql fsqlFojStar)
 
-    let fsqlRojStar = fsql {
-        for p in products do
-        rightOuterJoinRaw "*" "t_alias" "1=1"
-        select p
-    }
+    let fsqlRojStar =
+        fsql {
+            for p in products do
+                rightOuterJoinRaw "*" "t_alias" "1=1"
+                select p
+        }
+
     Assert.NotEmpty(toRawSql fsqlRojStar)
 
     // 8. explainQuery coverage across all dialects and edge branches
     let prov = (products :> IQueryable).Provider :?> SqlPushdownQueryProvider
+
     let makeQWithDialect d =
         let p = plan.Clone()
         p.Dialect <- Some d
@@ -4052,8 +5884,13 @@ let ``Pushdown comprehensive coverage section 53 - translation, sets, aggregates
 
     let qLambda = Expression.Lambda((products :> IQueryable).Expression)
     let qUnary = Expression.Convert((products :> IQueryable).Expression, typeof<obj>)
-    let qBinary = Expression.Coalesce((products :> IQueryable).Expression, (products :> IQueryable).Expression)
-    let qStaticProp = Expression.Property(null, typeof<StaticCteHolder>.GetProperty("ProdsWithCte"))
+
+    let qBinary =
+        Expression.Coalesce((products :> IQueryable).Expression, (products :> IQueryable).Expression)
+
+    let qStaticProp =
+        Expression.Property(null, typeof<StaticCteHolder>.GetProperty("ProdsWithCte"))
+
     Assert.True((SqlPushdownQuery.tryFindPushdownSource qLambda).IsSome)
     Assert.True((SqlPushdownQuery.tryFindPushdownSource qUnary).IsSome)
     Assert.True((SqlPushdownQuery.tryFindPushdownSource qBinary).IsSome)
@@ -4070,7 +5907,8 @@ let ``Pushdown comprehensive coverage section 53 - translation, sets, aggregates
     try
         let _ = qProv.Execute<CovProduct[]>((products :> IQueryable).Expression)
         ()
-    with :? InvalidCastException -> ()
+    with :? InvalidCastException ->
+        ()
 
     let recScalar = prov.ExecuteScalarWithPlan<CovProduct>(null, plan)
     Assert.NotNull(recScalar)
@@ -4086,93 +5924,288 @@ let ``Pushdown comprehensive coverage section 54 - deep AST branches, joins, tup
     let conn = SqliteConnector(db.Path) :> IQueryableConnector
     let products = SqlPushdownQueryable<CovProduct>(conn, "SELECT * FROM Products")
     let orders = SqlPushdownQueryable<CovOrder>(conn, "SELECT * FROM Orders")
-    let plan = PushdownQueryPlan.Create("Products", [], baseAlias = "_t0", baseRowType = typeof<CovProduct>, dialect = SqlDialect.Sqlite)
+
+    let plan =
+        PushdownQueryPlan.Create(
+            "Products",
+            [],
+            baseAlias = "_t0",
+            baseRowType = typeof<CovProduct>,
+            dialect = SqlDialect.Sqlite
+        )
 
     // 1. FieldHolderInstance: FieldInfo on ConstantExpression -> tryFindPushdownSource (Lines 237-242)
     let holder = FieldHolderInstance()
     holder.ProdsField <- products
-    let fieldExpr = Expression.Field(Expression.Constant(holder), typeof<FieldHolderInstance>.GetField("ProdsField"))
+
+    let fieldExpr =
+        Expression.Field(Expression.Constant(holder), typeof<FieldHolderInstance>.GetField("ProdsField"))
+
     let sourceFromField = ExpressionPushdownTranslator.tryFindPushdownSource fieldExpr
     Assert.True(sourceFromField.IsSome)
 
     // 2. Nested tuple depth and resolveMemberRef (Lines 135-138, 424-443, 457)
-    let pTuple = Expression.Parameter(typeof<Tuple<Tuple<CovProduct, CovOrder>, CovProduct>>, "root")
+    let pTuple =
+        Expression.Parameter(typeof<Tuple<Tuple<CovProduct, CovOrder>, CovProduct>>, "root")
+
     let pItem1 = Expression.Property(pTuple, "Item1")
     let pItem2 = Expression.Property(pItem1, "Item2")
     let pAmount = Expression.Property(pItem2, "Amount")
     let planWithJoin = plan.Clone()
-    planWithJoin.Joins.Add({ SourceTable = "Orders"; Alias = "_t1"; OnClause = "_t0.Id = _t1.CustomerId"; JoinType = "INNER JOIN"; RowType = Some typeof<CovOrder> })
-    let (aliasOpt, colName) = ExpressionPushdownTranslator.resolveMemberRef planWithJoin pAmount
+
+    planWithJoin.Joins.Add(
+        {
+            SourceTable = "Orders"
+            Alias = "_t1"
+            OnClause = "_t0.Id = _t1.CustomerId"
+            JoinType = "INNER JOIN"
+            RowType = Some typeof<CovOrder>
+        }
+    )
+
+    let (aliasOpt, colName) =
+        ExpressionPushdownTranslator.resolveMemberRef planWithJoin pAmount
+
     Assert.True(aliasOpt.IsSome)
     Assert.Equal("Amount", colName)
 
     // 3. MemberInitExpression in extractKeyColumns (Lines 78-84)
     let pParam = Expression.Parameter(typeof<CovProduct>, "p")
-    let miExpr = Expression.MemberInit(Expression.New(typeof<CovProduct>), Expression.Bind(typeof<CovProduct>.GetProperty("Id"), Expression.Property(pParam, "Id")))
+
+    let miExpr =
+        Expression.MemberInit(
+            Expression.New(typeof<CovProduct>),
+            Expression.Bind(typeof<CovProduct>.GetProperty("Id"), Expression.Property(pParam, "Id"))
+        )
+
     let keys = ExpressionPushdownTranslator.extractKeyColumns plan "_t0" pParam miExpr
     Assert.NotEmpty(keys)
 
     // 4. whereExists and whereNotExists with 2 arguments in translatePredicate (Lines 1050-1056, 1088-1100, 1104-1106)
     let oParam = Expression.Parameter(typeof<CovOrder>, "o")
-    let oPred = Expression.Lambda<Func<CovOrder, bool>>(Expression.GreaterThan(Expression.Property(oParam, "Amount"), Expression.Constant(50.0M)), oParam)
-    let callWhereNotExists = Expression.Call(null, typeof<CustomTestFuncs>.GetMethod("whereNotExists"), Expression.Constant(orders, typeof<IQueryable<CovOrder>>), oPred)
-    let callWhereExists = Expression.Call(null, typeof<CustomTestFuncs>.GetMethod("whereExists"), Expression.Constant(orders, typeof<IQueryable<CovOrder>>), oPred)
-    let predNotExistsRes = ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite callWhereNotExists
-    let predExistsRes = ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite callWhereExists
+
+    let oPred =
+        Expression.Lambda<Func<CovOrder, bool>>(
+            Expression.GreaterThan(Expression.Property(oParam, "Amount"), Expression.Constant(50.0M)),
+            oParam
+        )
+
+    let callWhereNotExists =
+        Expression.Call(
+            null,
+            typeof<CustomTestFuncs>.GetMethod("whereNotExists"),
+            Expression.Constant(orders, typeof<IQueryable<CovOrder>>),
+            oPred
+        )
+
+    let callWhereExists =
+        Expression.Call(
+            null,
+            typeof<CustomTestFuncs>.GetMethod("whereExists"),
+            Expression.Constant(orders, typeof<IQueryable<CovOrder>>),
+            oPred
+        )
+
+    let predNotExistsRes =
+        ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite callWhereNotExists
+
+    let predExistsRes =
+        ExpressionPushdownTranslator.translatePredicate pParam plan SqlDialect.Sqlite callWhereExists
+
     Assert.True(predNotExistsRes.IsSome)
     Assert.True(predExistsRes.IsSome)
 
     // 5. CustomQueryableWrapper in fsql union and CTE extraction (Lines 4205-4210, 4320-4323)
-    let wrapCte = CustomQueryableWrapper<CovProduct>(products.WithCte("WrapCte", products))
-    let fsqlWrapUnion = fsql {
-        for p in wrapCte do
-        select p
-        union wrapCte
-    }
+    let wrapCte =
+        CustomQueryableWrapper<CovProduct>(products.WithCte("WrapCte", products))
+
+    let fsqlWrapUnion =
+        fsql {
+            for p in wrapCte do
+                select p
+                union wrapCte
+        }
+
     Assert.NotEmpty(toRawSql fsqlWrapUnion)
 
     // 6. fsql with rightOuterJoin and fullOuterJoin (Lines 4059-4087, 4157-4158, 4162-4163)
-    let fsqlRoj = fsql {
-        for p in products do
-        rightOuterJoin o in orders on (p.Id = o.CustomerId)
-        select (p, o)
-    }
+    let fsqlRoj =
+        fsql {
+            for p in products do
+                rightOuterJoin o in orders on (p.Id = o.CustomerId)
+                select (p, o)
+        }
+
     Assert.NotEmpty(toRawSql fsqlRoj)
 
-    let fsqlFoj = fsql {
-        for p in products do
-        fullOuterJoin o in orders on (p.Id = o.CustomerId) into g
-        select (p, g)
-    }
+    let fsqlFoj =
+        fsql {
+            for p in products do
+                fullOuterJoin o in orders on (p.Id = o.CustomerId) into g
+                select (p, g)
+        }
+
     Assert.NotEmpty(toRawSql fsqlFoj)
 
     // 7. Quotation rewriting of WhereExistsPred, WhereNotExistsPred, Having (Lines 4101-4106, 4120-4126, 4128-4133)
     let builder = FSqlQueryBuilder()
-    let miExistsPred = typeof<FSqlQueryBuilder>.GetMethod("WhereExistsPred").MakeGenericMethod(typeof<CovProduct>, typeof<System.Linq.IQueryable>)
-    let miNotExistsPred = typeof<FSqlQueryBuilder>.GetMethod("WhereNotExistsPred").MakeGenericMethod(typeof<CovProduct>, typeof<System.Linq.IQueryable>)
-    let miHaving = typeof<FSqlQueryBuilder>.GetMethod("Having").MakeGenericMethod(typeof<CovProduct>, typeof<System.Linq.IQueryable>)
-    let qs = Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>(products :> IQueryable<CovProduct>)
-    let qSource = Microsoft.FSharp.Quotations.Expr.Value(qs, typeof<Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>>)
+
+    let miExistsPred =
+        typeof<FSqlQueryBuilder>
+            .GetMethod("WhereExistsPred")
+            .MakeGenericMethod(typeof<CovProduct>, typeof<System.Linq.IQueryable>)
+
+    let miNotExistsPred =
+        typeof<FSqlQueryBuilder>
+            .GetMethod("WhereNotExistsPred")
+            .MakeGenericMethod(typeof<CovProduct>, typeof<System.Linq.IQueryable>)
+
+    let miHaving =
+        typeof<FSqlQueryBuilder>
+            .GetMethod("Having")
+            .MakeGenericMethod(typeof<CovProduct>, typeof<System.Linq.IQueryable>)
+
+    let qs =
+        Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>(products :> IQueryable<CovProduct>)
+
+    let qSource =
+        Microsoft.FSharp.Quotations.Expr.Value(
+            qs,
+            typeof<Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>>
+        )
+
     let qVar = Microsoft.FSharp.Quotations.Var("p", typeof<CovProduct>)
     let qTrue = <@@ true @@>
-    let qCallExists = Microsoft.FSharp.Quotations.Expr.Call(Microsoft.FSharp.Quotations.Expr.Value(builder), miExistsPred, [ qSource; Microsoft.FSharp.Quotations.Expr.Lambda(qVar, qTrue) ])
-    let qCallNotExists = Microsoft.FSharp.Quotations.Expr.Call(Microsoft.FSharp.Quotations.Expr.Value(builder), miNotExistsPred, [ qSource; Microsoft.FSharp.Quotations.Expr.Lambda(qVar, qTrue) ])
-    let qCallHaving = Microsoft.FSharp.Quotations.Expr.Call(Microsoft.FSharp.Quotations.Expr.Value(builder), miHaving, [ qSource; Microsoft.FSharp.Quotations.Expr.Lambda(qVar, qTrue) ])
+
+    let qCallExists =
+        Microsoft.FSharp.Quotations.Expr.Call(
+            Microsoft.FSharp.Quotations.Expr.Value(builder),
+            miExistsPred,
+            [ qSource; Microsoft.FSharp.Quotations.Expr.Lambda(qVar, qTrue) ]
+        )
+
+    let qCallNotExists =
+        Microsoft.FSharp.Quotations.Expr.Call(
+            Microsoft.FSharp.Quotations.Expr.Value(builder),
+            miNotExistsPred,
+            [ qSource; Microsoft.FSharp.Quotations.Expr.Lambda(qVar, qTrue) ]
+        )
+
+    let qCallHaving =
+        Microsoft.FSharp.Quotations.Expr.Call(
+            Microsoft.FSharp.Quotations.Expr.Value(builder),
+            miHaving,
+            [ qSource; Microsoft.FSharp.Quotations.Expr.Lambda(qVar, qTrue) ]
+        )
 
     let runMethodDef =
         typeof<FSqlQueryBuilder>.GetMethods()
-        |> Seq.find (fun m -> m.Name = "Run" && m.DeclaringType = typeof<FSqlQueryBuilder> && m.IsGenericMethod)
+        |> Seq.find (fun m ->
+            m.Name = "Run"
+            && m.DeclaringType = typeof<FSqlQueryBuilder>
+            && m.IsGenericMethod)
+
     let runMethod = runMethodDef.MakeGenericMethod(typeof<CovProduct>)
-    try let _ = runMethod.Invoke(builder, [| box (Microsoft.FSharp.Quotations.Expr.Cast<Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>>(qCallExists)) |]) in () with _ -> ()
-    try let _ = runMethod.Invoke(builder, [| box (Microsoft.FSharp.Quotations.Expr.Cast<Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>>(qCallNotExists)) |]) in () with _ -> ()
-    try let _ = runMethod.Invoke(builder, [| box (Microsoft.FSharp.Quotations.Expr.Cast<Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>>(qCallHaving)) |]) in () with _ -> ()
+
+    try
+        let _ =
+            runMethod.Invoke(
+                builder,
+                [|
+                    box (
+                        Microsoft.FSharp.Quotations.Expr.Cast<
+                            Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>
+                         >(
+                            qCallExists
+                        )
+                    )
+                |]
+            ) in
+
+        ()
+    with _ ->
+        ()
+
+    try
+        let _ =
+            runMethod.Invoke(
+                builder,
+                [|
+                    box (
+                        Microsoft.FSharp.Quotations.Expr.Cast<
+                            Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>
+                         >(
+                            qCallNotExists
+                        )
+                    )
+                |]
+            ) in
+
+        ()
+    with _ ->
+        ()
+
+    try
+        let _ =
+            runMethod.Invoke(
+                builder,
+                [|
+                    box (
+                        Microsoft.FSharp.Quotations.Expr.Cast<
+                            Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>
+                         >(
+                            qCallHaving
+                        )
+                    )
+                |]
+            ) in
+
+        ()
+    with _ ->
+        ()
 
     // 8. collectAllCtesFromExpr on PropertyGet (Lines 4326-4331)
-    let propGetExpr = Microsoft.FSharp.Quotations.Expr.PropertyGet(typeof<StaticCteHolder>.GetProperty("ProdsWithCte"))
-    let srcMi = typeof<FSqlQueryBuilder>.GetMethods() |> Seq.find (fun m -> m.Name = "Source" && m.IsGenericMethod && m.GetParameters().[0].ParameterType.Name.StartsWith("IQueryable"))
-    let srcGenArgs = if srcMi.GetGenericArguments().Length = 2 then [| typeof<CovProduct>; typeof<System.Linq.IQueryable> |] else [| typeof<CovProduct> |]
-    let srcCall = Microsoft.FSharp.Quotations.Expr.Call(Microsoft.FSharp.Quotations.Expr.Value(builder), srcMi.MakeGenericMethod(srcGenArgs), [ propGetExpr ])
-    try let _ = runMethod.Invoke(builder, [| box (Microsoft.FSharp.Quotations.Expr.Cast<Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>>(srcCall)) |]) in () with _ -> ()
+    let propGetExpr =
+        Microsoft.FSharp.Quotations.Expr.PropertyGet(typeof<StaticCteHolder>.GetProperty("ProdsWithCte"))
+
+    let srcMi =
+        typeof<FSqlQueryBuilder>.GetMethods()
+        |> Seq.find (fun m ->
+            m.Name = "Source"
+            && m.IsGenericMethod
+            && m.GetParameters().[0].ParameterType.Name.StartsWith("IQueryable"))
+
+    let srcGenArgs =
+        if srcMi.GetGenericArguments().Length = 2 then
+            [| typeof<CovProduct>; typeof<System.Linq.IQueryable> |]
+        else
+            [| typeof<CovProduct> |]
+
+    let srcCall =
+        Microsoft.FSharp.Quotations.Expr.Call(
+            Microsoft.FSharp.Quotations.Expr.Value(builder),
+            srcMi.MakeGenericMethod(srcGenArgs),
+            [ propGetExpr ]
+        )
+
+    try
+        let _ =
+            runMethod.Invoke(
+                builder,
+                [|
+                    box (
+                        Microsoft.FSharp.Quotations.Expr.Cast<
+                            Microsoft.FSharp.Linq.QuerySource<CovProduct, System.Linq.IQueryable>
+                         >(
+                            srcCall
+                        )
+                    )
+                |]
+            ) in
+
+        ()
+    with _ ->
+        ()
 
     // 9. ValueOption in unwrapClientOption (Lines 168-173)
     Assert.Equal(box "vsome", ExpressionPushdownTranslator.unwrapClientOption (box (ValueSome "vsome")))
@@ -4180,12 +6213,18 @@ let ``Pushdown comprehensive coverage section 54 - deep AST branches, joins, tup
 
     // 10. DateTime constant in translateScalarExpr (Lines 1516-1518)
     let dtConst = Expression.Constant(DateTime(2025, 5, 1, 10, 0, 0, 123))
-    let dtSql = ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan dtConst
+
+    let dtSql =
+        ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan dtConst
+
     Assert.True(dtSql.IsSome)
 
     // 11. NewExpression and DefaultExpression for Nullable / Option (Lines 1626-1629)
     let neNull = Expression.New(typeof<Nullable<int>>)
-    let neSome = Expression.New(typeof<Nullable<int>>.GetConstructor([| typeof<int> |]), Expression.Constant(42))
+
+    let neSome =
+        Expression.New(typeof<Nullable<int>>.GetConstructor([| typeof<int> |]), Expression.Constant(42))
+
     let deNull = Expression.Default(typeof<Nullable<int>>)
     Assert.Equal("NULL", (ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan neNull).Value)
     Assert.Equal("42", (ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan neSome).Value)
@@ -4194,70 +6233,110 @@ let ``Pushdown comprehensive coverage section 54 - deep AST branches, joins, tup
     // 12. Grouping terminal aggregates (Lines 1683-1697)
     let gType = typeof<System.Linq.IGrouping<string, CovProduct>>
     let gParam = Expression.Parameter(gType, "g")
-    let pPriceLambda = Expression.Lambda<Func<CovProduct, decimal>>(Expression.Property(Expression.Parameter(typeof<CovProduct>, "p"), "Price"), Expression.Parameter(typeof<CovProduct>, "p"))
 
-    let countGen = (typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)).MakeGenericMethod(typeof<CovProduct>)
+    let pPriceLambda =
+        Expression.Lambda<Func<CovProduct, decimal>>(
+            Expression.Property(Expression.Parameter(typeof<CovProduct>, "p"), "Price"),
+            Expression.Parameter(typeof<CovProduct>, "p")
+        )
+
+    let countGen =
+        (typeof<Enumerable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1))
+            .MakeGenericMethod(typeof<CovProduct>)
+
     let mcCountG = Expression.Call(null, countGen, gParam)
 
-    let sumGen = (typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Sum" && m.GetParameters().Length = 2 && m.ReturnType = typeof<decimal>)).MakeGenericMethod(typeof<CovProduct>)
+    let sumGen =
+        (typeof<Enumerable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Sum" && m.GetParameters().Length = 2 && m.ReturnType = typeof<decimal>))
+            .MakeGenericMethod(typeof<CovProduct>)
+
     let mcSumG = Expression.Call(null, sumGen, gParam, pPriceLambda)
 
-    let minGen = (typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Min" && m.GetParameters().Length = 2 && m.ReturnType = typeof<decimal>)).MakeGenericMethod(typeof<CovProduct>)
+    let minGen =
+        (typeof<Enumerable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Min" && m.GetParameters().Length = 2 && m.ReturnType = typeof<decimal>))
+            .MakeGenericMethod(typeof<CovProduct>)
+
     let mcMinG = Expression.Call(null, minGen, gParam, pPriceLambda)
 
-    let maxGen = (typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Max" && m.GetParameters().Length = 2 && m.ReturnType = typeof<decimal>)).MakeGenericMethod(typeof<CovProduct>)
+    let maxGen =
+        (typeof<Enumerable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Max" && m.GetParameters().Length = 2 && m.ReturnType = typeof<decimal>))
+            .MakeGenericMethod(typeof<CovProduct>)
+
     let mcMaxG = Expression.Call(null, maxGen, gParam, pPriceLambda)
 
-    let avgGen = (typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Average" && m.GetParameters().Length = 2 && m.ReturnType = typeof<decimal>)).MakeGenericMethod(typeof<CovProduct>)
+    let avgGen =
+        (typeof<Enumerable>.GetMethods()
+         |> Seq.find (fun m ->
+             m.Name = "Average"
+             && m.GetParameters().Length = 2
+             && m.ReturnType = typeof<decimal>))
+            .MakeGenericMethod(typeof<CovProduct>)
+
     let mcAvgG = Expression.Call(null, avgGen, gParam, pPriceLambda)
 
     Assert.Equal("COUNT(*)", (ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcCountG).Value)
-    Assert.True(((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcSumG).Value.StartsWith("SUM(")))
-    Assert.True(((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcMinG).Value.StartsWith("MIN(")))
-    Assert.True(((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcMaxG).Value.StartsWith("MAX(")))
-    Assert.True(((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcAvgG).Value.StartsWith("AVG(")))
+
+    Assert.True(
+        ((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcSumG).Value.StartsWith("SUM("))
+    )
+
+    Assert.True(
+        ((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcMinG).Value.StartsWith("MIN("))
+    )
+
+    Assert.True(
+        ((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcMaxG).Value.StartsWith("MAX("))
+    )
+
+    Assert.True(
+        ((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan mcAvgG).Value.StartsWith("AVG("))
+    )
 
     // 13. Direct invocation of FSqlQueryBuilder window, CTE, and helper methods
     let b = FSqlQueryBuilder()
-    let win = b.window(partitionBy = 1, sortBy = 2, sortByDescending = 3)
+    let win = b.window (partitionBy = 1, sortBy = 2, sortByDescending = 3)
     Assert.Equal("window", win.Dummy)
-    Assert.Equal(0L, b.rowNumber(win))
-    Assert.Equal(0L, b.rank(win))
-    Assert.Equal(0L, b.denseRank(win))
-    Assert.Equal(0L, b.ntile(4, win))
-    Assert.Equal("v", b.lag("v", 1, "d", win))
-    Assert.Equal("v", b.lead("v", 1, "d", win))
-    Assert.Equal("v", b.firstValue("v", win))
-    Assert.Equal("v", b.lastValue("v", win))
-    Assert.Equal(10, b.sum(10, win))
-    Assert.Equal(10.5, b.avg(10.5, win))
-    Assert.Equal(5, b.min(5, win))
-    Assert.Equal(50, b.max(50, win))
-    Assert.Equal(0L, b.count(win))
-    Assert.Equal(0L, b.count("x", win))
-    Assert.Equal("", b.jsonValue("col", "$.path"))
-    b.withCte("cte1", [1])
-    b.withCte([1])
-    b.withCte("SELECT 1")
-    b.withCteSql("cte1", "SELECT 1")
-    b.withCteSql("SELECT 1")
-    b.withRecursiveCte("rcte", [1])
-    b.withRecursiveCte([1])
-    b.withRecursiveCte("SELECT 1")
-    b.withRecursiveCteSql("rcte", "SELECT 1")
-    b.withRecursiveCteSql("SELECT 1")
-    let recRes = b.recursive("rcte", [1], fun _ -> [2])
-    Assert.Equal<int seq>([1], recRes)
+    Assert.Equal(0L, b.rowNumber (win))
+    Assert.Equal(0L, b.rank (win))
+    Assert.Equal(0L, b.denseRank (win))
+    Assert.Equal(0L, b.ntile (4, win))
+    Assert.Equal("v", b.lag ("v", 1, "d", win))
+    Assert.Equal("v", b.lead ("v", 1, "d", win))
+    Assert.Equal("v", b.firstValue ("v", win))
+    Assert.Equal("v", b.lastValue ("v", win))
+    Assert.Equal(10, b.sum (10, win))
+    Assert.Equal(10.5, b.avg (10.5, win))
+    Assert.Equal(5, b.min (5, win))
+    Assert.Equal(50, b.max (50, win))
+    Assert.Equal(0L, b.count (win))
+    Assert.Equal(0L, b.count ("x", win))
+    Assert.Equal("", b.jsonValue ("col", "$.path"))
+    b.withCte ("cte1", [ 1 ])
+    b.withCte ([ 1 ])
+    b.withCte ("SELECT 1")
+    b.withCteSql ("cte1", "SELECT 1")
+    b.withCteSql ("SELECT 1")
+    b.withRecursiveCte ("rcte", [ 1 ])
+    b.withRecursiveCte ([ 1 ])
+    b.withRecursiveCte ("SELECT 1")
+    b.withRecursiveCteSql ("rcte", "SELECT 1")
+    b.withRecursiveCteSql ("SELECT 1")
+    let recRes = b.recursive ("rcte", [ 1 ], fun _ -> [ 2 ])
+    Assert.Equal<int seq>([ 1 ], recRes)
 
     // Markers
-    Assert.True(exists [1])
-    Assert.False(notExists [1])
-    Assert.Equal<int seq>([1], crossApply [1])
-    Assert.Equal<int seq>([1], lateral [1])
+    Assert.True(exists [ 1 ])
+    Assert.False(notExists [ 1 ])
+    Assert.Equal<int seq>([ 1 ], crossApply [ 1 ])
+    Assert.Equal<int seq>([ 1 ], lateral [ 1 ])
 
     // Set operations on standard IQueryable
-    let sq1 = [1; 2].AsQueryable()
-    let sq2 = [2; 3].AsQueryable()
+    let sq1 = [ 1; 2 ].AsQueryable()
+    let sq2 = [ 2; 3 ].AsQueryable()
     Assert.NotNull(b.union sq1 sq2)
     Assert.NotNull(b.unionAll sq1 sq2)
     Assert.NotNull(b.intersect sq1 sq2)
@@ -4273,29 +6352,61 @@ let ``Pushdown comprehensive coverage section 54 - deep AST branches, joins, tup
 
     // 14. Step 4 targeted branches: MemberInitExpression, overflow/nested tuples, subquery CTEs, FSqlExtensions on wrapped IQueryables
     // 14a. extractMemberMap on MemberInitExpression (lines 78-84)
-    let mie = Expression.MemberInit(Expression.New(typeof<CovProduct>), [| Expression.Bind(typeof<CovProduct>.GetProperty("Name"), Expression.Constant("x")) :> MemberBinding |])
+    let mie =
+        Expression.MemberInit(
+            Expression.New(typeof<CovProduct>),
+            [|
+                Expression.Bind(typeof<CovProduct>.GetProperty("Name"), Expression.Constant("x")) :> MemberBinding
+            |]
+        )
+
     let mieMap = ExpressionPushdownTranslator.extractMemberMap mie
     Assert.True(mieMap.ContainsKey("Name"))
     Assert.True((ExpressionPushdownTranslator.extractMemberMap (Expression.Constant(1))).IsEmpty)
 
     // 14b. getTupleDepth & resolveMemberRef on overflow tuple (Item8) and nested left-associative tuples (lines 135-142, 404-445)
     let planWith8Joins = PushdownQueryPlan.Create("Products", [], baseAlias = "t0")
-    for jIdx in 1 .. 8 do
-        planWith8Joins.Joins.Add({ JoinType = "LEFT JOIN"; SourceTable = $"T{jIdx}"; Alias = $"_t{jIdx}"; OnClause = "1=1"; RowType = None })
-    let overflowTupleType = typeof<Tuple<int, int, int, int, int, int, int, Tuple<CovProduct>>>
+
+    for jIdx in 1..8 do
+        planWith8Joins.Joins.Add(
+            {
+                JoinType = "LEFT JOIN"
+                SourceTable = $"T{jIdx}"
+                Alias = $"_t{jIdx}"
+                OnClause = "1=1"
+                RowType = None
+            }
+        )
+
+    let overflowTupleType =
+        typeof<Tuple<int, int, int, int, int, int, int, Tuple<CovProduct>>>
+
     let overflowParam = Expression.Parameter(overflowTupleType, "ti")
-    let item8Expr = Expression.Property(Expression.Property(overflowParam, "Rest"), "Item1")
+
+    let item8Expr =
+        Expression.Property(Expression.Property(overflowParam, "Rest"), "Item1")
     // Also test synthetic Item8 property path if present or nested Tuple<Tuple<CovProduct, CovOrder>, CovProduct>
     let nestedTupleType = typeof<Tuple<Tuple<CovProduct, CovOrder>, CovProduct>>
     let nestedParam = Expression.Parameter(nestedTupleType, "nt")
-    let nestedItem1_1_Name = Expression.Property(Expression.Property(Expression.Property(nestedParam, "Item1"), "Item1"), "Name")
-    let nestedItem1_2_OrderId = Expression.Property(Expression.Property(Expression.Property(nestedParam, "Item1"), "Item2"), "OrderId")
-    let (alias1, col1) = ExpressionPushdownTranslator.resolveMemberRef planWith8Joins nestedItem1_1_Name
-    let (alias2, col2) = ExpressionPushdownTranslator.resolveMemberRef planWith8Joins nestedItem1_2_OrderId
+
+    let nestedItem1_1_Name =
+        Expression.Property(Expression.Property(Expression.Property(nestedParam, "Item1"), "Item1"), "Name")
+
+    let nestedItem1_2_OrderId =
+        Expression.Property(Expression.Property(Expression.Property(nestedParam, "Item1"), "Item2"), "OrderId")
+
+    let (alias1, col1) =
+        ExpressionPushdownTranslator.resolveMemberRef planWith8Joins nestedItem1_1_Name
+
+    let (alias2, col2) =
+        ExpressionPushdownTranslator.resolveMemberRef planWith8Joins nestedItem1_2_OrderId
+
     Assert.Equal("Name", col1)
     Assert.Equal("OrderId", col2)
     Assert.True(alias1.IsSome && alias2.IsSome)
-    let _ = ExpressionPushdownTranslator.resolveMemberRef planWith8Joins (Expression.Property(item8Expr, "Name"))
+
+    let _ =
+        ExpressionPushdownTranslator.resolveMemberRef planWith8Joins (Expression.Property(item8Expr, "Name"))
 
     // 14c. tryFindPushdownSource on InvocationExpression (lines 247-248)
     let invExpr = Expression.Invoke(Expression.Lambda(Expression.Constant(products)))
@@ -4303,89 +6414,204 @@ let ``Pushdown comprehensive coverage section 54 - deep AST branches, joins, tup
 
     // 14d. unwrapOptionOrNullableMember on MethodCallExpression get_Value (lines 278-285)
     let optIntParam = Expression.Parameter(typeof<option<int>>, "opt")
-    let getValMc = Expression.Call(optIntParam, typeof<option<int>>.GetProperty("Value").GetGetMethod())
+
+    let getValMc =
+        Expression.Call(optIntParam, typeof<option<int>>.GetProperty("Value").GetGetMethod())
+
     Assert.Same(optIntParam, ExpressionPushdownTranslator.unwrapOptionOrNullableMember getValMc)
 
     // 14e. extractKeyColumns fallback (lines 504-508)
     let pParam2 = Expression.Parameter(typeof<CovProduct>, "p")
-    let keyCols = ExpressionPushdownTranslator.extractKeyColumns plan "t0" pParam2 (Expression.Property(pParam2, "Id"))
+
+    let keyCols =
+        ExpressionPushdownTranslator.extractKeyColumns plan "t0" pParam2 (Expression.Property(pParam2, "Id"))
+
     Assert.Equal<string list>([ "t0.Id" ], keyCols)
 
     // 14f. Subqueries with CTE propagation and 1 <= subquery.Count() (lines 689-696, 747-755, 774-780, 1026-1034, 1077-1085)
     let subWithCte = orders.WithCte("sub_cte_prop", orders)
-    let planOuter = PushdownQueryPlan.Create("Products", [], baseAlias = "t0", baseRowType = typeof<CovProduct>)
+
+    let planOuter =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "t0", baseRowType = typeof<CovProduct>)
+
     planOuter.OuterAliases.["outerP"] <- "t0"
-    let countOrderMethod = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)).MakeGenericMethod(typeof<CovOrder>)
-    let subCountCall = Expression.Call(null, countOrderMethod, Expression.Constant(subWithCte))
-    let scalarSubSql = ExpressionPushdownTranslator.tryTranslateSubqueryScalarExpr SqlDialect.Sqlite planOuter subCountCall
+
+    let countOrderMethod =
+        (typeof<Queryable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1))
+            .MakeGenericMethod(typeof<CovOrder>)
+
+    let subCountCall =
+        Expression.Call(null, countOrderMethod, Expression.Constant(subWithCte))
+
+    let scalarSubSql =
+        ExpressionPushdownTranslator.tryTranslateSubqueryScalarExpr SqlDialect.Sqlite planOuter subCountCall
+
     Assert.True(scalarSubSql.IsSome)
     Assert.Contains(planOuter.Ctes, fun c -> c.Name = "sub_cte_prop")
 
-    let planOuter2 = PushdownQueryPlan.Create("Products", [], baseAlias = "t0", baseRowType = typeof<CovProduct>)
+    let planOuter2 =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "t0", baseRowType = typeof<CovProduct>)
+
     planOuter2.OuterAliases.["outerP"] <- "t0"
     let oneLeCount = Expression.LessThanOrEqual(Expression.Constant(1), subCountCall)
-    let pred1Le = ExpressionPushdownTranslator.tryTranslateSubqueryPredicate pParam2 planOuter2 SqlDialect.Sqlite oneLeCount
+
+    let pred1Le =
+        ExpressionPushdownTranslator.tryTranslateSubqueryPredicate pParam2 planOuter2 SqlDialect.Sqlite oneLeCount
+
     Assert.True(pred1Le.IsSome)
     Assert.Contains("EXISTS", pred1Le.Value)
 
-    let anyOrderMethod = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Any" && m.GetParameters().Length = 1)).MakeGenericMethod(typeof<CovOrder>)
-    let subAnyCall = Expression.Call(null, anyOrderMethod, Expression.Constant(subWithCte))
-    let planOuter3 = PushdownQueryPlan.Create("Products", [], baseAlias = "t0", baseRowType = typeof<CovProduct>)
+    let anyOrderMethod =
+        (typeof<Queryable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Any" && m.GetParameters().Length = 1))
+            .MakeGenericMethod(typeof<CovOrder>)
+
+    let subAnyCall =
+        Expression.Call(null, anyOrderMethod, Expression.Constant(subWithCte))
+
+    let planOuter3 =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "t0", baseRowType = typeof<CovProduct>)
+
     planOuter3.OuterAliases.["outerP"] <- "t0"
-    let predAnyCte = ExpressionPushdownTranslator.translatePredicate pParam2 planOuter3 SqlDialect.Sqlite subAnyCall
+
+    let predAnyCte =
+        ExpressionPushdownTranslator.translatePredicate pParam2 planOuter3 SqlDialect.Sqlite subAnyCall
+
     Assert.True(predAnyCte.IsSome)
 
     let notExistsMi =
         match <@ notExists subWithCte @> with
         | Microsoft.FSharp.Quotations.Patterns.Call(_, mi, _) -> mi
         | _ -> failwith "expected Call"
-    let subNotExistsCall = Expression.Call(null, notExistsMi, Expression.Constant(subWithCte))
-    let planOuter4 = PushdownQueryPlan.Create("Products", [], baseAlias = "t0", baseRowType = typeof<CovProduct>)
+
+    let subNotExistsCall =
+        Expression.Call(null, notExistsMi, Expression.Constant(subWithCte))
+
+    let planOuter4 =
+        PushdownQueryPlan.Create("Products", [], baseAlias = "t0", baseRowType = typeof<CovProduct>)
+
     planOuter4.OuterAliases.["outerP"] <- "t0"
-    let predNotExistsCte = ExpressionPushdownTranslator.translatePredicate pParam2 planOuter4 SqlDialect.Sqlite subNotExistsCall
+
+    let predNotExistsCte =
+        ExpressionPushdownTranslator.translatePredicate pParam2 planOuter4 SqlDialect.Sqlite subNotExistsCall
+
     Assert.True(predNotExistsCte.IsSome)
 
     // 14g. translatePredicate partial AndAlso/OrElse and inverted StartsWith/EndsWith (lines 825-831, 1000-1005)
-    let validPred = Expression.Equal(Expression.Property(pParam2, "Id"), Expression.Constant(1))
+    let validPred =
+        Expression.Equal(Expression.Property(pParam2, "Id"), Expression.Constant(1))
+
     let unsupportedPred = Expression.TypeIs(pParam2, typeof<obj>) :> Expression
-    Assert.True((ExpressionPushdownTranslator.translatePredicate pParam2 plan SqlDialect.Sqlite (Expression.AndAlso(validPred, unsupportedPred))).IsSome)
-    Assert.True((ExpressionPushdownTranslator.translatePredicate pParam2 plan SqlDialect.Sqlite (Expression.AndAlso(unsupportedPred, validPred))).IsSome)
-    Assert.True((ExpressionPushdownTranslator.translatePredicate pParam2 plan SqlDialect.Sqlite (Expression.AndAlso(unsupportedPred, unsupportedPred))).IsNone)
-    Assert.True((ExpressionPushdownTranslator.translatePredicate pParam2 plan SqlDialect.Sqlite (Expression.OrElse(validPred, unsupportedPred))).IsNone)
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translatePredicate
+            pParam2
+            plan
+            SqlDialect.Sqlite
+            (Expression.AndAlso(validPred, unsupportedPred)))
+            .IsSome
+    )
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translatePredicate
+            pParam2
+            plan
+            SqlDialect.Sqlite
+            (Expression.AndAlso(unsupportedPred, validPred)))
+            .IsSome
+    )
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translatePredicate
+            pParam2
+            plan
+            SqlDialect.Sqlite
+            (Expression.AndAlso(unsupportedPred, unsupportedPred)))
+            .IsNone
+    )
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translatePredicate
+            pParam2
+            plan
+            SqlDialect.Sqlite
+            (Expression.OrElse(validPred, unsupportedPred)))
+            .IsNone
+    )
 
     let startsWithM = typeof<string>.GetMethod("StartsWith", [| typeof<string> |])
     let endsWithM = typeof<string>.GetMethod("EndsWith", [| typeof<string> |])
-    let invStarts = Expression.Call(Expression.Property(pParam2, "Name"), startsWithM, Expression.Constant("elec"))
-    let invEnds = Expression.Call(Expression.Property(pParam2, "Name"), endsWithM, Expression.Constant("elec"))
+
+    let invStarts =
+        Expression.Call(Expression.Property(pParam2, "Name"), startsWithM, Expression.Constant("elec"))
+
+    let invEnds =
+        Expression.Call(Expression.Property(pParam2, "Name"), endsWithM, Expression.Constant("elec"))
+
     Assert.True((ExpressionPushdownTranslator.translatePredicate pParam2 plan SqlDialect.Sqlite invStarts).IsSome)
     Assert.True((ExpressionPushdownTranslator.translatePredicate pParam2 plan SqlDialect.Sqlite invEnds).IsSome)
 
     // 14h. translateScalarCondition & translateScalarExpr on Constant IQueryable, aggregates, and GetValueOrDefault (lines 1444, 1477, 1486-1502, 1744-1833, 1991-1998)
-    let condEnds = Expression.Call(Expression.Property(pParam2, "Name"), endsWithM, Expression.Constant("x"))
-    Assert.True((ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan condEnds).IsSome)
-    Assert.True((ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan (Expression.Not(Expression.Constant(true)))).IsNone)
+    let condEnds =
+        Expression.Call(Expression.Property(pParam2, "Name"), endsWithM, Expression.Constant("x"))
 
-    let filteredOrdersWithParam = (orders :> IQueryable<CovOrder>).Where(fun o -> o.Amount > 50m)
-    let constIqExpr = Expression.Constant(filteredOrdersWithParam, typeof<IQueryable<CovOrder>>)
-    let constIqSql = ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan constIqExpr
+    Assert.True((ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan condEnds).IsSome)
+
+    Assert.True(
+        (ExpressionPushdownTranslator.translateScalarCondition
+            SqlDialect.Sqlite
+            plan
+            (Expression.Not(Expression.Constant(true))))
+            .IsNone
+    )
+
+    let filteredOrdersWithParam =
+        (orders :> IQueryable<CovOrder>).Where(fun o -> o.Amount > 50m)
+
+    let constIqExpr =
+        Expression.Constant(filteredOrdersWithParam, typeof<IQueryable<CovOrder>>)
+
+    let constIqSql =
+        ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan constIqExpr
+
     Assert.True(constIqSql.IsSome)
 
     let selectedOrders = (orders :> IQueryable<CovOrder>).Select(fun o -> o.CustomerId)
-    let countIntMethod = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)).MakeGenericMethod(typeof<int>)
-    let countOnSelectExpr = Expression.Call(null, countIntMethod, selectedOrders.Expression)
+
+    let countIntMethod =
+        (typeof<Queryable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1))
+            .MakeGenericMethod(typeof<int>)
+
+    let countOnSelectExpr =
+        Expression.Call(null, countIntMethod, selectedOrders.Expression)
+
     Assert.True((ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan countOnSelectExpr).IsSome)
 
-    let getValOrDef1 = typeof<Nullable<decimal>>.GetMethod("GetValueOrDefault", [| typeof<decimal> |])
-    let gvodCall = Expression.Call(Expression.Property(pParam2, "Score"), getValOrDef1, Expression.Constant(0m))
-    Assert.Contains("COALESCE", (ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan gvodCall).Value)
+    let getValOrDef1 =
+        typeof<Nullable<decimal>>.GetMethod("GetValueOrDefault", [| typeof<decimal> |])
+
+    let gvodCall =
+        Expression.Call(Expression.Property(pParam2, "Score"), getValOrDef1, Expression.Constant(0m))
+
+    Assert.Contains(
+        "COALESCE",
+        (ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan gvodCall).Value
+    )
 
     // 14i. LinqInMemoryFallback.evaluate on Queryable.Where (lines 2639-2686)
     let memQ = [ 1; 2; 3 ].AsQueryable().Where(fun x -> x > 1)
-    let memRes = LinqInMemoryFallback.evaluate memQ.Expression :?> System.Collections.Generic.IEnumerable<int>
+
+    let memRes =
+        LinqInMemoryFallback.evaluate memQ.Expression :?> System.Collections.Generic.IEnumerable<int>
+
     Assert.Equal<int list>([ 2; 3 ], memRes |> Seq.toList)
 
     // 14j. FSqlExtensions on wrapped IQueryable with seedPlan CTEs and parameters (lines 4428-4536)
-    let baseWithSeedCte = (products.WithCte("c_seed", orders) :> IQueryable<CovProduct>).Where(fun p -> p.Price > 10m)
+    let baseWithSeedCte =
+        (products.WithCte("c_seed", orders) :> IQueryable<CovProduct>).Where(fun p -> p.Price > 10m)
+
     let rhsWrapped = (products :> IQueryable<CovProduct>).Where(fun p -> p.InStock)
     Assert.Contains("UNION", SqlPushdownQuery.toRawSql (baseWithSeedCte.Union(rhsWrapped)))
     Assert.Contains("UNION ALL", SqlPushdownQuery.toRawSql (baseWithSeedCte.UnionAll(rhsWrapped)))
@@ -4400,14 +6626,42 @@ let ``Pushdown comprehensive coverage section 54 - deep AST branches, joins, tup
 
     // 15. Additional branches to push SqlPushdownQuery.fs >= 90%:
     // 15a. Non-grouping, non-pushdown-queryable Enumerable aggregates in translateScalarExpr (lines 1734-1836)
-    let seqParam = Expression.Parameter(typeof<System.Collections.Generic.IEnumerable<CovProduct>>, "items")
-    let pInStockLambda = Expression.Lambda<Func<CovProduct, bool>>(Expression.Property(pParam2, "InStock"), pParam2)
-    let pCatLambda = Expression.Lambda<Func<CovProduct, string>>(Expression.Property(pParam2, "Category"), pParam2)
-    let countPredGen = (typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 2)).MakeGenericMethod(typeof<CovProduct>)
-    let selectEnumGen = (typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Select" && m.GetParameters().Length = 2 && (m.GetParameters().[1].ParameterType.GetGenericArguments().Length = 2))).MakeGenericMethod(typeof<CovProduct>, typeof<string>)
-    let distinctEnumGen = (typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Distinct" && m.GetParameters().Length = 1)).MakeGenericMethod(typeof<string>)
-    let countStrGen = (typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)).MakeGenericMethod(typeof<string>)
-    let longCountGen = (typeof<Enumerable>.GetMethods() |> Seq.find (fun m -> m.Name = "LongCount" && m.GetParameters().Length = 1)).MakeGenericMethod(typeof<CovProduct>)
+    let seqParam =
+        Expression.Parameter(typeof<System.Collections.Generic.IEnumerable<CovProduct>>, "items")
+
+    let pInStockLambda =
+        Expression.Lambda<Func<CovProduct, bool>>(Expression.Property(pParam2, "InStock"), pParam2)
+
+    let pCatLambda =
+        Expression.Lambda<Func<CovProduct, string>>(Expression.Property(pParam2, "Category"), pParam2)
+
+    let countPredGen =
+        (typeof<Enumerable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 2))
+            .MakeGenericMethod(typeof<CovProduct>)
+
+    let selectEnumGen =
+        (typeof<Enumerable>.GetMethods()
+         |> Seq.find (fun m ->
+             m.Name = "Select"
+             && m.GetParameters().Length = 2
+             && (m.GetParameters().[1].ParameterType.GetGenericArguments().Length = 2)))
+            .MakeGenericMethod(typeof<CovProduct>, typeof<string>)
+
+    let distinctEnumGen =
+        (typeof<Enumerable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Distinct" && m.GetParameters().Length = 1))
+            .MakeGenericMethod(typeof<string>)
+
+    let countStrGen =
+        (typeof<Enumerable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1))
+            .MakeGenericMethod(typeof<string>)
+
+    let longCountGen =
+        (typeof<Enumerable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "LongCount" && m.GetParameters().Length = 1))
+            .MakeGenericMethod(typeof<CovProduct>)
 
     let mcCountPredSeq = Expression.Call(null, countPredGen, seqParam, pInStockLambda)
     let mcSelectSeq = Expression.Call(null, selectEnumGen, seqParam, pCatLambda)
@@ -4431,31 +6685,128 @@ let ``Pushdown comprehensive coverage section 54 - deep AST branches, joins, tup
 
     // 15b. mergeExpressionIntoPlan terminal aggregates over Select and scalar projections (lines 2498-2612)
     let qSelectPrice = (products :> IQueryable<CovProduct>).Select(fun p -> p.Price)
-    let sumDecQ = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Sum" && m.GetParameters().Length = 1 && m.ReturnType = typeof<decimal>))
-    let minDecQ = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Min" && m.GetParameters().Length = 1 && m.IsGenericMethod)).MakeGenericMethod(typeof<decimal>)
-    let maxDecQ = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Max" && m.GetParameters().Length = 1 && m.IsGenericMethod)).MakeGenericMethod(typeof<decimal>)
-    let avgDecQ = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Average" && m.GetParameters().Length = 1 && m.ReturnType = typeof<decimal>))
 
-    Assert.Contains("SUM(", (ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, sumDecQ, qSelectPrice.Expression)) "Products" [] SqlDialect.Sqlite).BuildSql(SqlDialect.Sqlite))
-    Assert.Contains("MIN(", (ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, minDecQ, qSelectPrice.Expression)) "Products" [] SqlDialect.Sqlite).BuildSql(SqlDialect.Sqlite))
-    Assert.Contains("MAX(", (ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, maxDecQ, qSelectPrice.Expression)) "Products" [] SqlDialect.Sqlite).BuildSql(SqlDialect.Sqlite))
-    Assert.Contains("AVG(", (ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, avgDecQ, qSelectPrice.Expression)) "Products" [] SqlDialect.Sqlite).BuildSql(SqlDialect.Sqlite))
+    let sumDecQ =
+        (typeof<Queryable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Sum" && m.GetParameters().Length = 1 && m.ReturnType = typeof<decimal>))
 
-    let qSelectNullableVal = (products :> IQueryable<CovProduct>).Select(fun p -> p.Score.Value)
+    let minDecQ =
+        (typeof<Queryable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Min" && m.GetParameters().Length = 1 && m.IsGenericMethod))
+            .MakeGenericMethod(typeof<decimal>)
+
+    let maxDecQ =
+        (typeof<Queryable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Max" && m.GetParameters().Length = 1 && m.IsGenericMethod))
+            .MakeGenericMethod(typeof<decimal>)
+
+    let avgDecQ =
+        (typeof<Queryable>.GetMethods()
+         |> Seq.find (fun m ->
+             m.Name = "Average"
+             && m.GetParameters().Length = 1
+             && m.ReturnType = typeof<decimal>))
+
+    Assert.Contains(
+        "SUM(",
+        (ExpressionPushdownTranslator.extractPlanFromExpression
+            (Expression.Call(null, sumDecQ, qSelectPrice.Expression))
+            "Products"
+            []
+            SqlDialect.Sqlite)
+            .BuildSql(SqlDialect.Sqlite)
+    )
+
+    Assert.Contains(
+        "MIN(",
+        (ExpressionPushdownTranslator.extractPlanFromExpression
+            (Expression.Call(null, minDecQ, qSelectPrice.Expression))
+            "Products"
+            []
+            SqlDialect.Sqlite)
+            .BuildSql(SqlDialect.Sqlite)
+    )
+
+    Assert.Contains(
+        "MAX(",
+        (ExpressionPushdownTranslator.extractPlanFromExpression
+            (Expression.Call(null, maxDecQ, qSelectPrice.Expression))
+            "Products"
+            []
+            SqlDialect.Sqlite)
+            .BuildSql(SqlDialect.Sqlite)
+    )
+
+    Assert.Contains(
+        "AVG(",
+        (ExpressionPushdownTranslator.extractPlanFromExpression
+            (Expression.Call(null, avgDecQ, qSelectPrice.Expression))
+            "Products"
+            []
+            SqlDialect.Sqlite)
+            .BuildSql(SqlDialect.Sqlite)
+    )
+
+    let qSelectNullableVal =
+        (products :> IQueryable<CovProduct>).Select(fun p -> p.Score.Value)
+
     let qSelectBin = (products :> IQueryable<CovProduct>).Select(fun p -> p.Price + 10m)
     let qSelectMc = (products :> IQueryable<CovProduct>).Select(fun p -> p.Name.Trim())
-    let qSelectCond = (products :> IQueryable<CovProduct>).Select(fun p -> if p.InStock then 1 else 0)
-    Assert.NotNull((ExpressionPushdownTranslator.extractPlanFromExpression qSelectNullableVal.Expression "Products" [] SqlDialect.Sqlite).Projection)
-    Assert.NotNull((ExpressionPushdownTranslator.extractPlanFromExpression qSelectBin.Expression "Products" [] SqlDialect.Sqlite).Projection)
-    Assert.NotNull((ExpressionPushdownTranslator.extractPlanFromExpression qSelectMc.Expression "Products" [] SqlDialect.Sqlite).Projection)
-    Assert.NotNull((ExpressionPushdownTranslator.extractPlanFromExpression qSelectCond.Expression "Products" [] SqlDialect.Sqlite).Projection)
+
+    let qSelectCond =
+        (products :> IQueryable<CovProduct>).Select(fun p -> if p.InStock then 1 else 0)
+
+    Assert.NotNull(
+        (ExpressionPushdownTranslator.extractPlanFromExpression
+            qSelectNullableVal.Expression
+            "Products"
+            []
+            SqlDialect.Sqlite)
+            .Projection
+    )
+
+    Assert.NotNull(
+        (ExpressionPushdownTranslator.extractPlanFromExpression qSelectBin.Expression "Products" [] SqlDialect.Sqlite)
+            .Projection
+    )
+
+    Assert.NotNull(
+        (ExpressionPushdownTranslator.extractPlanFromExpression qSelectMc.Expression "Products" [] SqlDialect.Sqlite)
+            .Projection
+    )
+
+    Assert.NotNull(
+        (ExpressionPushdownTranslator.extractPlanFromExpression qSelectCond.Expression "Products" [] SqlDialect.Sqlite)
+            .Projection
+    )
 
     // 15c. In-memory set operations in fsql (lines 4218-4251)
     let inMemIq = [ 1; 2 ].AsQueryable()
-    let qMemUnion = fsql { for x in inMemIq do union ([ 2; 3 ] :> seq<int>) }
-    let qMemUnionAll = fsql { for x in inMemIq do unionAll ([ 2; 3 ] :> seq<int>) }
-    let qMemIntersect = fsql { for x in inMemIq do intersect ([ 2; 3 ] :> seq<int>) }
-    let qMemExcept = fsql { for x in inMemIq do except ([ 2; 3 ] :> seq<int>) }
+
+    let qMemUnion =
+        fsql {
+            for x in inMemIq do
+                union ([ 2; 3 ] :> seq<int>)
+        }
+
+    let qMemUnionAll =
+        fsql {
+            for x in inMemIq do
+                unionAll ([ 2; 3 ] :> seq<int>)
+        }
+
+    let qMemIntersect =
+        fsql {
+            for x in inMemIq do
+                intersect ([ 2; 3 ] :> seq<int>)
+        }
+
+    let qMemExcept =
+        fsql {
+            for x in inMemIq do
+                except ([ 2; 3 ] :> seq<int>)
+        }
+
     Assert.Equal(3, qMemUnion |> Seq.length)
     Assert.Equal(4, qMemUnionAll |> Seq.length)
     Assert.Equal(1, qMemIntersect |> Seq.length)
@@ -4469,14 +6820,21 @@ let ``Pushdown comprehensive coverage section 54 - deep AST branches, joins, tup
     let unsupDt = Expression.Default(typeof<DateTime>) :> Expression
     let unsupBool = Expression.Default(typeof<bool>) :> Expression
 
-    let evalScalar e = ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan e |> ignore
-    let evalCond e = ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan e |> ignore
+    let evalScalar e =
+        ExpressionPushdownTranslator.translateScalarExpr SqlDialect.Sqlite plan e
+        |> ignore
+
+    let evalCond e =
+        ExpressionPushdownTranslator.translateScalarCondition SqlDialect.Sqlite plan e
+        |> ignore
 
     evalScalar (Expression.Property(unsupDt, "Year"))
     evalScalar (Expression.Property(unsupStr, "Length"))
     evalScalar (Expression.Property(null, typeof<DateTime>.GetProperty("UtcNow")))
 
-    let strAddM = typeof<string>.GetMethod("Concat", [| typeof<string>; typeof<string> |])
+    let strAddM =
+        typeof<string>.GetMethod("Concat", [| typeof<string>; typeof<string> |])
+
     evalScalar (Expression.Add(unsupStr, Expression.Constant("a"), strAddM))
     evalScalar (Expression.Add(unsupInt, Expression.Constant(1)))
     evalScalar (Expression.Subtract(unsupInt, Expression.Constant(1)))
@@ -4498,16 +6856,44 @@ let ``Pushdown comprehensive coverage section 54 - deep AST branches, joins, tup
     evalScalar (Expression.Call(null, typeof<string>.GetMethod("IsNullOrWhiteSpace", [| typeof<string> |]), unsupStr))
     evalScalar (Expression.Call(unsupInt, typeof<obj>.GetMethod("ToString", Type.EmptyTypes)))
     evalScalar (Expression.Call(unsupStr, typeof<string>.GetMethod("Substring", [| typeof<int> |]), unsupInt))
-    evalScalar (Expression.Call(unsupStr, typeof<string>.GetMethod("Substring", [| typeof<int> |]), Expression.Constant(0)))
-    evalScalar (Expression.Call(unsupStr, typeof<string>.GetMethod("Replace", [| typeof<string>; typeof<string> |]), Expression.Constant("a"), Expression.Constant("b")))
+
+    evalScalar (
+        Expression.Call(unsupStr, typeof<string>.GetMethod("Substring", [| typeof<int> |]), Expression.Constant(0))
+    )
+
+    evalScalar (
+        Expression.Call(
+            unsupStr,
+            typeof<string>.GetMethod("Replace", [| typeof<string>; typeof<string> |]),
+            Expression.Constant("a"),
+            Expression.Constant("b")
+        )
+    )
+
     evalScalar (Expression.Call(null, typeof<Math>.GetMethod("Round", [| typeof<double> |]), unsupDbl))
-    evalScalar (Expression.Call(null, typeof<Math>.GetMethod("Round", [| typeof<double>; typeof<int> |]), unsupDbl, Expression.Constant(2)))
+
+    evalScalar (
+        Expression.Call(
+            null,
+            typeof<Math>.GetMethod("Round", [| typeof<double>; typeof<int> |]),
+            unsupDbl,
+            Expression.Constant(2)
+        )
+    )
+
     evalScalar (Expression.Call(null, typeof<Math>.GetMethod("Abs", [| typeof<double> |]), unsupDbl))
     evalScalar (Expression.Call(null, typeof<Math>.GetMethod("Floor", [| typeof<double> |]), unsupDbl))
     evalScalar (Expression.Call(null, typeof<Math>.GetMethod("Ceiling", [| typeof<double> |]), unsupDbl))
     evalScalar (Expression.Call(null, typeof<Math>.GetMethod("Sqrt", [| typeof<double> |]), unsupDbl))
-    evalScalar (Expression.Call(null, typeof<Math>.GetMethod("Pow", [| typeof<double>; typeof<double> |]), unsupDbl, unsupDbl))
-    evalScalar (Expression.Call(unsupStr, typeof<string>.GetMethod("IndexOf", [| typeof<string> |]), Expression.Constant("a")))
+
+    evalScalar (
+        Expression.Call(null, typeof<Math>.GetMethod("Pow", [| typeof<double>; typeof<double> |]), unsupDbl, unsupDbl)
+    )
+
+    evalScalar (
+        Expression.Call(unsupStr, typeof<string>.GetMethod("IndexOf", [| typeof<string> |]), Expression.Constant("a"))
+    )
+
     evalScalar (Expression.Call(Expression.Property(pParam2, "Score"), getValOrDef1, unsupDec))
 
     // translateScalarCondition fallback None branches (lines 1415, 1419, 1429, 1440, 1462, 1466, 1470, 1478, 1479)
@@ -4517,12 +6903,25 @@ let ``Pushdown comprehensive coverage section 54 - deep AST branches, joins, tup
     evalCond (Expression.Add(unsupInt, Expression.Constant(1)))
     evalCond (Expression.Call(null, typeof<string>.GetMethod("IsNullOrEmpty", [| typeof<string> |]), unsupStr))
     evalCond (Expression.Call(null, typeof<string>.GetMethod("IsNullOrWhiteSpace", [| typeof<string> |]), unsupStr))
-    evalCond (Expression.Call(unsupStr, typeof<string>.GetMethod("Contains", [| typeof<string> |]), Expression.Constant("a")))
-    evalCond (Expression.Call(Expression.Constant("a"), typeof<string>.GetMethod("Contains", [| typeof<string> |]), Expression.Constant("b")))
+
+    evalCond (
+        Expression.Call(unsupStr, typeof<string>.GetMethod("Contains", [| typeof<string> |]), Expression.Constant("a"))
+    )
+
+    evalCond (
+        Expression.Call(
+            Expression.Constant("a"),
+            typeof<string>.GetMethod("Contains", [| typeof<string> |]),
+            Expression.Constant("b")
+        )
+    )
 
     // parseWindowSpec fallback branches (lines 1196, 1203, 1204, 1213, 1222)
-    let winMi = typeof<FSqlQueryBuilder>.GetMethod("window").MakeGenericMethod(typeof<int>, typeof<int>, typeof<int>)
+    let winMi =
+        typeof<FSqlQueryBuilder>.GetMethod("window").MakeGenericMethod(typeof<int>, typeof<int>, typeof<int>)
+
     let someIntMi = typeof<option<int>>.GetMethod("Some")
+
     let winCallUnsup =
         Expression.Call(
             Expression.Constant(b),
@@ -4531,31 +6930,120 @@ let ``Pushdown comprehensive coverage section 54 - deep AST branches, joins, tup
             Expression.Call(null, someIntMi, unsupInt),
             Expression.Call(null, someIntMi, unsupInt)
         )
-    ExpressionPushdownTranslator.parseWindowSpec SqlDialect.Sqlite plan winCallUnsup |> ignore
+
+    ExpressionPushdownTranslator.parseWindowSpec SqlDialect.Sqlite plan winCallUnsup
+    |> ignore
 
     // mergeExpressionIntoPlan fallback branches when Select body fails scalar translation (lines 2477-2612)
     let selectUnsupInt =
-        let selMi = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Select" && m.GetParameters().Length = 2)).MakeGenericMethod(typeof<CovProduct>, typeof<int>)
-        Expression.Call(null, selMi, (products :> IQueryable<CovProduct>).Expression, Expression.Quote(Expression.Lambda<Func<CovProduct, int>>(unsupInt :?> DefaultExpression, pParam2)))
+        let selMi =
+            (typeof<Queryable>.GetMethods()
+             |> Seq.find (fun m -> m.Name = "Select" && m.GetParameters().Length = 2))
+                .MakeGenericMethod(typeof<CovProduct>, typeof<int>)
+
+        Expression.Call(
+            null,
+            selMi,
+            (products :> IQueryable<CovProduct>).Expression,
+            Expression.Quote(Expression.Lambda<Func<CovProduct, int>>(unsupInt :?> DefaultExpression, pParam2))
+        )
+
     let selectUnsupDec =
-        let selMi = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Select" && m.GetParameters().Length = 2)).MakeGenericMethod(typeof<CovProduct>, typeof<decimal>)
-        Expression.Call(null, selMi, (products :> IQueryable<CovProduct>).Expression, Expression.Quote(Expression.Lambda<Func<CovProduct, decimal>>(unsupDec :?> DefaultExpression, pParam2)))
-    let countIntQ = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1)).MakeGenericMethod(typeof<int>)
-    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, countIntQ, selectUnsupInt)) "Products" [] SqlDialect.Sqlite |> ignore
-    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, sumDecQ, selectUnsupDec)) "Products" [] SqlDialect.Sqlite |> ignore
-    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, minDecQ, selectUnsupDec)) "Products" [] SqlDialect.Sqlite |> ignore
-    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, maxDecQ, selectUnsupDec)) "Products" [] SqlDialect.Sqlite |> ignore
-    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, avgDecQ, selectUnsupDec)) "Products" [] SqlDialect.Sqlite |> ignore
+        let selMi =
+            (typeof<Queryable>.GetMethods()
+             |> Seq.find (fun m -> m.Name = "Select" && m.GetParameters().Length = 2))
+                .MakeGenericMethod(typeof<CovProduct>, typeof<decimal>)
+
+        Expression.Call(
+            null,
+            selMi,
+            (products :> IQueryable<CovProduct>).Expression,
+            Expression.Quote(Expression.Lambda<Func<CovProduct, decimal>>(unsupDec :?> DefaultExpression, pParam2))
+        )
+
+    let countIntQ =
+        (typeof<Queryable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Count" && m.GetParameters().Length = 1))
+            .MakeGenericMethod(typeof<int>)
+
+    ExpressionPushdownTranslator.extractPlanFromExpression
+        (Expression.Call(null, countIntQ, selectUnsupInt))
+        "Products"
+        []
+        SqlDialect.Sqlite
+    |> ignore
+
+    ExpressionPushdownTranslator.extractPlanFromExpression
+        (Expression.Call(null, sumDecQ, selectUnsupDec))
+        "Products"
+        []
+        SqlDialect.Sqlite
+    |> ignore
+
+    ExpressionPushdownTranslator.extractPlanFromExpression
+        (Expression.Call(null, minDecQ, selectUnsupDec))
+        "Products"
+        []
+        SqlDialect.Sqlite
+    |> ignore
+
+    ExpressionPushdownTranslator.extractPlanFromExpression
+        (Expression.Call(null, maxDecQ, selectUnsupDec))
+        "Products"
+        []
+        SqlDialect.Sqlite
+    |> ignore
+
+    ExpressionPushdownTranslator.extractPlanFromExpression
+        (Expression.Call(null, avgDecQ, selectUnsupDec))
+        "Products"
+        []
+        SqlDialect.Sqlite
+    |> ignore
 
     let makeSelectExpr (body: Expression) =
-        let selMi = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Select" && m.GetParameters().Length = 2)).MakeGenericMethod(typeof<CovProduct>, body.Type)
+        let selMi =
+            (typeof<Queryable>.GetMethods()
+             |> Seq.find (fun m -> m.Name = "Select" && m.GetParameters().Length = 2))
+                .MakeGenericMethod(typeof<CovProduct>, body.Type)
+
         let lam = Expression.Lambda(body, pParam2)
         Expression.Call(null, selMi, (products :> IQueryable<CovProduct>).Expression, Expression.Quote(lam))
-    ExpressionPushdownTranslator.extractPlanFromExpression (makeSelectExpr (Expression.New(typeof<Tuple<int>>.GetConstructors().[0], unsupInt))) "Products" [] SqlDialect.Sqlite |> ignore
-    ExpressionPushdownTranslator.extractPlanFromExpression (makeSelectExpr (Expression.Property(unsupStr, "Length"))) "Products" [] SqlDialect.Sqlite |> ignore
-    ExpressionPushdownTranslator.extractPlanFromExpression (makeSelectExpr (Expression.Add(unsupInt, Expression.Constant(1)))) "Products" [] SqlDialect.Sqlite |> ignore
-    ExpressionPushdownTranslator.extractPlanFromExpression (makeSelectExpr (Expression.Call(unsupInt, typeof<obj>.GetMethod("ToString", Type.EmptyTypes)))) "Products" [] SqlDialect.Sqlite |> ignore
-    ExpressionPushdownTranslator.extractPlanFromExpression (makeSelectExpr (Expression.Condition(unsupBool, unsupInt, Expression.Constant(0)))) "Products" [] SqlDialect.Sqlite |> ignore
+
+    ExpressionPushdownTranslator.extractPlanFromExpression
+        (makeSelectExpr (Expression.New(typeof<Tuple<int>>.GetConstructors().[0], unsupInt)))
+        "Products"
+        []
+        SqlDialect.Sqlite
+    |> ignore
+
+    ExpressionPushdownTranslator.extractPlanFromExpression
+        (makeSelectExpr (Expression.Property(unsupStr, "Length")))
+        "Products"
+        []
+        SqlDialect.Sqlite
+    |> ignore
+
+    ExpressionPushdownTranslator.extractPlanFromExpression
+        (makeSelectExpr (Expression.Add(unsupInt, Expression.Constant(1))))
+        "Products"
+        []
+        SqlDialect.Sqlite
+    |> ignore
+
+    ExpressionPushdownTranslator.extractPlanFromExpression
+        (makeSelectExpr (Expression.Call(unsupInt, typeof<obj>.GetMethod("ToString", Type.EmptyTypes))))
+        "Products"
+        []
+        SqlDialect.Sqlite
+    |> ignore
+
+    ExpressionPushdownTranslator.extractPlanFromExpression
+        (makeSelectExpr (Expression.Condition(unsupBool, unsupInt, Expression.Constant(0))))
+        "Products"
+        []
+        SqlDialect.Sqlite
+    |> ignore
 
     // 15e. Final 19 lines: 1-arg Sum/Min/Max/Avg on Default(IQueryable<decimal>), Nullable.Value Select, and LinqInMemoryFallback BinaryExpression
     let unsupIqDec = Expression.Default(typeof<IQueryable<decimal>>) :> Expression
@@ -4564,19 +7052,57 @@ let ``Pushdown comprehensive coverage section 54 - deep AST branches, joins, tup
     evalScalar (Expression.Call(null, maxDecQ, unsupIqDec))
     evalScalar (Expression.Call(null, avgDecQ, unsupIqDec))
 
-    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, sumDecQ, unsupIqDec)) "Products" [] SqlDialect.Sqlite |> ignore
-    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, minDecQ, unsupIqDec)) "Products" [] SqlDialect.Sqlite |> ignore
-    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, maxDecQ, unsupIqDec)) "Products" [] SqlDialect.Sqlite |> ignore
-    ExpressionPushdownTranslator.extractPlanFromExpression (Expression.Call(null, avgDecQ, unsupIqDec)) "Products" [] SqlDialect.Sqlite |> ignore
+    ExpressionPushdownTranslator.extractPlanFromExpression
+        (Expression.Call(null, sumDecQ, unsupIqDec))
+        "Products"
+        []
+        SqlDialect.Sqlite
+    |> ignore
+
+    ExpressionPushdownTranslator.extractPlanFromExpression
+        (Expression.Call(null, minDecQ, unsupIqDec))
+        "Products"
+        []
+        SqlDialect.Sqlite
+    |> ignore
+
+    ExpressionPushdownTranslator.extractPlanFromExpression
+        (Expression.Call(null, maxDecQ, unsupIqDec))
+        "Products"
+        []
+        SqlDialect.Sqlite
+    |> ignore
+
+    ExpressionPushdownTranslator.extractPlanFromExpression
+        (Expression.Call(null, avgDecQ, unsupIqDec))
+        "Products"
+        []
+        SqlDialect.Sqlite
+    |> ignore
 
     let nullDecParam = Expression.Parameter(typeof<Nullable<decimal>>, "nd")
-    let selNullValMi = (typeof<Queryable>.GetMethods() |> Seq.find (fun m -> m.Name = "Select" && m.GetParameters().Length = 2)).MakeGenericMethod(typeof<Nullable<decimal>>, typeof<decimal>)
-    let selNullValCall = Expression.Call(null, selNullValMi, Expression.Default(typeof<IQueryable<Nullable<decimal>>>), Expression.Quote(Expression.Lambda<Func<Nullable<decimal>, decimal>>(Expression.Property(nullDecParam, "Value"), nullDecParam)))
-    ExpressionPushdownTranslator.extractPlanFromExpression selNullValCall "Products" [] SqlDialect.Sqlite |> ignore
+
+    let selNullValMi =
+        (typeof<Queryable>.GetMethods()
+         |> Seq.find (fun m -> m.Name = "Select" && m.GetParameters().Length = 2))
+            .MakeGenericMethod(typeof<Nullable<decimal>>, typeof<decimal>)
+
+    let selNullValCall =
+        Expression.Call(
+            null,
+            selNullValMi,
+            Expression.Default(typeof<IQueryable<Nullable<decimal>>>),
+            Expression.Quote(
+                Expression.Lambda<Func<Nullable<decimal>, decimal>>(
+                    Expression.Property(nullDecParam, "Value"),
+                    nullDecParam
+                )
+            )
+        )
+
+    ExpressionPushdownTranslator.extractPlanFromExpression selNullValCall "Products" [] SqlDialect.Sqlite
+    |> ignore
 
     Assert.Equal(box 3, LinqInMemoryFallback.evaluate (Expression.Add(Expression.Constant(1), Expression.Constant(2))))
 
     Assert.True(true)
-
-
-

@@ -12,22 +12,27 @@ module ExcelConnectorExtensions =
         static member Excel = ConnectorKind("Excel")
 
     type ConnectorCategory with
-        static member Excel = ConnectorCategory("excel", "Excel", "FSharpQueryStudio.Connectors.Connections.ExcelCategory")
+        static member Excel =
+            ConnectorCategory("excel", "Excel", "FSharpQueryStudio.Connectors.Connections.ExcelCategory")
 
 /// Workbook/sheet selection and header options — Section 10's Excel
 /// connector capability shape. `SheetName = None` targets the workbook's
 /// first sheet.
 type ExcelOptions =
-    { SheetName: string option
-      HasHeader: bool
-      ColumnTypes: Map<string, string>
-      ColumnTransforms: Map<string, string> }
+    {
+        SheetName: string option
+        HasHeader: bool
+        ColumnTypes: Map<string, string>
+        ColumnTransforms: Map<string, string>
+    }
 
     static member Default =
-        { SheetName = None
-          HasHeader = true
-          ColumnTypes = Map.empty
-          ColumnTransforms = Map.empty }
+        {
+            SheetName = None
+            HasHeader = true
+            ColumnTypes = Map.empty
+            ColumnTransforms = Map.empty
+        }
 
 /// Reads an `IXLCell`'s value as its natural .NET type (number, boolean,
 /// date, or text) rather than always flattening to a display string.
@@ -55,8 +60,10 @@ module private ExcelCells =
 /// Excel connector — Section 10. `filePath` names a local `.xlsx` file.
 type ExcelConnector(filePath: string, ?options: ExcelOptions) =
     let cleanPath =
-        if System.String.IsNullOrWhiteSpace filePath then ""
-        else filePath.Trim().Trim('"', '\'')
+        if System.String.IsNullOrWhiteSpace filePath then
+            ""
+        else
+            filePath.Trim().Trim('"', '\'')
 
     let options = defaultArg options ExcelOptions.Default
 
@@ -72,8 +79,11 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
     /// stops enumerating worksheet rows as soon as `maxRows` data rows have
     /// been read so large workbooks never materialize unneeded rows.
     member _.ReadRows(?sheetName: string, ?maxRows: int) : ConnectorQueryResult =
-        use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete, 65536)
+        use fs =
+            new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete, 65536)
+
         use workbook = new XLWorkbook(fs)
+
         let sheet =
             match sheetName with
             | Some name -> workbook.Worksheet(name)
@@ -97,11 +107,12 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
 
                 let columns =
                     if options.HasHeader then
-                        [ for c in firstCol .. lastCol -> firstRow.Cell(c).Value.ToString() ]
+                        [ for c in firstCol..lastCol -> firstRow.Cell(c).Value.ToString() ]
                     else
-                        [ for i in 1 .. colCount -> $"Column{i}" ]
+                        [ for i in 1..colCount -> $"Column{i}" ]
 
                 let hasTransforms = not options.ColumnTransforms.IsEmpty
+
                 let applyColTransform (colName: string) (valObj: obj) : obj =
                     match options.ColumnTransforms.TryFind colName with
                     | Some expr -> ColumnTransformation.applyTransform expr valObj
@@ -110,31 +121,50 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
                 let readRowArray (row: IXLRow) : obj array =
                     let arr = Array.zeroCreate<obj> colCount
                     let mutable hasAny = false
+
                     for cell in row.Cells(firstCol, lastCol) do
                         let idx = cell.Address.ColumnNumber - firstCol
+
                         if idx >= 0 && idx < colCount then
                             let raw = ExcelCells.value cell
-                            if not (isNull raw) then hasAny <- true
+
+                            if not (isNull raw) then
+                                hasAny <- true
+
                             if hasTransforms && idx < columns.Length then
                                 arr.[idx] <- applyColTransform columns.[idx] raw
                             else
                                 arr.[idx] <- raw
+
                     if hasAny then arr else [||]
 
                 let limit = defaultArg maxRows System.Int32.MaxValue
-                let startRow = if options.HasHeader then firstRow.RowNumber() + 1 else firstRow.RowNumber()
+
+                let startRow =
+                    if options.HasHeader then
+                        firstRow.RowNumber() + 1
+                    else
+                        firstRow.RowNumber()
+
                 let totalAvailable = lastRow.RowNumber() - startRow + 1
                 let rowsToTake = if totalAvailable <= 0 then 0 else min totalAvailable limit
 
-                let collected = ResizeArray<obj array>(if rowsToTake < 10000 then rowsToTake else 10000)
+                let collected =
+                    ResizeArray<obj array>(if rowsToTake < 10000 then rowsToTake else 10000)
+
                 if rowsToTake > 0 then
                     let endRow = startRow + rowsToTake - 1
+
                     for r in sheet.Rows(startRow, endRow) do
                         let rowArr = readRowArray r
+
                         if rowArr.Length > 0 then
                             collected.Add(rowArr)
 
-                { Columns = columns; Rows = collected.ToArray() :> seq<obj array> }
+                {
+                    Columns = columns
+                    Rows = collected.ToArray() :> seq<obj array>
+                }
 
     interface IConnector with
         member _.Kind = ConnectorKind.Excel
@@ -145,7 +175,15 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
         /// header-derived columns and inferred or explicitly configured
         /// data types per `options.ColumnTypes` and `options.ColumnTransforms`.
         member _.DiscoverSchemaAsync(_ct: CancellationToken) : Task<ConnectorTable list> =
-            use fs = new FileStream(cleanPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite ||| FileShare.Delete, 65536)
+            use fs =
+                new FileStream(
+                    cleanPath,
+                    FileMode.Open,
+                    FileAccess.Read,
+                    FileShare.ReadWrite ||| FileShare.Delete,
+                    65536
+                )
+
             use workbook = new XLWorkbook(fs)
 
             let tables =
@@ -153,11 +191,13 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
                 |> Seq.map (fun sheet ->
                     let firstRow = sheet.FirstRowUsed()
                     let lastRow = sheet.LastRowUsed()
+
                     if isNull firstRow || isNull lastRow then
                         { Name = sheet.Name; Columns = [] }: ConnectorTable
                     else
                         let firstCell = firstRow.FirstCellUsed()
                         let lastCell = firstRow.LastCellUsed()
+
                         if isNull firstCell || isNull lastCell then
                             { Name = sheet.Name; Columns = [] }: ConnectorTable
                         else
@@ -167,47 +207,200 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
 
                             let columnNames =
                                 if options.HasHeader then
-                                    [ for c in firstCol .. lastCol -> firstRow.Cell(c).Value.ToString() ]
+                                    [ for c in firstCol..lastCol -> firstRow.Cell(c).Value.ToString() ]
                                 else
-                                    [ for i in 1 .. colCount -> $"Column{i}" ]
+                                    [ for i in 1..colCount -> $"Column{i}" ]
 
-                            let startRow = if options.HasHeader then firstRow.RowNumber() + 1 else firstRow.RowNumber()
+                            let startRow =
+                                if options.HasHeader then
+                                    firstRow.RowNumber() + 1
+                                else
+                                    firstRow.RowNumber()
+
                             let maxSample = min (lastRow.RowNumber()) (startRow + 200 - 1)
+
                             let dataRows =
                                 if maxSample >= startRow then
                                     sheet.Rows(startRow, maxSample) |> Seq.toList
                                 else
                                     []
 
-                            let effectiveDataRows =
-                                if options.HasHeader then dataRows
-                                else firstRow :: dataRows
+                            let effectiveDataRows = if options.HasHeader then dataRows else firstRow :: dataRows
 
                             let colsWithTypes =
                                 columnNames
                                 |> List.mapi (fun idx colName ->
                                     let explicitType = options.ColumnTypes.TryFind colName
+
                                     let colType =
                                         match explicitType with
                                         | Some t -> t
                                         | None ->
                                             let transform = options.ColumnTransforms.TryFind colName
+
                                             let samples =
                                                 effectiveDataRows
                                                 |> Seq.map (fun r ->
                                                     let cellVal = ExcelCells.value (r.Cell(firstCol + idx))
+
                                                     let transformed =
                                                         match transform with
-                                                        | Some expr -> ColumnTransformation.applyTransform expr cellVal
+                                                        | Some expr ->
+                                                            ColumnTransformation.applyTransform expr cellVal
                                                         | None -> cellVal
-                                                    if isNull transformed then ""
-                                                    else System.Convert.ToString(transformed, System.Globalization.CultureInfo.InvariantCulture)
-                                                )
-                                            TabularTypeInference.inferType samples
-                                    { Name = colName; DataType = colType }: ConnectorColumn
-                                )
 
-                            { Name = sheet.Name; Columns = colsWithTypes }: ConnectorTable)
+                                                    if isNull transformed then
+                                                        ""
+                                                    else
+                                                        System.Convert.ToString(
+                                                            transformed,
+                                                            System.Globalization.CultureInfo.InvariantCulture
+                                                        ))
+
+                                            TabularTypeInference.inferType samples
+
+                                    { Name = colName; DataType = colType }: ConnectorColumn)
+
+                            {
+                                Name = sheet.Name
+                                Columns = colsWithTypes
+                            }
+                            : ConnectorTable)
                 |> List.ofSeq
 
             Task.FromResult tables
+
+    member this.StageSheet
+        (engine: IStagingEngine, connName: string, sheetName: string, maxRows: int option, isPrimary: bool)
+        : string =
+        let compoundKey = $"{connName}_{sheetName}"
+
+        let colTypes =
+            if options.ColumnTypes.IsEmpty then
+                None
+            else
+                Some options.ColumnTypes
+
+        let cleanTableName =
+            engine.EnsureStaged(
+                compoundKey,
+                cleanPath,
+                (fun () -> this.ReadRows(sheetName = sheetName, ?maxRows = maxRows)),
+                ?columnTypes = colTypes
+            )
+
+        engine.EnsureAliasView(sheetName, cleanTableName)
+
+        if isPrimary then
+            engine.EnsureAliasView(connName, cleanTableName)
+            let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(cleanPath)
+
+            if not (System.String.IsNullOrWhiteSpace fileBaseName) then
+                engine.EnsureAliasView(fileBaseName, cleanTableName)
+
+        cleanTableName
+
+    interface IStagableConnector with
+        member _.FilePath = cleanPath
+
+        member this.StageConnection
+            (
+                engine: IStagingEngine,
+                connName: string,
+                currentIndex: int,
+                totalCount: int,
+                onProgress: (StagingProgressEvent -> unit) option
+            ) : StagingResult =
+            let fullPath = cleanPath
+            let mutable staged = 0
+            let mutable skipped = 0
+
+            if System.IO.File.Exists fullPath then
+                engine.DropStaleTableIfExists(connName, fullPath)
+
+                let tables =
+                    try
+                        (this :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
+                    with _ ->
+                        []
+
+                for tblIdx, tbl in List.indexed tables do
+                    let sheetName = tbl.Name
+                    let compoundKey = $"{connName}_{sheetName}"
+
+                    let cleanTableName =
+                        if engine.IsStagedAndCurrent(compoundKey, fullPath) then
+                            skipped <- skipped + 1
+
+                            match onProgress with
+                            | Some cb ->
+                                cb
+                                    {
+                                        TableName = compoundKey
+                                        FilePath = fullPath
+                                        Phase = "Skipped"
+                                        RowCount = None
+                                        CurrentIndex = Some currentIndex
+                                        TotalCount = Some totalCount
+                                        ElapsedMs = Some 0L
+                                        Message = Some $"'{compoundKey}' is up-to-date in cache"
+                                    }
+                            | None -> ()
+
+                            let clean = CodeGenerationHelpers.cleanIdentifier compoundKey
+
+                            if System.String.IsNullOrWhiteSpace clean then
+                                "StagedFile"
+                            else
+                                clean
+                        else
+                            let s =
+                                engine.EnsureStaged(
+                                    compoundKey,
+                                    fullPath,
+                                    (fun () -> this.ReadRows(sheetName = sheetName)),
+                                    ?columnTypes =
+                                        (if options.ColumnTypes.IsEmpty then
+                                             None
+                                         else
+                                             Some options.ColumnTypes),
+                                    currentIndex = currentIndex,
+                                    totalCount = totalCount,
+                                    ?onProgress = onProgress
+                                )
+
+                            staged <- staged + 1
+                            s
+
+                    engine.EnsureAliasView(sheetName, cleanTableName)
+
+                    if tblIdx = 0 then
+                        engine.EnsureAliasView(connName, cleanTableName)
+                        let fileBaseName = System.IO.Path.GetFileNameWithoutExtension(fullPath)
+
+                        if not (System.String.IsNullOrWhiteSpace fileBaseName) then
+                            engine.EnsureAliasView(fileBaseName, cleanTableName)
+
+            {
+                StagedCount = staged
+                SkippedCount = skipped
+            }
+
+        member this.StagePrimaryTable(engine: IStagingEngine, connName: string) =
+            let defaultSheet =
+                match options.SheetName with
+                | Some s when not (System.String.IsNullOrWhiteSpace s) -> s
+                | _ ->
+                    let tables =
+                        try
+                            (this :> IConnector).DiscoverSchemaAsync(CancellationToken.None).GetAwaiter().GetResult()
+                        with _ ->
+                            []
+
+                    match tables with
+                    | first :: _ -> first.Name
+                    | [] -> "Sheet1"
+
+            this.StageSheet(engine, connName, defaultSheet, None, true)
+
+        member this.ReadRaw(maxRows: int option) = this.ReadRows(?maxRows = maxRows)

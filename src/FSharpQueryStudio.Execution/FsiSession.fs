@@ -11,18 +11,27 @@ open FSharp.Compiler.Interactive.Shell
 module FsiSession =
 
     type Session =
-        { Fsi: FsiEvaluationSession
-          Output: StringWriter
-          Errors: StringWriter
-          mutable GeneratedContent: string
-          mutable GeneratedTimestamp: DateTime }
+        {
+            Fsi: FsiEvaluationSession
+            Output: StringWriter
+            Errors: StringWriter
+            mutable GeneratedContent: string
+            mutable GeneratedTimestamp: DateTime
+        }
 
     let private resolveGeneratedFile (workingDirectory: string) (workspaceDirectory: string) : string =
         let cleanWsDir =
-            if String.IsNullOrEmpty workspaceDirectory then ""
+            if String.IsNullOrEmpty workspaceDirectory then
+                ""
             else
                 let unescaped = Uri.UnescapeDataString workspaceDirectory
-                if unescaped.Length >= 3 && (unescaped.[0] = '/' || unescaped.[0] = '\\') && Char.IsLetter(unescaped.[1]) && unescaped.[2] = ':' then
+
+                if
+                    unescaped.Length >= 3
+                    && (unescaped.[0] = '/' || unescaped.[0] = '\\')
+                    && Char.IsLetter(unescaped.[1])
+                    && unescaped.[2] = ':'
+                then
                     unescaped.Substring(1)
                 else
                     unescaped
@@ -32,13 +41,19 @@ module FsiSession =
                 Path.Combine(cleanWsDir, ".fsqs", "generated", "GeneratedEntities.fs")
             else
                 ""
+
         let wsGenerated =
             if not (String.IsNullOrEmpty cleanWsDir) then
                 Path.Combine(cleanWsDir, "generated", "GeneratedEntities.fs")
             else
                 ""
-        let localGeneratedFsqs = Path.Combine(workingDirectory, ".fsqs", "generated", "GeneratedEntities.fs")
-        let localGenerated = Path.Combine(workingDirectory, "generated", "GeneratedEntities.fs")
+
+        let localGeneratedFsqs =
+            Path.Combine(workingDirectory, ".fsqs", "generated", "GeneratedEntities.fs")
+
+        let localGenerated =
+            Path.Combine(workingDirectory, "generated", "GeneratedEntities.fs")
+
         if not (String.IsNullOrEmpty wsGeneratedFsqs) && File.Exists wsGeneratedFsqs then
             wsGeneratedFsqs
         elif not (String.IsNullOrEmpty wsGenerated) && File.Exists wsGenerated then
@@ -52,25 +67,43 @@ module FsiSession =
 
     let refreshGeneratedEntities (workingDirectory: string) (workspaceDirectory: string) (session: Session) : unit =
         let generatedFile = resolveGeneratedFile workingDirectory workspaceDirectory
+
         if not (String.IsNullOrEmpty generatedFile) && File.Exists generatedFile then
             let lastWrite =
-                try File.GetLastWriteTimeUtc generatedFile
-                with _ -> DateTime.UtcNow
+                try
+                    File.GetLastWriteTimeUtc generatedFile
+                with _ ->
+                    DateTime.UtcNow
+
             if lastWrite <> session.GeneratedTimestamp then
                 let currentContent =
-                    try File.ReadAllText generatedFile
-                    with _ -> ""
-                if not (String.IsNullOrWhiteSpace currentContent) && currentContent <> session.GeneratedContent then
-                    let generatedLoad = $"#load @\"{generatedFile}\"\nopen FSharpQueryStudio.Generated\n"
+                    try
+                        File.ReadAllText generatedFile
+                    with _ ->
+                        ""
+
+                if
+                    not (String.IsNullOrWhiteSpace currentContent)
+                    && currentContent <> session.GeneratedContent
+                then
+                    let generatedLoad =
+                        $"#load @\"{generatedFile}\"\nopen FSharpQueryStudio.Generated\n"
+
                     let choice, errs = session.Fsi.EvalInteractionNonThrowing(generatedLoad)
                     session.Output.GetStringBuilder().Clear() |> ignore
                     session.Errors.GetStringBuilder().Clear() |> ignore
+
                     match choice with
                     | Choice2Of2 ex ->
-                        let diag = errs |> Seq.map (fun (e: FSharp.Compiler.Diagnostics.FSharpDiagnostic) -> sprintf "[L%d:C%d: %s]" e.StartLine e.StartColumn e.Message) |> String.concat "; "
+                        let diag =
+                            errs
+                            |> Seq.map (fun (e: FSharp.Compiler.Diagnostics.FSharpDiagnostic) ->
+                                sprintf "[L%d:C%d: %s]" e.StartLine e.StartColumn e.Message)
+                            |> String.concat "; "
+
                         failwithf "#load of '%s' failed: %s (Diagnostics: %s)" generatedFile ex.Message diag
-                    | Choice1Of2 _ ->
-                        session.GeneratedContent <- currentContent
+                    | Choice1Of2 _ -> session.GeneratedContent <- currentContent
+
                 session.GeneratedTimestamp <- lastWrite
 
     type private StudioFsiHostConfig(inner: FsiEvaluationSessionHostConfig) =
@@ -131,11 +164,13 @@ module FsiSession =
             typeof<FSharpQueryStudio.Results.PagingCursor>.Assembly.Location
 
         let baseDir = Path.GetDirectoryName(connectorsAssemblyPath)
+
         let studioAssemblies =
             if not (String.IsNullOrEmpty baseDir) && Directory.Exists baseDir then
                 Directory.GetFiles(baseDir, "FSharpQueryStudio.*.dll")
                 |> Array.filter (fun p ->
                     let name = Path.GetFileName p
+
                     not (name.EndsWith(".Tests.dll", StringComparison.OrdinalIgnoreCase))
                     && not (name.Equals("FSharpQueryStudio.Worker.dll", StringComparison.OrdinalIgnoreCase))
                     && not (name.Equals("FSharpQueryStudio.Fsac.dll", StringComparison.OrdinalIgnoreCase)))
@@ -145,20 +180,28 @@ module FsiSession =
                 [ abstractionsAssemblyPath ]
 
         let allRefPaths =
-            ([ protocolAssemblyPath; securityAssemblyPath; abstractionsAssemblyPath ] @ studioAssemblies @ [ connectorsAssemblyPath; resultsAssemblyPath ])
+            ([ protocolAssemblyPath; securityAssemblyPath; abstractionsAssemblyPath ]
+             @ studioAssemblies
+             @ [ connectorsAssemblyPath; resultsAssemblyPath ])
             |> List.filter (fun p -> not (String.IsNullOrWhiteSpace p))
             |> List.distinct
 
-        let refArgs =
-            allRefPaths
-            |> List.map (fun p -> $"-r:{p}")
-            |> List.toArray
+        let refArgs = allRefPaths |> List.map (fun p -> $"-r:{p}") |> List.toArray
 
         let argv =
-            Array.concat [
-                [| "fsi.exe"; "--noninteractive"; "--nologo"; "--gui-"; "--readline-"; "--simpleresolution" |]
-                refArgs
-            ]
+            Array.concat
+                [
+                    [|
+                        "fsi.exe"
+                        "--noninteractive"
+                        "--nologo"
+                        "--gui-"
+                        "--readline-"
+                        "--simpleresolution"
+                    |]
+                    refArgs
+                ]
+
         let config = StudioFsiHostConfig(FsiEvaluationSession.GetDefaultConfiguration())
 
         let fsi =
@@ -170,11 +213,13 @@ module FsiSession =
         fsi.EvalInteractionNonThrowing(basePrologue) |> ignore
 
         let session =
-            { Fsi = fsi
-              Output = output
-              Errors = errors
-              GeneratedContent = ""
-              GeneratedTimestamp = DateTime.MinValue }
+            {
+                Fsi = fsi
+                Output = output
+                Errors = errors
+                GeneratedContent = ""
+                GeneratedTimestamp = DateTime.MinValue
+            }
 
         refreshGeneratedEntities workingDirectory workspaceDirectory session
 
@@ -187,5 +232,4 @@ module FsiSession =
 
         session
 
-    let create (workingDirectory: string) : Session =
-        createInWorkspace workingDirectory ""
+    let create (workingDirectory: string) : Session = createInWorkspace workingDirectory ""

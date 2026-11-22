@@ -82,7 +82,10 @@ let ``evaluate trims large StringBuilder output buffer capacity after large prin
             let work =
                 task {
                     let session = FsiSession.create workDir
-                    let largeOutputScript = "for i in 1 .. 2000 do printfn \"Large output row number %d\" i"
+
+                    let largeOutputScript =
+                        "for i in 1 .. 2000 do printfn \"Large output row number %d\" i"
+
                     let _ = Evaluation.evaluate session largeOutputScript
                     Assert.True(session.Output.GetStringBuilder().Capacity <= 4096)
                     Assert.True(session.Errors.GetStringBuilder().Capacity <= 4096)
@@ -272,7 +275,11 @@ let ``persistent mode: editing already-executed text invalidates the session, dr
 
             let! round3Outcome = round3 |> withTimeout 45.0
 
-            Assert.True(round3Outcome.Exception.IsSome, "expected 'y' to be undefined against the fresh, post-invalidation session")
+            Assert.True(
+                round3Outcome.Exception.IsSome,
+                "expected 'y' to be undefined against the fresh, post-invalidation session"
+            )
+
             Assert.NotEmpty(round3Outcome.Diagnostics)
         finally
             SessionStore.reset key

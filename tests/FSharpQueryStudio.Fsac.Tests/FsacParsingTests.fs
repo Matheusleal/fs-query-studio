@@ -15,7 +15,8 @@ let ``mapSeverity maps 1 to Error, 2 to Warning, and others or None to Informati
 
 [<Fact>]
 let ``parseDiagnostics handles Warning, Information, and code formats (number, string, none)`` () =
-    let json = """
+    let json =
+        """
     {
         "diagnostics": [
             {
@@ -37,6 +38,7 @@ let ``parseDiagnostics handles Warning, Information, and code formats (number, s
         ]
     }
     """
+
     use doc = JsonDocument.Parse json
     let diags = FsacParsing.parseDiagnostics "file:///test.fsx" doc.RootElement
     Assert.Equal(3, diags.Length)
@@ -62,7 +64,13 @@ let ``parseFirstLocation handles null, empty array, Location, LocationLink, and 
     Assert.True(FsacParsing.parseFirstLocation numberEl |> Option.isNone)
 
     // Location (range + uri) in array
-    let locArr = JsonDocument.Parse("""[{"uri": "file:///path/a.fs", "range": {"start": {"line": 10, "character": 5}, "end": {"line": 10, "character": 10}}}]""").RootElement
+    let locArr =
+        JsonDocument
+            .Parse(
+                """[{"uri": "file:///path/a.fs", "range": {"start": {"line": 10, "character": 5}, "end": {"line": 10, "character": 10}}}]"""
+            )
+            .RootElement
+
     let resLoc = FsacParsing.parseFirstLocation locArr
     Assert.True(resLoc.IsSome)
     let uri1, range1 = resLoc.Value
@@ -70,7 +78,13 @@ let ``parseFirstLocation handles null, empty array, Location, LocationLink, and 
     Assert.Equal(10, range1.GetProperty("start").GetProperty("line").GetInt32())
 
     // LocationLink (targetUri + targetRange) in array
-    let linkArr = JsonDocument.Parse("""[{"targetUri": "file:///path/b.fs", "targetRange": {"start": {"line": 20, "character": 2}, "end": {"line": 20, "character": 8}}}]""").RootElement
+    let linkArr =
+        JsonDocument
+            .Parse(
+                """[{"targetUri": "file:///path/b.fs", "targetRange": {"start": {"line": 20, "character": 2}, "end": {"line": 20, "character": 8}}}]"""
+            )
+            .RootElement
+
     let resLink = FsacParsing.parseFirstLocation linkArr
     Assert.True(resLink.IsSome)
     let uri2, range2 = resLink.Value
@@ -78,7 +92,13 @@ let ``parseFirstLocation handles null, empty array, Location, LocationLink, and 
     Assert.Equal(20, range2.GetProperty("start").GetProperty("line").GetInt32())
 
     // Direct Object Location
-    let objLoc = JsonDocument.Parse("""{"uri": "file:///path/c.fs", "range": {"start": {"line": 30, "character": 0}, "end": {"line": 30, "character": 4}}}""").RootElement
+    let objLoc =
+        JsonDocument
+            .Parse(
+                """{"uri": "file:///path/c.fs", "range": {"start": {"line": 30, "character": 0}, "end": {"line": 30, "character": 4}}}"""
+            )
+            .RootElement
+
     let resObj = FsacParsing.parseFirstLocation objLoc
     Assert.True(resObj.IsSome)
     let uri3, range3 = resObj.Value
@@ -129,18 +149,24 @@ let ``stripSymbolKind and parseHoverMarkdown handle various symbol kinds and mar
     Assert.Equal("", emptyHover.DisplayName)
 
     // Markdown with docs and boilerplate filtering
-    let mdJson = """
+    let mdJson =
+        """
     [
         "`val add: int -> int -> int`",
         "<a href=\"...\">docs</a>\n*Full name: Module.add\n*Assembly: Test\nComputes sum of two numbers."
     ]
     """
-    let hoverMd = FsacParsing.parseHoverMarkdown (JsonDocument.Parse(mdJson).RootElement)
+
+    let hoverMd =
+        FsacParsing.parseHoverMarkdown (JsonDocument.Parse(mdJson).RootElement)
+
     Assert.Equal("val add: int -> int -> int", hoverMd.Signature.Value)
     Assert.Equal(Some "Computes sum of two numbers.", hoverMd.XmlDoc)
 
     // Non-array contents object
-    let objContents = JsonDocument.Parse("""{"value": "val simple : string"}""").RootElement
+    let objContents =
+        JsonDocument.Parse("""{"value": "val simple : string"}""").RootElement
+
     let hoverObj = FsacParsing.parseHoverMarkdown objContents
     Assert.Equal("simple", hoverObj.DisplayName)
     Assert.Equal("string", hoverObj.Type)
@@ -162,14 +188,18 @@ let ``parseItem and parseCompletionItems cover label formats, details, and kinds
     Assert.True(FsacParsing.parseItem noLabel |> Option.isNone)
 
     // Item with structured label (CompletionItemLabelDetails)
-    let structuredLabel = JsonDocument.Parse("""{"label": {"label": "MyItem", "description": ": System.Int32"}, "kind": 6}""").RootElement
+    let structuredLabel =
+        JsonDocument.Parse("""{"label": {"label": "MyItem", "description": ": System.Int32"}, "kind": 6}""").RootElement
+
     let itemStructured = FsacParsing.parseItem structuredLabel
     Assert.True(itemStructured.IsSome)
     Assert.Equal("MyItem", itemStructured.Value.Label)
     Assert.Equal(Some "int", itemStructured.Value.Detail)
 
     // Structured label without inner label
-    let invalidStructured = JsonDocument.Parse("""{"label": {"description": "desc"}}""").RootElement
+    let invalidStructured =
+        JsonDocument.Parse("""{"label": {"description": "desc"}}""").RootElement
+
     Assert.True(FsacParsing.parseItem invalidStructured |> Option.isNone)
 
     // Kinds without detail mapping to default strings
@@ -199,37 +229,55 @@ let ``parseItem and parseCompletionItems cover label formats, details, and kinds
     testKind 23 "event"
     testKind 24 "operator"
     testKind 25 "type"
-    
+
     // unknown kind -> None detail
-    let unknownKind = JsonDocument.Parse("""{"label": "item99", "kind": 99}""").RootElement
+    let unknownKind =
+        JsonDocument.Parse("""{"label": "item99", "kind": 99}""").RootElement
+
     Assert.Equal(None, (FsacParsing.parseItem unknownKind).Value.Detail)
 
     // Detail with colon and with clause
-    let detailWithWith = JsonDocument.Parse("""{"label": "prop", "kind": 10, "detail": "prop: System.String with get, set"}""").RootElement
+    let detailWithWith =
+        JsonDocument
+            .Parse("""{"label": "prop", "kind": 10, "detail": "prop: System.String with get, set"}""")
+            .RootElement
+
     Assert.Equal(Some "string", (FsacParsing.parseItem detailWithWith).Value.Detail)
 
     // Detail with colon and no with
-    let detailColon = JsonDocument.Parse("""{"label": "func", "kind": 6, "detail": "x: System.Int32"}""").RootElement
+    let detailColon =
+        JsonDocument.Parse("""{"label": "func", "kind": 6, "detail": "x: System.Int32"}""").RootElement
+
     Assert.Equal(Some "int", (FsacParsing.parseItem detailColon).Value.Detail)
 
     // Plain detail with colon on other kind
-    let otherColon = JsonDocument.Parse("""{"label": "item", "kind": 1, "detail": "foo: bar"}""").RootElement
+    let otherColon =
+        JsonDocument.Parse("""{"label": "item", "kind": 1, "detail": "foo: bar"}""").RootElement
+
     Assert.Equal(Some "bar", (FsacParsing.parseItem otherColon).Value.Detail)
 
     // Detail without colon on kind that isn't field/prop/var/val
-    let plainDetail = JsonDocument.Parse("""{"label": "custom", "kind": 99, "detail": "Custom detail"}""").RootElement
+    let plainDetail =
+        JsonDocument.Parse("""{"label": "custom", "kind": 99, "detail": "Custom detail"}""").RootElement
+
     Assert.Equal(Some "Custom detail", (FsacParsing.parseItem plainDetail).Value.Detail)
 
     // method kind with detail returns "method"
-    let methodWithDetail = JsonDocument.Parse("""{"label": "ToString", "kind": 2, "detail": "obj.ToString() : string"}""").RootElement
+    let methodWithDetail =
+        JsonDocument.Parse("""{"label": "ToString", "kind": 2, "detail": "obj.ToString() : string"}""").RootElement
+
     Assert.Equal(Some "method", (FsacParsing.parseItem methodWithDetail).Value.Detail)
 
     // Whitespace detail falls back to kind
-    let whitespaceDetail = JsonDocument.Parse("""{"label": "item", "detail": "   ", "kind": 1}""").RootElement
+    let whitespaceDetail =
+        JsonDocument.Parse("""{"label": "item", "detail": "   ", "kind": 1}""").RootElement
+
     Assert.Equal(Some "text", (FsacParsing.parseItem whitespaceDetail).Value.Detail)
 
     // Description in label with whitespace falls back to kind
-    let descWhitespace = JsonDocument.Parse("""{"label": {"label": "prop", "description": "   "}, "kind": 1}""").RootElement
+    let descWhitespace =
+        JsonDocument.Parse("""{"label": {"label": "prop", "description": "   "}, "kind": 1}""").RootElement
+
     Assert.Equal(Some "text", (FsacParsing.parseItem descWhitespace).Value.Detail)
 
     // parseCompletionItems with null, array, and object { items: [...] }
@@ -237,10 +285,14 @@ let ``parseItem and parseCompletionItems cover label formats, details, and kinds
     Assert.Empty(FsacParsing.parseCompletionItems (JsonDocument.Parse("123").RootElement))
     Assert.Empty(FsacParsing.parseCompletionItems (JsonDocument.Parse("{}").RootElement))
 
-    let directArr = JsonDocument.Parse("""[{"label": "A"}, {"label": "B"}, {"label": "A"}]""").RootElement
+    let directArr =
+        JsonDocument.Parse("""[{"label": "A"}, {"label": "B"}, {"label": "A"}]""").RootElement
+
     let itemsDirect = FsacParsing.parseCompletionItems directArr
     Assert.Equal(2, itemsDirect.Length) // DistinctBy Label
 
-    let wrappedObj = JsonDocument.Parse("""{"items": [{"label": "X"}, {"label": "Y"}]}""").RootElement
+    let wrappedObj =
+        JsonDocument.Parse("""{"items": [{"label": "X"}, {"label": "Y"}]}""").RootElement
+
     let itemsWrapped = FsacParsing.parseCompletionItems wrappedObj
     Assert.Equal(2, itemsWrapped.Length)

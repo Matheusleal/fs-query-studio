@@ -3,39 +3,42 @@ namespace FSharpQueryStudio.Benchmarks
 open System
 open System.Diagnostics
 
-type BenchmarkMetric = {
-    Category: string
-    Name: string
-    Iterations: int
-    TotalElapsedMs: double
-    MeanElapsedMs: double
-    MinElapsedMs: double
-    MaxElapsedMs: double
-    P95ElapsedMs: double
-    UserCpuMs: double
-    PrivilegedCpuMs: double
-    TotalCpuMs: double
-    CpuPercentage: double
-    AllocatedBytes: int64
-    AllocatedPerOpKb: double
-    Gen0Collections: int
-    Gen1Collections: int
-    Gen2Collections: int
-    PeakWorkingSetMb: double
-}
+type BenchmarkMetric =
+    {
+        Category: string
+        Name: string
+        Iterations: int
+        TotalElapsedMs: double
+        MeanElapsedMs: double
+        MinElapsedMs: double
+        MaxElapsedMs: double
+        P95ElapsedMs: double
+        UserCpuMs: double
+        PrivilegedCpuMs: double
+        TotalCpuMs: double
+        CpuPercentage: double
+        AllocatedBytes: int64
+        AllocatedPerOpKb: double
+        Gen0Collections: int
+        Gen1Collections: int
+        Gen2Collections: int
+        PeakWorkingSetMb: double
+    }
 
 module BenchmarkRunner =
 
     let private calculatePercentile (sorted: double[]) (percentile: double) : double =
-        if sorted.Length = 0 then 0.0
-        elif sorted.Length = 1 then sorted.[0]
+        if sorted.Length = 0 then
+            0.0
+        elif sorted.Length = 1 then
+            sorted.[0]
         else
             let idx = int (Math.Ceiling(percentile * double sorted.Length)) - 1
             sorted.[Math.Clamp(idx, 0, sorted.Length - 1)]
 
     let run (category: string) (name: string) (iterations: int) (warmup: int) (action: unit -> 'T) : BenchmarkMetric =
         // Warmup runs
-        for _ in 1 .. warmup do
+        for _ in 1..warmup do
             action () |> ignore
 
         // Force GC clean state before benchmark measurement
@@ -74,7 +77,13 @@ module BenchmarkRunner =
         let userCpu = (endUserCpu - startUserCpu).TotalMilliseconds
         let privCpu = (endPrivCpu - startPrivCpu).TotalMilliseconds
         let totalCpu = userCpu + privCpu
-        let cpuPct = if totalElapsed > 0.0 then Math.Min(100.0, (totalCpu / (totalElapsed * double Environment.ProcessorCount)) * 100.0) else 0.0
+
+        let cpuPct =
+            if totalElapsed > 0.0 then
+                Math.Min(100.0, (totalCpu / (totalElapsed * double Environment.ProcessorCount)) * 100.0)
+            else
+                0.0
+
         let totalAlloc = Math.Max(0L, endAllocated - startAllocated)
         let allocPerOp = (double totalAlloc / double iterations) / 1024.0
         let peakWs = double proc.PeakWorkingSet64 / (1024.0 * 1024.0)

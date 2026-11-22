@@ -1,0 +1,29 @@
+# Task Ledger: Melhorias de Qualidade de Código e Desacoplamento
+
+## Fase 1: Confiabilidade Crítica do Backend (Quick Wins & Thread Safety)
+- [x] TASK-001: Implementar `TryReadAsync` em `ISecretStore` e `BridgeSecretStore` (eliminar `.Wait()`)
+- [x] TASK-002: Atualizar `IConnectionResolver` e `WorkspaceConnectionResolver` para consumo assíncrono de segredos
+- [x] TASK-003: Corrigir dupla execução no `SqliteConnector` preservando cursor ativo em stream único
+- [x] TASK-004: Implementar leitura em buffer no `LspTransport.fs` do `Fsac`
+- [ ] TASK-005: Purificar `FSharpQueryStudio.Protocol/Results.fs` (mover `ToRawSql` para Connectors e remover `ResultKindState`)
+- [ ] TASK-006: Validar testes unitários do Backend (`FSharpQueryStudio.Worker.Tests`) e adicionar testes para cada melhoria (mínimo 2 por cenário)
+
+## Fase 2: Modularização e Confiabilidade do Frontend
+- [x] TASK-007: Extrair `ConnectionHealthService` e desacoplar retries e timers da `ConnectionsTreeProvider`
+- [x] TASK-008: Extrair `StatusBarManager`, `DataSourcesWatcher` e `BackgroundOrchestrator` de `extension.ts`
+- [x] TASK-009: Extrair `registerSampleDataCommands` e modularizar `extension.ts` para < 200 linhas
+- [x] TASK-010: Implementar limpeza de event listeners com `AbortController` e estilo único no `renderer/index.ts`
+- [x] TASK-011: Validar testes do Frontend (`npm test` / Vitest) e cobertura
+
+## Fase 3: Validação Completa de Release e E2E
+- [x] TASK-012: Executar validação E2E com `node editors/vscode/test_all_samples_e2e.mjs`
+- [x] TASK-013: Executar build completo de release e empacotamento VSIX (`dotnet fsi .\build.fsx release`)
+- [x] TASK-014: Auditoria de conformidade SDD e atualização de documentação
+
+## Fase 4: Desacoplamento e Decomposição de Super-Arquivos (> 500 linhas)
+- [x] TASK-015: Modularizar `AdvancedSampleGenerator.fs` (de 2.765 linhas para 170 linhas) extraindo `AdvancedSampleInitScripts.fs`, `AdvancedSampleNotebookCommon.fs`, `AdvancedSampleNotebooksEngines.fs`, `AdvancedSampleNotebooksPostgres.fs`, `AdvancedSampleNotebooksSqlServer.fs`
+- [x] TASK-016: Modularizar `Connections.fs` (de 1.911 linhas para 1.549 linhas) extraindo `DatabaseEntityGenerator.fs` e `ConnectionExtensions.fs`
+- [x] TASK-017: Modularizar `SampleDataGenerator.fs` (de 3.941 linhas para 140 linhas) extraindo `SampleDataSqlite.fs`, `SampleDataFiles.fs`, `SampleDemoNotebookEn.fs` e `SampleDemoNotebookPt.fs`
+- [x] TASK-018: Modularizar `SqlPushdownQuery.fs` (de 4.809 linhas para 1.083 linhas) extraindo `ExpressionPushdownTranslator.fs` e `SqlComputationExtensions.fs`
+- [x] TASK-019: Modularizar `extension.ts` (de 853 linhas para 264 linhas) extraindo `services/health-check.ts`, `ui/status-bar.ts` e `commands/workspace-commands.ts`
+- [x] TASK-020: Executar validação integral (552 testes unitários Connectors, 491 testes frontend, release build e E2E dos 12 notebooks com 214/214 células aprovadas) e atualizar PR

@@ -45,6 +45,18 @@ function isSqlServerReady() {
   }
 }
 
+function isMySqlReady() {
+  try {
+    const res = execSync('docker exec fsqs-mysql mysql -u root -pPassword123! -e "SELECT 1" fsqs_demo', {
+      stdio: ["pipe", "pipe", "ignore"],
+      encoding: "utf-8",
+    });
+    return res.includes("1");
+  } catch {
+    return false;
+  }
+}
+
 async function ensureDatabasesReady(wsDir) {
   const composePath = path.join(wsDir, "docker-compose.fsqs.yml");
   if (!fs.existsSync(composePath)) {
@@ -88,7 +100,7 @@ async function ensureDatabasesReady(wsDir) {
     const sql = isSqlServerReady();
 
     const pgOk = pg === "healthy";
-    const myOk = my === "healthy";
+    const myOk = (my === "healthy" || my === "running") && isMySqlReady();
     const maOk = ma === "healthy";
     const oraOk = ora === "healthy";
 

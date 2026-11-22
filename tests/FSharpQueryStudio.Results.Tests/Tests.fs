@@ -81,7 +81,12 @@ let ``projectWithCursor returns a continuation cursor that resumes past the firs
     | None -> failwith "expected a continuation cursor"
     | Some c ->
         let nextPage, hasMore = c.TakePage(20)
-        let expected = [| for i in Projection.PreviewRowLimit + 1 .. Projection.PreviewRowLimit + 10 -> box i |]
+
+        let expected =
+            [|
+                for i in Projection.PreviewRowLimit + 1 .. Projection.PreviewRowLimit + 10 -> box i
+            |]
+
         Assert.Equal<obj array>(expected, nextPage)
         Assert.False(hasMore)
 
@@ -98,8 +103,10 @@ let ``an exception projects to a structured Error with a non-empty message`` () 
 [<Fact>]
 let ``a worker-level error (crash, busy) projects to a structured Error with its message`` () =
     let workerError: WorkerErrorInfo =
-        { Code = "worker/crashed"
-          Message = "The worker process exited before responding." }
+        {
+            Code = "worker/crashed"
+            Message = "The worker process exited before responding."
+        }
 
     let envelope = Projection.projectWorkerError workerError
 
@@ -111,9 +118,20 @@ let ``toOutputLines tags stdout and stderr lines separately`` () =
     let lines = Projection.toOutputLines "hi\nthere" "warn1"
 
     Assert.Equal<OutputLine list>(
-        [ { Stream = OutputStream.Stdout; Text = "hi" }
-          { Stream = OutputStream.Stdout; Text = "there" }
-          { Stream = OutputStream.Stderr; Text = "warn1" } ],
+        [
+            {
+                Stream = OutputStream.Stdout
+                Text = "hi"
+            }
+            {
+                Stream = OutputStream.Stdout
+                Text = "there"
+            }
+            {
+                Stream = OutputStream.Stderr
+                Text = "warn1"
+            }
+        ],
         lines
     )
 
@@ -121,7 +139,15 @@ let ``toOutputLines tags stdout and stderr lines separately`` () =
 let ``toOutputLines drops a single trailing empty line from a trailing newline`` () =
     let lines = Projection.toOutputLines "hi\n" ""
 
-    Assert.Equal<OutputLine list>([ { Stream = OutputStream.Stdout; Text = "hi" } ], lines)
+    Assert.Equal<OutputLine list>(
+        [
+            {
+                Stream = OutputStream.Stdout
+                Text = "hi"
+            }
+        ],
+        lines
+    )
 
 [<Fact>]
 let ``toOutputLines returns an empty list for empty captured output`` () =

@@ -28,103 +28,137 @@ let private uniqueDocumentUri (label: string) : string =
     $"file:///workspace/{label}-{Guid.NewGuid()}.fsx"
 
 let private emptyParamsRequest (id: string) (method_: string) : WorkerRequestFrame =
-    { Id = id
-      Method = method_
-      Params = JsonDocument.Parse("{}").RootElement }
+    {
+        Id = id
+        Method = method_
+        Params = JsonDocument.Parse("{}").RootElement
+    }
 
 let private evaluateRequest (id: string) (source: string) : WorkerRequestFrame =
-    { Id = id
-      Method = "execution/evaluate"
-      Params =
-        JsonSerializer.SerializeToElement<EvaluateParams>(
-            { Source = source
-              SessionId = None
-              Mode = Isolated
-              DocumentUri = "untitled:Test.fsx"
-              IsNotebookCell = false },
-            Serialization.options
-        ) }
+    {
+        Id = id
+        Method = "execution/evaluate"
+        Params =
+            JsonSerializer.SerializeToElement<EvaluateParams>(
+                {
+                    Source = source
+                    SessionId = None
+                    Mode = Isolated
+                    DocumentUri = "untitled:Test.fsx"
+                    IsNotebookCell = false
+                },
+                Serialization.options
+            )
+    }
 
 let private persistentEvaluateRequest (id: string) (source: string) (sessionId: string) : WorkerRequestFrame =
-    { Id = id
-      Method = "execution/evaluate"
-      Params =
-        JsonSerializer.SerializeToElement<EvaluateParams>(
-            { Source = source
-              SessionId = Some sessionId
-              Mode = Persistent
-              DocumentUri = "untitled:Test.fsx"
-              IsNotebookCell = false },
-            Serialization.options
-        ) }
+    {
+        Id = id
+        Method = "execution/evaluate"
+        Params =
+            JsonSerializer.SerializeToElement<EvaluateParams>(
+                {
+                    Source = source
+                    SessionId = Some sessionId
+                    Mode = Persistent
+                    DocumentUri = "untitled:Test.fsx"
+                    IsNotebookCell = false
+                },
+                Serialization.options
+            )
+    }
 
 /// A single notebook cell against a persistent session: the worker
 /// appends `source` to `sessionId`'s session (`SessionStore.appendFragment`),
 /// so a later cell sees an earlier cell's bindings even when its text is
 /// not a prefix of what ran before.
 let private notebookCellRequest (id: string) (source: string) (sessionId: string) : WorkerRequestFrame =
-    { Id = id
-      Method = "execution/evaluate"
-      Params =
-        JsonSerializer.SerializeToElement<EvaluateParams>(
-            { Source = source
-              SessionId = Some sessionId
-              Mode = Persistent
-              DocumentUri = sessionId
-              IsNotebookCell = true },
-            Serialization.options
-        ) }
+    {
+        Id = id
+        Method = "execution/evaluate"
+        Params =
+            JsonSerializer.SerializeToElement<EvaluateParams>(
+                {
+                    Source = source
+                    SessionId = Some sessionId
+                    Mode = Persistent
+                    DocumentUri = sessionId
+                    IsNotebookCell = true
+                },
+                Serialization.options
+            )
+    }
 
 let private evaluateRequestFor (id: string) (documentUri: string) (source: string) : WorkerRequestFrame =
-    { Id = id
-      Method = "execution/evaluate"
-      Params =
-        JsonSerializer.SerializeToElement<EvaluateParams>(
-            { Source = source
-              SessionId = None
-              Mode = Isolated
-              DocumentUri = documentUri
-              IsNotebookCell = false },
-            Serialization.options
-        ) }
+    {
+        Id = id
+        Method = "execution/evaluate"
+        Params =
+            JsonSerializer.SerializeToElement<EvaluateParams>(
+                {
+                    Source = source
+                    SessionId = None
+                    Mode = Isolated
+                    DocumentUri = documentUri
+                    IsNotebookCell = false
+                },
+                Serialization.options
+            )
+    }
 
 let private exportCsvRequest (id: string) (documentUri: string) (filePath: string) : WorkerRequestFrame =
-    { Id = id
-      Method = "results/exportCsv"
-      Params =
-        JsonSerializer.SerializeToElement<ExportCsvParams>(
-            { DocumentUri = documentUri; FilePath = filePath },
-            Serialization.options
-        ) }
+    {
+        Id = id
+        Method = "results/exportCsv"
+        Params =
+            JsonSerializer.SerializeToElement<ExportCsvParams>(
+                {
+                    DocumentUri = documentUri
+                    FilePath = filePath
+                },
+                Serialization.options
+            )
+    }
 
 let private resultsDiscardRequest (id: string) (documentUri: string) : WorkerRequestFrame =
-    { Id = id
-      Method = "results/discard"
-      Params =
-        JsonSerializer.SerializeToElement<ResultsDiscardParams>(
-            { DocumentUri = documentUri },
-            Serialization.options
-        ) }
+    {
+        Id = id
+        Method = "results/discard"
+        Params =
+            JsonSerializer.SerializeToElement<ResultsDiscardParams>(
+                { DocumentUri = documentUri },
+                Serialization.options
+            )
+    }
 
 let private analysisCheckRequest (id: string) (documentUri: string) (source: string) : WorkerRequestFrame =
-    { Id = id
-      Method = "analysis/check"
-      Params =
-        JsonSerializer.SerializeToElement<AnalysisCheckParams>(
-            { DocumentUri = documentUri
-              Version = 1
-              Source = source },
-            Serialization.options
-        ) }
+    {
+        Id = id
+        Method = "analysis/check"
+        Params =
+            JsonSerializer.SerializeToElement<AnalysisCheckParams>(
+                {
+                    DocumentUri = documentUri
+                    Version = 1
+                    Source = source
+                },
+                Serialization.options
+            )
+    }
 
 let private resultsPageRequest (id: string) (sessionId: string) (token: string) : WorkerRequestFrame =
-    { Id = id
-      Method = "results/page"
-      Params =
-        JsonSerializer.SerializeToElement<ResultPageRequest>(
-            { SessionId = sessionId; ContinuationToken = token },
-            Serialization.options
-        ) }
+    {
+        Id = id
+        Method = "results/page"
+        Params =
+            JsonSerializer.SerializeToElement<ResultPageRequest>(
+                {
+                    SessionId = sessionId
+                    ContinuationToken = token
+                },
+                Serialization.options
+            )
+    }
 
 let private analysisHoverRequest
     (id: string)
@@ -133,17 +167,22 @@ let private analysisHoverRequest
     (line: int)
     (column: int)
     : WorkerRequestFrame =
-    { Id = id
-      Method = "analysis/hover"
-      Params =
-        JsonSerializer.SerializeToElement<AnalysisHoverParams>(
-            ({ DocumentUri = documentUri
-               Version = 1
-               Source = source
-               Line = line
-               Column = column }: AnalysisHoverParams),
-            Serialization.options
-        ) }
+    {
+        Id = id
+        Method = "analysis/hover"
+        Params =
+            JsonSerializer.SerializeToElement<AnalysisHoverParams>(
+                ({
+                    DocumentUri = documentUri
+                    Version = 1
+                    Source = source
+                    Line = line
+                    Column = column
+                }
+                : AnalysisHoverParams),
+                Serialization.options
+            )
+    }
 
 let private analysisDefinitionRequest
     (id: string)
@@ -152,17 +191,22 @@ let private analysisDefinitionRequest
     (line: int)
     (column: int)
     : WorkerRequestFrame =
-    { Id = id
-      Method = "analysis/definition"
-      Params =
-        JsonSerializer.SerializeToElement<AnalysisDefinitionParams>(
-            ({ DocumentUri = documentUri
-               Version = 1
-               Source = source
-               Line = line
-               Column = column }: AnalysisDefinitionParams),
-            Serialization.options
-        ) }
+    {
+        Id = id
+        Method = "analysis/definition"
+        Params =
+            JsonSerializer.SerializeToElement<AnalysisDefinitionParams>(
+                ({
+                    DocumentUri = documentUri
+                    Version = 1
+                    Source = source
+                    Line = line
+                    Column = column
+                }
+                : AnalysisDefinitionParams),
+                Serialization.options
+            )
+    }
 
 let private analysisSignatureHelpRequest
     (id: string)
@@ -171,17 +215,22 @@ let private analysisSignatureHelpRequest
     (line: int)
     (column: int)
     : WorkerRequestFrame =
-    { Id = id
-      Method = "analysis/signatureHelp"
-      Params =
-        JsonSerializer.SerializeToElement<AnalysisSignatureHelpParams>(
-            ({ DocumentUri = documentUri
-               Version = 1
-               Source = source
-               Line = line
-               Column = column }: AnalysisSignatureHelpParams),
-            Serialization.options
-        ) }
+    {
+        Id = id
+        Method = "analysis/signatureHelp"
+        Params =
+            JsonSerializer.SerializeToElement<AnalysisSignatureHelpParams>(
+                ({
+                    DocumentUri = documentUri
+                    Version = 1
+                    Source = source
+                    Line = line
+                    Column = column
+                }
+                : AnalysisSignatureHelpParams),
+                Serialization.options
+            )
+    }
 
 let private completionRequest
     (id: string)
@@ -190,17 +239,22 @@ let private completionRequest
     (line: int)
     (column: int)
     : WorkerRequestFrame =
-    { Id = id
-      Method = "analysis/complete"
-      Params =
-        JsonSerializer.SerializeToElement<AnalysisCompletionParams>(
-            ({ DocumentUri = documentUri
-               Version = 1
-               Source = source
-               Line = line
-               Column = column }: AnalysisCompletionParams),
-            Serialization.options
-        ) }
+    {
+        Id = id
+        Method = "analysis/complete"
+        Params =
+            JsonSerializer.SerializeToElement<AnalysisCompletionParams>(
+                ({
+                    DocumentUri = documentUri
+                    Version = 1
+                    Source = source
+                    Line = line
+                    Column = column
+                }
+                : AnalysisCompletionParams),
+                Serialization.options
+            )
+    }
 
 let private renameRequest
     (id: string)
@@ -209,17 +263,22 @@ let private renameRequest
     (line: int)
     (column: int)
     : WorkerRequestFrame =
-    { Id = id
-      Method = "analysis/rename"
-      Params =
-        JsonSerializer.SerializeToElement<AnalysisRenameParams>(
-            ({ DocumentUri = documentUri
-               Version = 1
-               Source = source
-               Line = line
-               Column = column }: AnalysisRenameParams),
-            Serialization.options
-        ) }
+    {
+        Id = id
+        Method = "analysis/rename"
+        Params =
+            JsonSerializer.SerializeToElement<AnalysisRenameParams>(
+                ({
+                    DocumentUri = documentUri
+                    Version = 1
+                    Source = source
+                    Line = line
+                    Column = column
+                }
+                : AnalysisRenameParams),
+                Serialization.options
+            )
+    }
 
 [<Fact>]
 let ``dispatch on analysis/rename finds every reference to the symbol at the given position`` () =
@@ -232,7 +291,10 @@ let ``dispatch on analysis/rename finds every reference to the symbol at the giv
         let! response = Handlers.dispatch (renameRequest "rn1" documentUri source 1 9)
 
         Assert.True(response.Error.IsNone)
-        let result = JsonSerializer.Deserialize<AnalysisRenameResult>(response.Result.Value, Serialization.options)
+
+        let result =
+            JsonSerializer.Deserialize<AnalysisRenameResult>(response.Result.Value, Serialization.options)
+
         Assert.True(result.Edits.IsSome)
         Assert.Equal(3, result.Edits.Value.Length) // the declaration plus two uses
     }
@@ -241,10 +303,15 @@ let ``dispatch on analysis/rename finds every reference to the symbol at the giv
 let ``dispatch on analysis/rename returns no edits for a position with no resolvable symbol`` () =
     task {
         let documentUri = uniqueDocumentUri "rename"
-        let! response = Handlers.dispatch (renameRequest "rn2" documentUri "// just a comment" 1 5)
+
+        let! response =
+            Handlers.dispatch (renameRequest "rn2" documentUri "// just a comment" 1 5)
 
         Assert.True(response.Error.IsNone)
-        let result = JsonSerializer.Deserialize<AnalysisRenameResult>(response.Result.Value, Serialization.options)
+
+        let result =
+            JsonSerializer.Deserialize<AnalysisRenameResult>(response.Result.Value, Serialization.options)
+
         Assert.True(result.Edits.IsNone)
     }
 
@@ -266,7 +333,9 @@ let ``dispatch on worker/health returns a non-empty version`` () =
         let request = emptyParamsRequest "h2" "worker/health"
 
         let! response = Handlers.dispatch request
-        let health = JsonSerializer.Deserialize<HealthInfo>(response.Result.Value, Serialization.options)
+
+        let health =
+            JsonSerializer.Deserialize<HealthInfo>(response.Result.Value, Serialization.options)
 
         Assert.False(System.String.IsNullOrWhiteSpace(health.Version))
     }
@@ -300,10 +369,13 @@ let ``dispatch on execution/cancel acknowledges even when no evaluation is runni
 
 [<Fact>]
 let ``handleEvaluate captures printed stdout into the envelope's Output lines`` () =
-    let response = Handlers.handleEvaluate (evaluateRequest "p1" "printfn \"hello from fsi\"")
+    let response =
+        Handlers.handleEvaluate (evaluateRequest "p1" "printfn \"hello from fsi\"")
 
     Assert.True(response.Result.IsSome)
-    let envelope = JsonSerializer.Deserialize<ResultEnvelope>(response.Result.Value, Serialization.options)
+
+    let envelope =
+        JsonSerializer.Deserialize<ResultEnvelope>(response.Result.Value, Serialization.options)
 
     Assert.Contains(envelope.Output, (fun (line: OutputLine) -> line.Text.Contains("hello from fsi")))
 
@@ -331,7 +403,8 @@ let ``handleEvaluate rejects a second concurrent evaluate with a structured busy
                         return Handlers.runEvaluate (evaluateRequest "e1" longRunningScript) workDir
                     }
 
-                let! secondResponse = Handlers.dispatch (evaluateRequest "e2" "1") |> withTimeout 45.0
+                let! secondResponse =
+                    Handlers.dispatch (evaluateRequest "e2" "1") |> withTimeout 45.0
 
                 Assert.True(secondResponse.Result.IsNone)
 
@@ -339,21 +412,29 @@ let ``handleEvaluate rejects a second concurrent evaluate with a structured busy
                 | Some err -> Assert.Equal("execution/busy", err.Code)
                 | None -> failwith "expected a busy error"
 
-                let! _ = Handlers.dispatch (emptyParamsRequest "c2" "execution/cancel") |> withTimeout 45.0
+                let! _ =
+                    Handlers.dispatch (emptyParamsRequest "c2" "execution/cancel")
+                    |> withTimeout 45.0
+
                 ()
 
                 let! _ = firstTask |> withTimeout 45.0
                 ()
             finally
                 if Directory.Exists(workDir) then
-                    try Directory.Delete(workDir, true) with _ -> ()
+                    try
+                        Directory.Delete(workDir, true)
+                    with _ ->
+                        ()
     }
 
 [<Fact>]
 let ``handleEvaluate issues a continuation token for a truncated result, and results/page returns the rest`` () =
     task {
         let response = Handlers.handleEvaluate (evaluateRequest "pg1" "[1 .. 510]")
-        let envelope = JsonSerializer.Deserialize<ResultEnvelope>(response.Result.Value, Serialization.options)
+
+        let envelope =
+            JsonSerializer.Deserialize<ResultEnvelope>(response.Result.Value, Serialization.options)
 
         Assert.True(envelope.IsTruncated)
         Assert.Equal(500, envelope.Rows.Length)
@@ -366,7 +447,9 @@ let ``handleEvaluate issues a continuation token for a truncated result, and res
         let! pageResponse = Handlers.dispatch (resultsPageRequest "pg1-page1" "s1" token)
 
         Assert.True(pageResponse.Result.IsSome)
-        let page = JsonSerializer.Deserialize<ResultPage>(pageResponse.Result.Value, Serialization.options)
+
+        let page =
+            JsonSerializer.Deserialize<ResultPage>(pageResponse.Result.Value, Serialization.options)
 
         Assert.Equal(10, page.Rows.Length)
         Assert.False(page.IsTruncated)
@@ -413,11 +496,18 @@ let ``evaluations in different documents or sessions maintain independent contin
         let docB = "untitled:DocB.fsx"
 
         let respA = Handlers.handleEvaluate (evaluateRequestFor "evalA" docA "[1 .. 510]")
-        let envA = JsonSerializer.Deserialize<ResultEnvelope>(respA.Result.Value, Serialization.options)
+
+        let envA =
+            JsonSerializer.Deserialize<ResultEnvelope>(respA.Result.Value, Serialization.options)
+
         let tokenA = envA.ContinuationToken |> Option.get
 
-        let respB = Handlers.handleEvaluate (evaluateRequestFor "evalB" docB "[1001 .. 1510]")
-        let envB = JsonSerializer.Deserialize<ResultEnvelope>(respB.Result.Value, Serialization.options)
+        let respB =
+            Handlers.handleEvaluate (evaluateRequestFor "evalB" docB "[1001 .. 1510]")
+
+        let envB =
+            JsonSerializer.Deserialize<ResultEnvelope>(respB.Result.Value, Serialization.options)
+
         let tokenB = envB.ContinuationToken |> Option.get
 
         // Both tokens must remain valid and return their own distinct pages
@@ -427,8 +517,11 @@ let ``evaluations in different documents or sessions maintain independent contin
         Assert.True(pageResponseA.Result.IsSome)
         Assert.True(pageResponseB.Result.IsSome)
 
-        let pageA = JsonSerializer.Deserialize<ResultPage>(pageResponseA.Result.Value, Serialization.options)
-        let pageB = JsonSerializer.Deserialize<ResultPage>(pageResponseB.Result.Value, Serialization.options)
+        let pageA =
+            JsonSerializer.Deserialize<ResultPage>(pageResponseA.Result.Value, Serialization.options)
+
+        let pageB =
+            JsonSerializer.Deserialize<ResultPage>(pageResponseB.Result.Value, Serialization.options)
 
         Assert.Equal(10, pageA.Rows.Length)
         Assert.Equal(10, pageB.Rows.Length)
@@ -441,13 +534,16 @@ let ``handleEvaluate reuses a Persistent-mode session's bindings across two call
     let sessionId = "sess-" + System.Guid.NewGuid().ToString("N")
 
     try
-        let firstResponse = Handlers.handleEvaluate (persistentEvaluateRequest "pers1" "let x = 41" sessionId)
+        let firstResponse =
+            Handlers.handleEvaluate (persistentEvaluateRequest "pers1" "let x = 41" sessionId)
+
         Assert.True(firstResponse.Result.IsSome)
 
         // A pure append of round 1's text - E.3's invalidation rule
         // requires this to keep the session (and x's binding) alive.
         let secondResponse =
             Handlers.handleEvaluate (persistentEvaluateRequest "pers2" "let x = 41\nx + 1" sessionId)
+
         Assert.True(secondResponse.Result.IsSome)
 
         let envelope =
@@ -465,9 +561,7 @@ let ``a notebook cell sees an earlier cell's bindings even when its source is no
     try
         // Cell 1: two let bindings, last line is a binding (no tail value).
         let cell1 =
-            Handlers.handleEvaluate (
-                notebookCellRequest "nb1" "let a = 20\nlet b = a + 1" sessionId
-            )
+            Handlers.handleEvaluate (notebookCellRequest "nb1" "let a = 20\nlet b = a + 1" sessionId)
 
         Assert.True(cell1.Error.IsNone)
 
@@ -488,10 +582,11 @@ let ``a notebook cell sees an earlier cell's bindings even when its source is no
         SessionStore.reset sessionId
 
 let private sessionResetRequest (id: string) (sessionId: string) : WorkerRequestFrame =
-    { Id = id
-      Method = "session/reset"
-      Params =
-        JsonSerializer.SerializeToElement<SessionResetParams>({ SessionId = sessionId }, Serialization.options) }
+    {
+        Id = id
+        Method = "session/reset"
+        Params = JsonSerializer.SerializeToElement<SessionResetParams>({ SessionId = sessionId }, Serialization.options)
+    }
 
 [<Fact>]
 let ``dispatch on session/reset acknowledges even when nothing is tracked for that SessionId`` () =
@@ -509,13 +604,16 @@ let ``session/reset actually drops a Persistent-mode session's bindings`` () =
         let sessionId = "sess-" + System.Guid.NewGuid().ToString("N")
 
         try
-            let firstResponse = Handlers.handleEvaluate (persistentEvaluateRequest "rst2" "let x = 41" sessionId)
+            let firstResponse =
+                Handlers.handleEvaluate (persistentEvaluateRequest "rst2" "let x = 41" sessionId)
+
             Assert.True(firstResponse.Result.IsSome)
 
             let! resetResponse = Handlers.dispatch (sessionResetRequest "rst3" sessionId)
             Assert.True(resetResponse.Result.IsSome)
 
-            let secondResponse = Handlers.handleEvaluate (persistentEvaluateRequest "rst4" "x + 1" sessionId)
+            let secondResponse =
+                Handlers.handleEvaluate (persistentEvaluateRequest "rst4" "x + 1" sessionId)
 
             let envelope =
                 JsonSerializer.Deserialize<ResultEnvelope>(secondResponse.Result.Value, Serialization.options)
@@ -529,10 +627,14 @@ let ``session/reset actually drops a Persistent-mode session's bindings`` () =
 let ``dispatch on analysis/check returns at least one diagnostic for a script with a type error`` () =
     task {
         let documentUri = uniqueDocumentUri "check"
-        let! response = Handlers.handleAnalysisCheck (analysisCheckRequest "a1" documentUri "let x : int = \"not an int\"")
+
+        let! response =
+            Handlers.handleAnalysisCheck (analysisCheckRequest "a1" documentUri "let x : int = \"not an int\"")
 
         Assert.True(response.Result.IsSome)
-        let result = JsonSerializer.Deserialize<AnalysisCheckResult>(response.Result.Value, Serialization.options)
+
+        let result =
+            JsonSerializer.Deserialize<AnalysisCheckResult>(response.Result.Value, Serialization.options)
 
         Assert.NotEmpty(result.Diagnostics)
     }
@@ -542,10 +644,13 @@ let ``dispatch on analysis/hover returns the display name and type for a local b
     task {
         let documentUri = uniqueDocumentUri "hover"
         // "total" ends at column 9 (0-based) on line 1: "let total = 42".
-        let! response = Handlers.handleAnalysisHover (analysisHoverRequest "h1" documentUri "let total = 42" 1 9)
+        let! response =
+            Handlers.handleAnalysisHover (analysisHoverRequest "h1" documentUri "let total = 42" 1 9)
 
         Assert.True(response.Result.IsSome)
-        let result = JsonSerializer.Deserialize<AnalysisHoverResult>(response.Result.Value, Serialization.options)
+
+        let result =
+            JsonSerializer.Deserialize<AnalysisHoverResult>(response.Result.Value, Serialization.options)
 
         match result.Hover with
         | None -> failwith "expected hover info"
@@ -560,7 +665,8 @@ let ``dispatch on analysis/definition resolves a use site back to its own declar
         let documentUri = uniqueDocumentUri "definition"
         let source = "let helper (x: int) : int = x + 1\n\nlet total = helper 41\n"
         // "helper" ends at column 18 (0-based) on line 3: "let total = helper 41".
-        let! response = Handlers.dispatch (analysisDefinitionRequest "d1" documentUri source 3 18)
+        let! response =
+            Handlers.dispatch (analysisDefinitionRequest "d1" documentUri source 3 18)
 
         Assert.True(response.Result.IsSome)
 
@@ -573,11 +679,15 @@ let ``dispatch on analysis/definition resolves a use site back to its own declar
     }
 
 [<Fact>]
-let ``dispatch on analysis/definition reports a same-file declaration against the requesting document, not FSAC's own internal identity`` () =
+let ``dispatch on analysis/definition reports a same-file declaration against the requesting document, not FSAC's own internal identity``
+    ()
+    =
     task {
         let documentUri = uniqueDocumentUri "definition"
         let source = "let helper (x: int) : int = x + 1\n\nlet total = helper 41\n"
-        let! response = Handlers.dispatch (analysisDefinitionRequest "d3" documentUri source 3 18)
+
+        let! response =
+            Handlers.dispatch (analysisDefinitionRequest "d3" documentUri source 3 18)
 
         let result =
             JsonSerializer.Deserialize<AnalysisDefinitionResult>(response.Result.Value, Serialization.options)
@@ -601,7 +711,9 @@ let ``dispatch on analysis/definition at a position with no resolvable symbol re
     task {
         let documentUri = uniqueDocumentUri "definition"
         let source = "let helper (x: int) : int = x + 1\n\nlet total = helper 41\n"
-        let! response = Handlers.dispatch (analysisDefinitionRequest "d2" documentUri source 2 0)
+
+        let! response =
+            Handlers.dispatch (analysisDefinitionRequest "d2" documentUri source 2 0)
 
         Assert.True(response.Result.IsSome)
 
@@ -622,7 +734,8 @@ let ``dispatch on analysis/signatureHelp returns the parameter and return types 
         // `add`'s own name (the definition site, or a call site's name
         // before any argument) always came back null. Column 17 on line 2
         // is on the first argument's own "1" in "let result = add 1 2".
-        let! response = Handlers.dispatch (analysisSignatureHelpRequest "s1" documentUri source 2 17)
+        let! response =
+            Handlers.dispatch (analysisSignatureHelpRequest "s1" documentUri source 2 17)
 
         Assert.True(response.Result.IsSome)
 
@@ -638,7 +751,9 @@ let ``dispatch on analysis/signatureHelp returns the parameter and return types 
     }
 
 [<Fact>]
-let ``dispatch on analysis/signatureHelp resolves only from inside a call's argument list, not merely at the callee's own name`` () =
+let ``dispatch on analysis/signatureHelp resolves only from inside a call's argument list, not merely at the callee's own name``
+    ()
+    =
     task {
         let documentUri = uniqueDocumentUri "signatureHelp"
         let source = "let add (x: int) (y: int) : int = x + y\nlet result = add 1 2"
@@ -650,8 +765,11 @@ let ``dispatch on analysis/signatureHelp resolves only from inside a call's argu
         // document. Both requests share one uri/version deliberately -
         // it's the same unchanged document queried at two positions, not
         // an edit.
-        let! insideArgs = Handlers.dispatch (analysisSignatureHelpRequest "s3" documentUri source 2 17)
-        let! atCalleeName = Handlers.dispatch (analysisSignatureHelpRequest "s4" documentUri source 2 14)
+        let! insideArgs =
+            Handlers.dispatch (analysisSignatureHelpRequest "s3" documentUri source 2 17)
+
+        let! atCalleeName =
+            Handlers.dispatch (analysisSignatureHelpRequest "s4" documentUri source 2 14)
 
         let parse (r: WorkerResponseFrame) =
             JsonSerializer.Deserialize<AnalysisSignatureHelpResult>(r.Result.Value, Serialization.options)
@@ -669,7 +787,8 @@ let ``dispatch on analysis/signatureHelp on a non-callable symbol returns a Resu
         let documentUri = uniqueDocumentUri "signatureHelp"
         let source = "let total = 42\n"
         // "total" ends at column 9 (0-based) on line 1.
-        let! response = Handlers.dispatch (analysisSignatureHelpRequest "s2" documentUri source 1 9)
+        let! response =
+            Handlers.dispatch (analysisSignatureHelpRequest "s2" documentUri source 1 9)
 
         Assert.True(response.Result.IsSome)
 
@@ -680,13 +799,17 @@ let ``dispatch on analysis/signatureHelp on a non-callable symbol returns a Resu
     }
 
 [<Fact>]
-let ``dispatch on analysis/complete on an empty document returns the connector-helper names in scope from the prologue`` () =
+let ``dispatch on analysis/complete on an empty document returns the connector-helper names in scope from the prologue``
+    ()
+    =
     task {
         let documentUri = uniqueDocumentUri "complete"
         let! response = Handlers.dispatch (completionRequest "cmp1" documentUri "" 1 0)
 
         Assert.True(response.Error.IsNone)
-        let result = JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)
+
+        let result =
+            JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)
         // FSAC's own top-level-scope completion offers "Connections" (the
         // type itself, brought into scope by the prologue's `open
         // FSharpQueryStudio.Connectors`) - not the dotted "Connections.sql"
@@ -708,12 +831,17 @@ let ``dispatch on analysis/complete includes semantic completions at the cursor 
         let! response = Handlers.dispatch (completionRequest "cmp2" documentUri source 2 7)
 
         Assert.True(response.Error.IsNone)
-        let result = JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)
+
+        let result =
+            JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)
+
         Assert.Contains("myLocalValue", result.Items)
     }
 
 [<Fact>]
-let ``dispatch on analysis/complete returns the members of the qualifier at a dotted position, not the whole top-level scope`` () =
+let ``dispatch on analysis/complete returns the members of the qualifier at a dotted position, not the whole top-level scope``
+    ()
+    =
     task {
         // The caret sits at the end of "s.Sub", the shape Monaco actually
         // asks about while a member name is being typed. FSAC never
@@ -725,7 +853,9 @@ let ``dispatch on analysis/complete returns the members of the qualifier at a do
         let! response = Handlers.dispatch (completionRequest "cmp3" documentUri source 2 5)
 
         Assert.True(response.Error.IsNone)
-        let result = JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)
+
+        let result =
+            JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)
 
         Assert.Contains("Substring", result.Items)
         Assert.Contains("Length", result.Items)
@@ -745,37 +875,49 @@ let ``dispatch on analysis/complete at a bare trailing dot returns the qualifier
         let! response = Handlers.dispatch (completionRequest "cmp4" documentUri source 2 2)
 
         Assert.True(response.Error.IsNone)
-        let result = JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)
+
+        let result =
+            JsonSerializer.Deserialize<AnalysisCompletionResult>(response.Result.Value, Serialization.options)
 
         Assert.Contains("Substring", result.Items)
         Assert.DoesNotContain("Choice1Of2", result.Items)
     }
 
 let private registerConnectionRequest (id: string) (connection: ConnectionDefinition) : WorkerRequestFrame =
-    { Id = id
-      Method = "connection/register"
-      Params = JsonSerializer.SerializeToElement(connection, Serialization.options) }
+    {
+        Id = id
+        Method = "connection/register"
+        Params = JsonSerializer.SerializeToElement(connection, Serialization.options)
+    }
 
 let private testConnection (name: string) : ConnectionDefinition =
-    { Id = Guid.NewGuid()
-      Name = name
-      Kind = ConnectorKind("Sqlite")
-      Configuration = JsonDocument.Parse("""{"FilePath":"C:\\data.db"}""").RootElement
-      SecretReference = None
-      IsTrusted = false }
+    {
+        Id = Guid.NewGuid()
+        Name = name
+        Kind = ConnectorKind("Sqlite")
+        Configuration = JsonDocument.Parse("""{"FilePath":"C:\\data.db"}""").RootElement
+        SecretReference = None
+        IsTrusted = false
+    }
 
 let private cleanTempDir (tempDir: string) =
     try
-        Handlers.waitForPendingGeneration()
+        Handlers.waitForPendingGeneration ()
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
         if Directory.Exists tempDir then
             Directory.Delete(tempDir, true)
-    with _ -> ()
+    with _ ->
+        ()
 
 [<Fact>]
-let ``dispatch on connection/register persists the connection to workspace.json under the configured workspace directory`` () =
+let ``dispatch on connection/register persists the connection to workspace.json under the configured workspace directory``
+    ()
+    =
     task {
-        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+
         Handlers.setWorkspaceDirForTests (Some tempDir)
 
         try
@@ -796,7 +938,9 @@ let ``dispatch on connection/register persists the connection to workspace.json 
 [<Fact>]
 let ``dispatch on connection/register replacing an existing connection keeps only one binding for that Id`` () =
     task {
-        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+
         Handlers.setWorkspaceDirForTests (Some tempDir)
 
         try
@@ -815,29 +959,41 @@ let ``dispatch on connection/register replacing an existing connection keeps onl
     }
 
 [<Fact>]
-let ``dispatch on connection/register with workspaceDir persists to the specified local workspace directory instead of global`` () =
+let ``dispatch on connection/register with workspaceDir persists to the specified local workspace directory instead of global``
+    ()
+    =
     task {
-        let globalDir = Path.Combine(Path.GetTempPath(), "fqs-global-" + Guid.NewGuid().ToString("N"))
-        let localDir = Path.Combine(Path.GetTempPath(), "fqs-local-" + Guid.NewGuid().ToString("N"))
+        let globalDir =
+            Path.Combine(Path.GetTempPath(), "fqs-global-" + Guid.NewGuid().ToString("N"))
+
+        let localDir =
+            Path.Combine(Path.GetTempPath(), "fqs-local-" + Guid.NewGuid().ToString("N"))
+
         Handlers.setWorkspaceDirForTests (Some globalDir)
 
         try
             let conn = testConnection "LocalConn"
+
             let payload =
                 JsonSerializer.SerializeToElement(
-                    {| id = conn.Id
-                       name = conn.Name
-                       kind = conn.Kind
-                       configuration = conn.Configuration
-                       secretReference = conn.SecretReference
-                       isTrusted = conn.IsTrusted
-                       workspaceDir = localDir |},
+                    {|
+                        id = conn.Id
+                        name = conn.Name
+                        kind = conn.Kind
+                        configuration = conn.Configuration
+                        secretReference = conn.SecretReference
+                        isTrusted = conn.IsTrusted
+                        workspaceDir = localDir
+                    |},
                     Serialization.options
                 )
+
             let req: WorkerRequestFrame =
-                { Id = "local-reg"
-                  Method = "connection/register"
-                  Params = payload }
+                {
+                    Id = "local-reg"
+                    Method = "connection/register"
+                    Params = payload
+                }
 
             let! response = Handlers.dispatch req
             Assert.True(response.Error.IsNone)
@@ -856,13 +1012,16 @@ let ``dispatch on connection/register with workspaceDir persists to the specifie
 [<Fact>]
 let ``dispatch on workspace/initEmptyProject creates empty workspace.json and generated directory`` () =
     task {
-        let localDir = Path.Combine(Path.GetTempPath(), "fqs-init-" + Guid.NewGuid().ToString("N"))
+        let localDir =
+            Path.Combine(Path.GetTempPath(), "fqs-init-" + Guid.NewGuid().ToString("N"))
 
         try
             let req: WorkerRequestFrame =
-                { Id = "init-proj"
-                  Method = "workspace/initEmptyProject"
-                  Params = JsonSerializer.SerializeToElement({| targetDir = localDir |}, Serialization.options) }
+                {
+                    Id = "init-proj"
+                    Method = "workspace/initEmptyProject"
+                    Params = JsonSerializer.SerializeToElement({| targetDir = localDir |}, Serialization.options)
+                }
 
             let! response = Handlers.dispatch req
             Assert.True(response.Error.IsNone)
@@ -882,12 +1041,20 @@ let ``dispatch on workspace/initEmptyProject creates empty workspace.json and ge
 [<Fact>]
 let ``dispatch on workspace/upgrade upgrades legacy root files to .fsqs and Schema v2`` () =
     task {
-        let localDir = Path.Combine(Path.GetTempPath(), "fqs-upgrade-" + Guid.NewGuid().ToString("N"))
+        let localDir =
+            Path.Combine(Path.GetTempPath(), "fqs-upgrade-" + Guid.NewGuid().ToString("N"))
+
         Directory.CreateDirectory localDir |> ignore
+
         try
             let connId = Guid.NewGuid()
             let rootWs = Path.Combine(localDir, "workspace.json")
-            let sampleJson = sprintf """[{"id":"%s","name":"LegacyDb","kind":{"Case":"Sqlite"},"configuration":{"filePath":"data.db"},"secretReference":null,"isTrusted":true}]""" (connId.ToString())
+
+            let sampleJson =
+                sprintf
+                    """[{"id":"%s","name":"LegacyDb","kind":{"Case":"Sqlite"},"configuration":{"filePath":"data.db"},"secretReference":null,"isTrusted":true}]"""
+                    (connId.ToString())
+
             File.WriteAllText(rootWs, sampleJson)
 
             let rootGen = Path.Combine(localDir, "generated")
@@ -895,13 +1062,21 @@ let ``dispatch on workspace/upgrade upgrades legacy root files to .fsqs and Sche
             File.WriteAllText(Path.Combine(rootGen, "GeneratedEntities.fs"), "// entities")
 
             let req: WorkerRequestFrame =
-                { Id = "upgrade-1"
-                  Method = "workspace/upgrade"
-                  Params = JsonSerializer.SerializeToElement({| workspaceDir = localDir |}, Serialization.options) }
+                {
+                    Id = "upgrade-1"
+                    Method = "workspace/upgrade"
+                    Params = JsonSerializer.SerializeToElement({| workspaceDir = localDir |}, Serialization.options)
+                }
 
             let! response = Handlers.dispatch req
             Assert.True(response.Error.IsNone)
-            let res = JsonSerializer.Deserialize<WorkspaceUpgradeResult>(response.Result.Value.GetRawText(), Serialization.options)
+
+            let res =
+                JsonSerializer.Deserialize<WorkspaceUpgradeResult>(
+                    response.Result.Value.GetRawText(),
+                    Serialization.options
+                )
+
             Assert.True(res.Upgraded)
             Assert.Equal(1, res.PreviousVersion)
             Assert.Equal(2, res.CurrentVersion)
@@ -914,18 +1089,22 @@ let ``dispatch on workspace/upgrade upgrades legacy root files to .fsqs and Sche
     }
 
 let private removeConnectionRequest (id: string) (connectionId: Guid) : WorkerRequestFrame =
-    { Id = id
-      Method = "connection/remove"
-      Params =
-        JsonSerializer.SerializeToElement<ConnectionRemoveParams>(
-            ({ Id = connectionId }: ConnectionRemoveParams),
-            Serialization.options
-        ) }
+    {
+        Id = id
+        Method = "connection/remove"
+        Params =
+            JsonSerializer.SerializeToElement<ConnectionRemoveParams>(
+                ({ Id = connectionId }: ConnectionRemoveParams),
+                Serialization.options
+            )
+    }
 
 [<Fact>]
 let ``dispatch on connection/remove drops the connection from workspace.json`` () =
     task {
-        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+
         Handlers.setWorkspaceDirForTests (Some tempDir)
 
         try
@@ -945,7 +1124,9 @@ let ``dispatch on connection/remove drops the connection from workspace.json`` (
 [<Fact>]
 let ``dispatch on connection/remove preserves every other registered connection`` () =
     task {
-        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+
         Handlers.setWorkspaceDirForTests (Some tempDir)
 
         try
@@ -965,18 +1146,22 @@ let ``dispatch on connection/remove preserves every other registered connection`
     }
 
 let private schemaRequest (id: string) (connectionId: Guid) : WorkerRequestFrame =
-    { Id = id
-      Method = "connection/schema"
-      Params =
-        JsonSerializer.SerializeToElement<ConnectionSchemaParams>(
-            ({ Id = connectionId }: ConnectionSchemaParams),
-            Serialization.options
-        ) }
+    {
+        Id = id
+        Method = "connection/schema"
+        Params =
+            JsonSerializer.SerializeToElement<ConnectionSchemaParams>(
+                ({ Id = connectionId }: ConnectionSchemaParams),
+                Serialization.options
+            )
+    }
 
 [<Fact>]
 let ``dispatch on connection/schema discovers real tables and columns for a registered SQLite connection`` () =
     task {
-        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+
         let dbPath = Path.Combine(tempDir, "orders.db")
         Handlers.setWorkspaceDirForTests (Some tempDir)
 
@@ -992,18 +1177,23 @@ let ``dispatch on connection/schema discovers real tables and columns for a regi
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
 
             let registered =
-                { Id = Guid.NewGuid()
-                  Name = "Sales"
-                  Kind = ConnectorKind("Sqlite")
-                  Configuration = JsonSerializer.SerializeToElement({| FilePath = dbPath |}, Serialization.options)
-                  SecretReference = None
-                  IsTrusted = false }
+                {
+                    Id = Guid.NewGuid()
+                    Name = "Sales"
+                    Kind = ConnectorKind("Sqlite")
+                    Configuration = JsonSerializer.SerializeToElement({| FilePath = dbPath |}, Serialization.options)
+                    SecretReference = None
+                    IsTrusted = false
+                }
 
             let! _ = Handlers.dispatch (registerConnectionRequest "reg1" registered)
             let! response = Handlers.dispatch (schemaRequest "schema1" registered.Id)
 
             Assert.True(response.Error.IsNone)
-            let result = JsonSerializer.Deserialize<ConnectionSchemaResult>(response.Result.Value, Serialization.options)
+
+            let result =
+                JsonSerializer.Deserialize<ConnectionSchemaResult>(response.Result.Value, Serialization.options)
+
             Assert.Equal<string list>([ "Orders" ], result.Tables |> List.map (fun t -> t.Name))
             let columns = result.Tables.[0].Columns |> List.map (fun c -> c.Name)
             Assert.Equal<string list>([ "Id"; "Total" ], columns)
@@ -1015,7 +1205,9 @@ let ``dispatch on connection/schema discovers real tables and columns for a regi
 [<Fact>]
 let ``dispatch on connection/schema returns a structured error for an unregistered Id`` () =
     task {
-        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+
         Handlers.setWorkspaceDirForTests (Some tempDir)
 
         try
@@ -1031,7 +1223,9 @@ let ``dispatch on connection/schema returns a structured error for an unregister
 [<Fact>]
 let ``execution/evaluate resolves Connections.sql against a connection registered via connection/register`` () =
     task {
-        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+
         let dbPath = Path.Combine(tempDir, "orders.db")
         Handlers.setWorkspaceDirForTests (Some tempDir)
 
@@ -1052,21 +1246,30 @@ let ``execution/evaluate resolves Connections.sql against a connection registere
             let registerRequest =
                 registerConnectionRequest
                     "reg1"
-                    { Id = Guid.NewGuid()
-                      Name = "Sales"
-                      Kind = ConnectorKind("Sqlite")
-                      Configuration =
-                        JsonSerializer.SerializeToElement({| FilePath = dbPath |}, Serialization.options)
-                      SecretReference = None
-                      IsTrusted = false }
+                    {
+                        Id = Guid.NewGuid()
+                        Name = "Sales"
+                        Kind = ConnectorKind("Sqlite")
+                        Configuration =
+                            JsonSerializer.SerializeToElement({| FilePath = dbPath |}, Serialization.options)
+                        SecretReference = None
+                        IsTrusted = false
+                    }
 
             let! _ = Handlers.dispatch registerRequest
 
-            let evaluateRequest = evaluateRequest "eval1" """Connections.sql.Sales.rawQuery("select Total from Orders") |> fun r -> r.Rows |> Seq.head |> Array.head"""
+            let evaluateRequest =
+                evaluateRequest
+                    "eval1"
+                    """Connections.sql.Sales.rawQuery("select Total from Orders") |> fun r -> r.Rows |> Seq.head |> Array.head"""
+
             let! evalResponse = Handlers.dispatch evaluateRequest
 
             Assert.True(evalResponse.Error.IsNone)
-            let result = JsonSerializer.Deserialize<ResultEnvelope>(evalResponse.Result.Value, Serialization.options)
+
+            let result =
+                JsonSerializer.Deserialize<ResultEnvelope>(evalResponse.Result.Value, Serialization.options)
+
             Assert.Equal(ResultKind.Scalar, result.Kind)
             Assert.Equal(Some "100", result.DisplayText)
         finally
@@ -1083,24 +1286,35 @@ let ``execution/evaluate renders a record-list tail expression as a Table with r
     let response = Handlers.handleEvaluate (evaluateRequest "rec1" script)
 
     Assert.True(response.Error.IsNone)
-    let env = JsonSerializer.Deserialize<ResultEnvelope>(response.Result.Value, Serialization.options)
+
+    let env =
+        JsonSerializer.Deserialize<ResultEnvelope>(response.Result.Value, Serialization.options)
+
     Assert.Equal(ResultKind.Table, env.Kind)
     Assert.Equal<string list>([ "Id"; "Name" ], env.Schema |> List.map (fun c -> c.Name))
     Assert.Equal(2, env.Rows.Length)
 
 [<Fact>]
 let ``execution/evaluate on a cell that ends in printfn is NoValue plus captured stdout`` () =
-    let response = Handlers.handleEvaluate (evaluateRequest "nv1" "printfn \"just a side effect\"")
+    let response =
+        Handlers.handleEvaluate (evaluateRequest "nv1" "printfn \"just a side effect\"")
 
     Assert.True(response.Error.IsNone)
-    let env = JsonSerializer.Deserialize<ResultEnvelope>(response.Result.Value, Serialization.options)
+
+    let env =
+        JsonSerializer.Deserialize<ResultEnvelope>(response.Result.Value, Serialization.options)
+
     Assert.Equal(ResultKind.NoValue, env.Kind)
     Assert.Contains(env.Output, (fun (l: OutputLine) -> l.Text.Contains("just a side effect")))
 
 [<Fact>]
-let ``execution/evaluate committing a connector-query tail expression, then results/exportCsv, writes the full retained CSV`` () =
+let ``execution/evaluate committing a connector-query tail expression, then results/exportCsv, writes the full retained CSV``
+    ()
+    =
     task {
-        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+
         let csvPath = Path.Combine(tempDir, "test1.csv")
         let exportPath = Path.Combine(tempDir, "exported.csv")
         Handlers.setWorkspaceDirForTests (Some tempDir)
@@ -1112,22 +1326,28 @@ let ``execution/evaluate committing a connector-query tail expression, then resu
             let registerRequest =
                 registerConnectionRequest
                     "reg1"
-                    { Id = Guid.NewGuid()
-                      Name = "test1"
-                      Kind = ConnectorKind.Csv
-                      Configuration =
-                        JsonSerializer.SerializeToElement({| FilePath = csvPath |}, Serialization.options)
-                      SecretReference = None
-                      IsTrusted = false }
+                    {
+                        Id = Guid.NewGuid()
+                        Name = "test1"
+                        Kind = ConnectorKind.Csv
+                        Configuration =
+                            JsonSerializer.SerializeToElement({| FilePath = csvPath |}, Serialization.options)
+                        SecretReference = None
+                        IsTrusted = false
+                    }
 
             let! _ = Handlers.dispatch registerRequest
 
             let script = "Connections.csv.test1.Raw()"
 
-            let! evalResponse = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Export1.fsx" script)
+            let! evalResponse =
+                Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Export1.fsx" script)
+
             Assert.True(evalResponse.Error.IsNone)
 
-            let! exportResponse = Handlers.dispatch (exportCsvRequest "export1" "untitled:Export1.fsx" exportPath)
+            let! exportResponse =
+                Handlers.dispatch (exportCsvRequest "export1" "untitled:Export1.fsx" exportPath)
+
             Assert.True(exportResponse.Error.IsNone)
 
             let written = File.ReadAllText(exportPath)
@@ -1142,7 +1362,9 @@ let ``execution/evaluate committing a connector-query tail expression, then resu
 [<Fact>]
 let ``a second execution/evaluate under the same DocumentUri overwrites the tab's retained result`` () =
     task {
-        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+
         let exportPath = Path.Combine(tempDir, "exported.csv")
         Handlers.setWorkspaceDirForTests (Some tempDir)
 
@@ -1155,10 +1377,15 @@ let ``a second execution/evaluate under the same DocumentUri overwrites the tab'
             let secondScript =
                 "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 2 |]; yield [| box 3 |] } }: ConnectorQueryResult)"
 
-            let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Overwrite1.fsx" firstScript)
-            let! _ = Handlers.dispatch (evaluateRequestFor "eval2" "untitled:Overwrite1.fsx" secondScript)
+            let! _ =
+                Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Overwrite1.fsx" firstScript)
 
-            let! exportResponse = Handlers.dispatch (exportCsvRequest "export1" "untitled:Overwrite1.fsx" exportPath)
+            let! _ =
+                Handlers.dispatch (evaluateRequestFor "eval2" "untitled:Overwrite1.fsx" secondScript)
+
+            let! exportResponse =
+                Handlers.dispatch (exportCsvRequest "export1" "untitled:Overwrite1.fsx" exportPath)
+
             Assert.True(exportResponse.Error.IsNone)
 
             let written = File.ReadAllText(exportPath)
@@ -1173,7 +1400,9 @@ let ``a second execution/evaluate under the same DocumentUri overwrites the tab'
 [<Fact>]
 let ``an evaluate that doesn't push a table leaves the tab's existing retained result untouched`` () =
     task {
-        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+
         let exportPath = Path.Combine(tempDir, "exported.csv")
         Handlers.setWorkspaceDirForTests (Some tempDir)
 
@@ -1182,10 +1411,15 @@ let ``an evaluate that doesn't push a table leaves the tab's existing retained r
 
             let tableScript = "[ {| n = 1 |} ]"
 
-            let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Untouched1.fsx" tableScript)
-            let! _ = Handlers.dispatch (evaluateRequestFor "eval2" "untitled:Untouched1.fsx" "printfn \"no table here\"")
+            let! _ =
+                Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Untouched1.fsx" tableScript)
 
-            let! exportResponse = Handlers.dispatch (exportCsvRequest "export1" "untitled:Untouched1.fsx" exportPath)
+            let! _ =
+                Handlers.dispatch (evaluateRequestFor "eval2" "untitled:Untouched1.fsx" "printfn \"no table here\"")
+
+            let! exportResponse =
+                Handlers.dispatch (exportCsvRequest "export1" "untitled:Untouched1.fsx" exportPath)
+
             Assert.True(exportResponse.Error.IsNone)
 
             let written = File.ReadAllText(exportPath)
@@ -1200,7 +1434,8 @@ let ``an evaluate that doesn't push a table leaves the tab's existing retained r
 [<Fact>]
 let ``results/exportCsv against a DocumentUri with nothing retained returns a nothingToExport error`` () =
     task {
-        let! response = Handlers.dispatch (exportCsvRequest "export1" "untitled:NeverRun.fsx" "irrelevant.csv")
+        let! response =
+            Handlers.dispatch (exportCsvRequest "export1" "untitled:NeverRun.fsx" "irrelevant.csv")
 
         Assert.True(response.Result.IsNone)
 
@@ -1212,7 +1447,9 @@ let ``results/exportCsv against a DocumentUri with nothing retained returns a no
 [<Fact>]
 let ``results/discard removes a retained result, and a repeat call is a no-op`` () =
     task {
-        let tempDir = Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+        let tempDir =
+            Path.Combine(Path.GetTempPath(), "fqs-workspace-" + Guid.NewGuid().ToString("N"))
+
         Handlers.setWorkspaceDirForTests (Some tempDir)
 
         try
@@ -1221,9 +1458,12 @@ let ``results/discard removes a retained result, and a repeat call is a no-op`` 
             let tableScript =
                 "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult)"
 
-            let! _ = Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Discard1.fsx" tableScript)
+            let! _ =
+                Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Discard1.fsx" tableScript)
 
-            let! discardResponse = Handlers.dispatch (resultsDiscardRequest "discard1" "untitled:Discard1.fsx")
+            let! discardResponse =
+                Handlers.dispatch (resultsDiscardRequest "discard1" "untitled:Discard1.fsx")
+
             Assert.True(discardResponse.Error.IsNone)
 
             let! exportResponse =
@@ -1234,7 +1474,9 @@ let ``results/discard removes a retained result, and a repeat call is a no-op`` 
             | None -> failwith "expected a nothingToExport error after discard"
 
             // Repeating the discard must not throw.
-            let! secondDiscardResponse = Handlers.dispatch (resultsDiscardRequest "discard2" "untitled:Discard1.fsx")
+            let! secondDiscardResponse =
+                Handlers.dispatch (resultsDiscardRequest "discard2" "untitled:Discard1.fsx")
+
             Assert.True(secondDiscardResponse.Error.IsNone)
         finally
             Handlers.setWorkspaceDirForTests None
@@ -1246,10 +1488,14 @@ let ``results/discard removes a retained result, and a repeat call is a no-op`` 
 [<Fact>]
 let ``execution/evaluate shows NoValue, not a literal "null", when the script's last statement produces nothing`` () =
     task {
-        let! evalResponse = Handlers.dispatch (evaluateRequest "eval1" "let x = 1\nprintfn \"%d\" x")
+        let! evalResponse =
+            Handlers.dispatch (evaluateRequest "eval1" "let x = 1\nprintfn \"%d\" x")
 
         Assert.True(evalResponse.Error.IsNone)
-        let envelope = JsonSerializer.Deserialize<ResultEnvelope>(evalResponse.Result.Value, Serialization.options)
+
+        let envelope =
+            JsonSerializer.Deserialize<ResultEnvelope>(evalResponse.Result.Value, Serialization.options)
+
         Assert.Equal(ResultKind.NoValue, envelope.Kind)
         Assert.Equal(None, envelope.DisplayText)
     }
@@ -1257,25 +1503,40 @@ let ``execution/evaluate shows NoValue, not a literal "null", when the script's 
 [<Fact>]
 let ``dispatch on connection/list returns the connections persisted in workspace.json`` () =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), "fqs-list-" + Guid.NewGuid().ToString("N"))
+        let tmp =
+            Path.Combine(Path.GetTempPath(), "fqs-list-" + Guid.NewGuid().ToString("N"))
+
         Directory.CreateDirectory tmp |> ignore
+
         try
             Handlers.setWorkspaceDirForTests (Some tmp)
+
             let seeded: ConnectionDefinition =
-                { Id = Guid.NewGuid()
-                  Name = "Sales"
-                  Kind = ConnectorKind.Sqlite
-                  Configuration = JsonDocument.Parse("""{"filePath":"C:/data/sales.db"}""").RootElement
-                  SecretReference = None
-                  IsTrusted = true }
+                {
+                    Id = Guid.NewGuid()
+                    Name = "Sales"
+                    Kind = ConnectorKind.Sqlite
+                    Configuration = JsonDocument.Parse("""{"filePath":"C:/data/sales.db"}""").RootElement
+                    SecretReference = None
+                    IsTrusted = true
+                }
+
             Workspace.writeConnections tmp [ seeded ]
 
             let! response = Handlers.dispatch (emptyParamsRequest "l1" "connection/list")
 
             Assert.True response.Error.IsNone
+
             let payload =
-                JsonSerializer.Deserialize<{| connections: ConnectionDefinition list |}>(
-                    response.Result.Value, Serialization.options)
+                JsonSerializer.Deserialize<
+                    {|
+                        connections: ConnectionDefinition list
+                    |}
+                 >(
+                    response.Result.Value,
+                    Serialization.options
+                )
+
             Assert.Equal(1, payload.connections.Length)
             Assert.Equal("Sales", payload.connections.Head.Name)
         finally
@@ -1286,14 +1547,25 @@ let ``dispatch on connection/list returns the connections persisted in workspace
 [<Fact>]
 let ``dispatch on connection/list returns an empty list for a fresh workspace`` () =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), "fqs-list-" + Guid.NewGuid().ToString("N"))
+        let tmp =
+            Path.Combine(Path.GetTempPath(), "fqs-list-" + Guid.NewGuid().ToString("N"))
+
         Directory.CreateDirectory tmp |> ignore
+
         try
             Handlers.setWorkspaceDirForTests (Some tmp)
             let! response = Handlers.dispatch (emptyParamsRequest "l2" "connection/list")
+
             let payload =
-                JsonSerializer.Deserialize<{| connections: ConnectionDefinition list |}>(
-                    response.Result.Value, Serialization.options)
+                JsonSerializer.Deserialize<
+                    {|
+                        connections: ConnectionDefinition list
+                    |}
+                 >(
+                    response.Result.Value,
+                    Serialization.options
+                )
+
             Assert.Empty payload.connections
         finally
             Handlers.setWorkspaceDirForTests None
@@ -1302,31 +1574,50 @@ let ``dispatch on connection/list returns an empty list for a fresh workspace`` 
 [<Fact>]
 let ``dispatch on connection/list cleans leaked sample connections from global workspace store`` () =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), "fqs-leaked-" + Guid.NewGuid().ToString("N"))
+        let tmp =
+            Path.Combine(Path.GetTempPath(), "fqs-leaked-" + Guid.NewGuid().ToString("N"))
+
         Directory.CreateDirectory tmp |> ignore
+
         try
             Handlers.setWorkspaceDirForTests (Some tmp)
+
             let leakedSample: ConnectionDefinition =
-                { Id = Guid.NewGuid()
-                  Name = "SampleStore"
-                  Kind = ConnectorKind.Sqlite
-                  Configuration = JsonDocument.Parse("""{"filePath":"C:/nonexistent/sample_store.db"}""").RootElement
-                  SecretReference = None
-                  IsTrusted = true }
+                {
+                    Id = Guid.NewGuid()
+                    Name = "SampleStore"
+                    Kind = ConnectorKind.Sqlite
+                    Configuration = JsonDocument.Parse("""{"filePath":"C:/nonexistent/sample_store.db"}""").RootElement
+                    SecretReference = None
+                    IsTrusted = true
+                }
+
             let normalGlobal: ConnectionDefinition =
-                { Id = Guid.NewGuid()
-                  Name = "SharedProdDb"
-                  Kind = ConnectorKind.SqlServer
-                  Configuration = JsonDocument.Parse("""{"connectionString":"Server=prod;Database=app;"}""").RootElement
-                  SecretReference = None
-                  IsTrusted = true }
+                {
+                    Id = Guid.NewGuid()
+                    Name = "SharedProdDb"
+                    Kind = ConnectorKind.SqlServer
+                    Configuration =
+                        JsonDocument.Parse("""{"connectionString":"Server=prod;Database=app;"}""").RootElement
+                    SecretReference = None
+                    IsTrusted = true
+                }
+
             Workspace.writeConnections tmp [ leakedSample; normalGlobal ]
 
             let! response = Handlers.dispatch (emptyParamsRequest "clean1" "connection/list")
             Assert.True response.Error.IsNone
+
             let payload =
-                JsonSerializer.Deserialize<{| connections: ConnectionDefinition list |}>(
-                    response.Result.Value, Serialization.options)
+                JsonSerializer.Deserialize<
+                    {|
+                        connections: ConnectionDefinition list
+                    |}
+                 >(
+                    response.Result.Value,
+                    Serialization.options
+                )
+
             Assert.Equal(1, payload.connections.Length)
             Assert.Equal("SharedProdDb", payload.connections.Head.Name)
 
@@ -1336,14 +1627,19 @@ let ``dispatch on connection/list cleans leaked sample connections from global w
             Assert.Equal("SharedProdDb", onDisk.Head.Name)
         finally
             Handlers.setWorkspaceDirForTests None
-            if Directory.Exists tmp then Directory.Delete(tmp, true)
+
+            if Directory.Exists tmp then
+                Directory.Delete(tmp, true)
     }
 
 [<Fact>]
 let ``connection/schema reads {password} from the store configured via configureSecretStore`` () =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), "fqs-seam-" + Guid.NewGuid().ToString("N"))
+        let tmp =
+            Path.Combine(Path.GetTempPath(), "fqs-seam-" + Guid.NewGuid().ToString("N"))
+
         Directory.CreateDirectory tmp |> ignore
+
         try
             Handlers.setWorkspaceDirForTests (Some tmp)
 
@@ -1352,29 +1648,46 @@ let ``connection/schema reads {password} from the store configured via configure
             // environment-independent check, unlike asserting on Npgsql's
             // host-resolution error text, which varies by OS.
             let mutable askedFor: string option = None
+
             let spy =
                 { new FSharpQueryStudio.Security.ISecretStore with
-                    member _.TryRead reference =
+                    member this.TryRead reference =
                         askedFor <- Some reference
                         Some "s3cr3t"
+
+                    member this.TryReadAsync(reference, _) =
+                        System.Threading.Tasks.Task.FromResult(this.TryRead reference)
+
                     member _.Save _ _ = ()
-                    member _.Delete _ = () }
+                    member _.Delete _ = ()
+                }
+
             Handlers.configureSecretStore spy
 
             let definition: ConnectionDefinition =
-                { Id = Guid.NewGuid()
-                  Name = "pg"
-                  Kind = ConnectorKind.PostgreSql
-                  Configuration =
-                    JsonDocument.Parse("""{"connectionString":"Host={password}-sentinel;Port=5432"}""").RootElement
-                  SecretReference = Some "fqs-conn-seam"
-                  IsTrusted = false }
+                {
+                    Id = Guid.NewGuid()
+                    Name = "pg"
+                    Kind = ConnectorKind.PostgreSql
+                    Configuration =
+                        JsonDocument.Parse("""{"connectionString":"Host={password}-sentinel;Port=5432"}""").RootElement
+                    SecretReference = Some "fqs-conn-seam"
+                    IsTrusted = false
+                }
+
             Workspace.writeConnections tmp [ definition ]
 
             let req: WorkerRequestFrame =
-                { Id = "sc1"
-                  Method = "connection/schema"
-                  Params = JsonSerializer.SerializeToElement(({ Id = definition.Id }: ConnectionSchemaParams), Serialization.options) }
+                {
+                    Id = "sc1"
+                    Method = "connection/schema"
+                    Params =
+                        JsonSerializer.SerializeToElement(
+                            ({ Id = definition.Id }: ConnectionSchemaParams),
+                            Serialization.options
+                        )
+                }
+
             let! response = Handlers.dispatch req
 
             // The injected store was consulted with this connection's
@@ -1394,17 +1707,29 @@ let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or em
     task {
         let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-sample-{Guid.NewGuid():N}")
         Directory.CreateDirectory(tmp) |> ignore
+
         try
             Handlers.setWorkspaceDirForTests (Some tmp)
 
             // Test 1: with targetDir (what VS Code extension sends)
             let escapedTmp = tmp.Replace("\\", "\\\\")
+
             let req1: WorkerRequestFrame =
-                { Id = "s1"
-                  Method = "workspace/createSampleData"
-                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+                {
+                    Id = "s1"
+                    Method = "workspace/createSampleData"
+                    Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement
+                }
+
             let! res1 = Handlers.dispatch req1
-            Assert.True(res1.Error.IsNone, (match res1.Error with Some e -> e.Message | None -> ""))
+
+            Assert.True(
+                res1.Error.IsNone,
+                (match res1.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
             Assert.True(res1.Result.IsSome)
 
             let r1 = res1.Result.Value
@@ -1444,32 +1769,64 @@ let ``workspace/createSampleData succeeds with targetDir, targetDirectory, or em
                 r1.GetProperty("registeredConnections").EnumerateArray()
                 |> Seq.map (fun el -> el.GetString())
                 |> Seq.toList
+
             Assert.Equal<string list>(
-                [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "ProductCatalog"; "LogisticsHub"; "GitHubFSharp" ],
+                [
+                    "SampleStore"
+                    "InventoryStore"
+                    "SalesFeed"
+                    "CustomersFeed"
+                    "RegionalTargets"
+                    "CommerceOps"
+                    "ProductCatalog"
+                    "LogisticsHub"
+                    "GitHubFSharp"
+                ],
                 regConns
             )
 
             // Test 2: with targetDirectory
             let req2: WorkerRequestFrame =
-                { Id = "s2"
-                  Method = "workspace/createSampleData"
-                  Params = JsonDocument.Parse($"""{{"targetDirectory": "{escapedTmp}"}}""").RootElement }
+                {
+                    Id = "s2"
+                    Method = "workspace/createSampleData"
+                    Params = JsonDocument.Parse($"""{{"targetDirectory": "{escapedTmp}"}}""").RootElement
+                }
+
             let! res2 = Handlers.dispatch req2
-            Assert.True(res2.Error.IsNone, (match res2.Error with Some e -> e.Message | None -> ""))
+
+            Assert.True(
+                res2.Error.IsNone,
+                (match res2.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
 
             // Test 3: with empty params {}
             let req3: WorkerRequestFrame =
-                { Id = "s3"
-                  Method = "workspace/createSampleData"
-                  Params = JsonDocument.Parse("{}").RootElement }
+                {
+                    Id = "s3"
+                    Method = "workspace/createSampleData"
+                    Params = JsonDocument.Parse("{}").RootElement
+                }
+
             let! res3 = Handlers.dispatch req3
-            Assert.True(res3.Error.IsNone, (match res3.Error with Some e -> e.Message | None -> ""))
+
+            Assert.True(
+                res3.Error.IsNone,
+                (match res3.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
         finally
             Handlers.setWorkspaceDirForTests None
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
             try
-                if Directory.Exists tmp then Directory.Delete(tmp, true)
-            with _ -> ()
+                if Directory.Exists tmp then
+                    Directory.Delete(tmp, true)
+            with _ ->
+                ()
     }
 
 [<Fact>]
@@ -1477,19 +1834,25 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
     task {
         let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-eval-{Guid.NewGuid():N}")
         Directory.CreateDirectory(tmp) |> ignore
+
         try
             Handlers.setWorkspaceDirForTests (Some tmp)
             let escapedTmp = tmp.Replace("\\", "\\\\")
+
             let req1: WorkerRequestFrame =
-                { Id = "s1"
-                  Method = "workspace/createSampleData"
-                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+                {
+                    Id = "s1"
+                    Method = "workspace/createSampleData"
+                    Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement
+                }
+
             let! res1 = Handlers.dispatch req1
             Assert.True(res1.Error.IsNone)
 
             let notebookPath = Path.Combine(tmp, "sample_demo.fsqnb")
             Assert.True(File.Exists notebookPath)
             let doc = JsonDocument.Parse(File.ReadAllText notebookPath)
+
             let codeCells =
                 doc.RootElement.GetProperty("cells").EnumerateArray()
                 |> Seq.filter (fun c -> c.GetProperty("kind").GetString() = "code")
@@ -1501,22 +1864,35 @@ let ``evaluating sample_demo notebook cells succeeds against generated samples``
             for idx, code in List.indexed codeCells do
                 let evalReq = notebookCellRequest $"cell-{idx + 1}" code "sample_demo.fsqnb"
                 let! evalRes = Handlers.dispatch evalReq
-                let errMsg = match evalRes.Error with Some e -> e.Message | None -> ""
+
+                let errMsg =
+                    match evalRes.Error with
+                    | Some e -> e.Message
+                    | None -> ""
+
                 Assert.True(evalRes.Error.IsNone, $"Cell {idx + 1} error: {errMsg}")
-                let env = JsonSerializer.Deserialize<ResultEnvelope>(evalRes.Result.Value.GetRawText(), Serialization.options)
+
+                let env =
+                    JsonSerializer.Deserialize<ResultEnvelope>(evalRes.Result.Value.GetRawText(), Serialization.options)
+
                 let outputText = env.Output |> List.map (fun o -> o.Text) |> String.concat "\n"
+
                 Assert.True(
                     (env.Kind = ResultKind.Table || env.Kind = ResultKind.Scalar),
                     $"Cell {idx + 1} expected Table or Scalar outcome but got {env.Kind}. DisplayText: {env.DisplayText}. Output: {outputText}. Code:\n{code}"
                 )
+
                 if env.Kind = ResultKind.Table then
                     Assert.NotEmpty(env.Rows)
         finally
             Handlers.setWorkspaceDirForTests None
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
             try
-                if Directory.Exists tmp then Directory.Delete(tmp, true)
-            with _ -> ()
+                if Directory.Exists tmp then
+                    Directory.Delete(tmp, true)
+            with _ ->
+                ()
     }
 
 [<Fact>]
@@ -1524,19 +1900,25 @@ let ``evaluating sample_demo_pt notebook cells succeeds against generated sample
     task {
         let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-eval-pt-{Guid.NewGuid():N}")
         Directory.CreateDirectory(tmp) |> ignore
+
         try
             Handlers.setWorkspaceDirForTests (Some tmp)
             let escapedTmp = tmp.Replace("\\", "\\\\")
+
             let req1: WorkerRequestFrame =
-                { Id = "s1-pt"
-                  Method = "workspace/createSampleData"
-                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+                {
+                    Id = "s1-pt"
+                    Method = "workspace/createSampleData"
+                    Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement
+                }
+
             let! res1 = Handlers.dispatch req1
             Assert.True(res1.Error.IsNone)
 
             let notebookPtPath = Path.Combine(tmp, "sample_demo_pt.fsqnb")
             Assert.True(File.Exists notebookPtPath)
             let docPt = JsonDocument.Parse(File.ReadAllText notebookPtPath)
+
             let codeCellsPt =
                 docPt.RootElement.GetProperty("cells").EnumerateArray()
                 |> Seq.filter (fun c -> c.GetProperty("kind").GetString() = "code")
@@ -1548,67 +1930,103 @@ let ``evaluating sample_demo_pt notebook cells succeeds against generated sample
             for idx, code in List.indexed codeCellsPt do
                 let evalReq = notebookCellRequest $"cell-pt-{idx + 1}" code "sample_demo_pt.fsqnb"
                 let! evalRes = Handlers.dispatch evalReq
-                let errMsg = match evalRes.Error with Some e -> e.Message | None -> ""
+
+                let errMsg =
+                    match evalRes.Error with
+                    | Some e -> e.Message
+                    | None -> ""
+
                 Assert.True(evalRes.Error.IsNone, $"PT Cell {idx + 1} error: {errMsg}")
-                let env = JsonSerializer.Deserialize<ResultEnvelope>(evalRes.Result.Value.GetRawText(), Serialization.options)
+
+                let env =
+                    JsonSerializer.Deserialize<ResultEnvelope>(evalRes.Result.Value.GetRawText(), Serialization.options)
+
                 let outputText = env.Output |> List.map (fun o -> o.Text) |> String.concat "\n"
+
                 Assert.True(
                     (env.Kind = ResultKind.Table || env.Kind = ResultKind.Scalar),
                     $"PT Cell {idx + 1} expected Table or Scalar outcome but got {env.Kind}. DisplayText: {env.DisplayText}. Output: {outputText}. Code:\n{code}"
                 )
+
                 if env.Kind = ResultKind.Table then
                     Assert.NotEmpty(env.Rows)
         finally
             Handlers.setWorkspaceDirForTests None
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
             try
-                if Directory.Exists tmp then Directory.Delete(tmp, true)
-            with _ -> ()
+                if Directory.Exists tmp then
+                    Directory.Delete(tmp, true)
+            with _ ->
+                ()
     }
 
 [<Fact>]
-let ``re-creating sample data over a workspace with a stale empty SampleStore db and existing session heals and evaluates Customers`` () =
+let ``re-creating sample data over a workspace with a stale empty SampleStore db and existing session heals and evaluates Customers``
+    ()
+    =
     task {
         let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-heal-{Guid.NewGuid():N}")
         Directory.CreateDirectory(tmp) |> ignore
+
         try
             Handlers.setWorkspaceDirForTests (Some tmp)
 
             // 1. Simulate a broken/empty SampleStore connection and stale GeneratedEntities.fs
             let brokenDbPath = Path.Combine(tmp, "broken_empty.db")
             File.WriteAllBytes(brokenDbPath, [||])
+
             let staleDef: ConnectionDefinition =
-                { Id = Guid.NewGuid()
-                  Name = "SampleStore"
-                  Kind = ConnectorKind.Sqlite
-                  Configuration = JsonSerializer.SerializeToElement({| filePath = brokenDbPath |}, Serialization.options)
-                  SecretReference = None
-                  IsTrusted = true }
+                {
+                    Id = Guid.NewGuid()
+                    Name = "SampleStore"
+                    Kind = ConnectorKind.Sqlite
+                    Configuration =
+                        JsonSerializer.SerializeToElement({| filePath = brokenDbPath |}, Serialization.options)
+                    SecretReference = None
+                    IsTrusted = true
+                }
+
             let _ = Workspace.registerConnection tmp staleDef
-            let! _ = EntityBackgroundGenerator.generateForConnectionsAsync tmp [ staleDef ] (FSharpQueryStudio.Security.InMemorySecretStore())
+
+            let! _ =
+                EntityBackgroundGenerator.generateForConnectionsAsync
+                    tmp
+                    [ staleDef ]
+                    (FSharpQueryStudio.Security.InMemorySecretStore())
 
             // Start a persistent session while SampleStore is still broken
             let docUri = Path.Combine(tmp, "sample_demo_pt.fsqnb")
+
             let warmupReq: WorkerRequestFrame =
-                { Id = "warmup-1"
-                  Method = "execution/evaluate"
-                  Params =
-                    JsonSerializer.SerializeToElement(
-                        { Source = "1 + 1"
-                          SessionId = Some docUri
-                          Mode = Persistent
-                          DocumentUri = docUri
-                          IsNotebookCell = true },
-                        Serialization.options
-                    ) }
+                {
+                    Id = "warmup-1"
+                    Method = "execution/evaluate"
+                    Params =
+                        JsonSerializer.SerializeToElement(
+                            {
+                                Source = "1 + 1"
+                                SessionId = Some docUri
+                                Mode = Persistent
+                                DocumentUri = docUri
+                                IsNotebookCell = true
+                            },
+                            Serialization.options
+                        )
+                }
+
             let! _ = Handlers.dispatch warmupReq
 
             // 2. Now run workspace/createSampleData in the same workspace
             let escapedTmp = tmp.Replace("\\", "\\\\")
+
             let createReq: WorkerRequestFrame =
-                { Id = "heal-create"
-                  Method = "workspace/createSampleData"
-                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+                {
+                    Id = "heal-create"
+                    Method = "workspace/createSampleData"
+                    Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement
+                }
+
             let! createRes = Handlers.dispatch createReq
             Assert.True(createRes.Error.IsNone)
 
@@ -1618,7 +2036,8 @@ let ``re-creating sample data over a workspace with a stale empty SampleStore db
             Assert.Single(sampleStoreConns) |> ignore
 
             // 3. Evaluate Cell 1 of sample_demo_pt.fsqnb on the same sessionId
-            let cell1Code = """
+            let cell1Code =
+                """
 query {
     for c in Connections.sql.SampleStore.Customers do
     where (c.Country = "Brazil")
@@ -1631,29 +2050,41 @@ query {
         Pais = c.Country
     |}
 }"""
+
             let evalReq: WorkerRequestFrame =
-                { Id = "heal-eval-1"
-                  Method = "execution/evaluate"
-                  Params =
-                    JsonSerializer.SerializeToElement(
-                        { Source = cell1Code
-                          SessionId = Some docUri
-                          Mode = Persistent
-                          DocumentUri = docUri
-                          IsNotebookCell = true },
-                        Serialization.options
-                    ) }
+                {
+                    Id = "heal-eval-1"
+                    Method = "execution/evaluate"
+                    Params =
+                        JsonSerializer.SerializeToElement(
+                            {
+                                Source = cell1Code
+                                SessionId = Some docUri
+                                Mode = Persistent
+                                DocumentUri = docUri
+                                IsNotebookCell = true
+                            },
+                            Serialization.options
+                        )
+                }
+
             let! evalRes = Handlers.dispatch evalReq
             Assert.True(evalRes.Error.IsNone)
-            let env = JsonSerializer.Deserialize<ResultEnvelope>(evalRes.Result.Value.GetRawText(), Serialization.options)
+
+            let env =
+                JsonSerializer.Deserialize<ResultEnvelope>(evalRes.Result.Value.GetRawText(), Serialization.options)
+
             Assert.Equal(ResultKind.Table, env.Kind)
             Assert.Equal(2, env.Rows.Length)
         finally
             Handlers.setWorkspaceDirForTests None
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
             try
-                if Directory.Exists tmp then Directory.Delete(tmp, true)
-            with _ -> ()
+                if Directory.Exists tmp then
+                    Directory.Delete(tmp, true)
+            with _ ->
+                ()
     }
 
 [<Fact>]
@@ -1661,15 +2092,30 @@ let ``workspace/createAdvancedSamples generates docker-compose, init scripts, da
     task {
         let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-adv-{Guid.NewGuid():N}")
         Directory.CreateDirectory(tmp) |> ignore
+
         try
             Handlers.setWorkspaceDirForTests (Some tmp)
             let escapedTmp = tmp.Replace("\\", "\\\\")
+
             let req: WorkerRequestFrame =
-                { Id = "adv-1"
-                  Method = "workspace/createAdvancedSamples"
-                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}", "engines": ["postgresql", "sqlserver"]}}""").RootElement }
+                {
+                    Id = "adv-1"
+                    Method = "workspace/createAdvancedSamples"
+                    Params =
+                        JsonDocument
+                            .Parse($"""{{"targetDir": "{escapedTmp}", "engines": ["postgresql", "sqlserver"]}}""")
+                            .RootElement
+                }
+
             let! res = Handlers.dispatch req
-            Assert.True(res.Error.IsNone, (match res.Error with Some e -> e.Message | None -> ""))
+
+            Assert.True(
+                res.Error.IsNone,
+                (match res.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
             Assert.True(res.Result.IsSome)
 
             let r = res.Result.Value
@@ -1696,25 +2142,47 @@ let ``workspace/createAdvancedSamples generates docker-compose, init scripts, da
         finally
             Handlers.setWorkspaceDirForTests None
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
             try
-                if Directory.Exists tmp then Directory.Delete(tmp, true)
-            with _ -> ()
+                if Directory.Exists tmp then
+                    Directory.Delete(tmp, true)
+            with _ ->
+                ()
     }
 
 [<Fact>]
-let ``workspace/createAdvancedSamples generates mysql, mariadb and oracle configurations, init scripts and notebooks`` () =
+let ``workspace/createAdvancedSamples generates mysql, mariadb and oracle configurations, init scripts and notebooks``
+    ()
+    =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-adv-my-ora-{Guid.NewGuid():N}")
+        let tmp =
+            Path.Combine(Path.GetTempPath(), $"fqs-test-adv-my-ora-{Guid.NewGuid():N}")
+
         Directory.CreateDirectory(tmp) |> ignore
+
         try
             Handlers.setWorkspaceDirForTests (Some tmp)
             let escapedTmp = tmp.Replace("\\", "\\\\")
+
             let req: WorkerRequestFrame =
-                { Id = "adv-2"
-                  Method = "workspace/createAdvancedSamples"
-                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}", "engines": ["mysql", "mariadb", "oracle"]}}""").RootElement }
+                {
+                    Id = "adv-2"
+                    Method = "workspace/createAdvancedSamples"
+                    Params =
+                        JsonDocument
+                            .Parse($"""{{"targetDir": "{escapedTmp}", "engines": ["mysql", "mariadb", "oracle"]}}""")
+                            .RootElement
+                }
+
             let! res = Handlers.dispatch req
-            Assert.True(res.Error.IsNone, (match res.Error with Some e -> e.Message | None -> ""))
+
+            Assert.True(
+                res.Error.IsNone,
+                (match res.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
             Assert.True(res.Result.IsSome)
 
             let composePath = Path.Combine(tmp, "docker-compose.fsqs.yml")
@@ -1746,29 +2214,41 @@ let ``workspace/createAdvancedSamples generates mysql, mariadb and oracle config
         finally
             Handlers.setWorkspaceDirForTests None
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
+
             try
-                if Directory.Exists tmp then Directory.Delete(tmp, true)
-            with _ -> ()
+                if Directory.Exists tmp then
+                    Directory.Delete(tmp, true)
+            with _ ->
+                ()
     }
 
 [<Fact>]
 let ``workspace/createAdvancedSamples updates user download demo workspace if present`` () =
     task {
         let downloadPath = @"C:\Users\theus\Downloads\fs-qs"
+
         if Directory.Exists downloadPath then
             Handlers.setWorkspaceDirForTests (Some downloadPath)
             let escaped = downloadPath.Replace("\\", "\\\\")
+
             let req: WorkerRequestFrame =
-                { Id = "adv-user-test"
-                  Method = "workspace/createAdvancedSamples"
-                  Params = JsonDocument.Parse($"""{{"targetDir": "{escaped}", "engines": ["postgresql", "sqlserver"]}}""").RootElement }
+                {
+                    Id = "adv-user-test"
+                    Method = "workspace/createAdvancedSamples"
+                    Params =
+                        JsonDocument
+                            .Parse($"""{{"targetDir": "{escaped}", "engines": ["postgresql", "sqlserver"]}}""")
+                            .RootElement
+                }
+
             let! res = Handlers.dispatch req
             Assert.True(res.Error.IsNone)
-            EntityBackgroundGenerator.waitForPendingGeneration()
+            EntityBackgroundGenerator.waitForPendingGeneration ()
             let conns = Workspace.readConnections downloadPath
             Assert.Contains(conns, fun c -> c.Name = "PostgreSQL_Advanced")
             Assert.Contains(conns, fun c -> c.Name = "SqlServer_Advanced")
             let genPath = EntityBackgroundGenerator.generatedFilePath downloadPath
+
             if File.Exists genPath then
                 let genCode = File.ReadAllText genPath
                 Assert.Contains("PostgreSQL_Advanced", genCode)
@@ -1804,6 +2284,7 @@ let ``connector/list returns all registered connector descriptors with form sche
             Assert.False(String.IsNullOrWhiteSpace desc.Category)
             Assert.False(String.IsNullOrWhiteSpace desc.Icon)
             Assert.NotEmpty(desc.FormFields)
+
             for field in desc.FormFields do
                 Assert.False(String.IsNullOrWhiteSpace field.Name)
                 Assert.False(String.IsNullOrWhiteSpace field.Label)
@@ -1811,14 +2292,18 @@ let ``connector/list returns all registered connector descriptors with form sche
     }
 
 [<Fact>]
-let ``evaluating table rows with UTF-8 accented characters over UTF-8 stdio stream preserves characters without mojibake`` () =
+let ``evaluating table rows with UTF-8 accented characters over UTF-8 stdio stream preserves characters without mojibake``
+    ()
+    =
     task {
         let utf8NoBom = System.Text.UTF8Encoding(false)
+
         let code =
             """[
     {| Fonte = "SalesFeed"; Tipo = "CSV (Arquivo Plano)"; TotalRegistros = 10; EntidadePrincipal = "Transações" |}
     {| Fonte = "CustomersFeed"; Tipo = "CSV (Arquivo Plano)"; TotalRegistros = 6; EntidadePrincipal = "Perfis de Fidelidade" |}
 ]"""
+
         let reqFrame = evaluateRequest "utf8-eval-1" code
         let reqJson = JsonSerializer.Serialize(reqFrame, Serialization.options) + "\n"
         let inputBytes = utf8NoBom.GetBytes(reqJson)
@@ -1826,8 +2311,17 @@ let ``evaluating table rows with UTF-8 accented characters over UTF-8 stdio stre
         use inputStream = new MemoryStream(inputBytes)
         use outputStream = new MemoryStream()
 
-        use reader = new StreamReader(inputStream, utf8NoBom, detectEncodingFromByteOrderMarks = false, bufferSize = 4096, leaveOpen = true)
-        use writer = new StreamWriter(outputStream, utf8NoBom, bufferSize = 4096, leaveOpen = true, AutoFlush = true)
+        use reader =
+            new StreamReader(
+                inputStream,
+                utf8NoBom,
+                detectEncodingFromByteOrderMarks = false,
+                bufferSize = 4096,
+                leaveOpen = true
+            )
+
+        use writer =
+            new StreamWriter(outputStream, utf8NoBom, bufferSize = 4096, leaveOpen = true, AutoFlush = true)
 
         let! readReqOpt = NdjsonStream.readFrame<WorkerRequestFrame> reader
         Assert.True(readReqOpt.IsSome)
@@ -1835,31 +2329,45 @@ let ``evaluating table rows with UTF-8 accented characters over UTF-8 stdio stre
         do! NdjsonStream.writeFrame writer dispatchResp
 
         let outputJson = utf8NoBom.GetString(outputStream.ToArray()).Trim()
-        let respFrame = JsonSerializer.Deserialize<WorkerResponseFrame>(outputJson, Serialization.options)
+
+        let respFrame =
+            JsonSerializer.Deserialize<WorkerResponseFrame>(outputJson, Serialization.options)
+
         Assert.True(respFrame.Error.IsNone)
         Assert.True(respFrame.Result.IsSome)
 
-        let envelope = JsonSerializer.Deserialize<ResultEnvelope>(respFrame.Result.Value.GetRawText(), Serialization.options)
+        let envelope =
+            JsonSerializer.Deserialize<ResultEnvelope>(respFrame.Result.Value.GetRawText(), Serialization.options)
+
         Assert.Equal(ResultKind.Table, envelope.Kind)
         Assert.Equal(2, envelope.Rows.Length)
 
-        let entColIdx = envelope.Schema |> List.findIndex (fun c -> c.Name = "EntidadePrincipal")
+        let entColIdx =
+            envelope.Schema |> List.findIndex (fun c -> c.Name = "EntidadePrincipal")
+
         Assert.Equal("Transações", envelope.Rows.[0].[entColIdx].ToString())
         Assert.Equal("Perfis de Fidelidade", envelope.Rows.[1].[entColIdx].ToString())
     }
 
 [<Fact>]
-let ``evaluating a CSV with >100,000 rows and messy rows past row 200 projects to ResultKind.Table and never falls back to val IQueryable Text`` () =
+let ``evaluating a CSV with >100,000 rows and messy rows past row 200 projects to ResultKind.Table and never falls back to val IQueryable Text``
+    ()
+    =
     task {
         let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-large-csv-{Guid.NewGuid():N}")
         Directory.CreateDirectory(tmp) |> ignore
+
         try
             Handlers.setWorkspaceDirForTests (Some tmp)
             let csvPath = Path.Combine(tmp, "large_sales_100k.csv")
+
             do
-                use fs = new FileStream(csvPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536)
+                use fs =
+                    new FileStream(csvPath, FileMode.Create, FileAccess.Write, FileShare.None, 65536)
+
                 use writer = new StreamWriter(fs, System.Text.Encoding.UTF8, 65536)
                 writer.WriteLine("Id,Customer,Quantity,Amount,Active,OrderDate")
+
                 for i = 1 to 105_000 do
                     if i <= 200 then
                         // Clean first 200 rows so type inference infers non-option int, decimal, bool, DateTime
@@ -1875,15 +2383,18 @@ let ``evaluating a CSV with >100,000 rows and messy rows past row 200 projects t
                         writer.WriteLine($"{i},Customer_{i},4.7,\"350,75\",1,2026-03-15")
                     else
                         writer.WriteLine($"{i},Customer_{i},2,120.00,false,2026-03-10")
+
                 writer.WriteLine()
 
             let connDef: ConnectionDefinition =
-                { Id = Guid.NewGuid()
-                  Name = "LargeSales"
-                  Kind = ConnectorKind.Csv
-                  Configuration = JsonSerializer.SerializeToElement({| filePath = csvPath |}, Serialization.options)
-                  SecretReference = None
-                  IsTrusted = true }
+                {
+                    Id = Guid.NewGuid()
+                    Name = "LargeSales"
+                    Kind = ConnectorKind.Csv
+                    Configuration = JsonSerializer.SerializeToElement({| filePath = csvPath |}, Serialization.options)
+                    SecretReference = None
+                    IsTrusted = true
+                }
 
             let! regResp = Handlers.dispatch (registerConnectionRequest "reg-100k" connDef)
             Assert.True(regResp.Error.IsNone)
@@ -1892,20 +2403,33 @@ let ``evaluating a CSV with >100,000 rows and messy rows past row 200 projects t
             let docUri = Path.Combine(tmp, "large_test.fsqnb")
 
             // 1. Evaluate direct table reference `Connections.csv.LargeSales`
-            let evalDirect = notebookCellRequest "eval-100k-direct" "Connections.csv.LargeSales" docUri
+            let evalDirect =
+                notebookCellRequest "eval-100k-direct" "Connections.csv.LargeSales" docUri
+
             let! respDirect = Handlers.dispatch evalDirect
-            Assert.True(respDirect.Error.IsNone, (match respDirect.Error with Some e -> e.Message | None -> ""))
-            let envDirect = JsonSerializer.Deserialize<ResultEnvelope>(respDirect.Result.Value.GetRawText(), Serialization.options)
+
+            Assert.True(
+                respDirect.Error.IsNone,
+                (match respDirect.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
+            let envDirect =
+                JsonSerializer.Deserialize<ResultEnvelope>(respDirect.Result.Value.GetRawText(), Serialization.options)
+
             Assert.Equal(ResultKind.Table, envDirect.Kind)
             Assert.Equal(500, envDirect.Rows.Length)
             Assert.True(envDirect.IsTruncated)
+
             Assert.Equal<string list>(
                 [ "Id"; "Customer"; "Quantity"; "Amount"; "Active"; "OrderDate" ],
                 envDirect.Schema |> List.map (fun c -> c.Name)
             )
 
             // 2. Evaluate LINQ IQueryable query over >100,000 rows (matches 200 initial rows + 104 rows where i % 1000 = 2 = 304 rows)
-            let linqCode = """
+            let linqCode =
+                """
 query {
     for r in Connections.csv.LargeSales do
     where (r.Amount >= 150.0M)
@@ -1916,27 +2440,47 @@ query {
         Amount = r.Amount
     |}
 }"""
+
             let evalLinq = notebookCellRequest "eval-100k-linq" linqCode docUri
             let! respLinq = Handlers.dispatch evalLinq
-            Assert.True(respLinq.Error.IsNone, (match respLinq.Error with Some e -> e.Message | None -> ""))
-            let envLinq = JsonSerializer.Deserialize<ResultEnvelope>(respLinq.Result.Value.GetRawText(), Serialization.options)
+
+            Assert.True(
+                respLinq.Error.IsNone,
+                (match respLinq.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
+            let envLinq =
+                JsonSerializer.Deserialize<ResultEnvelope>(respLinq.Result.Value.GetRawText(), Serialization.options)
+
             Assert.Equal(ResultKind.Table, envLinq.Kind)
             Assert.Equal(304, envLinq.Rows.Length)
             Assert.False(envLinq.IsTruncated)
-            Assert.Equal<string list>([ "Amount"; "Customer"; "Id"; "Quantity" ], envLinq.Schema |> List.map (fun c -> c.Name) |> List.sort)
+
+            Assert.Equal<string list>(
+                [ "Amount"; "Customer"; "Id"; "Quantity" ],
+                envLinq.Schema |> List.map (fun c -> c.Name) |> List.sort
+            )
         finally
             Handlers.setWorkspaceDirForTests None
             cleanTempDir tmp
     }
 
 [<Fact>]
-let ``evaluating an Excel workbook with >1,000 rows, a Data sheet name, and messy cells past row 200 projects to ResultKind.Table`` () =
+let ``evaluating an Excel workbook with >1,000 rows, a Data sheet name, and messy cells past row 200 projects to ResultKind.Table``
+    ()
+    =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-large-xlsx-{Guid.NewGuid():N}")
+        let tmp =
+            Path.Combine(Path.GetTempPath(), $"fqs-test-large-xlsx-{Guid.NewGuid():N}")
+
         Directory.CreateDirectory(tmp) |> ignore
+
         try
             Handlers.setWorkspaceDirForTests (Some tmp)
             let xlsxPath = Path.Combine(tmp, "large_workbook.xlsx")
+
             do
                 use wb = new ClosedXML.Excel.XLWorkbook()
                 let ws = wb.Worksheets.Add("Data")
@@ -1944,10 +2488,12 @@ let ``evaluating an Excel workbook with >1,000 rows, a Data sheet name, and mess
                 ws.Cell(1, 2).Value <- "Region"
                 ws.Cell(1, 3).Value <- "Units"
                 ws.Cell(1, 4).Value <- "Revenue"
+
                 for i = 1 to 1200 do
                     let rowIdx = i + 1
                     ws.Cell(rowIdx, 1).Value <- i
                     ws.Cell(rowIdx, 2).Value <- $"Region_{i % 5}"
+
                     if i <= 200 then
                         ws.Cell(rowIdx, 3).Value <- 10
                         ws.Cell(rowIdx, 4).Value <- 250.50
@@ -1961,31 +2507,46 @@ let ``evaluating an Excel workbook with >1,000 rows, a Data sheet name, and mess
                     else
                         ws.Cell(rowIdx, 3).Value <- 20
                         ws.Cell(rowIdx, 4).Value <- 500.75
+
                 wb.SaveAs(xlsxPath)
 
             let connDef: ConnectionDefinition =
-                { Id = Guid.NewGuid()
-                  Name = "LargeExcel"
-                  Kind = ConnectorKind.Excel
-                  Configuration = JsonSerializer.SerializeToElement({| filePath = xlsxPath |}, Serialization.options)
-                  SecretReference = None
-                  IsTrusted = true }
+                {
+                    Id = Guid.NewGuid()
+                    Name = "LargeExcel"
+                    Kind = ConnectorKind.Excel
+                    Configuration = JsonSerializer.SerializeToElement({| filePath = xlsxPath |}, Serialization.options)
+                    SecretReference = None
+                    IsTrusted = true
+                }
 
             let! regResp = Handlers.dispatch (registerConnectionRequest "reg-xlsx" connDef)
             Assert.True(regResp.Error.IsNone)
             Handlers.waitForPendingGeneration ()
 
             let docUri = Path.Combine(tmp, "large_excel_test.fsqnb")
-            let linqCode = """
+
+            let linqCode =
+                """
 query {
     for r in Connections.excel.LargeExcel.Data do
     where (r.Id > 220)
     select r
 }"""
+
             let evalLinq = notebookCellRequest "eval-xlsx-linq" linqCode docUri
             let! respLinq = Handlers.dispatch evalLinq
-            Assert.True(respLinq.Error.IsNone, (match respLinq.Error with Some e -> e.Message | None -> ""))
-            let envLinq = JsonSerializer.Deserialize<ResultEnvelope>(respLinq.Result.Value.GetRawText(), Serialization.options)
+
+            Assert.True(
+                respLinq.Error.IsNone,
+                (match respLinq.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
+            let envLinq =
+                JsonSerializer.Deserialize<ResultEnvelope>(respLinq.Result.Value.GetRawText(), Serialization.options)
+
             Assert.Equal(ResultKind.Table, envLinq.Kind)
             Assert.Equal(500, envLinq.Rows.Length)
             Assert.True(envLinq.IsTruncated)
@@ -2000,45 +2561,64 @@ query {
 [<Fact>]
 let ``evaluating a SQLite table with >100,000 rows and messy values past row 200 projects to ResultKind.Table`` () =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-large-sqlite-{Guid.NewGuid():N}")
+        let tmp =
+            Path.Combine(Path.GetTempPath(), $"fqs-test-large-sqlite-{Guid.NewGuid():N}")
+
         Directory.CreateDirectory(tmp) |> ignore
+
         try
             Handlers.setWorkspaceDirForTests (Some tmp)
             let dbPath = Path.Combine(tmp, "big_store.db")
+
             do
                 use conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath}")
                 conn.Open()
                 use create = conn.CreateCommand()
+
                 create.CommandText <-
                     "create table Orders (Id INTEGER, Customer TEXT, Quantity INTEGER, Amount NUMERIC, Active BOOLEAN, OrderDate DATETIME)"
+
                 create.ExecuteNonQuery() |> ignore
                 use tx = conn.BeginTransaction()
                 use insert = conn.CreateCommand()
                 insert.Transaction <- tx
                 insert.CommandText <- "insert into Orders values ($id, $c, $q, $a, $act, $d)"
+
                 let ps =
                     [| "$id"; "$c"; "$q"; "$a"; "$act"; "$d" |]
                     |> Array.map (fun n -> insert.Parameters.Add(n, Microsoft.Data.Sqlite.SqliteType.Text))
+
                 let setRow (values: obj array) =
                     for k = 0 to values.Length - 1 do
                         ps.[k].Value <- (if isNull values.[k] then box DBNull.Value else values.[k])
+
                 for i = 1 to 105_000 do
-                    if i <= 200 then setRow [| box i; box $"C_{i}"; box 3; box 199.90; box 1; box "2026-03-01" |]
-                    elif i % 1000 = 0 then setRow [| box i; box $"C_{i}"; null; null; null; null |]
-                    elif i % 1000 = 1 then setRow [| box i; box $"C_{i}"; box "N/A"; box "-"; box "null"; box "#N/A" |]
-                    elif i % 1000 = 2 then setRow [| box i; box $"C_{i}"; box 4.7; box "350,75"; box "yes"; box "invalid" |]
-                    else setRow [| box i; box $"C_{i}"; box 2; box 120.00; box 0; box "2026-03-10" |]
+                    if i <= 200 then
+                        setRow [| box i; box $"C_{i}"; box 3; box 199.90; box 1; box "2026-03-01" |]
+                    elif i % 1000 = 0 then
+                        setRow [| box i; box $"C_{i}"; null; null; null; null |]
+                    elif i % 1000 = 1 then
+                        setRow [| box i; box $"C_{i}"; box "N/A"; box "-"; box "null"; box "#N/A" |]
+                    elif i % 1000 = 2 then
+                        setRow [| box i; box $"C_{i}"; box 4.7; box "350,75"; box "yes"; box "invalid" |]
+                    else
+                        setRow [| box i; box $"C_{i}"; box 2; box 120.00; box 0; box "2026-03-10" |]
+
                     insert.ExecuteNonQuery() |> ignore
+
                 tx.Commit()
+
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
 
             let connDef: ConnectionDefinition =
-                { Id = Guid.NewGuid()
-                  Name = "BigStore"
-                  Kind = ConnectorKind.Sqlite
-                  Configuration = JsonSerializer.SerializeToElement({| filePath = dbPath |}, Serialization.options)
-                  SecretReference = None
-                  IsTrusted = true }
+                {
+                    Id = Guid.NewGuid()
+                    Name = "BigStore"
+                    Kind = ConnectorKind.Sqlite
+                    Configuration = JsonSerializer.SerializeToElement({| filePath = dbPath |}, Serialization.options)
+                    SecretReference = None
+                    IsTrusted = true
+                }
 
             let! regResp = Handlers.dispatch (registerConnectionRequest "reg-big-sqlite" connDef)
             Assert.True(regResp.Error.IsNone)
@@ -2047,24 +2627,56 @@ let ``evaluating a SQLite table with >100,000 rows and messy values past row 200
             let docUri = Path.Combine(tmp, "big_sqlite_test.fsqnb")
 
             // 1. Direct table reference over all 105,000 rows
-            let! respDirect = Handlers.dispatch (notebookCellRequest "eval-big-sqlite-direct" "Connections.sql.BigStore.Orders" docUri)
-            Assert.True(respDirect.Error.IsNone, (match respDirect.Error with Some e -> e.Message | None -> ""))
-            let envDirect = JsonSerializer.Deserialize<ResultEnvelope>(respDirect.Result.Value.GetRawText(), Serialization.options)
-            Assert.True((envDirect.Kind = ResultKind.Table), $"Expected Table but got {envDirect.Kind}: {envDirect.DisplayText}")
+            let! respDirect =
+                Handlers.dispatch (
+                    notebookCellRequest "eval-big-sqlite-direct" "Connections.sql.BigStore.Orders" docUri
+                )
+
+            Assert.True(
+                respDirect.Error.IsNone,
+                (match respDirect.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
+            let envDirect =
+                JsonSerializer.Deserialize<ResultEnvelope>(respDirect.Result.Value.GetRawText(), Serialization.options)
+
+            Assert.True(
+                (envDirect.Kind = ResultKind.Table),
+                $"Expected Table but got {envDirect.Kind}: {envDirect.DisplayText}"
+            )
+
             Assert.Equal(500, envDirect.Rows.Length)
             Assert.True(envDirect.IsTruncated)
 
             // 2. LINQ query (pushdown) projecting an anonymous record
-            let linqCode = """
+            let linqCode =
+                """
 query {
     for o in Connections.sql.BigStore.Orders do
     where (o.Id > 104_000)
     select {| Id = o.Id; Quantity = o.Quantity; Amount = o.Amount; Active = o.Active |}
 }"""
-            let! respLinq = Handlers.dispatch (notebookCellRequest "eval-big-sqlite-linq" linqCode docUri)
-            Assert.True(respLinq.Error.IsNone, (match respLinq.Error with Some e -> e.Message | None -> ""))
-            let envLinq = JsonSerializer.Deserialize<ResultEnvelope>(respLinq.Result.Value.GetRawText(), Serialization.options)
-            Assert.True((envLinq.Kind = ResultKind.Table), $"Expected Table but got {envLinq.Kind}: {envLinq.DisplayText}")
+
+            let! respLinq =
+                Handlers.dispatch (notebookCellRequest "eval-big-sqlite-linq" linqCode docUri)
+
+            Assert.True(
+                respLinq.Error.IsNone,
+                (match respLinq.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
+            let envLinq =
+                JsonSerializer.Deserialize<ResultEnvelope>(respLinq.Result.Value.GetRawText(), Serialization.options)
+
+            Assert.True(
+                (envLinq.Kind = ResultKind.Table),
+                $"Expected Table but got {envLinq.Kind}: {envLinq.DisplayText}"
+            )
+
             Assert.Equal(500, envLinq.Rows.Length)
             Assert.True(envLinq.IsTruncated)
         finally
@@ -2077,31 +2689,48 @@ let ``connections registered with relative file paths resolve against the worksp
     task {
         let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-relative-{Guid.NewGuid():N}")
         Directory.CreateDirectory(Path.Combine(tmp, "data")) |> ignore
+
         try
             Handlers.setWorkspaceDirForTests (Some tmp)
             File.WriteAllText(Path.Combine(tmp, "data", "people.csv"), "Id,Name\n1,Alice\n2,Bob\n3,Carol\n")
+
             do
-                use conn = new Microsoft.Data.Sqlite.SqliteConnection($"""Data Source={Path.Combine(tmp, "data", "items.db")}""")
+                use conn =
+                    new Microsoft.Data.Sqlite.SqliteConnection(
+                        $"""Data Source={Path.Combine(tmp, "data", "items.db")}"""
+                    )
+
                 conn.Open()
                 use cmd = conn.CreateCommand()
-                cmd.CommandText <- "create table Items (Id INTEGER, Label TEXT); insert into Items values (1, 'a'), (2, 'b');"
+
+                cmd.CommandText <-
+                    "create table Items (Id INTEGER, Label TEXT); insert into Items values (1, 'a'), (2, 'b');"
+
                 cmd.ExecuteNonQuery() |> ignore
+
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
 
             let csvDef: ConnectionDefinition =
-                { Id = Guid.NewGuid()
-                  Name = "RelPeople"
-                  Kind = ConnectorKind.Csv
-                  Configuration = JsonSerializer.SerializeToElement({| filePath = "data/people.csv" |}, Serialization.options)
-                  SecretReference = None
-                  IsTrusted = true }
+                {
+                    Id = Guid.NewGuid()
+                    Name = "RelPeople"
+                    Kind = ConnectorKind.Csv
+                    Configuration =
+                        JsonSerializer.SerializeToElement({| filePath = "data/people.csv" |}, Serialization.options)
+                    SecretReference = None
+                    IsTrusted = true
+                }
+
             let dbDef: ConnectionDefinition =
-                { Id = Guid.NewGuid()
-                  Name = "RelItems"
-                  Kind = ConnectorKind.Sqlite
-                  Configuration = JsonSerializer.SerializeToElement({| filePath = "./data/items.db" |}, Serialization.options)
-                  SecretReference = None
-                  IsTrusted = true }
+                {
+                    Id = Guid.NewGuid()
+                    Name = "RelItems"
+                    Kind = ConnectorKind.Sqlite
+                    Configuration =
+                        JsonSerializer.SerializeToElement({| filePath = "./data/items.db" |}, Serialization.options)
+                    SecretReference = None
+                    IsTrusted = true
+                }
 
             let! r1 = Handlers.dispatch (registerConnectionRequest "reg-rel-csv" csvDef)
             Assert.True(r1.Error.IsNone)
@@ -2110,20 +2739,42 @@ let ``connections registered with relative file paths resolve against the worksp
             Handlers.waitForPendingGeneration ()
 
             // The relative path is persisted as-is (portable workspace.json)
-            let persisted = Workspace.readConnections tmp |> List.find (fun c -> c.Name = "RelPeople")
+            let persisted =
+                Workspace.readConnections tmp |> List.find (fun c -> c.Name = "RelPeople")
+
             Assert.Contains("data/people.csv", persisted.Configuration.GetRawText())
 
             let docUri = Path.Combine(tmp, "relative_test.fsqnb")
 
-            let! respCsv = Handlers.dispatch (notebookCellRequest "eval-rel-csv" "Connections.csv.RelPeople" docUri)
-            Assert.True(respCsv.Error.IsNone, (match respCsv.Error with Some e -> e.Message | None -> ""))
-            let envCsv = JsonSerializer.Deserialize<ResultEnvelope>(respCsv.Result.Value.GetRawText(), Serialization.options)
+            let! respCsv =
+                Handlers.dispatch (notebookCellRequest "eval-rel-csv" "Connections.csv.RelPeople" docUri)
+
+            Assert.True(
+                respCsv.Error.IsNone,
+                (match respCsv.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
+            let envCsv =
+                JsonSerializer.Deserialize<ResultEnvelope>(respCsv.Result.Value.GetRawText(), Serialization.options)
+
             Assert.True((envCsv.Kind = ResultKind.Table), $"Expected Table but got {envCsv.Kind}: {envCsv.DisplayText}")
             Assert.Equal(3, envCsv.Rows.Length)
 
-            let! respDb = Handlers.dispatch (notebookCellRequest "eval-rel-db" "Connections.sql.RelItems.Items" docUri)
-            Assert.True(respDb.Error.IsNone, (match respDb.Error with Some e -> e.Message | None -> ""))
-            let envDb = JsonSerializer.Deserialize<ResultEnvelope>(respDb.Result.Value.GetRawText(), Serialization.options)
+            let! respDb =
+                Handlers.dispatch (notebookCellRequest "eval-rel-db" "Connections.sql.RelItems.Items" docUri)
+
+            Assert.True(
+                respDb.Error.IsNone,
+                (match respDb.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
+            let envDb =
+                JsonSerializer.Deserialize<ResultEnvelope>(respDb.Result.Value.GetRawText(), Serialization.options)
+
             Assert.True((envDb.Kind = ResultKind.Table), $"Expected Table but got {envDb.Kind}: {envDb.DisplayText}")
             Assert.Equal(2, envDb.Rows.Length)
 
@@ -2137,27 +2788,38 @@ let ``connections registered with relative file paths resolve against the worksp
 [<Fact>]
 let ``evaluating a cell with ResultKind.toRawSql renders the generated query as text before database execution`` () =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), "fqs-rawsql-" + Guid.NewGuid().ToString("N"))
+        let tmp =
+            Path.Combine(Path.GetTempPath(), "fqs-rawsql-" + Guid.NewGuid().ToString("N"))
+
         Directory.CreateDirectory(tmp) |> ignore
         Handlers.setWorkspaceDirForTests (Some tmp)
 
         try
             let dbPath = Path.Combine(tmp, "store.db")
+
             do
-                use c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=false")
+                use c =
+                    new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=false")
+
                 c.Open()
                 use cmd = c.CreateCommand()
-                cmd.CommandText <- "CREATE TABLE Items (Id INTEGER PRIMARY KEY, Name TEXT, Price NUMERIC); INSERT INTO Items VALUES (1, 'Widget', 19.99);"
+
+                cmd.CommandText <-
+                    "CREATE TABLE Items (Id INTEGER PRIMARY KEY, Name TEXT, Price NUMERIC); INSERT INTO Items VALUES (1, 'Widget', 19.99);"
+
                 cmd.ExecuteNonQuery() |> ignore
+
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
 
             let dbDef: ConnectionDefinition =
-                { Id = Guid.NewGuid()
-                  Name = "RawSqlDb"
-                  Kind = ConnectorKind.Sqlite
-                  Configuration = JsonSerializer.SerializeToElement({| filePath = dbPath |}, Serialization.options)
-                  SecretReference = None
-                  IsTrusted = true }
+                {
+                    Id = Guid.NewGuid()
+                    Name = "RawSqlDb"
+                    Kind = ConnectorKind.Sqlite
+                    Configuration = JsonSerializer.SerializeToElement({| filePath = dbPath |}, Serialization.options)
+                    SecretReference = None
+                    IsTrusted = true
+                }
 
             let! r = Handlers.dispatch (registerConnectionRequest "reg-rawsql-db" dbDef)
             Assert.True(r.Error.IsNone)
@@ -2167,16 +2829,24 @@ let ``evaluating a cell with ResultKind.toRawSql renders the generated query as 
 
             // Evaluate with ResultKind.toRawSql
             let cellSource =
-                "query {\n" +
-                "    for item in Connections.sql.RawSqlDb.Items do\n" +
-                "    where (item.Price > 10.0M)\n" +
-                "    select item.Name\n" +
-                "}\n" +
-                "|> ResultKind.toRawSql"
+                "query {\n"
+                + "    for item in Connections.sql.RawSqlDb.Items do\n"
+                + "    where (item.Price > 10.0M)\n"
+                + "    select item.Name\n"
+                + "}\n"
+                + "|> ResultKind.toRawSql"
 
             let! resp = Handlers.dispatch (notebookCellRequest "eval-rawsql" cellSource docUri)
-            Assert.True(resp.Error.IsNone, (match resp.Error with Some e -> e.Message | None -> ""))
-            let env = JsonSerializer.Deserialize<ResultEnvelope>(resp.Result.Value.GetRawText(), Serialization.options)
+
+            Assert.True(
+                resp.Error.IsNone,
+                (match resp.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
+            let env =
+                JsonSerializer.Deserialize<ResultEnvelope>(resp.Result.Value.GetRawText(), Serialization.options)
 
             Assert.Equal(ResultKind.Text, env.Kind)
             Assert.True(env.DisplayText.IsSome)
@@ -2194,7 +2864,9 @@ let ``evaluating a cell with ResultKind.toRawSql renders the generated query as 
 [<Fact>]
 let ``workspace/autoImportDataSources creates data_sources and discovers files automatically`` () =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), "fqs-autoimport-" + Guid.NewGuid().ToString("N"))
+        let tmp =
+            Path.Combine(Path.GetTempPath(), "fqs-autoimport-" + Guid.NewGuid().ToString("N"))
+
         Directory.CreateDirectory(tmp) |> ignore
         Handlers.setWorkspaceDirForTests (Some tmp)
 
@@ -2203,11 +2875,21 @@ let ``workspace/autoImportDataSources creates data_sources and discovers files a
 
             // 1. First run: folder does not exist yet
             let req1: WorkerRequestFrame =
-                { Id = "auto-1"
-                  Method = "workspace/autoImportDataSources"
-                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+                {
+                    Id = "auto-1"
+                    Method = "workspace/autoImportDataSources"
+                    Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement
+                }
+
             let! res1 = Handlers.dispatch req1
-            Assert.True(res1.Error.IsNone, (match res1.Error with Some e -> e.Message | None -> ""))
+
+            Assert.True(
+                res1.Error.IsNone,
+                (match res1.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
             Assert.True(res1.Result.IsSome)
 
             let r1 = res1.Result.Value
@@ -2224,21 +2906,38 @@ let ``workspace/autoImportDataSources creates data_sources and discovers files a
             File.WriteAllText(csvPath, "OrderId,Product,Amount\n1,Alpha,99.5\n2,Beta,49.0\n")
 
             let dbPath = Path.Combine(dataSourcesDir, "catalog_store.db")
+
             do
-                use c = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=false")
+                use c =
+                    new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={dbPath};Pooling=false")
+
                 c.Open()
                 use cmd = c.CreateCommand()
-                cmd.CommandText <- "CREATE TABLE Items (Id INTEGER PRIMARY KEY, SKU TEXT); INSERT INTO Items VALUES (1, 'SKU-001');"
+
+                cmd.CommandText <-
+                    "CREATE TABLE Items (Id INTEGER PRIMARY KEY, SKU TEXT); INSERT INTO Items VALUES (1, 'SKU-001');"
+
                 cmd.ExecuteNonQuery() |> ignore
+
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
 
             // 3. Run auto-import again
             let req2: WorkerRequestFrame =
-                { Id = "auto-2"
-                  Method = "workspace/autoImportDataSources"
-                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+                {
+                    Id = "auto-2"
+                    Method = "workspace/autoImportDataSources"
+                    Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement
+                }
+
             let! res2 = Handlers.dispatch req2
-            Assert.True(res2.Error.IsNone, (match res2.Error with Some e -> e.Message | None -> ""))
+
+            Assert.True(
+                res2.Error.IsNone,
+                (match res2.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
             let r2 = res2.Result.Value
             Assert.False(r2.GetProperty("folderCreated").GetBoolean())
             Assert.Equal(2, r2.GetProperty("foundFilesCount").GetInt32())
@@ -2261,9 +2960,12 @@ let ``workspace/autoImportDataSources creates data_sources and discovers files a
 
             // 4. Re-running without adding new files skips already registered files
             let req3: WorkerRequestFrame =
-                { Id = "auto-3"
-                  Method = "workspace/autoImportDataSources"
-                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+                {
+                    Id = "auto-3"
+                    Method = "workspace/autoImportDataSources"
+                    Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement
+                }
+
             let! res3 = Handlers.dispatch req3
             Assert.True(res3.Error.IsNone)
             let r3 = res3.Result.Value
@@ -2274,6 +2976,7 @@ let ``workspace/autoImportDataSources creates data_sources and discovers files a
             // 5. Delete orders_feed.csv from data_sources and verify auto-removal
             let mutable deleted = false
             let mutable retries = 0
+
             while not deleted && retries < 30 do
                 try
                     File.Delete csvPath
@@ -2281,12 +2984,16 @@ let ``workspace/autoImportDataSources creates data_sources and discovers files a
                 with :? System.IO.IOException ->
                     do! Task.Delay 100
                     retries <- retries + 1
+
             Assert.True(deleted, "Expected orders_feed.csv to be deleted")
 
             let req4: WorkerRequestFrame =
-                { Id = "auto-4"
-                  Method = "workspace/autoImportDataSources"
-                  Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement }
+                {
+                    Id = "auto-4"
+                    Method = "workspace/autoImportDataSources"
+                    Params = JsonDocument.Parse($"""{{"targetDir": "{escapedTmp}"}}""").RootElement
+                }
+
             let! res4 = Handlers.dispatch req4
             Assert.True(res4.Error.IsNone)
             let r4 = res4.Result.Value
@@ -2301,13 +3008,19 @@ let ``workspace/autoImportDataSources creates data_sources and discovers files a
     }
 
 [<Fact>]
-let ``evaluating Connections.excel.teste.<sheet> queries translates to prefixed SQLite table and returns distinct worksheet records`` () =
+let ``evaluating Connections.excel.teste.<sheet> queries translates to prefixed SQLite table and returns distinct worksheet records``
+    ()
+    =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-excel-schema-{Guid.NewGuid():N}")
+        let tmp =
+            Path.Combine(Path.GetTempPath(), $"fqs-test-excel-schema-{Guid.NewGuid():N}")
+
         Directory.CreateDirectory(tmp) |> ignore
+
         try
             Handlers.setWorkspaceDirForTests (Some tmp)
             let xlsxPath = Path.Combine(tmp, "teste.xlsx")
+
             do
                 use wb = new ClosedXML.Excel.XLWorkbook()
                 let wsCal = wb.Worksheets.Add("calendar")
@@ -2330,26 +3043,40 @@ let ``evaluating Connections.excel.teste.<sheet> queries translates to prefixed 
                 wb.SaveAs(xlsxPath)
 
             let connDef: ConnectionDefinition =
-                { Id = Guid.NewGuid()
-                  Name = "teste"
-                  Kind = ConnectorKind.Excel
-                  Configuration = JsonSerializer.SerializeToElement({| filePath = xlsxPath; hasHeader = true |}, Serialization.options)
-                  SecretReference = None
-                  IsTrusted = true }
+                {
+                    Id = Guid.NewGuid()
+                    Name = "teste"
+                    Kind = ConnectorKind.Excel
+                    Configuration =
+                        JsonSerializer.SerializeToElement(
+                            {|
+                                filePath = xlsxPath
+                                hasHeader = true
+                            |},
+                            Serialization.options
+                        )
+                    SecretReference = None
+                    IsTrusted = true
+                }
 
             let! regResp = Handlers.dispatch (registerConnectionRequest "reg-teste-xlsx" connDef)
             Assert.True(regResp.Error.IsNone)
             Handlers.waitForPendingGeneration ()
 
             let syncReq: WorkerRequestFrame =
-                { Id = "sync-teste-xlsx"
-                  Method = "workspace/syncDataSources"
-                  Params = JsonSerializer.SerializeToElement({| targetDir = tmp |}, Serialization.options) }
+                {
+                    Id = "sync-teste-xlsx"
+                    Method = "workspace/syncDataSources"
+                    Params = JsonSerializer.SerializeToElement({| targetDir = tmp |}, Serialization.options)
+                }
+
             let! syncResp = Handlers.dispatch syncReq
             Assert.True(syncResp.Error.IsNone)
 
             let docUri = Path.Combine(tmp, "teste_excel.fsqnb")
-            let codeSqlCheck = """
+
+            let codeSqlCheck =
+                """
 let sqlCal =
     query {
         for x in Connections.excel.teste.calendar do
@@ -2370,12 +3097,25 @@ let sqlCourses =
 
 $"{sqlCal} | {sqlNames} | {sqlCourses}"
 """
-            let! respSql = Handlers.dispatch (notebookCellRequest "eval-teste-sql" codeSqlCheck docUri)
-            Assert.True(respSql.Error.IsNone, (match respSql.Error with Some e -> e.Message | None -> ""))
-            let envSql = JsonSerializer.Deserialize<ResultEnvelope>(respSql.Result.Value.GetRawText(), Serialization.options)
+
+            let! respSql =
+                Handlers.dispatch (notebookCellRequest "eval-teste-sql" codeSqlCheck docUri)
+
+            Assert.True(
+                respSql.Error.IsNone,
+                (match respSql.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
+            let envSql =
+                JsonSerializer.Deserialize<ResultEnvelope>(respSql.Result.Value.GetRawText(), Serialization.options)
+
             Assert.Equal(ResultKind.Text, envSql.Kind)
+
             Assert.Equal(
-                Some "SELECT * FROM teste_calendar | SELECT Id AS Id, FullName AS Name FROM teste_names | SELECT * FROM teste_courses",
+                Some
+                    "SELECT * FROM teste_calendar | SELECT Id AS Id, FullName AS Name FROM teste_names | SELECT * FROM teste_courses",
                 envSql.DisplayText
             )
         finally
@@ -2384,10 +3124,15 @@ $"{sqlCal} | {sqlNames} | {sqlCourses}"
     }
 
 [<Fact>]
-let ``evaluating Connections.json and Connections.xml sub-properties translates to prefixed SQLite tables and executes LINQ joins`` () =
+let ``evaluating Connections.json and Connections.xml sub-properties translates to prefixed SQLite tables and executes LINQ joins``
+    ()
+    =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), $"fqs-test-json-xml-schema-{Guid.NewGuid():N}")
+        let tmp =
+            Path.Combine(Path.GetTempPath(), $"fqs-test-json-xml-schema-{Guid.NewGuid():N}")
+
         Directory.CreateDirectory(tmp) |> ignore
+
         try
             Handlers.setWorkspaceDirForTests (Some tmp)
             let jsonPath = Path.Combine(tmp, "catalog.json")
@@ -2397,20 +3142,39 @@ let ``evaluating Connections.json and Connections.xml sub-properties translates 
             SampleDataGenerator.createSampleXmlFile xmlPath
 
             let connJson: ConnectionDefinition =
-                { Id = Guid.NewGuid()
-                  Name = "ProductCatalog"
-                  Kind = ConnectorKind.Json
-                  Configuration = JsonSerializer.SerializeToElement({| filePath = jsonPath; flattenNested = true |}, Serialization.options)
-                  SecretReference = None
-                  IsTrusted = true }
+                {
+                    Id = Guid.NewGuid()
+                    Name = "ProductCatalog"
+                    Kind = ConnectorKind.Json
+                    Configuration =
+                        JsonSerializer.SerializeToElement(
+                            {|
+                                filePath = jsonPath
+                                flattenNested = true
+                            |},
+                            Serialization.options
+                        )
+                    SecretReference = None
+                    IsTrusted = true
+                }
 
             let connXml: ConnectionDefinition =
-                { Id = Guid.NewGuid()
-                  Name = "LogisticsHub"
-                  Kind = ConnectorKind.Xml
-                  Configuration = JsonSerializer.SerializeToElement({| filePath = xmlPath; includeAttributes = true; flattenNested = true |}, Serialization.options)
-                  SecretReference = None
-                  IsTrusted = true }
+                {
+                    Id = Guid.NewGuid()
+                    Name = "LogisticsHub"
+                    Kind = ConnectorKind.Xml
+                    Configuration =
+                        JsonSerializer.SerializeToElement(
+                            {|
+                                filePath = xmlPath
+                                includeAttributes = true
+                                flattenNested = true
+                            |},
+                            Serialization.options
+                        )
+                    SecretReference = None
+                    IsTrusted = true
+                }
 
             let! r1 = Handlers.dispatch (registerConnectionRequest "reg-json" connJson)
             Assert.True(r1.Error.IsNone)
@@ -2419,14 +3183,19 @@ let ``evaluating Connections.json and Connections.xml sub-properties translates 
             Handlers.waitForPendingGeneration ()
 
             let syncReq: WorkerRequestFrame =
-                { Id = "sync-json-xml"
-                  Method = "workspace/syncDataSources"
-                  Params = JsonSerializer.SerializeToElement({| targetDir = tmp |}, Serialization.options) }
+                {
+                    Id = "sync-json-xml"
+                    Method = "workspace/syncDataSources"
+                    Params = JsonSerializer.SerializeToElement({| targetDir = tmp |}, Serialization.options)
+                }
+
             let! syncResp = Handlers.dispatch syncReq
             Assert.True(syncResp.Error.IsNone)
 
             let docUri = Path.Combine(tmp, "test_json_xml.fsqnb")
-            let codeSqlCheck = """
+
+            let codeSqlCheck =
+                """
 let sqlJson =
     query {
         for p in Connections.json.ProductCatalog.Products do
@@ -2441,12 +3210,25 @@ let sqlXml =
 
 $"{sqlJson} | {sqlXml}"
 """
-            let! respSql = Handlers.dispatch (notebookCellRequest "eval-json-xml-sql" codeSqlCheck docUri)
-            Assert.True(respSql.Error.IsNone, (match respSql.Error with Some e -> e.Message | None -> ""))
-            let envSql = JsonSerializer.Deserialize<ResultEnvelope>(respSql.Result.Value.GetRawText(), Serialization.options)
+
+            let! respSql =
+                Handlers.dispatch (notebookCellRequest "eval-json-xml-sql" codeSqlCheck docUri)
+
+            Assert.True(
+                respSql.Error.IsNone,
+                (match respSql.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
+            let envSql =
+                JsonSerializer.Deserialize<ResultEnvelope>(respSql.Result.Value.GetRawText(), Serialization.options)
+
             Assert.Equal(ResultKind.Text, envSql.Kind)
+
             Assert.Equal(
-                Some "SELECT Title AS Title FROM ProductCatalog_Products | SELECT Destination AS Destination FROM LogisticsHub_Shipments",
+                Some
+                    "SELECT Title AS Title FROM ProductCatalog_Products | SELECT Destination AS Destination FROM LogisticsHub_Shipments",
                 envSql.DisplayText
             )
         finally
@@ -2457,7 +3239,9 @@ $"{sqlJson} | {sqlXml}"
 [<Fact>]
 let ``evaluating a cell returns document workspace directory as System.Environment.CurrentDirectory`` () =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), "fqs-curdir-" + Guid.NewGuid().ToString("N"))
+        let tmp =
+            Path.Combine(Path.GetTempPath(), "fqs-curdir-" + Guid.NewGuid().ToString("N"))
+
         Directory.CreateDirectory(tmp) |> ignore
         Handlers.setWorkspaceDirForTests (Some tmp)
 
@@ -2465,9 +3249,17 @@ let ``evaluating a cell returns document workspace directory as System.Environme
             let docUri = Path.Combine(tmp, "curdir_test.fsqnb")
             let cellSource = "System.Environment.CurrentDirectory"
             let! resp = Handlers.dispatch (notebookCellRequest "eval-curdir" cellSource docUri)
-            Assert.True(resp.Error.IsNone, (match resp.Error with Some e -> e.Message | None -> ""))
 
-            let env = JsonSerializer.Deserialize<ResultEnvelope>(resp.Result.Value.GetRawText(), Serialization.options)
+            Assert.True(
+                resp.Error.IsNone,
+                (match resp.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
+            let env =
+                JsonSerializer.Deserialize<ResultEnvelope>(resp.Result.Value.GetRawText(), Serialization.options)
+
             Assert.True(env.DisplayText.IsSome)
             let returnedDir = env.DisplayText.Value.Trim('"')
             Assert.Equal(Path.GetFullPath(tmp).ToLowerInvariant(), Path.GetFullPath(returnedDir).ToLowerInvariant())
@@ -2479,29 +3271,48 @@ let ``evaluating a cell returns document workspace directory as System.Environme
 [<Fact>]
 let ``creating a file with File.Create and Dispose creates file in current directory and does not lock it`` () =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), "fqs-filecreate-" + Guid.NewGuid().ToString("N"))
+        let tmp =
+            Path.Combine(Path.GetTempPath(), "fqs-filecreate-" + Guid.NewGuid().ToString("N"))
+
         Directory.CreateDirectory(tmp) |> ignore
         Handlers.setWorkspaceDirForTests (Some tmp)
 
         try
             let docUri = Path.Combine(tmp, "filecreate_test.fsqnb")
-            let cellSource = """
+
+            let cellSource =
+                """
 let relativeName = "created_test_file.txt"
 let stream = System.IO.File.Create(relativeName)
 stream.Dispose()
 "ok"
 """
-            let! resp = Handlers.dispatch (notebookCellRequest "eval-filecreate" cellSource docUri)
-            Assert.True(resp.Error.IsNone, (match resp.Error with Some e -> e.Message | None -> ""))
+
+            let! resp =
+                Handlers.dispatch (notebookCellRequest "eval-filecreate" cellSource docUri)
+
+            Assert.True(
+                resp.Error.IsNone,
+                (match resp.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
 
             // File must exist in the workspace directory (tmp), not in worker/temp path
             let expectedFile = Path.Combine(tmp, "created_test_file.txt")
-            Assert.True(File.Exists expectedFile, $"Expected {expectedFile} to exist in the current workspace directory")
+
+            Assert.True(
+                File.Exists expectedFile,
+                $"Expected {expectedFile} to exist in the current workspace directory"
+            )
 
             // File must NOT be locked: opening exclusively and deleting must succeed immediately
             do
-                use fs = new FileStream(expectedFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None)
+                use fs =
+                    new FileStream(expectedFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None)
+
                 fs.WriteByte(42uy)
+
             File.Delete expectedFile
             Assert.False(File.Exists expectedFile)
         finally
@@ -2512,7 +3323,9 @@ stream.Dispose()
 [<Fact>]
 let ``multi-cell notebook evaluations manipulating files create, delete, and recreate without file locks`` () =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), "fqs-multicell-filelock-" + Guid.NewGuid().ToString("N"))
+        let tmp =
+            Path.Combine(Path.GetTempPath(), "fqs-multicell-filelock-" + Guid.NewGuid().ToString("N"))
+
         Directory.CreateDirectory(tmp) |> ignore
         Handlers.setWorkspaceDirForTests (Some tmp)
 
@@ -2520,68 +3333,127 @@ let ``multi-cell notebook evaluations manipulating files create, delete, and rec
             let docUri = Path.Combine(tmp, "multicell_test.fsqnb")
 
             // Cell 1: Create file, write, and dispose
-            let cell1 = """
+            let cell1 =
+                """
 let testFile = "cell_data.txt"
 let stream = System.IO.File.Create(testFile)
 stream.Write([| 72uy; 105uy |], 0, 2)
 stream.Dispose()
 System.IO.File.Exists(testFile)
 """
+
             let! resp1 = Handlers.dispatch (notebookCellRequest "cell-1" cell1 docUri)
-            Assert.True(resp1.Error.IsNone, (match resp1.Error with Some e -> e.Message | None -> ""))
+
+            Assert.True(
+                resp1.Error.IsNone,
+                (match resp1.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
 
             // Cell 2: Delete the file in a subsequent cell
-            let cell2 = """
+            let cell2 =
+                """
 System.IO.File.Delete(testFile)
 not (System.IO.File.Exists(testFile))
 """
+
             let! resp2 = Handlers.dispatch (notebookCellRequest "cell-2" cell2 docUri)
-            Assert.True(resp2.Error.IsNone, (match resp2.Error with Some e -> e.Message | None -> ""))
+
+            Assert.True(
+                resp2.Error.IsNone,
+                (match resp2.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
 
             // Cell 3: Recreate the same file and write content
-            let cell3 = """
+            let cell3 =
+                """
 System.IO.File.WriteAllText(testFile, "recreated content")
 System.IO.File.ReadAllText(testFile)
 """
+
             let! resp3 = Handlers.dispatch (notebookCellRequest "cell-3" cell3 docUri)
-            Assert.True(resp3.Error.IsNone, (match resp3.Error with Some e -> e.Message | None -> ""))
+
+            Assert.True(
+                resp3.Error.IsNone,
+                (match resp3.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
 
             // Cell 4: Expression returns a FileStream (IDisposable) directly
-            let cell4 = """
+            let cell4 =
+                """
 let streamReturned = System.IO.File.Create("returned_stream.txt")
 streamReturned
 """
+
             let! resp4 = Handlers.dispatch (notebookCellRequest "cell-4" cell4 docUri)
-            Assert.True(resp4.Error.IsNone, (match resp4.Error with Some e -> e.Message | None -> ""))
+
+            Assert.True(
+                resp4.Error.IsNone,
+                (match resp4.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
 
             // Cell 5: Must be able to delete returned_stream.txt without sharing violation
-            let cell5 = """
+            let cell5 =
+                """
 System.IO.File.Delete("returned_stream.txt")
 not (System.IO.File.Exists("returned_stream.txt"))
 """
+
             let! resp5 = Handlers.dispatch (notebookCellRequest "cell-5" cell5 docUri)
-            Assert.True(resp5.Error.IsNone, (match resp5.Error with Some e -> e.Message | None -> ""))
+
+            Assert.True(
+                resp5.Error.IsNone,
+                (match resp5.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
 
             // Cell 6: Sequence with continuation cursor (PagingCursor) over lines
             let multiLinesPath = Path.Combine(tmp, "many_lines.txt")
-            let lines = [ for i in 1 .. 600 -> $"line {i}" ]
+            let lines = [ for i in 1..600 -> $"line {i}" ]
             File.WriteAllLines(multiLinesPath, lines)
 
-            let cell6 = """
+            let cell6 =
+                """
 System.IO.File.ReadLines("many_lines.txt")
 """
+
             let! resp6 = Handlers.dispatch (notebookCellRequest "cell-6" cell6 docUri)
-            Assert.True(resp6.Error.IsNone, (match resp6.Error with Some e -> e.Message | None -> ""))
-            let env6 = JsonSerializer.Deserialize<ResultEnvelope>(resp6.Result.Value.GetRawText(), Serialization.options)
+
+            Assert.True(
+                resp6.Error.IsNone,
+                (match resp6.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
+            let env6 =
+                JsonSerializer.Deserialize<ResultEnvelope>(resp6.Result.Value.GetRawText(), Serialization.options)
+
             Assert.True(env6.ContinuationToken.IsSome)
 
             // Cell 7: Running a new cell displaces and disposes the previous cursor; many_lines.txt can be deleted
-            let cell7 = """
+            let cell7 =
+                """
 System.IO.File.Delete("many_lines.txt")
 not (System.IO.File.Exists("many_lines.txt"))
 """
+
             let! resp7 = Handlers.dispatch (notebookCellRequest "cell-7" cell7 docUri)
-            Assert.True(resp7.Error.IsNone, (match resp7.Error with Some e -> e.Message | None -> ""))
+
+            Assert.True(
+                resp7.Error.IsNone,
+                (match resp7.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
         finally
             Handlers.setWorkspaceDirForTests None
             cleanTempDir tmp
@@ -2590,23 +3462,47 @@ not (System.IO.File.Exists("many_lines.txt"))
 [<Fact>]
 let ``results/exportCsv with relative path generates CSV file in current workspace directory`` () =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), "fqs-csvexport-rel-" + Guid.NewGuid().ToString("N"))
+        let tmp =
+            Path.Combine(Path.GetTempPath(), "fqs-csvexport-rel-" + Guid.NewGuid().ToString("N"))
+
         Directory.CreateDirectory(tmp) |> ignore
         Handlers.setWorkspaceDirForTests (Some tmp)
 
         try
             let docUri = Path.Combine(tmp, "export_rel.fsqnb")
-            let cellSource = "({ Columns = [ \"ID\"; \"Title\" ]; Rows = seq { yield [| box 101; box \"Hello CSV\" |] } }: ConnectorQueryResult)"
-            let! evalResp = Handlers.dispatch (notebookCellRequest "eval-export-rel" cellSource docUri)
-            Assert.True(evalResp.Error.IsNone, (match evalResp.Error with Some e -> e.Message | None -> ""))
+
+            let cellSource =
+                "({ Columns = [ \"ID\"; \"Title\" ]; Rows = seq { yield [| box 101; box \"Hello CSV\" |] } }: ConnectorQueryResult)"
+
+            let! evalResp =
+                Handlers.dispatch (notebookCellRequest "eval-export-rel" cellSource docUri)
+
+            Assert.True(
+                evalResp.Error.IsNone,
+                (match evalResp.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
 
             // Export using a relative path with subfolder
             let relExportPath = "exports/relative_result.csv"
-            let! exportResp = Handlers.dispatch (exportCsvRequest "req-export-rel" docUri relExportPath)
-            Assert.True(exportResp.Error.IsNone, (match exportResp.Error with Some e -> e.Message | None -> ""))
+
+            let! exportResp =
+                Handlers.dispatch (exportCsvRequest "req-export-rel" docUri relExportPath)
+
+            Assert.True(
+                exportResp.Error.IsNone,
+                (match exportResp.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
 
             let expectedExportFile = Path.Combine(tmp, "exports", "relative_result.csv")
-            Assert.True(File.Exists expectedExportFile, $"Expected {expectedExportFile} to exist in workspace directory")
+
+            Assert.True(
+                File.Exists expectedExportFile,
+                $"Expected {expectedExportFile} to exist in workspace directory"
+            )
 
             let content = File.ReadAllText expectedExportFile
             Assert.Contains("ID,Title", content)
@@ -2619,7 +3515,9 @@ let ``results/exportCsv with relative path generates CSV file in current workspa
 [<Fact>]
 let ``results/exportCsv resolves unescaped Windows URI when stored with encoded DocumentUri`` () =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), "fqs-csvexport-uri-" + Guid.NewGuid().ToString("N"))
+        let tmp =
+            Path.Combine(Path.GetTempPath(), "fqs-csvexport-uri-" + Guid.NewGuid().ToString("N"))
+
         Directory.CreateDirectory(tmp) |> ignore
         Handlers.setWorkspaceDirForTests (Some tmp)
 
@@ -2628,14 +3526,30 @@ let ``results/exportCsv resolves unescaped Windows URI when stored with encoded 
             let encodedDocUri = "file:///c%3A/Projects/my_nb.fsqnb"
             let unescapedDocUri = "file:///C:/Projects/my_nb.fsqnb"
 
-            let cellSource = "({ Columns = [ \"Val\" ]; Rows = seq { yield [| box 999 |] } }: ConnectorQueryResult)"
-            let! evalResp = Handlers.dispatch (notebookCellRequest "eval-encoded-uri" cellSource encodedDocUri)
-            Assert.True(evalResp.Error.IsNone, (match evalResp.Error with Some e -> e.Message | None -> ""))
+            let cellSource =
+                "({ Columns = [ \"Val\" ]; Rows = seq { yield [| box 999 |] } }: ConnectorQueryResult)"
+
+            let! evalResp =
+                Handlers.dispatch (notebookCellRequest "eval-encoded-uri" cellSource encodedDocUri)
+
+            Assert.True(
+                evalResp.Error.IsNone,
+                (match evalResp.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
 
             let exportPath = Path.Combine(tmp, "unescaped_out.csv")
             // Send export request using the unescaped URI
-            let! exportResp = Handlers.dispatch (exportCsvRequest "req-unescaped-export" unescapedDocUri exportPath)
-            Assert.True(exportResp.Error.IsNone, (match exportResp.Error with Some e -> e.Message | None -> ""))
+            let! exportResp =
+                Handlers.dispatch (exportCsvRequest "req-unescaped-export" unescapedDocUri exportPath)
+
+            Assert.True(
+                exportResp.Error.IsNone,
+                (match exportResp.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
 
             Assert.True(File.Exists exportPath)
             let content = File.ReadAllText exportPath
@@ -2649,30 +3563,72 @@ let ``results/exportCsv resolves unescaped Windows URI when stored with encoded 
 [<Fact>]
 let ``workspace/createSampleData and workspace/createAdvancedSamples respect language parameter`` () =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), "fqs-handlers-sample-lang-" + Guid.NewGuid().ToString("N"))
+        let tmp =
+            Path.Combine(Path.GetTempPath(), "fqs-handlers-sample-lang-" + Guid.NewGuid().ToString("N"))
+
         Directory.CreateDirectory(tmp) |> ignore
         Handlers.setWorkspaceDirForTests (Some tmp)
 
         try
             // 1. createSampleData with language = "pt"
             let reqSamplePt: WorkerRequestFrame =
-                { Id = "req-sample-pt"
-                  Method = "workspace/createSampleData"
-                  Params = JsonSerializer.SerializeToElement({| targetDir = tmp; language = "pt" |}, Serialization.options) }
+                {
+                    Id = "req-sample-pt"
+                    Method = "workspace/createSampleData"
+                    Params =
+                        JsonSerializer.SerializeToElement({| targetDir = tmp; language = "pt" |}, Serialization.options)
+                }
+
             let! respSamplePt = Handlers.dispatch reqSamplePt
-            Assert.True(respSamplePt.Error.IsNone, (match respSamplePt.Error with Some e -> e.Message | None -> ""))
+
+            Assert.True(
+                respSamplePt.Error.IsNone,
+                (match respSamplePt.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
             Assert.True(File.Exists(Path.Combine(tmp, "sample_demo_pt.fsqnb")), "Portuguese notebook should be created")
-            Assert.False(File.Exists(Path.Combine(tmp, "sample_demo.fsqnb")), "English notebook should NOT be created when language is pt")
+
+            Assert.False(
+                File.Exists(Path.Combine(tmp, "sample_demo.fsqnb")),
+                "English notebook should NOT be created when language is pt"
+            )
 
             // 2. createAdvancedSamples with language = "en"
             let reqAdvEn: WorkerRequestFrame =
-                { Id = "req-adv-en"
-                  Method = "workspace/createAdvancedSamples"
-                  Params = JsonSerializer.SerializeToElement({| targetDir = tmp; engines = [ "postgresql" ]; language = "en" |}, Serialization.options) }
+                {
+                    Id = "req-adv-en"
+                    Method = "workspace/createAdvancedSamples"
+                    Params =
+                        JsonSerializer.SerializeToElement(
+                            {|
+                                targetDir = tmp
+                                engines = [ "postgresql" ]
+                                language = "en"
+                            |},
+                            Serialization.options
+                        )
+                }
+
             let! respAdvEn = Handlers.dispatch reqAdvEn
-            Assert.True(respAdvEn.Error.IsNone, (match respAdvEn.Error with Some e -> e.Message | None -> ""))
-            Assert.True(File.Exists(Path.Combine(tmp, "sample_postgresql.fsqnb")), "English PostgreSQL notebook should be created")
-            Assert.False(File.Exists(Path.Combine(tmp, "sample_postgresql_pt.fsqnb")), "Portuguese PostgreSQL notebook should NOT be created when language is en")
+
+            Assert.True(
+                respAdvEn.Error.IsNone,
+                (match respAdvEn.Error with
+                 | Some e -> e.Message
+                 | None -> "")
+            )
+
+            Assert.True(
+                File.Exists(Path.Combine(tmp, "sample_postgresql.fsqnb")),
+                "English PostgreSQL notebook should be created"
+            )
+
+            Assert.False(
+                File.Exists(Path.Combine(tmp, "sample_postgresql_pt.fsqnb")),
+                "Portuguese PostgreSQL notebook should NOT be created when language is en"
+            )
         finally
             Handlers.setWorkspaceDirForTests None
             cleanTempDir tmp

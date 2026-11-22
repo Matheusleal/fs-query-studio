@@ -5,6 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="PostgreSqlDialect.fs" />
     <Compile Include="PostgreSqlConnector.fs" />
     <Compile Include="PostgreSqlDescriptor.fs" />
   </ItemGroup>

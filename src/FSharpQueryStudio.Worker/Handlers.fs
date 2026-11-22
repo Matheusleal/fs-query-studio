@@ -28,12 +28,16 @@ module Handlers =
 
     let handleHealth (request: WorkerRequestFrame) : WorkerResponseFrame =
         let health: HealthInfo =
-            { Version = workerVersion ()
-              Capabilities = [] }
+            {
+                Version = workerVersion ()
+                Capabilities = []
+            }
 
-        { Id = request.Id
-          Result = Some(JsonSerializer.SerializeToElement(health, Serialization.options))
-          Error = None }
+        {
+            Id = request.Id
+            Result = Some(JsonSerializer.SerializeToElement(health, Serialization.options))
+            Error = None
+        }
 
     /// 0 = idle, 1 = an evaluation is running. A worker handles at most one
     /// evaluation at a time — FsiSession.create mutates process-wide state
@@ -51,15 +55,21 @@ module Handlers =
     /// `ResultEnvelope.ContinuationToken`. Supports concurrent notebook tabs.
     let private pagingCursors = ConcurrentDictionary<string, PagingCursor>()
     let private sessionTokens = ConcurrentDictionary<string, string>()
+
     let private disposeCursor (cursor: PagingCursor) : unit =
-        try cursor.Dispose() with _ -> ()
+        try
+            cursor.Dispose()
+        with _ ->
+            ()
 
     let private resolveSessionKey (evalParams: EvaluateParams) : string =
         match evalParams.SessionId with
         | Some sid when not (String.IsNullOrWhiteSpace sid) -> sid
         | _ ->
-            if not (String.IsNullOrWhiteSpace evalParams.DocumentUri) then evalParams.DocumentUri
-            else "default"
+            if not (String.IsNullOrWhiteSpace evalParams.DocumentUri) then
+                evalParams.DocumentUri
+            else
+                "default"
 
     /// The persistent, single per-machine workspace directory — connections,
     /// trust metadata, package approvals — `%LOCALAPPDATA%\FSharpQueryStudio`
@@ -71,10 +81,13 @@ module Handlers =
     let mutable private workspaceDirOverride: string option = None
 
     type private WorkspaceEntityReadiness =
-        { WorkspaceFileTimestamp: DateTime
-          GeneratedFileTimestamp: DateTime }
+        {
+            WorkspaceFileTimestamp: DateTime
+            GeneratedFileTimestamp: DateTime
+        }
 
-    let private verifiedWorkspaceEntities = ConcurrentDictionary<string, WorkspaceEntityReadiness>()
+    let private verifiedWorkspaceEntities =
+        ConcurrentDictionary<string, WorkspaceEntityReadiness>()
 
     let private invalidateWorkspaceEntitiesCache () : unit =
         verifiedWorkspaceEntities.Clear()
@@ -83,7 +96,10 @@ module Handlers =
     let workspaceDir () : string =
         defaultArg
             workspaceDirOverride
-            (Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "FSharpQueryStudio"))
+            (Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "FSharpQueryStudio"
+            ))
 
     let setWorkspaceDirForTests (dir: string option) : unit =
         workspaceDirOverride <- dir
@@ -91,8 +107,8 @@ module Handlers =
         FSharpQueryStudio.Fsac.Prologue.setWorkspaceDirForTests dir
 
     let waitForPendingGeneration () : unit =
-        EntityBackgroundGenerator.waitForPendingGeneration()
-        Connections.waitForPendingSync()
+        EntityBackgroundGenerator.waitForPendingGeneration ()
+        Connections.waitForPendingSync ()
 
     /// The secret store the worker's connection resolver reads `{password}`
     /// tokens from. The default `InMemorySecretStore` serves a standalone
@@ -111,37 +127,60 @@ module Handlers =
 
     let configureHostChannel (ch: HostChannel) : unit =
         hostChannel <- Some ch
-        EntityBackgroundGenerator.onStatusChanged <- Some (fun status ->
-            let statusStr =
-                match status with
-                | EntityBackgroundGenerator.EntityMappingStatus.Started -> "started"
-                | EntityBackgroundGenerator.EntityMappingStatus.Completed _ -> "completed"
-                | EntityBackgroundGenerator.EntityMappingStatus.Failed _ -> "failed"
-            ch.Request("entityMapping/status", {| status = statusStr |}) |> ignore
-        )
-        FileSqliteEngine.GlobalProgressCallback <- Some (fun ev ->
-            ch.Request(
-                "staging/progress",
-                {|
-                    tableName = ev.TableName
-                    filePath = ev.FilePath
-                    phase = ev.Phase
-                    rowCount = (match ev.RowCount with Some n -> box n | None -> null)
-                    currentIndex = (match ev.CurrentIndex with Some n -> box n | None -> null)
-                    totalCount = (match ev.TotalCount with Some n -> box n | None -> null)
-                    elapsedMs = (match ev.ElapsedMs with Some n -> box n | None -> null)
-                    message = (match ev.Message with Some m -> m | None -> "")
-                |}
-            ) |> ignore
-        )
+
+        EntityBackgroundGenerator.onStatusChanged <-
+            Some(fun status ->
+                let statusStr =
+                    match status with
+                    | EntityBackgroundGenerator.EntityMappingStatus.Started -> "started"
+                    | EntityBackgroundGenerator.EntityMappingStatus.Completed _ -> "completed"
+                    | EntityBackgroundGenerator.EntityMappingStatus.Failed _ -> "failed"
+
+                ch.Request("entityMapping/status", {| status = statusStr |}) |> ignore)
+
+        FileSqliteEngine.GlobalProgressCallback <-
+            Some(fun ev ->
+                ch.Request(
+                    "staging/progress",
+                    {|
+                        tableName = ev.TableName
+                        filePath = ev.FilePath
+                        phase = ev.Phase
+                        rowCount =
+                            (match ev.RowCount with
+                             | Some n -> box n
+                             | None -> null)
+                        currentIndex =
+                            (match ev.CurrentIndex with
+                             | Some n -> box n
+                             | None -> null)
+                        totalCount =
+                            (match ev.TotalCount with
+                             | Some n -> box n
+                             | None -> null)
+                        elapsedMs =
+                            (match ev.ElapsedMs with
+                             | Some n -> box n
+                             | None -> null)
+                        message =
+                            (match ev.Message with
+                             | Some m -> m
+                             | None -> "")
+                    |}
+                )
+                |> ignore)
 
     let private busyResponse (id: string) : WorkerResponseFrame =
-        { Id = id
-          Result = None
-          Error =
-            Some
-                { Code = "execution/busy"
-                  Message = "Another evaluation is already in progress." } }
+        {
+            Id = id
+            Result = None
+            Error =
+                Some
+                    {
+                        Code = "execution/busy"
+                        Message = "Another evaluation is already in progress."
+                    }
+        }
 
     /// Reserves the evaluation slot synchronously: the busy-check and
     /// `currentWorkDir` assignment happen here, not inside the background
@@ -164,13 +203,19 @@ module Handlers =
             Directory.CreateDirectory(workDir) |> ignore
             CancellationSignal.reset workDir
             currentWorkDir <- Some workDir
+
             try
-                let evalParams = JsonSerializer.Deserialize<EvaluateParams>(request.Params, Serialization.options)
+                let evalParams =
+                    JsonSerializer.Deserialize<EvaluateParams>(request.Params, Serialization.options)
+
                 let sessionKey = resolveSessionKey evalParams
+
                 match sessionTokens.TryGetValue(sessionKey) with
                 | true, oldToken -> pagingCursors.TryRemove(oldToken) |> ignore
                 | false, _ -> ()
-            with _ -> ()
+            with _ ->
+                ()
+
             Choice1Of2 workDir
 
     /// Isolated by default (Section 9): a fresh session in the reserved
@@ -188,7 +233,12 @@ module Handlers =
         Prologue.resolveWorkspaceForDocument docUriStr
         |> Option.orElseWith (fun () ->
             let current = Directory.GetCurrentDirectory()
-            if not (String.IsNullOrWhiteSpace current) && Directory.Exists current && current <> Path.GetTempPath() then
+
+            if
+                not (String.IsNullOrWhiteSpace current)
+                && Directory.Exists current
+                && current <> Path.GetTempPath()
+            then
                 Some current
             else
                 None)
@@ -196,21 +246,49 @@ module Handlers =
 
     let private cleanLeakedGlobalSampleConnections (globalWs: string) : ConnectionDefinition list =
         let conns = Workspace.readConnections globalWs
-        let sampleNames = set [ "SampleStore"; "InventoryStore"; "SalesFeed"; "CustomersFeed"; "RegionalTargets"; "CommerceOps"; "ProductCatalog"; "LogisticsHub"; "GitHubFSharp" ]
+
+        let sampleNames =
+            set
+                [
+                    "SampleStore"
+                    "InventoryStore"
+                    "SalesFeed"
+                    "CustomersFeed"
+                    "RegionalTargets"
+                    "CommerceOps"
+                    "ProductCatalog"
+                    "LogisticsHub"
+                    "GitHubFSharp"
+                ]
+
         let isLeakedSample (c: ConnectionDefinition) =
-            sampleNames.Contains c.Name && (
-                try
+            sampleNames.Contains c.Name
+            && (try
                     let doc = JsonDocument.Parse(c.Configuration.GetRawText())
                     let mutable fpProp = Unchecked.defaultof<JsonElement>
-                    if doc.RootElement.ValueKind = JsonValueKind.Object && doc.RootElement.TryGetProperty("filePath", &fpProp) && fpProp.ValueKind = JsonValueKind.String then
+
+                    if
+                        doc.RootElement.ValueKind = JsonValueKind.Object
+                        && doc.RootElement.TryGetProperty("filePath", &fpProp)
+                        && fpProp.ValueKind = JsonValueKind.String
+                    then
                         let fp = fpProp.GetString()
-                        let fullFp = if Path.IsPathRooted fp then fp else Path.Combine(globalWs, fp)
-                        not (File.Exists fullFp) || not (fullFp.StartsWith(globalWs, StringComparison.OrdinalIgnoreCase))
+
+                        let fullFp =
+                            if Path.IsPathRooted fp then
+                                fp
+                            else
+                                Path.Combine(globalWs, fp)
+
+                        not (File.Exists fullFp)
+                        || not (fullFp.StartsWith(globalWs, StringComparison.OrdinalIgnoreCase))
                     else
                         false
-                with _ -> false
-            )
+                with _ ->
+                    false)
+
         let leaked = conns |> List.filter isLeakedSample
+
         if not (List.isEmpty leaked) then
             let cleaned = conns |> List.filter (fun c -> not (isLeakedSample c))
             Workspace.writeConnections globalWs cleaned
@@ -221,20 +299,27 @@ module Handlers =
     let private readEffectiveConnections (targetWs: string) (includeGlobalForTemp: bool) : ConnectionDefinition list =
         let wsConns = Workspace.readConnections targetWs
         let globalWs = workspaceDir ()
+
         if targetWs <> globalWs then
             let isTempTarget =
                 try
                     let fullTarget = Path.GetFullPath(targetWs)
                     let fullTemp = Path.GetFullPath(Path.GetTempPath())
                     fullTarget.StartsWith(fullTemp, StringComparison.OrdinalIgnoreCase)
-                with _ -> false
+                with _ ->
+                    false
+
             if isTempTarget && workspaceDirOverride.IsNone && not includeGlobalForTemp then
                 wsConns
             else
                 let globalConns = cleanLeakedGlobalSampleConnections globalWs
                 let localNames = wsConns |> List.map (fun c -> c.Name) |> Set.ofList
                 let localIds = wsConns |> List.map (fun c -> c.Id) |> Set.ofList
-                let filteredGlobal = globalConns |> List.filter (fun c -> not (Set.contains c.Name localNames) && not (Set.contains c.Id localIds))
+
+                let filteredGlobal =
+                    globalConns
+                    |> List.filter (fun c -> not (Set.contains c.Name localNames) && not (Set.contains c.Id localIds))
+
                 wsConns @ filteredGlobal
         else
             cleanLeakedGlobalSampleConnections targetWs
@@ -244,11 +329,22 @@ module Handlers =
             try
                 if def.Configuration.ValueKind = JsonValueKind.Object then
                     let mutable fpProp = Unchecked.defaultof<JsonElement>
-                    if def.Configuration.TryGetProperty("filePath", &fpProp) && fpProp.ValueKind = JsonValueKind.String then
+
+                    if
+                        def.Configuration.TryGetProperty("filePath", &fpProp)
+                        && fpProp.ValueKind = JsonValueKind.String
+                    then
                         let fp = fpProp.GetString()
+
                         if not (String.IsNullOrWhiteSpace fp) then
-                            let fullFp = if Path.IsPathRooted fp then fp else Path.Combine(targetWs, fp)
+                            let fullFp =
+                                if Path.IsPathRooted fp then
+                                    fp
+                                else
+                                    Path.Combine(targetWs, fp)
+
                             let isMissingOrEmpty = not (File.Exists fullFp) || (FileInfo(fullFp).Length = 0L)
+
                             if isMissingOrEmpty then
                                 if String.Equals(def.Name, "SampleStore", StringComparison.OrdinalIgnoreCase) then
                                     SampleDataGenerator.createSampleStoreDatabase fullFp
@@ -266,17 +362,19 @@ module Handlers =
                                     SampleDataGenerator.createSampleJsonFile fullFp
                                 elif String.Equals(def.Name, "LogisticsHub", StringComparison.OrdinalIgnoreCase) then
                                     SampleDataGenerator.createSampleXmlFile fullFp
-                            else
-                                if String.Equals(def.Name, "SampleStore", StringComparison.OrdinalIgnoreCase) then
-                                    SampleDataGenerator.ensureSampleStoreIndexes fullFp
-                                elif String.Equals(def.Name, "InventoryStore", StringComparison.OrdinalIgnoreCase) then
-                                    SampleDataGenerator.ensureInventoryIndexes fullFp
-            with _ -> ()
+                            else if String.Equals(def.Name, "SampleStore", StringComparison.OrdinalIgnoreCase) then
+                                SampleDataGenerator.ensureSampleStoreIndexes fullFp
+                            elif String.Equals(def.Name, "InventoryStore", StringComparison.OrdinalIgnoreCase) then
+                                SampleDataGenerator.ensureInventoryIndexes fullFp
+            with _ ->
+                ()
 
     let runEvaluate (request: WorkerRequestFrame) (workDir: string) : WorkerResponseFrame =
         let initialCwd =
-            try Directory.GetCurrentDirectory()
-            with _ -> Path.GetTempPath()
+            try
+                Directory.GetCurrentDirectory()
+            with _ ->
+                Path.GetTempPath()
 
         try
             let evalParams =
@@ -291,22 +389,44 @@ module Handlers =
 
             let wsFile = Workspace.workspaceFilePath targetWs
             let genFile = EntityBackgroundGenerator.generatedFilePath targetWs
-            let wsTimestamp = if File.Exists wsFile then File.GetLastWriteTimeUtc wsFile else DateTime.MinValue
-            let genTimestamp = if File.Exists genFile then File.GetLastWriteTimeUtc genFile else DateTime.MinValue
+
+            let wsTimestamp =
+                if File.Exists wsFile then
+                    File.GetLastWriteTimeUtc wsFile
+                else
+                    DateTime.MinValue
+
+            let genTimestamp =
+                if File.Exists genFile then
+                    File.GetLastWriteTimeUtc genFile
+                else
+                    DateTime.MinValue
 
             let isEntitiesVerified =
                 match verifiedWorkspaceEntities.TryGetValue(targetWs) with
-                | true, cached when cached.WorkspaceFileTimestamp = wsTimestamp
-                                    && cached.GeneratedFileTimestamp = genTimestamp
-                                    && genTimestamp <> DateTime.MinValue
-                                    && not (EntityBackgroundGenerator.needsSynchronousGeneration genFile connections) ->
+                | true, cached when
+                    cached.WorkspaceFileTimestamp = wsTimestamp
+                    && cached.GeneratedFileTimestamp = genTimestamp
+                    && genTimestamp <> DateTime.MinValue
+                    && not (EntityBackgroundGenerator.needsSynchronousGeneration genFile connections)
+                    ->
                     true
                 | _ -> false
 
             if not isEntitiesVerified then
                 EntityBackgroundGenerator.ensureGenerated targetWs connections secretStore
-                let newGenTimestamp = if File.Exists genFile then File.GetLastWriteTimeUtc genFile else DateTime.MinValue
-                verifiedWorkspaceEntities.[targetWs] <- { WorkspaceFileTimestamp = wsTimestamp; GeneratedFileTimestamp = newGenTimestamp }
+
+                let newGenTimestamp =
+                    if File.Exists genFile then
+                        File.GetLastWriteTimeUtc genFile
+                    else
+                        DateTime.MinValue
+
+                verifiedWorkspaceEntities.[targetWs] <-
+                    {
+                        WorkspaceFileTimestamp = wsTimestamp
+                        GeneratedFileTimestamp = newGenTimestamp
+                    }
 
             let effectiveWorkDir =
                 if not (String.IsNullOrEmpty targetWs) && Directory.Exists targetWs then
@@ -326,6 +446,7 @@ module Handlers =
                         effectiveWorkDir,
                         targetWs
                     )
+
                     SessionStore.appendFragmentInWorkspace sessionId effectiveWorkDir evalParams.Source targetWs
                 | Persistent, Some sessionId ->
                     Log.Information(
@@ -334,12 +455,18 @@ module Handlers =
                         effectiveWorkDir,
                         targetWs
                     )
+
                     SessionStore.getOrCreateInWorkspace sessionId effectiveWorkDir evalParams.Source targetWs
                 | Persistent, None ->
                     Log.Warning("Persistent mode requested without a SessionId; falling back to an isolated session")
                     FsiSession.createInWorkspace effectiveWorkDir targetWs
                 | Isolated, _ ->
-                    Log.Information("Creating FSI session in {WorkingDirectory} with workspace {WorkspaceDir}", effectiveWorkDir, targetWs)
+                    Log.Information(
+                        "Creating FSI session in {WorkingDirectory} with workspace {WorkspaceDir}",
+                        effectiveWorkDir,
+                        targetWs
+                    )
+
                     FsiSession.createInWorkspace effectiveWorkDir targetWs
 
             let outcome = Evaluation.evaluate session evalParams.Source
@@ -364,25 +491,45 @@ module Handlers =
                         if outcome.Diagnostics.Length > 0 then
                             outcome.Diagnostics
                             |> Array.map (fun d ->
-                                let sub = if String.IsNullOrEmpty d.Subcategory then "error" else d.Subcategory
+                                let sub =
+                                    if String.IsNullOrEmpty d.Subcategory then
+                                        "error"
+                                    else
+                                        d.Subcategory
+
                                 $"{sub} FS{d.ErrorNumber:D4}: {d.Message} (line {d.StartLine})")
                             |> String.concat "\n"
                         elif not (String.IsNullOrWhiteSpace outcome.ErrorOutput) then
                             outcome.ErrorOutput
                         else
                             ""
-                    { Projection.projectErrorWithDetails ex (if String.IsNullOrWhiteSpace diagMsg then None else Some diagMsg) stopwatch.ElapsedMilliseconds with Output = output }
+
+                    { Projection.projectErrorWithDetails
+                          ex
+                          (if String.IsNullOrWhiteSpace diagMsg then
+                               None
+                           else
+                               Some diagMsg)
+                          stopwatch.ElapsedMilliseconds with
+                        Output = output
+                    }
                 | None ->
-                    let value =
-                        outcome.Value |> Option.map (fun v -> v.ReflectionValue) |> Option.toObj
+                    let value = outcome.Value |> Option.map (fun v -> v.ReflectionValue) |> Option.toObj
 
                     let projected, cursor, retained =
-                        Projection.projectWithCursorDetailed value stopwatch.ElapsedMilliseconds (Some evalParams.Source) None
+                        Projection.projectWithCursorDetailed
+                            value
+                            stopwatch.ElapsedMilliseconds
+                            (Some evalParams.Source)
+                            None
 
                     if cursor.IsNone && not (isNull value) then
                         match value with
                         | :? IDisposable as d ->
-                            try d.Dispose() with _ -> ()
+                            try
+                                d.Dispose()
+                            with _ ->
+                                ()
                         | _ -> ()
 
                     // Export CSV targets the notebook's most recent MATERIALIZED
@@ -391,10 +538,7 @@ module Handlers =
                     // retained result in place — it does not clear it.
                     if not (String.IsNullOrEmpty evalParams.DocumentUri) then
                         match retained with
-                        | Some t ->
-                            ResultRetention.set
-                                evalParams.DocumentUri
-                                { Columns = t.Columns; Rows = t.Rows }
+                        | Some t -> ResultRetention.set evalParams.DocumentUri { Columns = t.Columns; Rows = t.Rows }
                         | None -> ()
 
                     let sessionKey = resolveSessionKey evalParams
@@ -416,7 +560,8 @@ module Handlers =
 
                     { projected with
                         Output = output
-                        ContinuationToken = continuationToken }
+                        ContinuationToken = continuationToken
+                    }
 
             Log.Information(
                 "Execution completed with outcome {Outcome} in {ElapsedMs}ms",
@@ -424,31 +569,53 @@ module Handlers =
                 stopwatch.ElapsedMilliseconds
             )
 
-            { Id = request.Id
-              Result = Some(JsonSerializer.SerializeToElement(envelope, Serialization.options))
-              Error = None }
+            {
+                Id = request.Id
+                Result = Some(JsonSerializer.SerializeToElement(envelope, Serialization.options))
+                Error = None
+            }
         finally
             currentWorkDir <- None
             Interlocked.Exchange(evaluationInFlight, 0) |> ignore
+
             try
                 Directory.SetCurrentDirectory(initialCwd)
 
                 let targetWs =
                     try
-                        let p = JsonSerializer.Deserialize<EvaluateParams>(request.Params, Serialization.options)
-                        resolveWorkspaceForDocument p.DocumentUri
-                    with _ -> ""
+                        let p =
+                            JsonSerializer.Deserialize<EvaluateParams>(request.Params, Serialization.options)
 
-                if Directory.Exists workDir && (String.IsNullOrEmpty targetWs || not (String.Equals(Path.GetFullPath workDir, Path.GetFullPath targetWs, StringComparison.OrdinalIgnoreCase))) then
+                        resolveWorkspaceForDocument p.DocumentUri
+                    with _ ->
+                        ""
+
+                if
+                    Directory.Exists workDir
+                    && (String.IsNullOrEmpty targetWs
+                        || not (
+                            String.Equals(
+                                Path.GetFullPath workDir,
+                                Path.GetFullPath targetWs,
+                                StringComparison.OrdinalIgnoreCase
+                            )
+                        ))
+                then
                     Directory.Delete(workDir, true)
             with _ ->
                 ()
+
             try
                 Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
-            with _ -> ()
+            with _ ->
+                ()
+
             let currentMemory = GC.GetTotalMemory(false)
+
             if currentMemory > 200_000_000L then
-                System.Runtime.GCSettings.LargeObjectHeapCompactionMode <- System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce
+                System.Runtime.GCSettings.LargeObjectHeapCompactionMode <-
+                    System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce
+
                 GC.Collect(2, GCCollectionMode.Forced, true, true)
             else
                 GC.Collect(1, GCCollectionMode.Optimized)
@@ -474,6 +641,7 @@ module Handlers =
         if not (String.IsNullOrWhiteSpace resetParams.SessionId) then
             Log.Information("Resetting persistent session {SessionId}", resetParams.SessionId)
             SessionStore.reset resetParams.SessionId
+
             match sessionTokens.TryRemove(resetParams.SessionId) with
             | true, oldToken ->
                 match pagingCursors.TryRemove(oldToken) with
@@ -483,14 +651,18 @@ module Handlers =
 
         try
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools()
-        with _ -> ()
+        with _ ->
+            ()
+
         GC.Collect()
         GC.WaitForPendingFinalizers()
         GC.Collect()
 
-        { Id = request.Id
-          Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
-          Error = None }
+        {
+            Id = request.Id
+            Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
+            Error = None
+        }
 
     /// Requests cooperative cancellation of whatever evaluation is
     /// currently running (a no-op if none is) and acknowledges immediately
@@ -502,39 +674,81 @@ module Handlers =
         match currentWorkDir with
         | Some workDir ->
             CancellationSignal.requestCancel workDir
+
             try
                 let curr = Directory.GetCurrentDirectory()
-                if not (String.IsNullOrEmpty curr) && Directory.Exists curr && not (String.Equals(Path.GetFullPath curr, Path.GetFullPath workDir, StringComparison.OrdinalIgnoreCase)) then
+
+                if
+                    not (String.IsNullOrEmpty curr)
+                    && Directory.Exists curr
+                    && not (
+                        String.Equals(
+                            Path.GetFullPath curr,
+                            Path.GetFullPath workDir,
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                then
                     CancellationSignal.requestCancel curr
-            with _ -> ()
+            with _ ->
+                ()
         | None -> ()
 
-        { Id = request.Id
-          Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
-          Error = None }
+        {
+            Id = request.Id
+            Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
+            Error = None
+        }
 
     let private ensureEntitiesReadyForDocument (docUriStr: string) =
         try
             let ws = resolveWorkspaceForDocument docUriStr
             let wsFile = Workspace.workspaceFilePath ws
             let genFile = EntityBackgroundGenerator.generatedFilePath ws
-            let wsTimestamp = if File.Exists wsFile then File.GetLastWriteTimeUtc wsFile else DateTime.MinValue
-            let genTimestamp = if File.Exists genFile then File.GetLastWriteTimeUtc genFile else DateTime.MinValue
+
+            let wsTimestamp =
+                if File.Exists wsFile then
+                    File.GetLastWriteTimeUtc wsFile
+                else
+                    DateTime.MinValue
+
+            let genTimestamp =
+                if File.Exists genFile then
+                    File.GetLastWriteTimeUtc genFile
+                else
+                    DateTime.MinValue
 
             match verifiedWorkspaceEntities.TryGetValue(ws) with
-            | true, cached when cached.WorkspaceFileTimestamp = wsTimestamp && cached.GeneratedFileTimestamp = genTimestamp && genTimestamp <> DateTime.MinValue ->
+            | true, cached when
+                cached.WorkspaceFileTimestamp = wsTimestamp
+                && cached.GeneratedFileTimestamp = genTimestamp
+                && genTimestamp <> DateTime.MinValue
+                ->
                 // Both files exist and neither has been modified since our last verification.
                 ()
             | _ ->
                 let connections = readEffectiveConnections ws false
                 EntityBackgroundGenerator.ensureGenerated ws connections secretStore
-                let newGenTimestamp = if File.Exists genFile then File.GetLastWriteTimeUtc genFile else DateTime.MinValue
-                verifiedWorkspaceEntities.[ws] <- { WorkspaceFileTimestamp = wsTimestamp; GeneratedFileTimestamp = newGenTimestamp }
-        with ex ->
-            Log.Warning("FS Query Studio: Failed to ensure entities ready before analysis for {Uri}: {Error}", docUriStr, ex.Message)
 
-    let private ensureEntitiesReady () =
-        ensureEntitiesReadyForDocument ""
+                let newGenTimestamp =
+                    if File.Exists genFile then
+                        File.GetLastWriteTimeUtc genFile
+                    else
+                        DateTime.MinValue
+
+                verifiedWorkspaceEntities.[ws] <-
+                    {
+                        WorkspaceFileTimestamp = wsTimestamp
+                        GeneratedFileTimestamp = newGenTimestamp
+                    }
+        with ex ->
+            Log.Warning(
+                "FS Query Studio: Failed to ensure entities ready before analysis for {Uri}: {Error}",
+                docUriStr,
+                ex.Message
+            )
+
+    let private ensureEntitiesReady () = ensureEntitiesReadyForDocument ""
 
     /// Parses/type-checks the request's source snapshot via FSAC, over the
     /// shared `FsacBridge.sharedProcess` LSP connection (Section 8, step
@@ -546,15 +760,20 @@ module Handlers =
         task {
             let checkParams =
                 JsonSerializer.Deserialize<AnalysisCheckParams>(request.Params, Serialization.options)
+
             ensureEntitiesReadyForDocument checkParams.DocumentUri
 
-            let! diagnostics = FsacBridge.check checkParams.DocumentUri checkParams.Version checkParams.Source
+            let! diagnostics =
+                FsacBridge.check checkParams.DocumentUri checkParams.Version checkParams.Source
+
             let result: AnalysisCheckResult = { Diagnostics = diagnostics }
 
             return
-                { Id = request.Id
-                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                  Error = None }
+                {
+                    Id = request.Id
+                    Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                    Error = None
+                }
         }
 
     /// Answers `analysis/hover` from the request's own source snapshot, via
@@ -565,6 +784,7 @@ module Handlers =
         task {
             let hoverParams =
                 JsonSerializer.Deserialize<AnalysisHoverParams>(request.Params, Serialization.options)
+
             ensureEntitiesReadyForDocument hoverParams.DocumentUri
 
             let! hover =
@@ -578,9 +798,11 @@ module Handlers =
             let result: AnalysisHoverResult = { Hover = hover }
 
             return
-                { Id = request.Id
-                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                  Error = None }
+                {
+                    Id = request.Id
+                    Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                    Error = None
+                }
         }
 
     /// Answers `analysis/definition` from the request's own source
@@ -595,6 +817,7 @@ module Handlers =
         task {
             let definitionParams =
                 JsonSerializer.Deserialize<AnalysisDefinitionParams>(request.Params, Serialization.options)
+
             ensureEntitiesReadyForDocument definitionParams.DocumentUri
 
             let! location =
@@ -608,9 +831,11 @@ module Handlers =
             let result: AnalysisDefinitionResult = { Location = location }
 
             return
-                { Id = request.Id
-                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                  Error = None }
+                {
+                    Id = request.Id
+                    Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                    Error = None
+                }
         }
 
     /// Answers `analysis/signatureHelp` from the request's own source
@@ -634,9 +859,11 @@ module Handlers =
             let result: AnalysisSignatureHelpResult = { SignatureHelp = signatureHelp }
 
             return
-                { Id = request.Id
-                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                  Error = None }
+                {
+                    Id = request.Id
+                    Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                    Error = None
+                }
         }
 
     /// `analysis/complete` — Milestone B.10/B.11, now answered entirely by
@@ -648,6 +875,7 @@ module Handlers =
         task {
             let completionParams =
                 JsonSerializer.Deserialize<AnalysisCompletionParams>(request.Params, Serialization.options)
+
             ensureEntitiesReadyForDocument completionParams.DocumentUri
 
             let! items =
@@ -659,13 +887,17 @@ module Handlers =
                     completionParams.Column
 
             let result: AnalysisCompletionResult =
-                { Items = items |> List.map (fun i -> i.Label)
-                  DetailedItems = Some items }
+                {
+                    Items = items |> List.map (fun i -> i.Label)
+                    DetailedItems = Some items
+                }
 
             return
-                { Id = request.Id
-                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                  Error = None }
+                {
+                    Id = request.Id
+                    Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                    Error = None
+                }
         }
 
     /// `analysis/rename` — Milestone E.8, now answered by
@@ -688,9 +920,11 @@ module Handlers =
             let result: AnalysisRenameResult = { Edits = edits }
 
             return
-                { Id = request.Id
-                  Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                  Error = None }
+                {
+                    Id = request.Id
+                    Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                    Error = None
+                }
         }
 
     /// `results/page` — Section 7. An unknown or expired
@@ -704,26 +938,35 @@ module Handlers =
         match pagingCursors.TryGetValue(pageParams.ContinuationToken) with
         | true, cursor ->
             let rows, hasMore = cursor.TakePage(Projection.PreviewRowLimit)
+
             if not hasMore then
                 match pagingCursors.TryRemove(pageParams.ContinuationToken) with
                 | true, c -> disposeCursor c
                 | false, _ -> ()
 
             let page: ResultPage =
-                { Rows = rows |> Array.map (fun r -> [| r |])
-                  IsTruncated = hasMore
-                  ContinuationToken = (if hasMore then Some pageParams.ContinuationToken else None) }
+                {
+                    Rows = rows |> Array.map (fun r -> [| r |])
+                    IsTruncated = hasMore
+                    ContinuationToken = (if hasMore then Some pageParams.ContinuationToken else None)
+                }
 
-            { Id = request.Id
-              Result = Some(JsonSerializer.SerializeToElement(page, Serialization.options))
-              Error = None }
+            {
+                Id = request.Id
+                Result = Some(JsonSerializer.SerializeToElement(page, Serialization.options))
+                Error = None
+            }
         | _ ->
-            { Id = request.Id
-              Result = None
-              Error =
-                Some
-                    { Code = "results/unknownToken"
-                      Message = "The continuation token is unknown or has expired." } }
+            {
+                Id = request.Id
+                Result = None
+                Error =
+                    Some
+                        {
+                            Code = "results/unknownToken"
+                            Message = "The continuation token is unknown or has expired."
+                        }
+            }
 
     /// `results/exportCsv` — writes `documentUri`'s retained full result
     /// (see `ResultRetention`) straight to `filePath` via the existing,
@@ -734,6 +977,7 @@ module Handlers =
             JsonSerializer.Deserialize<ExportCsvParams>(request.Params, Serialization.options)
 
         let targetWs = resolveWorkspaceForDocument exportParams.DocumentUri
+
         let fullPath =
             if Path.IsPathRooted exportParams.FilePath then
                 exportParams.FilePath
@@ -742,15 +986,20 @@ module Handlers =
 
         match ResultRetention.tryGet exportParams.DocumentUri with
         | None ->
-            { Id = request.Id
-              Result = None
-              Error =
-                Some
-                    { Code = "results/nothingToExport"
-                      Message = $"No retained table result for '{exportParams.DocumentUri}'." } }
+            {
+                Id = request.Id
+                Result = None
+                Error =
+                    Some
+                        {
+                            Code = "results/nothingToExport"
+                            Message = $"No retained table result for '{exportParams.DocumentUri}'."
+                        }
+            }
         | Some retained ->
             try
                 let dir = Path.GetDirectoryName fullPath
+
                 if not (String.IsNullOrEmpty dir) && not (Directory.Exists dir) then
                     Directory.CreateDirectory(dir) |> ignore
 
@@ -759,13 +1008,22 @@ module Handlers =
                 use writer = new StreamWriter(fullPath, false, System.Text.Encoding.UTF8)
                 CsvExport.write writer retained.Columns retained.Rows
 
-                { Id = request.Id
-                  Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
-                  Error = None }
+                {
+                    Id = request.Id
+                    Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
+                    Error = None
+                }
             with ex ->
-                { Id = request.Id
-                  Result = None
-                  Error = Some { Code = "results/exportFailed"; Message = ex.Message } }
+                {
+                    Id = request.Id
+                    Result = None
+                    Error =
+                        Some
+                            {
+                                Code = "results/exportFailed"
+                                Message = ex.Message
+                            }
+                }
 
     /// `results/discard` — evicts `documentUri`'s retained result, if any
     /// (Section "Eviction on tab close"). Always succeeds, even for a
@@ -778,19 +1036,24 @@ module Handlers =
 
         ResultRetention.discard discardParams.DocumentUri
 
-        { Id = request.Id
-          Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
-          Error = None }
+        {
+            Id = request.Id
+            Result = Some(JsonSerializer.SerializeToElement({| acknowledged = true |}, Serialization.options))
+            Error = None
+        }
 
     let private tryGetWorkspaceDir (paramsElem: JsonElement) : string =
         try
             if paramsElem.ValueKind = JsonValueKind.Object then
                 let mutable prop = Unchecked.defaultof<JsonElement>
-                if (paramsElem.TryGetProperty("workspaceDir", &prop)
-                    || paramsElem.TryGetProperty("targetDir", &prop)
-                    || paramsElem.TryGetProperty("WorkspaceDir", &prop)
-                    || paramsElem.TryGetProperty("TargetDir", &prop))
-                   && prop.ValueKind = JsonValueKind.String then
+
+                if
+                    (paramsElem.TryGetProperty("workspaceDir", &prop)
+                     || paramsElem.TryGetProperty("targetDir", &prop)
+                     || paramsElem.TryGetProperty("WorkspaceDir", &prop)
+                     || paramsElem.TryGetProperty("TargetDir", &prop))
+                    && prop.ValueKind = JsonValueKind.String
+                then
                     let v = prop.GetString()
                     if String.IsNullOrWhiteSpace v then workspaceDir () else v
                 else
@@ -805,12 +1068,17 @@ module Handlers =
     /// existing binding sharing its `Id`, and returns the updated full list.
     let handleConnectionRegister (request: WorkerRequestFrame) : WorkerResponseFrame =
         let targetWs = tryGetWorkspaceDir request.Params
+
         let connection =
             JsonSerializer.Deserialize<ConnectionDefinition>(request.Params, Serialization.options)
 
         if targetWs <> (workspaceDir ()) then
             let fsqsDir = Path.Combine(targetWs, ".fsqs")
-            if not (Directory.Exists fsqsDir) && not (targetWs.EndsWith(".fsqs", StringComparison.OrdinalIgnoreCase)) then
+
+            if
+                not (Directory.Exists fsqsDir)
+                && not (targetWs.EndsWith(".fsqs", StringComparison.OrdinalIgnoreCase))
+            then
                 Directory.CreateDirectory fsqsDir |> ignore
 
         let updated = Workspace.registerConnection targetWs connection
@@ -819,9 +1087,11 @@ module Handlers =
         EntityBackgroundGenerator.triggerBackgroundGeneration targetWs updated secretStore
         Connections.triggerBackgroundSync targetWs updated secretStore
 
-        { Id = request.Id
-          Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
-          Error = None }
+        {
+            Id = request.Id
+            Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
+            Error = None
+        }
 
     /// `connection/list` — the read-only companion to `connection/register` /
     /// `connection/remove` (F5). Neither of those returns the registry without
@@ -831,25 +1101,39 @@ module Handlers =
         let targetWs = tryGetWorkspaceDir request.Params
         let connections = readEffectiveConnections targetWs true
 
-        { Id = request.Id
-          Result = Some(JsonSerializer.SerializeToElement({| connections = connections |}, Serialization.options))
-          Error = None }
+        {
+            Id = request.Id
+            Result = Some(JsonSerializer.SerializeToElement({| connections = connections |}, Serialization.options))
+            Error = None
+        }
 
     /// `connector/list` — returns all registered connector descriptors and their declarative form schemas.
     let handleConnectorList (request: WorkerRequestFrame) : WorkerResponseFrame =
         try
             BuiltinConnectors.registerDefaults ()
+
             let descriptors =
                 ConnectorRegistry.Instance.AllDescriptors()
                 |> List.map ConnectorDescriptor.toDto
+
             let result: ConnectorListResult = { Connectors = descriptors }
-            { Id = request.Id
-              Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-              Error = None }
+
+            {
+                Id = request.Id
+                Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                Error = None
+            }
         with ex ->
-            { Id = request.Id
-              Result = None
-              Error = Some { Code = "connector/listFailed"; Message = ex.Message } }
+            {
+                Id = request.Id
+                Result = None
+                Error =
+                    Some
+                        {
+                            Code = "connector/listFailed"
+                            Message = ex.Message
+                        }
+            }
 
 
     /// `connection/remove` — drops the connection with the given `Id`
@@ -857,19 +1141,24 @@ module Handlers =
     /// the updated full list.
     let handleConnectionRemove (request: WorkerRequestFrame) : WorkerResponseFrame =
         let targetWs = tryGetWorkspaceDir request.Params
+
         let removeParams =
             JsonSerializer.Deserialize<ConnectionRemoveParams>(request.Params, Serialization.options)
 
         let updated = Workspace.removeConnection targetWs removeParams.Id
         invalidateWorkspaceEntitiesCache ()
+
         if targetWs <> (workspaceDir ()) then
             Workspace.removeConnection (workspaceDir ()) removeParams.Id |> ignore
+
         Connections.configure (WorkspaceConnectionResolver(updated, secretStore, targetWs))
         EntityBackgroundGenerator.triggerBackgroundGeneration targetWs updated secretStore
 
-        { Id = request.Id
-          Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
-          Error = None }
+        {
+            Id = request.Id
+            Result = Some(JsonSerializer.SerializeToElement(updated, Serialization.options))
+            Error = None
+        }
 
     /// `connection/schema` — Section 10's schema discovery.
     let handleConnectionSchema (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
@@ -878,20 +1167,28 @@ module Handlers =
                 JsonSerializer.Deserialize<ConnectionSchemaParams>(request.Params, Serialization.options)
 
             let targetWs = tryGetWorkspaceDir request.Params
+
             let connections =
                 let local = Workspace.readConnections targetWs
-                if local |> List.exists (fun c -> c.Id = schemaParams.Id) then local
-                else Workspace.readConnections (workspaceDir ())
+
+                if local |> List.exists (fun c -> c.Id = schemaParams.Id) then
+                    local
+                else
+                    Workspace.readConnections (workspaceDir ())
 
             match connections |> List.tryFind (fun c -> c.Id = schemaParams.Id) with
             | None ->
                 return
-                    { Id = request.Id
-                      Result = None
-                      Error =
-                        Some
-                            { Code = "connection/unknown"
-                              Message = $"No connection is registered with Id '{schemaParams.Id}'." } }
+                    {
+                        Id = request.Id
+                        Result = None
+                        Error =
+                            Some
+                                {
+                                    Code = "connection/unknown"
+                                    Message = $"No connection is registered with Id '{schemaParams.Id}'."
+                                }
+                    }
             | Some definition ->
                 try
                     let resolver =
@@ -903,23 +1200,38 @@ module Handlers =
                     EntityBackgroundGenerator.triggerBackgroundGeneration targetWs connections secretStore
 
                     let result: ConnectionSchemaResult =
-                        { Tables =
-                            tables
-                            |> List.map (fun t ->
-                                { Name = t.Name
-                                  Columns =
-                                    t.Columns
-                                    |> List.map (fun c -> ({ Name = c.Name; DataType = c.DataType }: SchemaColumn)) }: SchemaTable) }
+                        {
+                            Tables =
+                                tables
+                                |> List.map (fun t ->
+                                    {
+                                        Name = t.Name
+                                        Columns =
+                                            t.Columns
+                                            |> List.map (fun c ->
+                                                ({ Name = c.Name; DataType = c.DataType }: SchemaColumn))
+                                    }
+                                    : SchemaTable)
+                        }
 
                     return
-                        { Id = request.Id
-                          Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                          Error = None }
+                        {
+                            Id = request.Id
+                            Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                            Error = None
+                        }
                 with ex ->
                     return
-                        { Id = request.Id
-                          Result = None
-                          Error = Some { Code = "connection/schemaFailed"; Message = ex.Message } }
+                        {
+                            Id = request.Id
+                            Result = None
+                            Error =
+                                Some
+                                    {
+                                        Code = "connection/schemaFailed"
+                                        Message = ex.Message
+                                    }
+                        }
         }
 
 
@@ -930,7 +1242,11 @@ module Handlers =
                     try
                         if request.Params.ValueKind = JsonValueKind.Object then
                             let mutable prop = Unchecked.defaultof<JsonElement>
-                            if request.Params.TryGetProperty(name, &prop) && prop.ValueKind = JsonValueKind.String then
+
+                            if
+                                request.Params.TryGetProperty(name, &prop)
+                                && prop.ValueKind = JsonValueKind.String
+                            then
                                 let v = prop.GetString()
                                 if String.IsNullOrWhiteSpace v then None else Some v
                             else
@@ -951,9 +1267,17 @@ module Handlers =
                     try
                         if request.Params.ValueKind = JsonValueKind.Object then
                             let mutable prop = Unchecked.defaultof<JsonElement>
-                            if request.Params.TryGetProperty(name, &prop) && prop.ValueKind = JsonValueKind.String then
+
+                            if
+                                request.Params.TryGetProperty(name, &prop)
+                                && prop.ValueKind = JsonValueKind.String
+                            then
                                 let v = prop.GetString()
-                                if String.IsNullOrWhiteSpace v then None else Some(v.Trim().ToLowerInvariant())
+
+                                if String.IsNullOrWhiteSpace v then
+                                    None
+                                else
+                                    Some(v.Trim().ToLowerInvariant())
                             else
                                 None
                         else
@@ -965,14 +1289,25 @@ module Handlers =
                 |> Option.orElse (tryGetProp "Language")
                 |> Option.orElse (tryGetProp "lang")
 
-            let result = WorkspaceOperations.createSampleDataWithLanguage dir language secretStore
-            { Id = request.Id
-              Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-              Error = None }
+            let result =
+                WorkspaceOperations.createSampleDataWithLanguage dir language secretStore
+
+            {
+                Id = request.Id
+                Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                Error = None
+            }
         with ex ->
-            { Id = request.Id
-              Result = None
-              Error = Some { Code = "sample/createFailed"; Message = ex.Message } }
+            {
+                Id = request.Id
+                Result = None
+                Error =
+                    Some
+                        {
+                            Code = "sample/createFailed"
+                            Message = ex.Message
+                        }
+            }
 
     let handleCreateAdvancedSamples (request: WorkerRequestFrame) : WorkerResponseFrame =
         try
@@ -981,7 +1316,11 @@ module Handlers =
                     try
                         if request.Params.ValueKind = JsonValueKind.Object then
                             let mutable prop = Unchecked.defaultof<JsonElement>
-                            if request.Params.TryGetProperty(name, &prop) && prop.ValueKind = JsonValueKind.String then
+
+                            if
+                                request.Params.TryGetProperty(name, &prop)
+                                && prop.ValueKind = JsonValueKind.String
+                            then
                                 let v = prop.GetString()
                                 if String.IsNullOrWhiteSpace v then None else Some v
                             else
@@ -1001,11 +1340,20 @@ module Handlers =
                 try
                     if request.Params.ValueKind = JsonValueKind.Object then
                         let mutable prop = Unchecked.defaultof<JsonElement>
-                        if (request.Params.TryGetProperty("engines", &prop) || request.Params.TryGetProperty("selectedEngines", &prop)) && prop.ValueKind = JsonValueKind.Array then
-                            [ for el in prop.EnumerateArray() do
-                                if el.ValueKind = JsonValueKind.String then
-                                    let s = el.GetString()
-                                    if not (String.IsNullOrWhiteSpace s) then yield s ]
+
+                        if
+                            (request.Params.TryGetProperty("engines", &prop)
+                             || request.Params.TryGetProperty("selectedEngines", &prop))
+                            && prop.ValueKind = JsonValueKind.Array
+                        then
+                            [
+                                for el in prop.EnumerateArray() do
+                                    if el.ValueKind = JsonValueKind.String then
+                                        let s = el.GetString()
+
+                                        if not (String.IsNullOrWhiteSpace s) then
+                                            yield s
+                            ]
                         else
                             [ "sqlite"; "postgresql"; "sqlserver" ]
                     else
@@ -1018,9 +1366,17 @@ module Handlers =
                     try
                         if request.Params.ValueKind = JsonValueKind.Object then
                             let mutable prop = Unchecked.defaultof<JsonElement>
-                            if request.Params.TryGetProperty(name, &prop) && prop.ValueKind = JsonValueKind.String then
+
+                            if
+                                request.Params.TryGetProperty(name, &prop)
+                                && prop.ValueKind = JsonValueKind.String
+                            then
                                 let v = prop.GetString()
-                                if String.IsNullOrWhiteSpace v then None else Some(v.Trim().ToLowerInvariant())
+
+                                if String.IsNullOrWhiteSpace v then
+                                    None
+                                else
+                                    Some(v.Trim().ToLowerInvariant())
                             else
                                 None
                         else
@@ -1032,45 +1388,78 @@ module Handlers =
                 |> Option.orElse (tryGetProp "Language")
                 |> Option.orElse (tryGetProp "lang")
 
-            let result = WorkspaceOperations.createAdvancedSamplesWithLanguage dir engines language secretStore
-            { Id = request.Id
-              Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-              Error = None }
+            let result =
+                WorkspaceOperations.createAdvancedSamplesWithLanguage dir engines language secretStore
+
+            {
+                Id = request.Id
+                Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                Error = None
+            }
         with ex ->
-            { Id = request.Id
-              Result = None
-              Error = Some { Code = "sample/createAdvancedFailed"; Message = ex.Message } }
+            {
+                Id = request.Id
+                Result = None
+                Error =
+                    Some
+                        {
+                            Code = "sample/createAdvancedFailed"
+                            Message = ex.Message
+                        }
+            }
 
     let handleInitEmptyProject (request: WorkerRequestFrame) : WorkerResponseFrame =
         try
             let rootDir = tryGetWorkspaceDir request.Params
             let result = WorkspaceOperations.initEmptyProject rootDir
-            { Id = request.Id
-              Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-              Error = None }
+
+            {
+                Id = request.Id
+                Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                Error = None
+            }
         with ex ->
-            { Id = request.Id
-              Result = None
-              Error = Some { Code = "workspace/initFailed"; Message = ex.Message } }
+            {
+                Id = request.Id
+                Result = None
+                Error =
+                    Some
+                        {
+                            Code = "workspace/initFailed"
+                            Message = ex.Message
+                        }
+            }
 
     let handleAutoImportDataSources (request: WorkerRequestFrame) : WorkerResponseFrame =
         try
             let rawDir = tryGetWorkspaceDir request.Params
             let result = WorkspaceOperations.autoImportDataSources rawDir secretStore
-            { Id = request.Id
-              Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-              Error = None }
+
+            {
+                Id = request.Id
+                Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                Error = None
+            }
         with ex ->
-            { Id = request.Id
-              Result = None
-              Error = Some { Code = "workspace/autoImportFailed"; Message = ex.Message } }
+            {
+                Id = request.Id
+                Result = None
+                Error =
+                    Some
+                        {
+                            Code = "workspace/autoImportFailed"
+                            Message = ex.Message
+                        }
+            }
 
     type SyncDataSourcesResult =
-        { TargetDir: string
-          StagedCount: int
-          SkippedCount: int
-          Total: int
-          ElapsedMs: int64 }
+        {
+            TargetDir: string
+            StagedCount: int
+            SkippedCount: int
+            Total: int
+            ElapsedMs: int64
+        }
 
     let handleSyncDataSources (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
@@ -1079,40 +1468,65 @@ module Handlers =
                 let connections = readEffectiveConnections targetDir false
                 let! summary = Connections.syncDataSources targetDir connections secretStore
                 EntityBackgroundGenerator.triggerBackgroundGeneration targetDir connections secretStore
-                let result : SyncDataSourcesResult =
-                    { TargetDir = targetDir
-                      StagedCount = summary.StagedCount
-                      SkippedCount = summary.SkippedCount
-                      Total = summary.Total
-                      ElapsedMs = summary.ElapsedMs }
+
+                let result: SyncDataSourcesResult =
+                    {
+                        TargetDir = targetDir
+                        StagedCount = summary.StagedCount
+                        SkippedCount = summary.SkippedCount
+                        Total = summary.Total
+                        ElapsedMs = summary.ElapsedMs
+                    }
+
                 return
-                    { Id = request.Id
-                      Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-                      Error = None }
+                    {
+                        Id = request.Id
+                        Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                        Error = None
+                    }
             with ex ->
                 return
-                    { Id = request.Id
-                      Result = None
-                      Error = Some { Code = "workspace/syncDataSourcesFailed"; Message = ex.Message } }
+                    {
+                        Id = request.Id
+                        Result = None
+                        Error =
+                            Some
+                                {
+                                    Code = "workspace/syncDataSourcesFailed"
+                                    Message = ex.Message
+                                }
+                    }
         }
 
     let handleWorkspaceUpgrade (request: WorkerRequestFrame) : WorkerResponseFrame =
         try
             let rootDir = tryGetWorkspaceDir request.Params
             let report = ProjectUpgrader.upgradeWorkspace rootDir
-            let result : WorkspaceUpgradeResult =
-                { Upgraded = report.Upgraded
-                  PreviousVersion = report.PreviousVersion
-                  CurrentVersion = report.CurrentVersion
-                  Actions = report.Actions }
 
-            { Id = request.Id
-              Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
-              Error = None }
+            let result: WorkspaceUpgradeResult =
+                {
+                    Upgraded = report.Upgraded
+                    PreviousVersion = report.PreviousVersion
+                    CurrentVersion = report.CurrentVersion
+                    Actions = report.Actions
+                }
+
+            {
+                Id = request.Id
+                Result = Some(JsonSerializer.SerializeToElement(result, Serialization.options))
+                Error = None
+            }
         with ex ->
-            { Id = request.Id
-              Result = None
-              Error = Some { Code = "workspace/upgradeFailed"; Message = ex.Message } }
+            {
+                Id = request.Id
+                Result = None
+                Error =
+                    Some
+                        {
+                            Code = "workspace/upgradeFailed"
+                            Message = ex.Message
+                        }
+            }
 
     let dispatch (request: WorkerRequestFrame) : Task<WorkerResponseFrame> =
         task {
@@ -1135,41 +1549,68 @@ module Handlers =
 
             | "connection/register" -> return handleConnectionRegister request
             | "connection/remove" -> return handleConnectionRemove request
-            | "connection/refresh" | "workspace/refreshEntities" ->
+            | "connection/refresh"
+            | "workspace/refreshEntities" ->
                 Connections.clearSchemaCache ()
                 EntityBackgroundGenerator.resetCache ()
-                verifiedWorkspaceEntities.Clear ()
+                verifiedWorkspaceEntities.Clear()
                 let defaultDir = Directory.GetCurrentDirectory()
+
                 let targetWs =
                     try
                         let doc = JsonDocument.Parse(request.Params.GetRawText())
                         let root = doc.RootElement
                         let mutable prop = Unchecked.defaultof<JsonElement>
-                        if root.TryGetProperty("workspaceDir", &prop) || root.TryGetProperty("workspaceDirectory", &prop) || root.TryGetProperty("targetDir", &prop) then
+
+                        if
+                            root.TryGetProperty("workspaceDir", &prop)
+                            || root.TryGetProperty("workspaceDirectory", &prop)
+                            || root.TryGetProperty("targetDir", &prop)
+                        then
                             prop.GetString()
-                        else defaultDir
-                    with _ -> defaultDir
+                        else
+                            defaultDir
+                    with _ ->
+                        defaultDir
+
                 if not (String.IsNullOrEmpty targetWs) && Directory.Exists targetWs then
                     let connections = readEffectiveConnections targetWs false
+
                     try
-                        (EntityBackgroundGenerator.generateForConnectionsAsync targetWs connections secretStore).GetAwaiter().GetResult() |> ignore
+                        (EntityBackgroundGenerator.generateForConnectionsAsync targetWs connections secretStore)
+                            .GetAwaiter()
+                            .GetResult()
+                        |> ignore
                     with ex ->
                         Log.Warning("FS Query Studio: Forced entity regeneration failed: {Error}", ex.Message)
+
                 SessionStore.resetAll ()
-                return { Id = request.Id; Result = Some(JsonSerializer.SerializeToElement({| ok = true |}, Serialization.options)); Error = None }
+
+                return
+                    {
+                        Id = request.Id
+                        Result = Some(JsonSerializer.SerializeToElement({| ok = true |}, Serialization.options))
+                        Error = None
+                    }
             | "connection/schema" -> return! handleConnectionSchema request
             | "workspace/createSampleData" -> return handleCreateSampleData request
             | "workspace/createAdvancedSamples" -> return handleCreateAdvancedSamples request
-            | "workspace/initProject" | "workspace/initEmptyProject" -> return handleInitEmptyProject request
-            | "workspace/autoImportDataSources" | "workspace/autoImportFolder" -> return handleAutoImportDataSources request
+            | "workspace/initProject"
+            | "workspace/initEmptyProject" -> return handleInitEmptyProject request
+            | "workspace/autoImportDataSources"
+            | "workspace/autoImportFolder" -> return handleAutoImportDataSources request
             | "workspace/syncDataSources" -> return! handleSyncDataSources request
             | "workspace/upgrade" -> return handleWorkspaceUpgrade request
             | unknown ->
                 return
-                    { Id = request.Id
-                      Result = None
-                      Error =
-                        Some
-                            { Code = "method/unknown"
-                              Message = $"Unknown method: {unknown}" } }
+                    {
+                        Id = request.Id
+                        Result = None
+                        Error =
+                            Some
+                                {
+                                    Code = "method/unknown"
+                                    Message = $"Unknown method: {unknown}"
+                                }
+                    }
         }

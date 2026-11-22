@@ -14,11 +14,20 @@ open MySqlConnector
 open Oracle.ManagedDataAccess.Client
 
 // Fast-failing connection strings pointing to an unmapped local port with short 1-second timeout.
-let private fastFailSqlServerConn = "Server=127.0.0.1,59999;Database=testdb;Connection Timeout=1;Encrypt=False;"
-let private fastFailPostgreSqlConn = "Host=127.0.0.1;Port=59999;Database=testdb;Timeout=1;"
-let private fastFailMySqlConn = "Server=127.0.0.1;Port=59999;Database=testdb;Connection Timeout=1;"
-let private fastFailMariaDbConn = "Server=127.0.0.1;Port=59999;Database=testdb;Connection Timeout=1;"
-let private fastFailOracleConn = "Data Source=127.0.0.1:59999/testdb;Connection Timeout=1;"
+let private fastFailSqlServerConn =
+    "Server=127.0.0.1,59999;Database=testdb;Connection Timeout=1;Encrypt=False;"
+
+let private fastFailPostgreSqlConn =
+    "Host=127.0.0.1;Port=59999;Database=testdb;Timeout=1;"
+
+let private fastFailMySqlConn =
+    "Server=127.0.0.1;Port=59999;Database=testdb;Connection Timeout=1;"
+
+let private fastFailMariaDbConn =
+    "Server=127.0.0.1;Port=59999;Database=testdb;Connection Timeout=1;"
+
+let private fastFailOracleConn =
+    "Data Source=127.0.0.1:59999/testdb;Connection Timeout=1;"
 
 // -----------------------------------------------------------------------------
 // 1. Instantiation and Metadata Tests
@@ -89,6 +98,69 @@ let ``Sql connectors share the Sql ConnectorCategory definition`` () =
     Assert.Equal("sql", ConnectorCategory.Sql.Identifier)
     Assert.Equal("Db", ConnectorCategory.Sql.ModuleSuffix)
     Assert.Equal("FSharpQueryStudio.Connectors.Connections.SqlCategory", ConnectorCategory.Sql.CategoryTypeName)
+
+[<Fact>]
+let ``MySqlConnector NormalizeConnectionString replaces localhost with 127.0.0.1 and preserves others`` () =
+    let norm =
+        MySqlConnector.NormalizeConnectionString
+            "Server=localhost;Port=3306;Database=mydb;User ID=root;Password=secret;"
+
+    Assert.Contains("Server=127.0.0.1", norm)
+
+    let other =
+        MySqlConnector.NormalizeConnectionString
+            "Server=192.168.1.100;Port=3306;Database=mydb;User ID=root;Password=secret;"
+
+    Assert.Contains("Server=192.168.1.100", other)
+
+[<Fact>]
+let ``MySqlConnector NormalizeConnectionString handles case variations, malformed and empty strings safely`` () =
+    let upper =
+        MySqlConnector.NormalizeConnectionString "Server=LOCALHOST;Port=3306;Database=mydb;"
+
+    Assert.Contains("Server=127.0.0.1", upper)
+
+    let mixed =
+        MySqlConnector.NormalizeConnectionString "server=LocalHost;port=3306;database=mydb;"
+
+    Assert.Contains("Server=127.0.0.1", mixed)
+    let malformed = MySqlConnector.NormalizeConnectionString "not a valid conn string;;"
+    Assert.Equal("not a valid conn string;;", malformed)
+    let empty = MySqlConnector.NormalizeConnectionString ""
+    Assert.Equal("", empty)
+
+[<Fact>]
+let ``MariaDbConnector NormalizeConnectionString replaces localhost with 127.0.0.1 and preserves others`` () =
+    let norm =
+        MariaDbConnector.NormalizeConnectionString
+            "Server=localhost;Port=3307;Database=mydb;User ID=root;Password=secret;"
+
+    Assert.Contains("Server=127.0.0.1", norm)
+
+    let other =
+        MariaDbConnector.NormalizeConnectionString
+            "Server=remote.db;Port=3307;Database=mydb;User ID=root;Password=secret;"
+
+    Assert.Contains("Server=remote.db", other)
+
+[<Fact>]
+let ``MariaDbConnector NormalizeConnectionString handles case variations, malformed and empty strings safely`` () =
+    let upper =
+        MariaDbConnector.NormalizeConnectionString "Server=LOCALHOST;Port=3307;Database=mydb;"
+
+    Assert.Contains("Server=127.0.0.1", upper)
+
+    let mixed =
+        MariaDbConnector.NormalizeConnectionString "server=LocalHost;port=3307;database=mydb;"
+
+    Assert.Contains("Server=127.0.0.1", mixed)
+
+    let malformed =
+        MariaDbConnector.NormalizeConnectionString "invalid connection string ;==;"
+
+    Assert.Equal("invalid connection string ;==;", malformed)
+    let empty = MariaDbConnector.NormalizeConnectionString ""
+    Assert.Equal("", empty)
 
 // -----------------------------------------------------------------------------
 // 2. Safe Connection Failure Handling (TestConnectionAsync)
@@ -191,7 +263,10 @@ let ``OracleConnector TestConnectionAsync returns false when cancellation token 
 [<Fact>]
 let ``SqlServerConnector ExecuteQuery throws SqlException when connection fails`` () =
     let connector = SqlServerConnector(fastFailSqlServerConn)
-    let ex = Assert.Throws<SqlException>(fun () -> connector.ExecuteQuery "SELECT 1" [] |> ignore)
+
+    let ex =
+        Assert.Throws<SqlException>(fun () -> connector.ExecuteQuery "SELECT 1" [] |> ignore)
+
     Assert.NotNull(ex)
     Assert.NotEmpty(ex.Message)
 
@@ -199,7 +274,10 @@ let ``SqlServerConnector ExecuteQuery throws SqlException when connection fails`
 let ``SqlServerConnector DiscoverSchemaAsync throws SqlException when connection fails`` () =
     task {
         let connector = SqlServerConnector(fastFailSqlServerConn) :> IConnector
-        let! ex = Assert.ThrowsAsync<SqlException>(fun () -> connector.DiscoverSchemaAsync(CancellationToken.None) :> Task)
+
+        let! ex =
+            Assert.ThrowsAsync<SqlException>(fun () -> connector.DiscoverSchemaAsync(CancellationToken.None) :> Task)
+
         Assert.NotNull(ex)
     }
 
@@ -213,7 +291,10 @@ let ``SqlServerConnector ExecuteReaderStream throws SqlException upon enumeratio
 [<Fact>]
 let ``PostgreSqlConnector ExecuteQuery throws NpgsqlException when connection fails`` () =
     let connector = PostgreSqlConnector(fastFailPostgreSqlConn)
-    let ex = Assert.Throws<NpgsqlException>(fun () -> connector.ExecuteQuery "SELECT 1" [] |> ignore)
+
+    let ex =
+        Assert.Throws<NpgsqlException>(fun () -> connector.ExecuteQuery "SELECT 1" [] |> ignore)
+
     Assert.NotNull(ex)
     Assert.NotEmpty(ex.Message)
 
@@ -221,7 +302,10 @@ let ``PostgreSqlConnector ExecuteQuery throws NpgsqlException when connection fa
 let ``PostgreSqlConnector DiscoverSchemaAsync throws NpgsqlException when connection fails`` () =
     task {
         let connector = PostgreSqlConnector(fastFailPostgreSqlConn) :> IConnector
-        let! ex = Assert.ThrowsAsync<NpgsqlException>(fun () -> connector.DiscoverSchemaAsync(CancellationToken.None) :> Task)
+
+        let! ex =
+            Assert.ThrowsAsync<NpgsqlException>(fun () -> connector.DiscoverSchemaAsync(CancellationToken.None) :> Task)
+
         Assert.NotNull(ex)
     }
 
@@ -235,7 +319,10 @@ let ``PostgreSqlConnector ExecuteReaderStream throws NpgsqlException upon enumer
 [<Fact>]
 let ``MySqlConnector ExecuteQuery throws MySqlException when connection fails`` () =
     let connector = MySqlConnector(fastFailMySqlConn)
-    let ex = Assert.Throws<MySqlException>(fun () -> connector.ExecuteQuery "SELECT 1" [] |> ignore)
+
+    let ex =
+        Assert.Throws<MySqlException>(fun () -> connector.ExecuteQuery "SELECT 1" [] |> ignore)
+
     Assert.NotNull(ex)
     Assert.NotEmpty(ex.Message)
 
@@ -243,7 +330,10 @@ let ``MySqlConnector ExecuteQuery throws MySqlException when connection fails`` 
 let ``MySqlConnector DiscoverSchemaAsync throws MySqlException when connection fails`` () =
     task {
         let connector = MySqlConnector(fastFailMySqlConn) :> IConnector
-        let! ex = Assert.ThrowsAsync<MySqlException>(fun () -> connector.DiscoverSchemaAsync(CancellationToken.None) :> Task)
+
+        let! ex =
+            Assert.ThrowsAsync<MySqlException>(fun () -> connector.DiscoverSchemaAsync(CancellationToken.None) :> Task)
+
         Assert.NotNull(ex)
     }
 
@@ -257,7 +347,10 @@ let ``MySqlConnector ExecuteReaderStream throws MySqlException upon enumeration 
 [<Fact>]
 let ``MariaDbConnector ExecuteQuery throws MySqlException when connection fails`` () =
     let connector = MariaDbConnector(fastFailMariaDbConn)
-    let ex = Assert.Throws<MySqlException>(fun () -> connector.ExecuteQuery "SELECT 1" [] |> ignore)
+
+    let ex =
+        Assert.Throws<MySqlException>(fun () -> connector.ExecuteQuery "SELECT 1" [] |> ignore)
+
     Assert.NotNull(ex)
     Assert.NotEmpty(ex.Message)
 
@@ -265,7 +358,10 @@ let ``MariaDbConnector ExecuteQuery throws MySqlException when connection fails`
 let ``MariaDbConnector DiscoverSchemaAsync throws MySqlException when connection fails`` () =
     task {
         let connector = MariaDbConnector(fastFailMariaDbConn) :> IConnector
-        let! ex = Assert.ThrowsAsync<MySqlException>(fun () -> connector.DiscoverSchemaAsync(CancellationToken.None) :> Task)
+
+        let! ex =
+            Assert.ThrowsAsync<MySqlException>(fun () -> connector.DiscoverSchemaAsync(CancellationToken.None) :> Task)
+
         Assert.NotNull(ex)
     }
 
@@ -279,7 +375,10 @@ let ``MariaDbConnector ExecuteReaderStream throws MySqlException upon enumeratio
 [<Fact>]
 let ``OracleConnector ExecuteQuery throws OracleException when connection fails`` () =
     let connector = OracleConnector(fastFailOracleConn)
-    let ex = Assert.Throws<OracleException>(fun () -> connector.ExecuteQuery "SELECT 1 FROM DUAL" [] |> ignore)
+
+    let ex =
+        Assert.Throws<OracleException>(fun () -> connector.ExecuteQuery "SELECT 1 FROM DUAL" [] |> ignore)
+
     Assert.NotNull(ex)
     Assert.NotEmpty(ex.Message)
 
@@ -287,14 +386,20 @@ let ``OracleConnector ExecuteQuery throws OracleException when connection fails`
 let ``OracleConnector DiscoverSchemaAsync throws OracleException when connection fails`` () =
     task {
         let connector = OracleConnector(fastFailOracleConn) :> IConnector
-        let! ex = Assert.ThrowsAsync<OracleException>(fun () -> connector.DiscoverSchemaAsync(CancellationToken.None) :> Task)
+
+        let! ex =
+            Assert.ThrowsAsync<OracleException>(fun () -> connector.DiscoverSchemaAsync(CancellationToken.None) :> Task)
+
         Assert.NotNull(ex)
     }
 
 [<Fact>]
 let ``OracleConnector ExecuteReaderStream throws OracleException upon enumeration when connection fails`` () =
     let connector = OracleConnector(fastFailOracleConn)
-    let stream = connector.ExecuteReaderStream "SELECT 1 FROM DUAL" [] (fun r -> r.GetInt32(0))
+
+    let stream =
+        connector.ExecuteReaderStream "SELECT 1 FROM DUAL" [] (fun r -> r.GetInt32(0))
+
     let ex = Assert.Throws<OracleException>(fun () -> stream |> Seq.toList |> ignore)
     Assert.NotNull(ex)
 
@@ -429,15 +534,21 @@ let ``OracleConnector BindParameters sets BindByName, trims at-sign and colon pr
 
 [<Fact>]
 let ``OracleConnector PrepareSql transforms at-param to colon param syntax`` () =
-    let inputSql = "SELECT * FROM Employees WHERE DepartmentId = @deptId AND Salary > @minSalary"
-    let expectedSql = "SELECT * FROM Employees WHERE DepartmentId = :deptId AND Salary > :minSalary"
+    let inputSql =
+        "SELECT * FROM Employees WHERE DepartmentId = @deptId AND Salary > @minSalary"
+
+    let expectedSql =
+        "SELECT * FROM Employees WHERE DepartmentId = :deptId AND Salary > :minSalary"
+
     let result = OracleConnector.PrepareSql(inputSql)
 
     Assert.Equal(expectedSql, result)
 
 [<Fact>]
 let ``OracleConnector PrepareSql leaves SQL without at-sign unaltered`` () =
-    let inputSql = "SELECT * FROM Employees WHERE DepartmentId = :deptId AND Status = 'ACTIVE'"
+    let inputSql =
+        "SELECT * FROM Employees WHERE DepartmentId = :deptId AND Status = 'ACTIVE'"
+
     let result = OracleConnector.PrepareSql(inputSql)
 
     Assert.Equal(inputSql, result)
@@ -455,7 +566,8 @@ let private testSqlDescriptor
     (descriptor: IConnectorDescriptor)
     (expectedKind: string)
     (expectedName: string)
-    (validConnStr: string) =
+    (validConnStr: string)
+    =
     Assert.Equal(expectedKind, descriptor.KindId)
     Assert.Equal(expectedName, descriptor.DisplayName)
     Assert.Equal(ConnectorCategory.Sql, descriptor.Category)
@@ -463,17 +575,24 @@ let private testSqlDescriptor
     Assert.NotEmpty(descriptor.FormFields)
     Assert.True(descriptor.EntityGenerator.IsNone)
 
-    let validJson = System.Text.Json.JsonDocument.Parse($$"""{"connectionString": "{{validConnStr}}"}""").RootElement
+    let validJson =
+        System.Text.Json.JsonDocument.Parse($$"""{"connectionString": "{{validConnStr}}"}""").RootElement
+
     Assert.True(descriptor.ValidateConfiguration(validJson).IsOk)
 
     let invalidJson = System.Text.Json.JsonDocument.Parse("""{}""").RootElement
     Assert.True(descriptor.ValidateConfiguration(invalidJson).IsError)
 
-    let dummyStore = { new FSharpQueryStudio.Security.ISecretStore with
-        member _.TryRead(_) = Some "resolvedPass"
-        member _.Save _ _ = ()
-        member _.Delete _ = ()
-    }
+    let dummyStore =
+        { new FSharpQueryStudio.Security.ISecretStore with
+            member _.TryRead(_) = Some "resolvedPass"
+
+            member _.TryReadAsync(_, _) =
+                System.Threading.Tasks.Task.FromResult(Some "resolvedPass")
+
+            member _.Save _ _ = ()
+            member _.Delete _ = ()
+        }
 
     // Factory from string
     let strDoc = System.Text.Json.JsonDocument.Parse($"\"{validConnStr}\"")
@@ -482,17 +601,28 @@ let private testSqlDescriptor
 
     // Factory from object with secret reference
     let secretConnStr = validConnStr.Replace("secret", "{password}")
-    let objDoc = System.Text.Json.JsonDocument.Parse($$"""{"connectionString": "{{secretConnStr}}"}""")
+
+    let objDoc =
+        System.Text.Json.JsonDocument.Parse($$"""{"connectionString": "{{secretConnStr}}"}""")
+
     let conn2 = descriptor.Factory.Create(objDoc.RootElement, dummyStore, Some "ref1")
     Assert.Equal(expectedKind, conn2.Kind.Id)
 
 [<Fact>]
 let ``SqlServerDescriptor and SqlServerConnectorFactory coverage`` () =
-    testSqlDescriptor SqlServerDescriptor.Instance "SqlServer" "SQL Server" "Server=127.0.0.1;Database=db;Password=secret;"
+    testSqlDescriptor
+        SqlServerDescriptor.Instance
+        "SqlServer"
+        "SQL Server"
+        "Server=127.0.0.1;Database=db;Password=secret;"
 
 [<Fact>]
 let ``PostgreSqlDescriptor and PostgreSqlConnectorFactory coverage`` () =
-    testSqlDescriptor PostgreSqlDescriptor.Instance "PostgreSql" "PostgreSQL" "Host=127.0.0.1;Database=db;Password=secret;"
+    testSqlDescriptor
+        PostgreSqlDescriptor.Instance
+        "PostgreSql"
+        "PostgreSQL"
+        "Host=127.0.0.1;Database=db;Password=secret;"
 
 [<Fact>]
 let ``MySqlDescriptor and MySqlConnectorFactory coverage`` () =
@@ -505,4 +635,3 @@ let ``MariaDbDescriptor and MariaDbConnectorFactory coverage`` () =
 [<Fact>]
 let ``OracleDescriptor and OracleConnectorFactory coverage`` () =
     testSqlDescriptor OracleDescriptor.Instance "Oracle" "Oracle" "Data Source=127.0.0.1:1521/XE;Password=secret;"
-

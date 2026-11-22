@@ -9,13 +9,17 @@ open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Connectors
 
 let private tempCsvFile (encoding: Encoding) (content: string) : string =
-    let path = Path.Combine(Path.GetTempPath(), "fqs-csv-" + Guid.NewGuid().ToString("N") + ".csv")
+    let path =
+        Path.Combine(Path.GetTempPath(), "fqs-csv-" + Guid.NewGuid().ToString("N") + ".csv")
+
     File.WriteAllText(path, content, encoding)
     path
 
 [<Fact>]
 let ``ReadRows parses a header row and each data row as columns/rows`` () =
-    let path = tempCsvFile Encoding.UTF8 "Id,Name,Total\n1,Sales,100.0\n2,Inventory,50.0\n"
+    let path =
+        tempCsvFile Encoding.UTF8 "Id,Name,Total\n1,Sales,100.0\n2,Inventory,50.0\n"
+
     let connector = CsvConnector(path)
 
     let result = connector.ReadRows()
@@ -75,7 +79,14 @@ let ``ReadRows unescapes a doubled quote inside a quoted field`` () =
 let ``ReadRows reads a non-UTF8 encoded file correctly when Encoding is set`` () =
     let latin1 = Encoding.GetEncoding("iso-8859-1")
     let path = tempCsvFile latin1 "Id,City\n1,São Paulo\n"
-    let connector = CsvConnector(path, { CsvOptions.Default with Encoding = latin1 })
+
+    let connector =
+        CsvConnector(
+            path,
+            { CsvOptions.Default with
+                Encoding = latin1
+            }
+        )
 
     let rows = connector.ReadRows().Rows |> Seq.toList
 
@@ -84,7 +95,14 @@ let ``ReadRows reads a non-UTF8 encoded file correctly when Encoding is set`` ()
 [<Fact>]
 let ``ReadRows generates Column1/Column2 names and includes the first row as data when HasHeader is false`` () =
     let path = tempCsvFile Encoding.UTF8 "1,Sales\n2,Inventory\n"
-    let connector = CsvConnector(path, { CsvOptions.Default with HasHeader = false })
+
+    let connector =
+        CsvConnector(
+            path,
+            { CsvOptions.Default with
+                HasHeader = false
+            }
+        )
 
     let result = connector.ReadRows()
 
@@ -96,7 +114,14 @@ let ``ReadRows generates Column1/Column2 names and includes the first row as dat
 [<Fact>]
 let ``ReadRows splits on a custom delimiter`` () =
     let path = tempCsvFile Encoding.UTF8 "Id;Name\n1;Sales\n"
-    let connector = CsvConnector(path, { CsvOptions.Default with Delimiter = ';' })
+
+    let connector =
+        CsvConnector(
+            path,
+            { CsvOptions.Default with
+                Delimiter = ';'
+            }
+        )
 
     let result = connector.ReadRows()
 
@@ -158,7 +183,9 @@ let ``typed conversion helpers parse valid text and reject invalid text`` () =
 
 [<Fact>]
 let ``CsvConnector automatically detects semicolon delimiter when no options are passed`` () =
-    let path = tempCsvFile Encoding.UTF8 "Id;Name;Preco\n1;Monitor;499,90\n2;Teclado;120,00\n"
+    let path =
+        tempCsvFile Encoding.UTF8 "Id;Name;Preco\n1;Monitor;499,90\n2;Teclado;120,00\n"
+
     let connector = CsvConnector(path)
     let result = connector.ReadRows()
 
@@ -195,10 +222,11 @@ let ``CsvConnector trims surrounding quotes from Windows copy-as-path`` () =
 let ``DiscoverSchemaAsync infers column types and wraps in option when N/A, -, or null is found`` () =
     task {
         let content =
-            "Id,Amount,Discount,Status,Notes\n" +
-            "1,100.50,10.00,Active,First note\n" +
-            "2,200.00,N/A,Active,-\n" +
-            "3,300.00,-,Pending,null\n"
+            "Id,Amount,Discount,Status,Notes\n"
+            + "1,100.50,10.00,Active,First note\n"
+            + "2,200.00,N/A,Active,-\n"
+            + "3,300.00,-,Pending,null\n"
+
         let path = tempCsvFile Encoding.UTF8 content
         let connector = CsvConnector(path) :> IConnector
 
@@ -206,12 +234,15 @@ let ``DiscoverSchemaAsync infers column types and wraps in option when N/A, -, o
         let table = tables |> List.exactlyOne
 
         let colTypes = table.Columns |> List.map (fun c -> (c.Name, c.DataType))
+
         Assert.Equal<(string * string) list>(
-            [ ("Id", "int")
-              ("Amount", "decimal")
-              ("Discount", "decimal option")
-              ("Status", "string")
-              ("Notes", "string option") ],
+            [
+                ("Id", "int")
+                ("Amount", "decimal")
+                ("Discount", "decimal option")
+                ("Status", "string")
+                ("Notes", "string option")
+            ],
             colTypes
         )
     }
@@ -227,7 +258,9 @@ let ``CsvDescriptor properties and validation work correctly`` () =
     Assert.True(descriptor.EntityGenerator.IsSome)
 
     // Validation
-    let validJson = System.Text.Json.JsonDocument.Parse("""{"filePath": "data.csv"}""").RootElement
+    let validJson =
+        System.Text.Json.JsonDocument.Parse("""{"filePath": "data.csv"}""").RootElement
+
     let validRes = descriptor.ValidateConfiguration(validJson)
     Assert.True(validRes.IsOk)
 
@@ -238,11 +271,17 @@ let ``CsvDescriptor properties and validation work correctly`` () =
 [<Fact>]
 let ``CsvConnectorFactory creates CsvConnector with various json configurations`` () =
     let factory = CsvConnectorFactory() :> IConnectorFactory
-    let dummyStore = { new FSharpQueryStudio.Security.ISecretStore with
-        member _.TryRead(_) = None
-        member _.Save _ _ = ()
-        member _.Delete _ = ()
-    }
+
+    let dummyStore =
+        { new FSharpQueryStudio.Security.ISecretStore with
+            member _.TryRead(_) = None
+
+            member _.TryReadAsync(_, _) =
+                System.Threading.Tasks.Task.FromResult None
+
+            member _.Save _ _ = ()
+            member _.Delete _ = ()
+        }
 
     // String configuration
     let strDoc = System.Text.Json.JsonDocument.Parse("\"C:/temp/test.csv\"")
@@ -250,7 +289,9 @@ let ``CsvConnectorFactory creates CsvConnector with various json configurations`
     Assert.Equal("C:/temp/test.csv", conn1.FilePath)
 
     // Full object configuration
-    let jsonStr = """{"filePath":"C:/temp/data.csv","delimiter":";","hasHeader":false,"columnTypes":{"Col1":"int"},"columnTransforms":{"Col1":"trim"}}"""
+    let jsonStr =
+        """{"filePath":"C:/temp/data.csv","delimiter":";","hasHeader":false,"columnTypes":{"Col1":"int"},"columnTransforms":{"Col1":"trim"}}"""
+
     let objDoc = System.Text.Json.JsonDocument.Parse(jsonStr)
     let conn2 = factory.Create(objDoc.RootElement, dummyStore, None) :?> CsvConnector
     Assert.Equal(';', conn2.Options.Delimiter)
@@ -273,16 +314,29 @@ let ``CsvEntityGenerator emits module and extension code`` () =
     Assert.Contains("Amount: decimal", moduleCode)
     Assert.Contains("type Data(conn: FSharpQueryStudio.Connectors.Connections.CsvConnection) =", moduleCode)
 
-    let extCode = generator.EmitExtensionCode("TestConn", "TestConnModule", "TestProperty")
+    let extCode =
+        generator.EmitExtensionCode("TestConn", "TestConnModule", "TestProperty")
+
     Assert.Contains("TestProperty", extCode)
     Assert.Contains("TestConnModule.Data", extCode)
 
-    let connWithTypes = CsvConnector(path, { CsvOptions.Default with ColumnTypes = Map.ofList [ "Id", "int64" ] })
-    let moduleWithTypes = generator.EmitModuleCode("TestConnTypes", connWithTypes, "TestConnTypesMod")
+    let connWithTypes =
+        CsvConnector(
+            path,
+            { CsvOptions.Default with
+                ColumnTypes = Map.ofList [ "Id", "int64" ]
+            }
+        )
+
+    let moduleWithTypes =
+        generator.EmitModuleCode("TestConnTypes", connWithTypes, "TestConnTypesMod")
+
     Assert.Contains("Id: int64", moduleWithTypes)
 
     // Also exercise ModularEntityGenerators.CsvEntityGenerator
-    let modGen = FSharpQueryStudio.Connectors.CsvEntityGenerator() :> IConnectorEntityGenerator
+    let modGen =
+        FSharpQueryStudio.Connectors.CsvEntityGenerator() :> IConnectorEntityGenerator
+
     let modModule = modGen.EmitModuleCode("TestConn2", connector, "TestConn2Module")
     Assert.Contains("module TestConn2Module =", modModule)
     let modExt = modGen.EmitExtensionCode("TestConn2", "TestConn2Module", "TestProp2")
@@ -299,10 +353,13 @@ let ``CsvTypeInference and CsvConnector handle empty files, comma decimals, tran
     Assert.Empty(emptyConn.ReadRows().Columns)
 
     let path = tempCsvFile Encoding.UTF8 "Name,Price\nWidget,10\n"
+
     let opts =
         { CsvOptions.Default with
             ColumnTransforms = Map.ofList [ "Price", "multiply(2)" ]
-            ColumnTypes = Map.ofList [ "Price", "decimal" ] }
+            ColumnTypes = Map.ofList [ "Price", "decimal" ]
+        }
+
     let conn = CsvConnector(path, opts)
     let qr = conn.ReadRows()
     let rows = qr.Rows |> Seq.toList
@@ -311,5 +368,3 @@ let ``CsvTypeInference and CsvConnector handle empty files, comma decimals, tran
     let tables = (conn :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result
     let priceCol = tables.[0].Columns |> List.find (fun c -> c.Name = "Price")
     Assert.Equal("decimal", priceCol.DataType)
-
-

@@ -1,5 +1,8 @@
 namespace FSharpQueryStudio.Security
 
+open System.Threading
+open System.Threading.Tasks
+
 /// Platform-neutral secret storage abstraction over the OS credential
 /// store — see Sections 13-14. `ConnectionDefinition.SecretReference`
 /// values are opaque keys into this store; the store is the only place
@@ -8,4 +11,5 @@ namespace FSharpQueryStudio.Security
 type ISecretStore =
     abstract Save: reference: string -> secret: string -> unit
     abstract TryRead: reference: string -> string option
+    abstract TryReadAsync: reference: string * cancellationToken: CancellationToken -> Task<string option>
     abstract Delete: reference: string -> unit

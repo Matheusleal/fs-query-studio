@@ -13,13 +13,14 @@ module SqliteConnectorExtensions =
         static member Sqlite = ConnectorKind("Sqlite")
 
     type ConnectorCategory with
-        static member Sql = ConnectorCategory("sql", "Db", "FSharpQueryStudio.Connectors.Connections.SqlCategory")
+        static member Sql =
+            ConnectorCategory("sql", "Db", "FSharpQueryStudio.Connectors.Connections.SqlCategory")
 
 /// SQLite connector — Section 10. `filePath` names a local `.db` file;
 /// SQLite creates it automatically on first connection if it doesn't
 /// exist yet.
 type SqliteConnector(filePath: string) =
-    static let mutable stagedEngineDatabasePathResolver : (unit -> string option) option = None
+    static let mutable stagedEngineDatabasePathResolver: (unit -> string option) option = None
 
     let connectionString =
         let csb = SqliteConnectionStringBuilder(DataSource = filePath, Pooling = false)
@@ -29,12 +30,20 @@ type SqliteConnector(filePath: string) =
         match stagedEngineDatabasePathResolver with
         | Some resolveEngineDbPath ->
             match resolveEngineDbPath () with
-            | Some engineDbPath when not (String.IsNullOrWhiteSpace engineDbPath) && System.IO.File.Exists engineDbPath ->
+            | Some engineDbPath when
+                not (String.IsNullOrWhiteSpace engineDbPath)
+                && System.IO.File.Exists engineDbPath
+                ->
                 let isSameDb =
                     try
-                        String.Equals(System.IO.Path.GetFullPath(filePath), System.IO.Path.GetFullPath(engineDbPath), StringComparison.OrdinalIgnoreCase)
+                        String.Equals(
+                            System.IO.Path.GetFullPath(filePath),
+                            System.IO.Path.GetFullPath(engineDbPath),
+                            StringComparison.OrdinalIgnoreCase
+                        )
                     with _ ->
                         String.Equals(filePath, engineDbPath, StringComparison.OrdinalIgnoreCase)
+
                 if isSameDb then
                     true
                 else
@@ -68,85 +77,128 @@ type SqliteConnector(filePath: string) =
         let initialConn = new SqliteConnection(connectionString)
         initialConn.Open()
         let mutable attachedStaged = false
-        let initialCmd = initialConn.CreateCommand()
-        initialCmd.CommandText <- sql
-        SqliteConnector.BindParameters(initialCmd, parameters)
+        let mutable activeCmd = initialConn.CreateCommand()
+        activeCmd.CommandText <- sql
+        SqliteConnector.BindParameters(activeCmd, parameters)
+
         let initialReader =
             try
-                initialCmd.ExecuteReader(CommandBehavior.CloseConnection)
+                activeCmd.ExecuteReader(CommandBehavior.CloseConnection)
             with
             | :? SqliteException as ex when ex.Message.IndexOf("no such table", StringComparison.OrdinalIgnoreCase) >= 0 ->
-                initialCmd.Dispose()
+                activeCmd.Dispose()
+
                 if tryEnsureAndAttachStagedEngine initialConn then
                     attachedStaged <- true
                     let retryCmd = initialConn.CreateCommand()
                     retryCmd.CommandText <- sql
                     SqliteConnector.BindParameters(retryCmd, parameters)
+                    activeCmd <- retryCmd
                     retryCmd.ExecuteReader(CommandBehavior.CloseConnection)
                 else
                     initialConn.Dispose()
                     reraise ()
             | _ ->
-                initialCmd.Dispose()
+                activeCmd.Dispose()
                 initialConn.Dispose()
                 reraise ()
-        let columns = [ for i in 0 .. initialReader.FieldCount - 1 -> initialReader.GetName(i) ]
+
+        let columns =
+            [ for i in 0 .. initialReader.FieldCount - 1 -> initialReader.GetName(i) ]
+
         let fieldCount = initialReader.FieldCount
-        initialReader.Dispose()
-        initialCmd.Dispose()
-        initialConn.Dispose()
 
         let rows =
             if fieldCount = 0 then
+                initialReader.Dispose()
+                activeCmd.Dispose()
+                initialConn.Dispose()
                 Seq.empty
             else
+                let firstRunLock = obj ()
+                let mutable firstRun = Some(initialConn, activeCmd, initialReader)
+
                 Seq.delay (fun () ->
-                    let conn = new SqliteConnection(connectionString)
-                    conn.Open()
-                    if attachedStaged then
-                        tryEnsureAndAttachStagedEngine conn |> ignore
-                    let cmd = conn.CreateCommand()
-                    cmd.CommandText <- sql
-                    SqliteConnector.BindParameters(cmd, parameters)
-                    let reader =
-                        try
-                            cmd.ExecuteReader(CommandBehavior.CloseConnection)
-                        with
-                        | :? SqliteException as ex when not attachedStaged && ex.Message.IndexOf("no such table", StringComparison.OrdinalIgnoreCase) >= 0 ->
-                            cmd.Dispose()
-                            if tryEnsureAndAttachStagedEngine conn then
-                                let retryCmd = conn.CreateCommand()
-                                retryCmd.CommandText <- sql
-                                SqliteConnector.BindParameters(retryCmd, parameters)
-                                retryCmd.ExecuteReader(CommandBehavior.CloseConnection)
-                            else
-                                conn.Dispose()
-                                reraise ()
+                    let conn, cmd, reader =
+                        let existing =
+                            lock firstRunLock (fun () ->
+                                match firstRun with
+                                | Some state ->
+                                    firstRun <- None
+                                    Some state
+                                | None -> None)
+
+                        match existing with
+                        | Some(c, cm, r) -> c, cm, r
+                        | None ->
+                            let conn = new SqliteConnection(connectionString)
+                            conn.Open()
+
+                            if attachedStaged then
+                                tryEnsureAndAttachStagedEngine conn |> ignore
+
+                            let cmd = conn.CreateCommand()
+                            cmd.CommandText <- sql
+                            SqliteConnector.BindParameters(cmd, parameters)
+
+                            let reader =
+                                try
+                                    cmd.ExecuteReader(CommandBehavior.CloseConnection)
+                                with
+                                | :? SqliteException as ex when
+                                    not attachedStaged
+                                    && ex.Message.IndexOf("no such table", StringComparison.OrdinalIgnoreCase) >= 0
+                                    ->
+                                    cmd.Dispose()
+
+                                    if tryEnsureAndAttachStagedEngine conn then
+                                        let retryCmd = conn.CreateCommand()
+                                        retryCmd.CommandText <- sql
+                                        SqliteConnector.BindParameters(retryCmd, parameters)
+                                        retryCmd.ExecuteReader(CommandBehavior.CloseConnection)
+                                    else
+                                        conn.Dispose()
+                                        reraise ()
+                                | _ ->
+                                    cmd.Dispose()
+                                    conn.Dispose()
+                                    reraise ()
+
+                            conn, cmd, reader
+
                     seq {
                         use _c = conn
                         use _cmd = cmd
                         use _r = reader
+
                         while reader.Read() do
                             yield [| for i in 0 .. reader.FieldCount - 1 -> reader.GetValue(i) |]
-                    }
-                )
+                    })
 
         { Columns = columns; Rows = rows }
 
     /// Executes `sql` and streams rows directly into a typed F# record without creating intermediate obj[] arrays per row.
-    member this.ExecuteReaderStreamWithColumns<'T> (sql: string) (parameters: (string * obj) list) (mapperFactory: string list -> (System.Data.IDataRecord -> 'T)) : 'T seq =
+    member this.ExecuteReaderStreamWithColumns<'T>
+        (sql: string)
+        (parameters: (string * obj) list)
+        (mapperFactory: string list -> (System.Data.IDataRecord -> 'T))
+        : 'T seq =
         Seq.delay (fun () ->
             let connection = new SqliteConnection(connectionString)
             connection.Open()
             let command = connection.CreateCommand()
             command.CommandText <- sql
             SqliteConnector.BindParameters(command, parameters)
+
             let reader =
                 try
                     command.ExecuteReader(CommandBehavior.CloseConnection)
                 with
-                | :? SqliteException as ex when ex.Message.IndexOf("no such table", StringComparison.OrdinalIgnoreCase) >= 0 ->
+                | :? SqliteException as ex when
+                    ex.Message.IndexOf("no such table", StringComparison.OrdinalIgnoreCase) >= 0
+                    ->
                     command.Dispose()
+
                     if tryEnsureAndAttachStagedEngine connection then
                         let retryCmd = connection.CreateCommand()
                         retryCmd.CommandText <- sql
@@ -159,6 +211,7 @@ type SqliteConnector(filePath: string) =
                     command.Dispose()
                     connection.Dispose()
                     reraise ()
+
             seq {
                 use _conn = connection
                 use _cmd = command
@@ -169,11 +222,14 @@ type SqliteConnector(filePath: string) =
 
                 while reader.Read() do
                     yield mapper record
-            }
-        )
+            })
 
     /// Executes `sql` and streams rows directly into a typed F# record using a pre-configured mapper.
-    member this.ExecuteReaderStream<'T> (sql: string) (parameters: (string * obj) list) (mapper: System.Data.IDataRecord -> 'T) : 'T seq =
+    member this.ExecuteReaderStream<'T>
+        (sql: string)
+        (parameters: (string * obj) list)
+        (mapper: System.Data.IDataRecord -> 'T)
+        : 'T seq =
         this.ExecuteReaderStreamWithColumns sql parameters (fun _ -> mapper)
 
     /// Every table SQLite tracks in `sqlite_master`, plus each table's
@@ -216,13 +272,20 @@ type SqliteConnector(filePath: string) =
 
                     if more then
                         columns.Add(
-                            { Name = pragmaReader.GetString(1)
-                              DataType = pragmaReader.GetString(2) }
+                            {
+                                Name = pragmaReader.GetString(1)
+                                DataType = pragmaReader.GetString(2)
+                            }
                         )
                     else
                         hasColumnRow <- false
 
-                tables.Add({ Name = tableName; Columns = columns |> List.ofSeq })
+                tables.Add(
+                    {
+                        Name = tableName
+                        Columns = columns |> List.ofSeq
+                    }
+                )
 
             return tables |> List.ofSeq
         }
@@ -243,14 +306,26 @@ type SqliteConnector(filePath: string) =
         member this.DiscoverSchemaAsync(ct: CancellationToken) = this.DiscoverSchemaAsync(ct)
 
     member _.ConnectionString = connectionString
+    member _.Dialect: ISqlDialect = SqliteDialect.Instance
+
+    interface ISqlDialectProvider with
+        member _.Dialect = SqliteDialect.Instance
 
     interface IQueryableConnector with
         member _.ConnectionString = connectionString
         member this.ExecuteQuery (sql: string) (parameters: (string * obj) list) = this.ExecuteQuery sql parameters
 
     interface IStreamingQueryableConnector with
-        member this.ExecuteReaderStream (sql: string) (parameters: (string * obj) list) (mapper: System.Data.IDataRecord -> 'T) : 'T seq =
+        member this.ExecuteReaderStream
+            (sql: string)
+            (parameters: (string * obj) list)
+            (mapper: System.Data.IDataRecord -> 'T)
+            : 'T seq =
             this.ExecuteReaderStream sql parameters mapper
-        member this.ExecuteReaderStreamWithColumns (sql: string) (parameters: (string * obj) list) (mapperFactory: string list -> (System.Data.IDataRecord -> 'T)) : 'T seq =
-            this.ExecuteReaderStreamWithColumns sql parameters mapperFactory
 
+        member this.ExecuteReaderStreamWithColumns
+            (sql: string)
+            (parameters: (string * obj) list)
+            (mapperFactory: string list -> (System.Data.IDataRecord -> 'T))
+            : 'T seq =
+            this.ExecuteReaderStreamWithColumns sql parameters mapperFactory

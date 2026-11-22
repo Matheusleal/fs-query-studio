@@ -10,8 +10,10 @@ let ``tryGet on a key nothing was ever set under returns None`` () =
 [<Fact>]
 let ``set then tryGet round-trips the same columns and rows`` () =
     let result: RetainedResult =
-        { Columns = [ "id"; "name" ]
-          Rows = [| [| box 1; box "Ada" |]; [| box 2; box "Alan" |] |] }
+        {
+            Columns = [ "id"; "name" ]
+            Rows = [| [| box 1; box "Ada" |]; [| box 2; box "Alan" |] |]
+        }
 
     ResultRetention.set "untitled:Script1.fsx" result
 
@@ -21,8 +23,17 @@ let ``set then tryGet round-trips the same columns and rows`` () =
 
 [<Fact>]
 let ``set overwrites an existing entry for the same key`` () =
-    let first: RetainedResult = { Columns = [ "a" ]; Rows = [| [| box 1 |] |] }
-    let second: RetainedResult = { Columns = [ "b" ]; Rows = [| [| box 2 |] |] }
+    let first: RetainedResult =
+        {
+            Columns = [ "a" ]
+            Rows = [| [| box 1 |] |]
+        }
+
+    let second: RetainedResult =
+        {
+            Columns = [ "b" ]
+            Rows = [| [| box 2 |] |]
+        }
 
     ResultRetention.set "untitled:Overwrite.fsx" first
     ResultRetention.set "untitled:Overwrite.fsx" second
@@ -32,7 +43,12 @@ let ``set overwrites an existing entry for the same key`` () =
 
 [<Fact>]
 let ``discard removes a previously-set entry`` () =
-    ResultRetention.set "untitled:ToDiscard.fsx" { Columns = [ "a" ]; Rows = [| [| box 1 |] |] }
+    ResultRetention.set
+        "untitled:ToDiscard.fsx"
+        {
+            Columns = [ "a" ]
+            Rows = [| [| box 1 |] |]
+        }
 
     ResultRetention.discard "untitled:ToDiscard.fsx"
 
@@ -40,7 +56,12 @@ let ``discard removes a previously-set entry`` () =
 
 [<Fact>]
 let ``tryGet matches case-insensitively and across URL-encoded URI variants`` () =
-    let result: RetainedResult = { Columns = [ "col1" ]; Rows = [| [| box 42 |] |] }
+    let result: RetainedResult =
+        {
+            Columns = [ "col1" ]
+            Rows = [| [| box 42 |] |]
+        }
+
     ResultRetention.set "file:///d%3A/Projects/test.fsqnb" result
 
     let retrieved1 = ResultRetention.tryGet "file:///D:/Projects/test.fsqnb"

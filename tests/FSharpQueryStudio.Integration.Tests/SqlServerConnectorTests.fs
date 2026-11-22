@@ -9,14 +9,18 @@ open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Connectors
 open Microsoft.Data.SqlClient
 
-type SqlServerOrderRecord = { Id: int; CustomerId: int; Total: decimal }
+type SqlServerOrderRecord =
+    {
+        Id: int
+        CustomerId: int
+        Total: decimal
+    }
 
 /// One SQL Server container shared across every test in this file (via
 /// `SqlServerCollection` below) - Section 10's "test container", started
 /// once per test run rather than per test.
 type MsSqlContainerFixture() =
-    let container =
-        MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build()
+    let container = MsSqlBuilder("mcr.microsoft.com/mssql/server:2022-latest").Build()
 
     member _.ConnectionString = container.GetConnectionString()
 
@@ -41,25 +45,21 @@ type SqlServerConnectorTests(fixture: MsSqlContainerFixture) =
                 []
             |> ignore
 
-            connector.ExecuteQuery
-                "insert into Orders (Id, CustomerId, Total) values (1, 42, 100.0), (2, 43, 50.0)"
-                []
+            connector.ExecuteQuery "insert into Orders (Id, CustomerId, Total) values (1, 42, 100.0), (2, 43, 50.0)" []
             |> ignore
 
             return connector
         }
 
     [<Fact>]
-    member _.``ExecuteQuery returns only the rows matching a bound parameter, reading through a live SqlDataReader``
-        ()
-        =
+    member _.``ExecuteQuery returns only the rows matching a bound parameter, reading through a live SqlDataReader``() =
         task {
             let! connector = seedOrders ()
 
             let result =
-                connector.ExecuteQuery "select Id, CustomerId, Total from Orders where CustomerId = @customerId" [
-                    "@customerId", box 42
-                ]
+                connector.ExecuteQuery
+                    "select Id, CustomerId, Total from Orders where CustomerId = @customerId"
+                    [ "@customerId", box 42 ]
 
             Assert.Equal<string list>([ "Id"; "CustomerId"; "Total" ], result.Columns)
             let rows = result.Rows |> Seq.toList
@@ -69,7 +69,7 @@ type SqlServerConnectorTests(fixture: MsSqlContainerFixture) =
         }
 
     [<Fact>]
-    member _.``TestConnectionAsync returns true for the running container`` () =
+    member _.``TestConnectionAsync returns true for the running container``() =
         task {
             let connector = SqlServerConnector(fixture.ConnectionString) :> IConnector
 
@@ -79,30 +79,38 @@ type SqlServerConnectorTests(fixture: MsSqlContainerFixture) =
         }
 
     [<Fact>]
-    member _.``TestConnectionAsync returns false for an invalid connection string`` () =
+    member _.``TestConnectionAsync returns false for an invalid connection string``() =
         task {
-            let connector = SqlServerConnector("Server=127.0.0.1,9999;Database=NonExistent;User Id=sa;Password=WrongPassword123!;Connect Timeout=1;") :> IConnector
+            let connector =
+                SqlServerConnector(
+                    "Server=127.0.0.1,9999;Database=NonExistent;User Id=sa;Password=WrongPassword123!;Connect Timeout=1;"
+                )
+                :> IConnector
+
             let! connected = connector.TestConnectionAsync(CancellationToken.None)
             Assert.False(connected)
         }
 
     [<Fact>]
-    member _.``DiscoverSchemaAsync reports the Orders table and its columns`` () =
+    member _.``DiscoverSchemaAsync reports the Orders table and its columns``() =
         task {
             let! connector = seedOrders ()
             let asInterface = connector :> IConnector
 
             let! tables = asInterface.DiscoverSchemaAsync(CancellationToken.None)
 
-            let orders = tables |> List.find (fun t -> t.Name = "Orders" || t.Name = "master.Orders")
+            let orders =
+                tables |> List.find (fun t -> t.Name = "Orders" || t.Name = "master.Orders")
+
             let columnNames = orders.Columns |> List.map (fun c -> c.Name) |> List.sort
             Assert.Equal<string list>([ "CustomerId"; "Id"; "Total" ], columnNames)
         }
 
     [<Fact>]
-    member _.``DiscoverSchemaAsync discovers tables in non-dbo schemas with schema prefix`` () =
+    member _.``DiscoverSchemaAsync discovers tables in non-dbo schemas with schema prefix``() =
         task {
             let connector = SqlServerConnector(fixture.ConnectionString)
+
             connector.ExecuteQuery
                 "if not exists (select * from sys.schemas where name = 'custom') exec('create schema custom'); \
                  if object_id('custom.Items', 'U') is not null drop table custom.Items; \
@@ -111,7 +119,11 @@ type SqlServerConnectorTests(fixture: MsSqlContainerFixture) =
             |> ignore
 
             let! tables = (connector :> IConnector).DiscoverSchemaAsync(CancellationToken.None)
-            let customItem = tables |> List.tryFind (fun t -> t.Name = "custom.Items" || t.Name = "master.custom.Items")
+
+            let customItem =
+                tables
+                |> List.tryFind (fun t -> t.Name = "custom.Items" || t.Name = "master.custom.Items")
+
             Assert.True(customItem.IsSome)
             let colNames = customItem.Value.Columns |> List.map (fun c -> c.Name) |> List.sort
             Assert.Equal<string list>([ "ItemId"; "Title" ], colNames)
@@ -120,20 +132,20 @@ type SqlServerConnectorTests(fixture: MsSqlContainerFixture) =
         }
 
     [<Fact>]
-    member _.``SqlServerConnector reports its Kind as SqlServer`` () =
+    member _.``SqlServerConnector reports its Kind as SqlServer``() =
         let connector = SqlServerConnector(fixture.ConnectionString) :> IConnector
 
         Assert.Equal(ConnectorKind.SqlServer, connector.Kind)
 
     [<Fact>]
-    member _.``ConnectionString returns the configured connection string directly and via IQueryableConnector`` () =
+    member _.``ConnectionString returns the configured connection string directly and via IQueryableConnector``() =
         let connector = SqlServerConnector(fixture.ConnectionString)
         Assert.Equal(fixture.ConnectionString, connector.ConnectionString)
         let asQueryable = connector :> IQueryableConnector
         Assert.Equal(fixture.ConnectionString, asQueryable.ConnectionString)
 
     [<Fact>]
-    member _.``BindParameters handles null parameter values as DBNull`` () =
+    member _.``BindParameters handles null parameter values as DBNull``() =
         use cmd = new SqlCommand()
         SqlServerConnector.BindParameters(cmd, [ "@nullParam", null; "@validParam", box 123 ])
         Assert.Equal(2, cmd.Parameters.Count)
@@ -141,10 +153,13 @@ type SqlServerConnectorTests(fixture: MsSqlContainerFixture) =
         Assert.Equal(box 123, cmd.Parameters.["@validParam"].Value)
 
     [<Fact>]
-    member _.``ExecuteQuery rows sequence can be re-enumerated multiple times`` () =
+    member _.``ExecuteQuery rows sequence can be re-enumerated multiple times``() =
         task {
             let! connector = seedOrders ()
-            let result = connector.ExecuteQuery "select Id, CustomerId, Total from Orders order by Id" []
+
+            let result =
+                connector.ExecuteQuery "select Id, CustomerId, Total from Orders order by Id" []
+
             let pass1 = result.Rows |> Seq.toList
             let pass2 = result.Rows |> Seq.toList
             Assert.Equal(2, pass1.Length)
@@ -154,16 +169,22 @@ type SqlServerConnectorTests(fixture: MsSqlContainerFixture) =
         }
 
     [<Fact>]
-    member _.``ExecuteReaderStreamWithColumns and ExecuteReaderStream map rows directly to typed records`` () =
+    member _.``ExecuteReaderStreamWithColumns and ExecuteReaderStream map rows directly to typed records``() =
         task {
             let! connector = seedOrders ()
+
             let rowsWithCols =
                 connector.ExecuteReaderStreamWithColumns
                     "select Id, CustomerId, Total from Orders order by Id"
                     []
                     (fun cols record ->
                         Assert.Equal<string list>([ "Id"; "CustomerId"; "Total" ], cols)
-                        { Id = record.GetInt32(0); CustomerId = record.GetInt32(1); Total = record.GetDecimal(2) })
+
+                        {
+                            Id = record.GetInt32(0)
+                            CustomerId = record.GetInt32(1)
+                            Total = record.GetDecimal(2)
+                        })
                 |> Seq.toList
 
             Assert.Equal(2, rowsWithCols.Length)
@@ -172,11 +193,17 @@ type SqlServerConnectorTests(fixture: MsSqlContainerFixture) =
             Assert.Equal(100.0M, rowsWithCols.[0].Total)
 
             let streaming = connector :> IStreamingQueryableConnector
+
             let rowsFromInterface =
                 streaming.ExecuteReaderStream
                     "select Id, CustomerId, Total from Orders where CustomerId = @cid"
                     [ "@cid", box 43 ]
-                    (fun record -> { Id = record.GetInt32(0); CustomerId = record.GetInt32(1); Total = record.GetDecimal(2) })
+                    (fun record ->
+                        {
+                            Id = record.GetInt32(0)
+                            CustomerId = record.GetInt32(1)
+                            Total = record.GetDecimal(2)
+                        })
                 |> Seq.toList
 
             Assert.Single(rowsFromInterface) |> ignore
@@ -184,20 +211,22 @@ type SqlServerConnectorTests(fixture: MsSqlContainerFixture) =
             Assert.Equal(43, rowsFromInterface.[0].CustomerId)
 
             let streamWithColsInterface =
-                streaming.ExecuteReaderStreamWithColumns
-                    "select Id from Orders where Id = 1"
-                    []
-                    (fun _ record -> record.GetInt32(0))
+                streaming.ExecuteReaderStreamWithColumns "select Id from Orders where Id = 1" [] (fun _ record ->
+                    record.GetInt32(0))
                 |> Seq.toList
+
             Assert.Equal<int list>([ 1 ], streamWithColsInterface)
         }
 
     [<Fact>]
-    member _.``IQueryableConnector executes query through interface`` () =
+    member _.``IQueryableConnector executes query through interface``() =
         task {
             let! connector = seedOrders ()
             let queryable = connector :> IQueryableConnector
-            let result = queryable.ExecuteQuery "select Total from Orders where Id = @id" [ "@id", box 1 ]
+
+            let result =
+                queryable.ExecuteQuery "select Total from Orders where Id = @id" [ "@id", box 1 ]
+
             let rows = result.Rows |> Seq.toList
             Assert.Single(rows) |> ignore
             Assert.Equal(100.0M, Convert.ToDecimal(rows.[0].[0]))

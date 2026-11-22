@@ -7,7 +7,12 @@ open FSharpQueryStudio.Results
 [<Fact>]
 let ``write emits a header row followed by one CSV row per source row`` () =
     use writer = new StringWriter()
-    let rows = seq { yield [| box 1; box "Ada" |]; yield [| box 2; box "Alan" |] }
+
+    let rows =
+        seq {
+            yield [| box 1; box "Ada" |]
+            yield [| box 2; box "Alan" |]
+        }
 
     CsvExport.write writer [ "Id"; "Name" ] rows
 
@@ -18,16 +23,11 @@ let ``write quotes a field containing a comma, a quote, or a newline, doubling i
     use writer = new StringWriter()
 
     let rows =
-        seq {
-            yield [| box "Sales, EMEA"; box "She said \"hi\""; box "line one\nline two" |]
-        }
+        seq { yield [| box "Sales, EMEA"; box "She said \"hi\""; box "line one\nline two" |] }
 
     CsvExport.write writer [ "A"; "B"; "C" ] rows
 
-    Assert.Equal(
-        "A,B,C\r\n\"Sales, EMEA\",\"She said \"\"hi\"\"\",\"line one\nline two\"\r\n",
-        writer.ToString()
-    )
+    Assert.Equal("A,B,C\r\n\"Sales, EMEA\",\"She said \"\"hi\"\"\",\"line one\nline two\"\r\n", writer.ToString())
 
 [<Fact>]
 let ``write streams every row from a source larger than the preview-row limit, not truncating it`` () =
@@ -55,7 +55,8 @@ type private CountingEnumerable(items: obj array list) =
 
     interface System.Collections.IEnumerable with
         member this.GetEnumerator() =
-            (this :> System.Collections.Generic.IEnumerable<obj array>).GetEnumerator() :> System.Collections.IEnumerator
+            (this :> System.Collections.Generic.IEnumerable<obj array>).GetEnumerator()
+            :> System.Collections.IEnumerator
 
 [<Fact>]
 let ``write enumerates its source exactly once`` () =

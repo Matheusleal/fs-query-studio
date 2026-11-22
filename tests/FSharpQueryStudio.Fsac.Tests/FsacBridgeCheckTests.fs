@@ -61,7 +61,9 @@ let ``check recovers after the underlying fsautocomplete process is killed and r
     }
 
 [<Fact>]
-let ``check on an untitled-scheme documentUri (this app's own default for every new script tab) reports a real diagnostic`` () =
+let ``check on an untitled-scheme documentUri (this app's own default for every new script tab) reports a real diagnostic``
+    ()
+    =
     task {
         // "untitled:ScriptN.fsx" is Monaco's convention for an unsaved
         // buffer, and this app's own default identity for every freshly
@@ -82,10 +84,23 @@ let ``check on an untitled-scheme documentUri (this app's own default for every 
 [<Fact>]
 let ``syncDocument over loopback handles publishDiagnostics with and without version and prunes older versions`` () =
     task {
-        use toServer = new System.IO.Pipes.AnonymousPipeServerStream(System.IO.Pipes.PipeDirection.Out)
-        use toServerClient = new System.IO.Pipes.AnonymousPipeClientStream(System.IO.Pipes.PipeDirection.In, toServer.GetClientHandleAsString())
-        use toClient = new System.IO.Pipes.AnonymousPipeServerStream(System.IO.Pipes.PipeDirection.Out)
-        use toClientClient = new System.IO.Pipes.AnonymousPipeClientStream(System.IO.Pipes.PipeDirection.In, toClient.GetClientHandleAsString())
+        use toServer =
+            new System.IO.Pipes.AnonymousPipeServerStream(System.IO.Pipes.PipeDirection.Out)
+
+        use toServerClient =
+            new System.IO.Pipes.AnonymousPipeClientStream(
+                System.IO.Pipes.PipeDirection.In,
+                toServer.GetClientHandleAsString()
+            )
+
+        use toClient =
+            new System.IO.Pipes.AnonymousPipeServerStream(System.IO.Pipes.PipeDirection.Out)
+
+        use toClientClient =
+            new System.IO.Pipes.AnonymousPipeClientStream(
+                System.IO.Pipes.PipeDirection.In,
+                toClient.GetClientHandleAsString()
+            )
 
         let client = LspClient(input = toClientClient, output = toServer)
         let docUri = $"file:///loopback-sync-{Guid.NewGuid():N}.fsx"
@@ -96,8 +111,17 @@ let ``syncDocument over loopback handles publishDiagnostics with and without ver
         let! _msg1 = LspTransport.readMessage toServerClient
 
         // Register waiter on version 1 via reflection so pruneOlderVersions exercises waiter resolution (lines 91-95)
-        let regMethod = typeof<FsacProcess>.Assembly.GetType("FSharpQueryStudio.Fsac.FsacBridge").GetMethod("registerWaiter", System.Reflection.BindingFlags.NonPublic ||| System.Reflection.BindingFlags.Static)
+        let regMethod =
+            typeof<FsacProcess>
+                .Assembly.GetType("FSharpQueryStudio.Fsac.FsacBridge")
+                .GetMethod(
+                    "registerWaiter",
+                    System.Reflection.BindingFlags.NonPublic
+                    ||| System.Reflection.BindingFlags.Static
+                )
+
         let canonical = FsacUri.canonicalizeUri wireUri
+
         if not (isNull regMethod) then
             let tcs1 = System.Threading.Tasks.TaskCompletionSource<Diagnostic list>()
             regMethod.Invoke(null, [| box (struct (canonical, 1)); box tcs1 |]) |> ignore
@@ -107,14 +131,38 @@ let ``syncDocument over loopback handles publishDiagnostics with and without ver
         let! _msg2 = LspTransport.readMessage toServerClient
 
         // 3. Send publishDiagnostics with explicit version, without version, and for unknown URI without version (line 52)
-        let diagWithVer = sprintf """{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"%s","version":2,"diagnostics":[]}}""" wireUri
-        let diagNoVer = sprintf """{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"%s","diagnostics":[]}}""" wireUri
-        let diagUnknownNoVer = """{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///untracked-uri.fsx","diagnostics":[]}}"""
-        let docAnalyzed = sprintf """{"jsonrpc":"2.0","method":"fsharp/documentAnalyzed","params":{"textDocument":{"uri":"%s","version":2}}}""" wireUri
-        let docAnalyzedUntracked = """{"jsonrpc":"2.0","method":"fsharp/documentAnalyzed","params":{"textDocument":{"uri":"file:///untracked-uri-2.fsx","version":99}}}"""
+        let diagWithVer =
+            sprintf
+                """{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"%s","version":2,"diagnostics":[]}}"""
+                wireUri
+
+        let diagNoVer =
+            sprintf
+                """{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"%s","diagnostics":[]}}"""
+                wireUri
+
+        let diagUnknownNoVer =
+            """{"jsonrpc":"2.0","method":"textDocument/publishDiagnostics","params":{"uri":"file:///untracked-uri.fsx","diagnostics":[]}}"""
+
+        let docAnalyzed =
+            sprintf
+                """{"jsonrpc":"2.0","method":"fsharp/documentAnalyzed","params":{"textDocument":{"uri":"%s","version":2}}}"""
+                wireUri
+
+        let docAnalyzedUntracked =
+            """{"jsonrpc":"2.0","method":"fsharp/documentAnalyzed","params":{"textDocument":{"uri":"file:///untracked-uri-2.fsx","version":99}}}"""
+
         if not (isNull regMethod) then
             let tcs99 = System.Threading.Tasks.TaskCompletionSource<Diagnostic list>()
-            regMethod.Invoke(null, [| box (struct (FsacUri.canonicalizeUri "file:///untracked-uri-2.fsx", 99)); box tcs99 |]) |> ignore
+
+            regMethod.Invoke(
+                null,
+                [|
+                    box (struct (FsacUri.canonicalizeUri "file:///untracked-uri-2.fsx", 99))
+                    box tcs99
+                |]
+            )
+            |> ignore
 
         do! LspTransport.writeMessage toClient diagWithVer
         do! LspTransport.writeMessage toClient diagNoVer

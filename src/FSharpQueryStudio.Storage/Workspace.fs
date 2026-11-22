@@ -7,10 +7,12 @@ open FSharpQueryStudio.Protocol
 
 /// Strongly-typed model of `workspace.json` (Schema v2).
 type WorkspaceConfiguration =
-    { SchemaVersion: int
-      ExtensionVersion: string
-      UpdatedAt: DateTimeOffset option
-      Connections: ConnectionDefinition list }
+    {
+        SchemaVersion: int
+        ExtensionVersion: string
+        UpdatedAt: DateTimeOffset option
+        Connections: ConnectionDefinition list
+    }
 
 /// Reads and writes `workspace.json` — Section 13's connector names and
 /// non-secret settings file. `ConnectionDefinition` never carries a raw
@@ -22,7 +24,9 @@ module Workspace =
     let private fileName = "workspace.json"
 
     let CurrentSchemaVersion = ProjectUpgrader.CurrentSchemaVersion
-    let currentExtensionVersion () = ProjectUpgrader.currentExtensionVersion ()
+
+    let currentExtensionVersion () =
+        ProjectUpgrader.currentExtensionVersion ()
 
     /// Runs the project upgrader if the target workspace requires migration.
     let ensureProjectUpgraded (workspaceDir: string) : UpgradeReport =
@@ -32,10 +36,14 @@ module Workspace =
     /// For any project directory, storage lives under `<workspaceDir>/.fsqs`,
     /// except when the directory is already `.fsqs` or the user profile storage `FSharpQueryStudio`.
     let resolveStorageDir (workspaceDir: string) : string =
-        if String.IsNullOrWhiteSpace workspaceDir then workspaceDir
+        if String.IsNullOrWhiteSpace workspaceDir then
+            workspaceDir
         else
-            let trimmed = workspaceDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            let trimmed =
+                workspaceDir.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+
             let leaf = Path.GetFileName trimmed
+
             if leaf.Equals(".fsqs", StringComparison.OrdinalIgnoreCase) then
                 workspaceDir
             elif leaf.Equals("FSharpQueryStudio", StringComparison.OrdinalIgnoreCase) then
@@ -44,11 +52,15 @@ module Workspace =
                 Path.Combine(workspaceDir, ".fsqs")
 
     let workspaceFilePath (workspaceDir: string) : string =
-        if not (String.IsNullOrWhiteSpace workspaceDir) && ProjectUpgrader.needsUpgrade workspaceDir then
+        if
+            not (String.IsNullOrWhiteSpace workspaceDir)
+            && ProjectUpgrader.needsUpgrade workspaceDir
+        then
             ProjectUpgrader.upgradeWorkspace workspaceDir |> ignore
 
         let targetDir = resolveStorageDir workspaceDir
         let pathInTarget = Path.Combine(targetDir, fileName)
+
         if File.Exists pathInTarget then
             pathInTarget
         elif File.Exists(Path.Combine(workspaceDir, ".fsqs", fileName)) then
@@ -60,7 +72,10 @@ module Workspace =
 
     let private deduplicateConnections (connections: ConnectionDefinition list) : ConnectionDefinition list =
         let seenIds = System.Collections.Generic.HashSet<Guid>()
-        let seenNames = System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+
+        let seenNames =
+            System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase)
+
         connections
         |> List.rev
         |> List.filter (fun c ->
@@ -72,16 +87,21 @@ module Workspace =
     /// Reads `workspace.json` tolerating both Schema v1 (plain JSON array of connections)
     /// and Schema v2 (JSON object with schemaVersion, extensionVersion, connections).
     let readConfiguration (workspaceDir: string) : WorkspaceConfiguration =
-        if not (String.IsNullOrWhiteSpace workspaceDir) && ProjectUpgrader.needsUpgrade workspaceDir then
+        if
+            not (String.IsNullOrWhiteSpace workspaceDir)
+            && ProjectUpgrader.needsUpgrade workspaceDir
+        then
             ProjectUpgrader.upgradeWorkspace workspaceDir |> ignore
 
         let path = workspaceFilePath workspaceDir
 
         if not (File.Exists path) then
-            { SchemaVersion = CurrentSchemaVersion
-              ExtensionVersion = currentExtensionVersion ()
-              UpdatedAt = None
-              Connections = [] }
+            {
+                SchemaVersion = CurrentSchemaVersion
+                ExtensionVersion = currentExtensionVersion ()
+                UpdatedAt = None
+                Connections = []
+            }
         else
             let json = File.ReadAllText path
             use doc = JsonDocument.Parse json
@@ -91,10 +111,13 @@ module Workspace =
                 let connections =
                     JsonSerializer.Deserialize<ConnectionDefinition list>(json, Serialization.options)
                     |> deduplicateConnections
-                { SchemaVersion = 1
-                  ExtensionVersion = "0.1.0"
-                  UpdatedAt = None
-                  Connections = connections }
+
+                {
+                    SchemaVersion = 1
+                    ExtensionVersion = "0.1.0"
+                    UpdatedAt = None
+                    Connections = connections
+                }
             | JsonValueKind.Object ->
                 let schemaVersion =
                     match doc.RootElement.TryGetProperty("schemaVersion") with
@@ -124,15 +147,19 @@ module Workspace =
                         |> deduplicateConnections
                     | _ -> []
 
-                { SchemaVersion = schemaVersion
-                  ExtensionVersion = extVersion
-                  UpdatedAt = updatedAt
-                  Connections = connections }
+                {
+                    SchemaVersion = schemaVersion
+                    ExtensionVersion = extVersion
+                    UpdatedAt = updatedAt
+                    Connections = connections
+                }
             | _ ->
-                { SchemaVersion = CurrentSchemaVersion
-                  ExtensionVersion = currentExtensionVersion ()
-                  UpdatedAt = None
-                  Connections = [] }
+                {
+                    SchemaVersion = CurrentSchemaVersion
+                    ExtensionVersion = currentExtensionVersion ()
+                    UpdatedAt = None
+                    Connections = []
+                }
 
     /// The empty list if `workspace.json` doesn't exist yet — a brand-new
     /// workspace has no connections registered.
@@ -147,7 +174,10 @@ module Workspace =
 
     /// Persists the full configuration to `workspace.json` in Schema v2 format.
     let writeConfiguration (workspaceDir: string) (config: WorkspaceConfiguration) : unit =
-        if not (String.IsNullOrWhiteSpace workspaceDir) && ProjectUpgrader.needsUpgrade workspaceDir then
+        if
+            not (String.IsNullOrWhiteSpace workspaceDir)
+            && ProjectUpgrader.needsUpgrade workspaceDir
+        then
             ProjectUpgrader.upgradeWorkspace workspaceDir |> ignore
 
         let storageDir = resolveStorageDir workspaceDir
@@ -155,10 +185,16 @@ module Workspace =
         let targetPath = Path.Combine(storageDir, fileName)
 
         let payload: WorkspaceJsonPayload =
-            { schemaVersion = CurrentSchemaVersion
-              extensionVersion = if String.IsNullOrWhiteSpace config.ExtensionVersion then currentExtensionVersion () else config.ExtensionVersion
-              updatedAt = DateTimeOffset.UtcNow.ToString("o")
-              connections = deduplicateConnections config.Connections }
+            {
+                schemaVersion = CurrentSchemaVersion
+                extensionVersion =
+                    if String.IsNullOrWhiteSpace config.ExtensionVersion then
+                        currentExtensionVersion ()
+                    else
+                        config.ExtensionVersion
+                updatedAt = DateTimeOffset.UtcNow.ToString("o")
+                connections = deduplicateConnections config.Connections
+            }
 
         let json = JsonSerializer.Serialize(payload, storageJsonOptions)
         File.WriteAllText(targetPath, json)
@@ -166,12 +202,15 @@ module Workspace =
     /// Persists connections to `workspace.json` wrapped in Schema v2 format.
     let writeConnections (workspaceDir: string) (connections: ConnectionDefinition list) : unit =
         let existing = readConfiguration workspaceDir
+
         let updated =
             { existing with
                 SchemaVersion = CurrentSchemaVersion
                 ExtensionVersion = currentExtensionVersion ()
                 UpdatedAt = Some DateTimeOffset.UtcNow
-                Connections = deduplicateConnections connections }
+                Connections = deduplicateConnections connections
+            }
+
         writeConfiguration workspaceDir updated
 
     /// `connection/register` — Section 7. Adds `connection` as a new
@@ -195,7 +234,8 @@ module Workspace =
     /// the caller can't distinguish the two and shouldn't need to.
     let removeConnection (workspaceDir: string) (id: System.Guid) : ConnectionDefinition list =
         let updated =
-            readConnections workspaceDir |> List.filter (fun (c: ConnectionDefinition) -> c.Id <> id)
+            readConnections workspaceDir
+            |> List.filter (fun (c: ConnectionDefinition) -> c.Id <> id)
 
         writeConnections workspaceDir updated
         updated

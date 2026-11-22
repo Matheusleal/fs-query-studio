@@ -5,7 +5,11 @@ open System.Collections.Concurrent
 /// The full, materialized rows of a cell's connector-query or materialized-table
 /// tail value, retained so **Export CSV** can write the whole result set — not
 /// just the on-screen page.
-type RetainedResult = { Columns: string list; Rows: obj array array }
+type RetainedResult =
+    {
+        Columns: string list
+        Rows: obj array array
+    }
 
 /// Keyed by document URI: the most recent exportable grid for each notebook.
 /// `Handlers.runEvaluate` calls `set` when `Projection.projectWithCursor`
@@ -15,10 +19,12 @@ type RetainedResult = { Columns: string list; Rows: obj array array }
 /// Lives in the Worker process's own memory — never persisted to disk, gone
 /// on process exit by design.
 module ResultRetention =
-    let private store = ConcurrentDictionary<string, RetainedResult>(System.StringComparer.OrdinalIgnoreCase)
+    let private store =
+        ConcurrentDictionary<string, RetainedResult>(System.StringComparer.OrdinalIgnoreCase)
 
     let private normalizeKey (uri: string) =
-        if System.String.IsNullOrEmpty uri then ""
+        if System.String.IsNullOrEmpty uri then
+            ""
         else
             let unescaped = System.Uri.UnescapeDataString(uri).Replace('\\', '/')
             unescaped.ToLowerInvariant()
@@ -26,6 +32,7 @@ module ResultRetention =
     let set (documentUri: string) (result: RetainedResult) : unit =
         store.[documentUri] <- result
         let norm = normalizeKey documentUri
+
         if not (System.String.IsNullOrEmpty norm) then
             store.[norm] <- result
 
@@ -34,6 +41,7 @@ module ResultRetention =
         | true, result -> Some result
         | false, _ ->
             let norm = normalizeKey documentUri
+
             match store.TryGetValue(norm) with
             | true, result -> Some result
             | false, _ -> None
@@ -41,8 +49,10 @@ module ResultRetention =
     let discard (documentUri: string) : unit =
         let norm = normalizeKey documentUri
         store.TryRemove(documentUri) |> ignore
+
         if not (System.String.IsNullOrEmpty norm) then
             store.TryRemove(norm) |> ignore
+
             for kv in store.ToArray() do
                 if normalizeKey kv.Key = norm then
                     store.TryRemove(kv.Key) |> ignore

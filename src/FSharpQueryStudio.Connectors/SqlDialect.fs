@@ -1,7 +1,6 @@
 namespace FSharpQueryStudio.Connectors
 
 open System
-open System.Collections.Generic
 open FSharpQueryStudio.Protocol
 
 /// Identifies the target SQL dialect for pushdown syntax generation (e.g. LIMIT vs TOP/OFFSET).
@@ -14,39 +13,62 @@ type SqlDialect =
     | MariaDb
     | Oracle
 
+    member this.Dialect: ISqlDialect =
+        match this with
+        | Sqlite -> SqliteDialect.Instance
+        | PostgreSql -> PostgreSqlDialect.Instance
+        | SqlServer -> SqlServerDialect.Instance
+        | MySql -> MySqlDialect.Instance
+        | MariaDb -> MariaDbDialect.Instance
+        | Oracle -> OracleDialect.Instance
+
 module SqlDialect =
     let fromConnectorKind (kind: ConnectorKind) =
-        if kind = ConnectorKind("PostgreSql") then SqlDialect.PostgreSql
-        elif kind = ConnectorKind("SqlServer") then SqlDialect.SqlServer
-        elif kind = ConnectorKind("MySql") then SqlDialect.MySql
-        elif kind = ConnectorKind("MariaDb") then SqlDialect.MariaDb
-        elif kind = ConnectorKind("Oracle") then SqlDialect.Oracle
-        else SqlDialect.Sqlite
+        if kind = ConnectorKind("PostgreSql") then
+            SqlDialect.PostgreSql
+        elif kind = ConnectorKind("SqlServer") then
+            SqlDialect.SqlServer
+        elif kind = ConnectorKind("MySql") then
+            SqlDialect.MySql
+        elif kind = ConnectorKind("MariaDb") then
+            SqlDialect.MariaDb
+        elif kind = ConnectorKind("Oracle") then
+            SqlDialect.Oracle
+        else
+            SqlDialect.Sqlite
 
-    let private reservedKeywords =
-        HashSet<string>(
-            [|
-                "ALL"; "ALTER"; "AND"; "AS"; "ASC"; "BETWEEN"; "BY"; "CASE"; "CAST"; "CHECK"; "COLUMN";
-                "CONSTRAINT"; "CREATE"; "CROSS"; "CURRENT"; "DATABASE"; "DEFAULT"; "DELETE"; "DESC";
-                "DISTINCT"; "DROP"; "ELSE"; "END"; "ESCAPE"; "EXCEPT"; "EXISTS"; "FOREIGN"; "FROM";
-                "FULL"; "GROUP"; "HAVING"; "IN"; "INDEX"; "INNER"; "INSERT"; "INTERSECT"; "INTO";
-                "IS"; "JOIN"; "KEY"; "LEFT"; "LIKE"; "LIMIT"; "NOT"; "NULL"; "ON"; "OR"; "ORDER";
-                "OUTER"; "PRIMARY"; "REFERENCES"; "RIGHT"; "SELECT"; "SET"; "TABLE"; "THEN"; "TO";
-                "TOP"; "TRANSACTION"; "UNION"; "UNIQUE"; "UPDATE"; "VALUES"; "VIEW"; "WHEN"; "WHERE";
-                "WITH"
-            |],
-            StringComparer.OrdinalIgnoreCase
-        )
+    let fromDialect (dialect: ISqlDialect) : SqlDialect =
+        let n =
+            match box dialect with
+            | null -> ""
+            | _ ->
+                if isNull dialect.Name then
+                    ""
+                else
+                    dialect.Name.ToLowerInvariant().Replace(" ", "")
+
+        if n.Contains("postgre") then
+            SqlDialect.PostgreSql
+        elif n.Contains("sqlserver") || n.Contains("mssql") then
+            SqlDialect.SqlServer
+        elif n.Contains("mariadb") then
+            SqlDialect.MariaDb
+        elif n.Contains("mysql") then
+            SqlDialect.MySql
+        elif n.Contains("oracle") then
+            SqlDialect.Oracle
+        else
+            SqlDialect.Sqlite
+
+    let fromConnectorToDialect (connector: IConnector) : SqlDialect =
+        match box connector with
+        | :? ISqlDialectProvider as sdp -> fromDialect sdp.Dialect
+        | _ -> fromConnectorKind connector.Kind
+
+    let fromConnector (connector: IConnector) : ISqlDialect =
+        match box connector with
+        | :? ISqlDialectProvider as sdp -> sdp.Dialect
+        | _ -> (fromConnectorKind connector.Kind).Dialect
 
     /// Safely quotes an identifier according to the dialect rules if it contains special characters, spaces, or keywords.
-    let quoteIdentifier (dialect: SqlDialect) (name: string) =
-        if String.IsNullOrEmpty name then name
-        elif name.StartsWith("\"") || name.StartsWith("[") || name.StartsWith("`") then name
-        elif reservedKeywords.Contains name || name.Contains(" ") || not (Char.IsLetter(name.[0]) || name.[0] = '_') then
-            match dialect with
-            | SqlDialect.SqlServer -> $"[{name}]"
-            | SqlDialect.MySql | SqlDialect.MariaDb -> $"`{name}`"
-            | _ -> $"\"{name}\""
-        else
-            name
-
+    let quoteIdentifier (dialect: SqlDialect) (name: string) = dialect.Dialect.QuoteIdentifier name

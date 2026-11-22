@@ -12,7 +12,13 @@ open SqlServerConnectorTests
 
 type LocalUser = { Id: int; Name: string; Age: int }
 type LocalPgConnection = { Id: int; Name: string; Active: bool }
-type LocalSalesOrder = { Id: int; Amount: decimal; Description: string }
+
+type LocalSalesOrder =
+    {
+        Id: int
+        Amount: decimal
+        Description: string
+    }
 
 type private InMemoryResolver(map: Map<string, IConnector>) =
     interface IConnectionResolver with
@@ -21,17 +27,27 @@ type private InMemoryResolver(map: Map<string, IConnector>) =
             | Some c -> c
             | None -> failwith $"Connection '{name}' not found."
 
+        member this.ResolveAsync(name: string, _ct: System.Threading.CancellationToken) =
+            System.Threading.Tasks.Task.FromResult((this :> IConnectionResolver).Resolve name)
+
 module SqliteLocalIntegrationTests =
 
     [<Fact>]
     [<Trait("Category", "LocalOnly")>]
     let ``SQLite on local disk discovers tables and views and executes LINQ queries`` () =
         let tempDbFile = Path.Combine(Path.GetTempPath(), $"fqs-test-{Guid.NewGuid():N}.db")
+
         try
             let connector = SqliteConnector(tempDbFile)
-            connector.ExecuteQuery "create table users (id integer primary key, name text, age integer)" [] |> ignore
-            connector.ExecuteQuery "create view active_users as select id, name, age from users where age >= 18" [] |> ignore
-            connector.ExecuteQuery "insert into users values (1, 'Alice', 25), (2, 'Bob', 17), (3, 'Charlie', 30)" [] |> ignore
+
+            connector.ExecuteQuery "create table users (id integer primary key, name text, age integer)" []
+            |> ignore
+
+            connector.ExecuteQuery "create view active_users as select id, name, age from users where age >= 18" []
+            |> ignore
+
+            connector.ExecuteQuery "insert into users values (1, 'Alice', 25), (2, 'Bob', 17), (3, 'Charlie', 30)" []
+            |> ignore
 
             // 1. Validate discovery of tables and views
             let asInterface = connector :> IConnector
@@ -43,14 +59,16 @@ module SqliteLocalIntegrationTests =
 
             // 2. Validate typed LINQ query
             Connections.configure (InMemoryResolver(Map.ofList [ "LocalSqlite", connector :> IConnector ]))
-            let users = Connections.query<LocalUser> "LocalSqlite" "select id, name, age from users" []
+
+            let users =
+                Connections.query<LocalUser> "LocalSqlite" "select id, name, age from users" []
 
             let adults =
                 query {
                     for u in users do
-                    where (u.Age >= 18)
-                    sortBy u.Name
-                    select u.Name
+                        where (u.Age >= 18)
+                        sortBy u.Name
+                        select u.Name
                 }
                 |> Seq.toList
 
@@ -61,21 +79,32 @@ module SqliteLocalIntegrationTests =
             Assert.Contains(tempDbFile, connStr)
         finally
             if File.Exists(tempDbFile) then
-                try File.Delete(tempDbFile) with _ -> ()
+                try
+                    File.Delete(tempDbFile)
+                with _ ->
+                    ()
 
 [<Collection("PostgreSql container")>]
 [<Trait("Category", "RequiresDocker")>]
 type PostgreSqlLocalIntegrationTests(fixture: PostgreSqlContainerFixture) =
 
     [<Fact>]
-    member _.``PostgreSQL in Docker discovers multi-schema tables (dbo and public) and executes LINQ queries`` () =
+    member _.``PostgreSQL in Docker discovers multi-schema tables (dbo and public) and executes LINQ queries``() =
         task {
             let connector = PostgreSqlConnector(fixture.ConnectionString)
 
             // Create additional schemas and tables
             connector.ExecuteQuery "create schema if not exists dbo" [] |> ignore
-            connector.ExecuteQuery "drop table if exists dbo.connections; create table dbo.connections (id int primary key, name varchar(100), active boolean)" [] |> ignore
-            connector.ExecuteQuery "insert into dbo.connections values (1, 'TestPgDb', true), (2, 'Legacy_sql', false)" [] |> ignore
+
+            connector.ExecuteQuery
+                "drop table if exists dbo.connections; create table dbo.connections (id int primary key, name varchar(100), active boolean)"
+                []
+            |> ignore
+
+            connector.ExecuteQuery
+                "insert into dbo.connections values (1, 'TestPgDb', true), (2, 'Legacy_sql', false)"
+                []
+            |> ignore
 
             // 1. Validate multi-schema discovery
             let asInterface = connector :> IConnector
@@ -84,12 +113,16 @@ type PostgreSqlLocalIntegrationTests(fixture: PostgreSqlContainerFixture) =
             let tableNames = schema |> List.map (fun t -> t.Name)
             Assert.Contains("postgres.dbo.connections", tableNames)
 
-            let dboConnTable = schema |> List.find (fun t -> t.Name = "postgres.dbo.connections" || t.Name = "dbo.connections")
+            let dboConnTable =
+                schema
+                |> List.find (fun t -> t.Name = "postgres.dbo.connections" || t.Name = "dbo.connections")
+
             let colNames = dboConnTable.Columns |> List.map (fun c -> c.Name) |> List.sort
             Assert.Equal<string list>([ "active"; "id"; "name" ], colNames)
 
             // 2. Validate typed LINQ query with safe bound parameter
             Connections.configure (InMemoryResolver(Map.ofList [ "TestPgDb", connector :> IConnector ]))
+
             let conns =
                 Connections.query<LocalPgConnection>
                     "TestPgDb"
@@ -99,8 +132,8 @@ type PostgreSqlLocalIntegrationTests(fixture: PostgreSqlContainerFixture) =
             let activeNames =
                 query {
                     for c in conns do
-                    where (c.Id = 1)
-                    select c.Name
+                        where (c.Id = 1)
+                        select c.Name
                 }
                 |> Seq.toList
 
@@ -112,13 +145,17 @@ type PostgreSqlLocalIntegrationTests(fixture: PostgreSqlContainerFixture) =
 
             let dbConn = Connections.getDatabaseConnection "TestPgDb"
             Assert.Contains("postgres.dbo.connections", dbConn.Tables)
-            let typedItems = dbConn.Query<LocalPgConnection>("select id, name, active from dbo.connections where id = 1")
+
+            let typedItems =
+                dbConn.Query<LocalPgConnection>("select id, name, active from dbo.connections where id = 1")
+
             let namesFromConn =
                 query {
                     for x in typedItems do
-                    select x.Name
+                        select x.Name
                 }
                 |> Seq.toList
+
             Assert.Equal<string list>([ "TestPgDb" ], namesFromConn)
         }
 
@@ -127,15 +164,26 @@ type PostgreSqlLocalIntegrationTests(fixture: PostgreSqlContainerFixture) =
 type SqlServerLocalIntegrationTests(fixture: MsSqlContainerFixture) =
 
     [<Fact>]
-    member _.``SQL Server in Docker discovers non-dbo schema tables and executes LINQ queries`` () =
+    member _.``SQL Server in Docker discovers non-dbo schema tables and executes LINQ queries``() =
         task {
             let connector = SqlServerConnector(fixture.ConnectionString)
 
             // Create 'sales' schema and 'orders' table
-            connector.ExecuteQuery "IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'sales') EXEC('CREATE SCHEMA sales')" [] |> ignore
-            connector.ExecuteQuery "IF OBJECT_ID('sales.orders', 'U') IS NOT NULL DROP TABLE sales.orders" [] |> ignore
-            connector.ExecuteQuery "CREATE TABLE sales.orders (id int primary key, amount decimal(10,2), description nvarchar(100))" [] |> ignore
-            connector.ExecuteQuery "INSERT INTO sales.orders VALUES (1, 150.50, 'Laptop'), (2, 25.00, 'Mouse')" [] |> ignore
+            connector.ExecuteQuery
+                "IF NOT EXISTS (SELECT * FROM sys.schemas WHERE name = 'sales') EXEC('CREATE SCHEMA sales')"
+                []
+            |> ignore
+
+            connector.ExecuteQuery "IF OBJECT_ID('sales.orders', 'U') IS NOT NULL DROP TABLE sales.orders" []
+            |> ignore
+
+            connector.ExecuteQuery
+                "CREATE TABLE sales.orders (id int primary key, amount decimal(10,2), description nvarchar(100))"
+                []
+            |> ignore
+
+            connector.ExecuteQuery "INSERT INTO sales.orders VALUES (1, 150.50, 'Laptop'), (2, 25.00, 'Mouse')" []
+            |> ignore
 
             // 1. Validate discovery of tables in custom schema
             let asInterface = connector :> IConnector
@@ -146,13 +194,15 @@ type SqlServerLocalIntegrationTests(fixture: MsSqlContainerFixture) =
 
             // 2. Validate typed LINQ query
             Connections.configure (InMemoryResolver(Map.ofList [ "SalesDb", connector :> IConnector ]))
-            let orders = Connections.query<LocalSalesOrder> "SalesDb" "select id, amount, description from sales.orders" []
+
+            let orders =
+                Connections.query<LocalSalesOrder> "SalesDb" "select id, amount, description from sales.orders" []
 
             let expensive =
                 query {
                     for o in orders do
-                    where (o.Amount > 50.0M)
-                    select o.Description
+                        where (o.Amount > 50.0M)
+                        select o.Description
                 }
                 |> Seq.toList
 

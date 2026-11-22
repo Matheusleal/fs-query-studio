@@ -16,7 +16,7 @@ const descriptor = {
       label: "MySQL Connection String",
       type: "string" as const,
       required: true,
-      placeholder: "Server=localhost;Port=3306;Database=mydb;User ID=root;Password={password};",
+      placeholder: "Server=127.0.0.1;Port=3306;Database=mydb;User ID=root;Password={password};",
       secretHandling: "connectionString:{password}",
     },
     {

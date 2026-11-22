@@ -25,7 +25,11 @@ module NdjsonStream =
     let readLine (reader: TextReader) : System.Threading.Tasks.Task<string option> =
         task {
             let! line = reader.ReadLineAsync()
-            return (match line with | null -> None | l -> Some l)
+
+            return
+                (match line with
+                 | null -> None
+                 | l -> Some l)
         }
 
     let readFrame<'T> (reader: TextReader) : System.Threading.Tasks.Task<'T option> =

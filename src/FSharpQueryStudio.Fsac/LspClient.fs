@@ -65,7 +65,9 @@ type LspClient(input: Stream, output: Stream) =
                 | true, tcs ->
                     match tryGetElement "error" with
                     | Some errEl ->
-                        let err = JsonSerializer.Deserialize<LspError>(errEl.GetRawText(), Serialization.options)
+                        let err =
+                            JsonSerializer.Deserialize<LspError>(errEl.GetRawText(), Serialization.options)
+
                         tcs.TrySetResult(LspFail err) |> ignore
                     | None ->
                         let result = tryGetElement "result" |> Option.defaultValue nullElement
@@ -108,7 +110,13 @@ type LspClient(input: Stream, output: Stream) =
                         for id in pending.Keys |> Seq.toList do
                             match pending.TryRemove(id) with
                             | true, tcs ->
-                                tcs.TrySetResult(LspFail { Code = -1; Message = "the LSP server process exited" })
+                                tcs.TrySetResult(
+                                    LspFail
+                                        {
+                                            Code = -1
+                                            Message = "the LSP server process exited"
+                                        }
+                                )
                                 |> ignore
                             | false, _ -> ()
                     | Some json -> handleIncoming json
@@ -143,15 +151,20 @@ type LspClient(input: Stream, output: Stream) =
     member _.SendRequest<'TParams>(method_: string, requestParams: 'TParams) : Task<LspResult> =
         task {
             let id = Interlocked.Increment(&nextId)
-            let tcs = TaskCompletionSource<LspResult>(TaskCreationOptions.RunContinuationsAsynchronously)
+
+            let tcs =
+                TaskCompletionSource<LspResult>(TaskCreationOptions.RunContinuationsAsynchronously)
+
             pending.[id] <- tcs
 
             do!
                 send (
-                    {| jsonrpc = "2.0"
-                       id = id
-                       method = method_
-                       ``params`` = requestParams |}
+                    {|
+                        jsonrpc = "2.0"
+                        id = id
+                        method = method_
+                        ``params`` = requestParams
+                    |}
                 )
 
             return! tcs.Task
@@ -159,7 +172,9 @@ type LspClient(input: Stream, output: Stream) =
 
     member _.SendNotification<'TParams>(method_: string, notificationParams: 'TParams) : Task =
         send (
-            {| jsonrpc = "2.0"
-               method = method_
-               ``params`` = notificationParams |}
+            {|
+                jsonrpc = "2.0"
+                method = method_
+                ``params`` = notificationParams
+            |}
         )

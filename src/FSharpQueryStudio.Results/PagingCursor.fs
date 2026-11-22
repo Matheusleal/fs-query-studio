@@ -20,9 +20,13 @@ type PagingCursor(enumerator: IEnumerator) =
         if not isDisposed then
             isDisposed <- true
             peeked <- None
+
             match enumerator with
             | :? IDisposable as d ->
-                try d.Dispose() with _ -> ()
+                try
+                    d.Dispose()
+                with _ ->
+                    ()
             | _ -> ()
 
     /// Returns up to `pageSize` items and whether at least one more

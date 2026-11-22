@@ -18,7 +18,10 @@ open System.Runtime.InteropServices
 // --- Configuration & Paths ---
 let rootDir = __SOURCE_DIRECTORY__
 let solutionFile = Path.Combine(rootDir, "FSharpQueryStudio.slnx")
-let workerProject = Path.Combine(rootDir, "src", "FSharpQueryStudio.Worker", "FSharpQueryStudio.Worker.fsproj")
+
+let workerProject =
+    Path.Combine(rootDir, "src", "FSharpQueryStudio.Worker", "FSharpQueryStudio.Worker.fsproj")
+
 let vscodeDir = Path.Combine(rootDir, "editors", "vscode")
 let workerOutDir = Path.Combine(vscodeDir, "dist", "worker")
 let vsixOutputDir = Path.Combine(vscodeDir, "fs-query-studio.vsix")
@@ -50,26 +53,27 @@ let printInfo (msg: string) =
 
 // --- Process Execution ---
 let runProcess (workingDir: string) (command: string) (args: string) =
-    let fileName, arguments = 
+    let fileName, arguments =
         if isWindows && (command = "npm" || command = "npx") then
             "cmd.exe", $"/c \"{command} {args}\""
         else
             command, args
 
     printInfo $"Executing in '{workingDir}': {command} {args}"
-    
-    let psi = ProcessStartInfo(
-        FileName = fileName,
-        Arguments = arguments,
-        WorkingDirectory = workingDir,
-        UseShellExecute = false,
-        RedirectStandardOutput = false,
-        RedirectStandardError = false
-    )
-    
+
+    let psi =
+        ProcessStartInfo(
+            FileName = fileName,
+            Arguments = arguments,
+            WorkingDirectory = workingDir,
+            UseShellExecute = false,
+            RedirectStandardOutput = false,
+            RedirectStandardError = false
+        )
+
     use proc = Process.Start(psi)
     proc.WaitForExit()
-    
+
     if proc.ExitCode <> 0 then
         printError $"Command '{command} {args}' failed with exit code {proc.ExitCode}."
         failwith $"Process execution failed (exit code: {proc.ExitCode})"
@@ -78,28 +82,39 @@ let runProcess (workingDir: string) (command: string) (args: string) =
 
 let clean () =
     printHeader "CLEANING BUILD ARTIFACTS"
-    
+
     // Clean bin/ and obj/ directories (excluding .git, .vscode-test, node_modules, and .worktrees)
-    let cleanDirs = 
+    let cleanDirs =
         Directory.GetDirectories(rootDir, "bin", SearchOption.AllDirectories)
         |> Array.append (Directory.GetDirectories(rootDir, "obj", SearchOption.AllDirectories))
         |> Array.append [| workerOutDir |]
-        |> Array.filter (fun d -> 
-            not (d.Contains(".git") || 
-                 d.Contains(".vscode-test") || 
-                 d.Contains("node_modules") || 
-                 d.Contains(".worktrees")))
+        |> Array.filter (fun d ->
+            not (
+                d.Contains(".git")
+                || d.Contains(".vscode-test")
+                || d.Contains("node_modules")
+                || d.Contains(".worktrees")
+            ))
 
     for dir in cleanDirs do
         if Directory.Exists(dir) then
             printInfo $"Removing directory: {dir}"
-            try Directory.Delete(dir, true) with _ -> ()
+
+            try
+                Directory.Delete(dir, true)
+            with _ ->
+                ()
 
     // Remove .vsix packages
     let vsixFiles = Directory.GetFiles(vscodeDir, "*.vsix")
+
     for f in vsixFiles do
         printInfo $"Removing package: {f}"
-        try File.Delete(f) with _ -> ()
+
+        try
+            File.Delete(f)
+        with _ ->
+            ()
 
     printSuccess "Clean completed successfully!"
 
@@ -110,51 +125,60 @@ let buildBackend () =
 
 let publishWorker () =
     printHeader "2. PUBLISHING WORKER (F# WORKER - RELEASE)"
+
     if not (Directory.Exists(workerOutDir)) then
         Directory.CreateDirectory(workerOutDir) |> ignore
-        
+
     runProcess rootDir "dotnet" $"publish \"{workerProject}\" -c Release -o \"{workerOutDir}\""
     printSuccess "Worker published to editors/vscode/dist/worker successfully."
 
 let compileVscode () =
     printHeader "3. COMPILING VS CODE EXTENSION"
     let vscodeDocsDir = Path.Combine(vscodeDir, "docs")
+
     if not (Directory.Exists(vscodeDocsDir)) then
         Directory.CreateDirectory(vscodeDocsDir) |> ignore
 
-    let syncFiles = [
-        "BENCHMARK_REPORT.md"
-        "BENCHMARK_REPORT_PT.md"
-        "USER_GUIDE.md"
-        "USER_GUIDE_PT.md"
-        "CHANGELOG.md"
-        "CHANGELOG_PT.md"
-    ]
+    let syncFiles =
+        [
+            "BENCHMARK_REPORT.md"
+            "BENCHMARK_REPORT_PT.md"
+            "USER_GUIDE.md"
+            "USER_GUIDE_PT.md"
+            "CHANGELOG.md"
+            "CHANGELOG_PT.md"
+        ]
+
     for file in syncFiles do
         let src = Path.Combine(rootDir, "docs", file)
         let dest = Path.Combine(vscodeDocsDir, file)
+
         if File.Exists(src) then
             File.Copy(src, dest, true)
             printInfo $"Copied docs/{file} to editors/vscode/docs/{file}"
 
     let docsReadme = Path.Combine(vscodeDocsDir, "README.md")
     let rootReadme = Path.Combine(vscodeDir, "README.md")
+
     if File.Exists(docsReadme) then
         let content =
-            File.ReadAllText(docsReadme)
+            File
+                .ReadAllText(docsReadme)
                 .Replace("(USER_GUIDE.md", "(docs/USER_GUIDE.md")
                 .Replace("(USER_GUIDE_PT.md", "(docs/USER_GUIDE_PT.md")
                 .Replace("(BENCHMARK_REPORT.md", "(docs/BENCHMARK_REPORT.md")
                 .Replace("(BENCHMARK_REPORT_PT.md", "(docs/BENCHMARK_REPORT_PT.md")
                 .Replace("(README_PT.md", "(docs/README_PT.md")
+
         File.WriteAllText(rootReadme, content)
 
     let docsChangelog = Path.Combine(vscodeDocsDir, "CHANGELOG.md")
     let rootChangelog = Path.Combine(vscodeDir, "CHANGELOG.md")
+
     if File.Exists(docsChangelog) then
         let content =
-            File.ReadAllText(docsChangelog)
-                .Replace("(CHANGELOG_PT.md", "(docs/CHANGELOG_PT.md")
+            File.ReadAllText(docsChangelog).Replace("(CHANGELOG_PT.md", "(docs/CHANGELOG_PT.md")
+
         File.WriteAllText(rootChangelog, content)
 
     runProcess vscodeDir "npm" "run compile"
@@ -170,10 +194,22 @@ let testVscode () =
     runProcess vscodeDir "npm" "test"
     printSuccess "Extension tests passed successfully."
 
+let formatFsharp () =
+    printHeader "FORMATTING F# CODE (FANTOMAS)"
+    runProcess rootDir "dotnet" "tool restore"
+    runProcess rootDir "dotnet" "fantomas src tests build.fsx"
+    printSuccess "F# code formatting completed successfully."
+
+let checkFormatFsharp () =
+    printHeader "CHECKING F# CODE FORMATTING (FANTOMAS)"
+    runProcess rootDir "dotnet" "tool restore"
+    runProcess rootDir "dotnet" "fantomas src tests build.fsx --check"
+    printSuccess "F# code formatting is valid and clean."
+
 let packageVscode () =
     printHeader "4. PACKAGING VS CODE EXTENSION (.VSIX)"
     runProcess vscodeDir "npm" "run package"
-    
+
     if File.Exists(vsixOutputDir) then
         let fileInfo = FileInfo(vsixOutputDir)
         let sizeKb = double fileInfo.Length / 1024.0
@@ -208,6 +244,7 @@ let targetTest () =
 let targetAll () =
     let sw = Stopwatch.StartNew()
     clean ()
+    checkFormatFsharp ()
     targetBuild ()
     targetTest ()
     packageVscode ()
@@ -217,7 +254,7 @@ let targetAll () =
 // --- Entry Point ---
 let args = fsi.CommandLineArgs |> Array.skip 1
 
-let target = 
+let target =
     if args.Length > 0 then
         args.[0].ToLowerInvariant()
     else
@@ -227,20 +264,29 @@ let showHelp () =
     Console.WriteLine("Usage: dotnet fsi build.fsx [target]")
     Console.WriteLine("")
     Console.WriteLine("Available targets:")
-    Console.WriteLine("  build    : Compile backend (.NET) and VS Code extension in Release mode (default)")
-    Console.WriteLine("  release  : Run full build and package the extension VSIX")
-    Console.WriteLine("  test     : Run all backend and VS Code tests")
-    Console.WriteLine("  clean    : Clean build binaries and generated artifacts")
-    Console.WriteLine("  all      : Run clean -> build -> test -> release")
+    Console.WriteLine("  build        : Compile backend (.NET) and VS Code extension in Release mode (default)")
+    Console.WriteLine("  release      : Run full build and package the extension VSIX")
+    Console.WriteLine("  test         : Run all backend and VS Code tests")
+    Console.WriteLine("  clean        : Clean build binaries and generated artifacts")
+    Console.WriteLine("  format       : Format all F# source files and build.fsx with Fantomas")
+    Console.WriteLine("  format-check : Check F# source code formatting with Fantomas without modifying files")
+    Console.WriteLine("  all          : Run clean -> format-check -> build -> test -> release")
 
 let executeTarget (tgt: string) =
     match tgt with
     | "build" -> targetBuild ()
-    | "release" | "package" -> targetRelease ()
+    | "release"
+    | "package" -> targetRelease ()
     | "test" -> targetTest ()
     | "clean" -> clean ()
+    | "format" -> formatFsharp ()
+    | "format-check"
+    | "check-format"
+    | "lint" -> checkFormatFsharp ()
     | "all" -> targetAll ()
-    | "--help" | "-h" | "help" -> showHelp ()
+    | "--help"
+    | "-h"
+    | "help" -> showHelp ()
     | unknown ->
         printError $"Unknown target: '{unknown}'"
         showHelp ()

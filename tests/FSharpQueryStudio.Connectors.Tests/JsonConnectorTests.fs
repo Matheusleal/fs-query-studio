@@ -8,9 +8,12 @@ open FSharpQueryStudio.Protocol
 open FSharpQueryStudio.Connectors
 
 type private TempJsonFile(content: string) =
-    let path = Path.Combine(Path.GetTempPath(), "fqs-json-" + Guid.NewGuid().ToString("N") + ".json")
+    let path =
+        Path.Combine(Path.GetTempPath(), "fqs-json-" + Guid.NewGuid().ToString("N") + ".json")
+
     do File.WriteAllText(path, content)
     member _.Path = path
+
     interface IDisposable with
         member _.Dispose() =
             if File.Exists path then
@@ -19,7 +22,8 @@ type private TempJsonFile(content: string) =
 [<Fact>]
 let ``DiscoverSchemaAsync discovers multiple top-level arrays and infers column types`` () =
     task {
-        let json = """{
+        let json =
+            """{
   "Products": [
     { "ProductId": 101, "Title": "Neural Stick", "Price": 249.90, "InStock": true },
     { "ProductId": 102, "Title": "Smart Switch", "Price": 389.50, "InStock": false }
@@ -29,6 +33,7 @@ let ``DiscoverSchemaAsync discovers multiple top-level arrays and infers column 
     { "ReviewId": 2, "ProductId": 102, "Stars": 4, "Comment": "Solid" }
   ]
 }"""
+
         use f = new TempJsonFile(json)
         let connector = JsonConnector(f.Path) :> IConnector
 
@@ -37,7 +42,10 @@ let ``DiscoverSchemaAsync discovers multiple top-level arrays and infers column 
         Assert.Equal<string list>([ "Products"; "Reviews" ], tableNames)
 
         let products = tables |> List.find (fun t -> t.Name = "Products")
-        let colMap = products.Columns |> List.map (fun c -> c.Name, c.DataType) |> Map.ofList
+
+        let colMap =
+            products.Columns |> List.map (fun c -> c.Name, c.DataType) |> Map.ofList
+
         Assert.Equal("int", colMap.["ProductId"])
         Assert.Equal("string", colMap.["Title"])
         Assert.Equal("decimal", colMap.["Price"])
@@ -46,12 +54,21 @@ let ``DiscoverSchemaAsync discovers multiple top-level arrays and infers column 
 
 [<Fact>]
 let ``ReadRows flattens nested objects with underscore separator when FlattenNested is true`` () =
-    let json = """[
+    let json =
+        """[
   { "Id": 1, "Customer": { "Name": "Alice", "City": "London" }, "Tags": ["vip", "uk"] },
   { "Id": 2, "Customer": { "Name": "Bob", "City": "Austin" }, "Tags": ["us"] }
 ]"""
+
     use f = new TempJsonFile(json)
-    let connector = JsonConnector(f.Path, { JsonOptions.Default with FlattenNested = true })
+
+    let connector =
+        JsonConnector(
+            f.Path,
+            { JsonOptions.Default with
+                FlattenNested = true
+            }
+        )
 
     let result = connector.ReadRows()
     Assert.Equal<string list>([ "Id"; "Customer_Name"; "Customer_City"; "Tags" ], result.Columns)
@@ -64,7 +81,8 @@ let ``ReadRows flattens nested objects with underscore separator when FlattenNes
 
 [<Fact>]
 let ``ReadRows navigates JsonPath when specified`` () =
-    let json = """{
+    let json =
+        """{
   "response": {
     "payload": {
       "items": [
@@ -74,8 +92,16 @@ let ``ReadRows navigates JsonPath when specified`` () =
     }
   }
 }"""
+
     use f = new TempJsonFile(json)
-    let connector = JsonConnector(f.Path, { JsonOptions.Default with JsonPath = Some "response.payload.items" })
+
+    let connector =
+        JsonConnector(
+            f.Path,
+            { JsonOptions.Default with
+                JsonPath = Some "response.payload.items"
+            }
+        )
 
     let result = connector.ReadRows()
     Assert.Equal<string list>([ "Code"; "Qty" ], result.Columns)
@@ -120,7 +146,8 @@ let ``ReadRows returns empty columns and rows for empty array`` () =
 
 [<Fact>]
 let ``ReadRows discovers nested container holding array`` () =
-    let json = """{
+    let json =
+        """{
   "wrapper": {
     "records": [
       { "Key": "k1", "Val": 100 },
@@ -128,6 +155,7 @@ let ``ReadRows discovers nested container holding array`` () =
     ]
   }
 }"""
+
     use f = new TempJsonFile(json)
     let connector = JsonConnector(f.Path)
     let result = connector.ReadRows()
@@ -137,7 +165,12 @@ let ``ReadRows discovers nested container holding array`` () =
 [<Fact>]
 let ``ReadRows applies column transforms`` () =
     let json = """[ { "Name": "apple" }, { "Name": "banana" } ]"""
-    let opts = { JsonOptions.Default with ColumnTransforms = Map.ofList [ "Name", "replace('apple', 'pear')" ] }
+
+    let opts =
+        { JsonOptions.Default with
+            ColumnTransforms = Map.ofList [ "Name", "replace('apple', 'pear')" ]
+        }
+
     use f = new TempJsonFile(json)
     let connector = JsonConnector(f.Path, opts)
     let result = connector.ReadRows()
@@ -166,30 +199,42 @@ let ``GetColumnNames returns columns for discovered table`` () =
     Assert.Equal<string list>([ "ColA"; "ColB" ], cols)
 
 [<Fact>]
-let ``JsonConnector handles missing files, primitive arrays with transforms, JsonPath edge cases and explicit ColumnTypes`` () =
+let ``JsonConnector handles missing files, primitive arrays with transforms, JsonPath edge cases and explicit ColumnTypes``
+    ()
+    =
     let missing = JsonConnector("C:/non_existent_folder_12345/missing.json")
     Assert.Empty(missing.ReadRows().Columns)
     Assert.Empty((missing :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result)
 
     use fPrim = new TempJsonFile("[ 10, 20, 30 ]")
+
     let optsPrim =
         { JsonOptions.Default with
             JsonPath = Some "."
             ColumnTransforms = Map.ofList [ "Value", "multiply(10)" ]
-            ColumnTypes = Map.ofList [ "Value", "int" ] }
+            ColumnTypes = Map.ofList [ "Value", "int" ]
+        }
+
     let connPrim = JsonConnector(fPrim.Path, optsPrim)
     let qrPrim = connPrim.ReadRows()
     let rowsPrim = qrPrim.Rows |> Seq.toList
     Assert.Equal(box "100", rowsPrim.[0].[0])
-    let tablesPrim = (connPrim :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result
+
+    let tablesPrim =
+        (connPrim :> IConnector).DiscoverSchemaAsync(CancellationToken.None).Result
+
     Assert.Equal("int", tablesPrim.[0].Columns.[0].DataType)
 
-    let connMissingPath = JsonConnector(fPrim.Path, { JsonOptions.Default with JsonPath = Some "nonexistent.path" })
+    let connMissingPath =
+        JsonConnector(
+            fPrim.Path,
+            { JsonOptions.Default with
+                JsonPath = Some "nonexistent.path"
+            }
+        )
+
     Assert.Empty(connMissingPath.ReadRows().Columns)
 
     use fScalar = new TempJsonFile("42")
     let connScalar = JsonConnector(fScalar.Path)
     Assert.Equal(1, connScalar.ReadRows().Rows |> Seq.length)
-
-
-

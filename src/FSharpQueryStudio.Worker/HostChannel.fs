@@ -14,7 +14,8 @@ open FSharpQueryStudio.Protocol
 /// arrives. `send` is supplied by `Program.fs` and writes through the same
 /// stdout `writeLock` every response uses.
 type HostChannel(send: WorkerRequestFrame -> Task) =
-    let pending = ConcurrentDictionary<string, TaskCompletionSource<WorkerResponseFrame>>()
+    let pending =
+        ConcurrentDictionary<string, TaskCompletionSource<WorkerResponseFrame>>()
 
     member _.Request(method_: string, paramsValue: obj) : Task<WorkerResponseFrame> =
         let id = "host-" + Guid.NewGuid().ToString("N")
@@ -25,9 +26,11 @@ type HostChannel(send: WorkerRequestFrame -> Task) =
         pending.[id] <- tcs
 
         let frame: WorkerRequestFrame =
-            { Id = id
-              Method = method_
-              Params = JsonSerializer.SerializeToElement(paramsValue, Serialization.options) }
+            {
+                Id = id
+                Method = method_
+                Params = JsonSerializer.SerializeToElement(paramsValue, Serialization.options)
+            }
 
         (send frame)
             .ContinueWith(fun (t: Task) ->

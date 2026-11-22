@@ -53,8 +53,12 @@ let ``repeated TakePage calls drain a long source exactly once per item, in orde
 
 type private NonDisposableEnum() =
     let mutable i = 0
+
     interface IEnumerator with
-        member _.MoveNext() = i <- i + 1; i <= 2
+        member _.MoveNext() =
+            i <- i + 1
+            i <= 2
+
         member _.Current = box 10
         member _.Reset() = ()
 
@@ -63,6 +67,7 @@ type private ThrowingDisposableEnum() =
         member _.MoveNext() = false
         member _.Current = null
         member _.Reset() = ()
+
     interface System.IDisposable with
         member _.Dispose() = failwith "boom"
 
@@ -83,5 +88,3 @@ let ``TakePage returns empty and false when disposed and handles non-disposable 
     // Throwing dispose
     let c3 = new PagingCursor(new ThrowingDisposableEnum() :> IEnumerator)
     (c3 :> System.IDisposable).Dispose() // Shouldn't throw
-
-
