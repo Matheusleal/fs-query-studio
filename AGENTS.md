@@ -56,10 +56,12 @@
   6. Nenhuma entrega ou PR pode ser concluído se houver qualquer célula falhando ou quebrando.
   7. Quando a extensão estiver instalada localmente em `~/.vscode/extensions/fs-query-studio.fs-query-studio-*`, sincronizar os artefatos compilados (`dist/`) e/ou reinstalar o VSIX compilado via `code --install-extension editors/vscode/fs-query-studio.vsix --force`.
 
-## Regra Obrigatória: Cobertura Mínima (>= 90%) e Mínimo de 2 Testes por Cenário
-- **Pré-requisito estrito para toda nova funcionalidade ou alteração**:
-  1. **Mínimo de 2 testes para cada cenário possível**: Para cada cenário de uso da funcionalidade (caminho feliz, variações de entrada, casos de borda/limites, entradas vazias/nulas e cenários de erro/exceção), devem ser escritos **no mínimo 2 testes automatizados distintos** validando o comportamento esperado.
-  2. **Cobertura mínima de 90% por classe/arquivo (`>= 90.00%`)**: Todas as classes e arquivos do repositório devem manter cobertura de linhas igual ou superior a **90.00%**. Nenhuma nova funcionalidade ou PR pode ser concluído se qualquer arquivo ficar abaixo de 90% de cobertura.
+## Regra Obrigatória: 100% de Cobertura de Testes e Testes em Tudo que For Feito
+- **Pré-requisito estrito para toda nova funcionalidade, alteração, bugfix ou refatoração**:
+  1. **Testes obrigatórios em tudo que for feito**: Nenhum código novo ou alterado pode ser introduzido sem testes automatizados que exercitem integralmente o comportamento implementado. Código não testado é estritamente proibido.
+  2. **Mínimo de 2 testes distintos para cada cenário possível**: Para cada cenário de uso da funcionalidade (caminho feliz, variações de entrada, casos de borda/limites, entradas vazias/nulas e cenários de erro/exceção), devem ser escritos **no mínimo 2 testes automatizados distintos** validando o comportamento esperado.
+  3. **Manutenção de 100.00% de cobertura por classe/arquivo (`100.00%`)**: Todas as classes e arquivos de código-fonte modificados ou criados devem manter ou atingir cobertura de linhas de **100.00%**. Nenhuma nova funcionalidade ou PR pode ser concluído se qualquer arquivo modificado ficar abaixo de 100% de cobertura.
+  4. **Eliminação de código inalcançável**: Qualquer ramificação condicional ou código defensivo deve ser estritamente testável e testado; código morto ou inatingível não é permitido e deve ser refatorado.
 
 ## Regra de Criação de Queries: Guia Canônico `fsql` para Agentes de IA
 - Todo código de consulta de dados deve seguir rigorosamente as especificações em [`docs/FSQL_AI_AGENT_GUIDE.md`](file:///docs/FSQL_AI_AGENT_GUIDE.md).
@@ -68,10 +70,12 @@
 
 ---
 
-## Mandatory Rule: Minimum Coverage (>= 90%) & At Least 2 Tests per Scenario (English)
-- **Strict prerequisite for every new feature or behavioral change**:
-  1. **At least 2 tests for every possible scenario**: Every scenario of a new feature or change (happy path, input variations, boundary/edge cases, empty/null inputs, and error/exception paths) **must** be covered by **at least 2 distinct automated tests**.
-  2. **Minimum 90% line coverage per class/file (`>= 90.00%`)**: Every class and source file in the repository must maintain at least **90.00%** line coverage. No delivery or Pull Request may be opened if any file drops below 90% coverage or if a new class is introduced below 90% coverage.
+## Mandatory Rule: 100% Coverage (100.00%) & Mandatory Tests for Everything Done (English)
+- **Strict prerequisite for every new feature, behavioral change, bugfix, or refactoring**:
+  1. **Mandatory tests on everything done**: No new or changed code may be introduced without automated tests covering 100% of the implemented behavior. Untested code is strictly prohibited.
+  2. **At least 2 distinct tests for every possible scenario**: Every scenario of a new feature or change (happy path, input variations, boundary/edge cases, empty/null inputs, and error/exception paths) **must** be covered by **at least 2 distinct automated tests**.
+  3. **Strict 100.00% line coverage per class/file (`100.00%`)**: Every class and source file modified or introduced in the repository must maintain or reach **100.00%** line coverage. No delivery or Pull Request may be opened if any modified file drops below 100.00% coverage.
+  4. **Elimination of unreachable code**: Any conditional branch or defensive check introduced must be strictly testable and tested; dead or unreachable code is not permitted and must be refactored.
 
 ## Strict Rule: Git & Branch Protection (English)
 - **NEVER commit or push directly to the `main` or `master` branch**.
