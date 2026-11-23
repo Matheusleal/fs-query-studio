@@ -3637,16 +3637,21 @@ let ``workspace/createSampleData and workspace/createAdvancedSamples respect lan
 [<Fact>]
 let ``execution evaluate returns RawQuery and Parameters in ResultEnvelope when query is present`` () =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), "fqs-handlers-rawquery-" + Guid.NewGuid().ToString("N"))
+        let tmp =
+            Path.Combine(Path.GetTempPath(), "fqs-handlers-rawquery-" + Guid.NewGuid().ToString("N"))
+
         Directory.CreateDirectory(tmp) |> ignore
         Handlers.setWorkspaceDirForTests (Some tmp)
 
         try
             let docUri = Path.Combine(tmp, "query_test.fsqnb")
+
             let cellSource =
                 "({ Columns = [ \"id\"; \"title\" ]; Rows = seq { yield [| box 1; box \"Notebook\" |] }; RawSql = Some \"SELECT id, title FROM items WHERE price > @p\"; Parameters = [ \"@p\", box 99.5 ] }: ConnectorQueryResult)"
 
-            let! evalResp = Handlers.dispatch (notebookCellRequest "eval-rawquery-test" cellSource docUri)
+            let! evalResp =
+                Handlers.dispatch (notebookCellRequest "eval-rawquery-test" cellSource docUri)
+
             Assert.True(evalResp.Error.IsNone)
             Assert.True(evalResp.Result.IsSome)
 
@@ -3669,7 +3674,9 @@ let ``execution evaluate returns RawQuery and Parameters in ResultEnvelope when 
 [<Fact>]
 let ``execution evaluate returns null RawQuery and empty Parameters for plain record table`` () =
     task {
-        let tmp = Path.Combine(Path.GetTempPath(), "fqs-handlers-norawquery-" + Guid.NewGuid().ToString("N"))
+        let tmp =
+            Path.Combine(Path.GetTempPath(), "fqs-handlers-norawquery-" + Guid.NewGuid().ToString("N"))
+
         Directory.CreateDirectory(tmp) |> ignore
         Handlers.setWorkspaceDirForTests (Some tmp)
 
@@ -3677,7 +3684,9 @@ let ``execution evaluate returns null RawQuery and empty Parameters for plain re
             let docUri = Path.Combine(tmp, "norawquery_test.fsqnb")
             let cellSource = "[ {| id = 1; name = \"In-Memory\" |} ]"
 
-            let! evalResp = Handlers.dispatch (notebookCellRequest "eval-norawquery-test" cellSource docUri)
+            let! evalResp =
+                Handlers.dispatch (notebookCellRequest "eval-norawquery-test" cellSource docUri)
+
             Assert.True(evalResp.Error.IsNone)
             Assert.True(evalResp.Result.IsSome)
 

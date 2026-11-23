@@ -459,7 +459,12 @@ type CsvConnector(filePath: string, ?options: CsvOptions) =
                     | None -> more <- false
             }
 
-        { Columns = columns; Rows = rows; RawSql = None; Parameters = [] }
+        {
+            Columns = columns
+            Rows = rows
+            RawSql = None
+            Parameters = []
+        }
 
     interface IConnector with
         member _.Kind = ConnectorKind.Csv

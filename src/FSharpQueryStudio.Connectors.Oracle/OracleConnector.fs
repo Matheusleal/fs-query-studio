@@ -93,7 +93,13 @@ type OracleConnector(connectionString: string) =
                     })
 
         FSharpQueryStudio.Protocol.LastQueryTracker.Record(sql, parameters)
-        { Columns = columns; Rows = rows; RawSql = Some sql; Parameters = parameters }
+
+        {
+            Columns = columns
+            Rows = rows
+            RawSql = Some sql
+            Parameters = parameters
+        }
 
     /// Executes `sql` and streams rows directly into a typed F# record without creating intermediate obj[] arrays per row.
     member this.ExecuteReaderStreamWithColumns<'T>

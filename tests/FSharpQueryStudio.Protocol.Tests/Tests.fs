@@ -380,7 +380,13 @@ let ``ResultEnvelope, Column, and OutputLine types can be constructed and access
     Assert.Empty(env.Parameters)
 
     // Test QueryParameter and LastQueryTracker
-    let qp: QueryParameter = { Name = "@id"; Value = box 42; DisplayType = "int" }
+    let qp: QueryParameter =
+        {
+            Name = "@id"
+            Value = box 42
+            DisplayType = "int"
+        }
+
     Assert.Equal("@id", qp.Name)
     Assert.Equal(box 42, qp.Value)
     Assert.Equal("int", qp.DisplayType)

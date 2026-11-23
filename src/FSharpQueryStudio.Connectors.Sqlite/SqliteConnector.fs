@@ -179,7 +179,13 @@ type SqliteConnector(filePath: string) =
                     })
 
         FSharpQueryStudio.Protocol.LastQueryTracker.Record(sql, parameters)
-        { Columns = columns; Rows = rows; RawSql = Some sql; Parameters = parameters }
+
+        {
+            Columns = columns
+            Rows = rows
+            RawSql = Some sql
+            Parameters = parameters
+        }
 
     /// Executes `sql` and streams rows directly into a typed F# record without creating intermediate obj[] arrays per row.
     member this.ExecuteReaderStreamWithColumns<'T>
@@ -188,6 +194,7 @@ type SqliteConnector(filePath: string) =
         (mapperFactory: string list -> (System.Data.IDataRecord -> 'T))
         : 'T seq =
         FSharpQueryStudio.Protocol.LastQueryTracker.Record(sql, parameters)
+
         Seq.delay (fun () ->
             let connection = new SqliteConnection(connectionString)
             connection.Open()

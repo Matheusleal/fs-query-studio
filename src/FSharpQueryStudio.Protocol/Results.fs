@@ -84,6 +84,7 @@ type QueryParameter =
         | :? (byte array) -> "byte[]"
         | other ->
             let t = other.GetType()
+
             if t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<option<_>> then
                 let innerT = t.GetGenericArguments().[0]
                 sprintf "%s option" innerT.Name
@@ -105,16 +106,15 @@ type private TrackedQuery(sql: string, parameters: (string * obj) list) =
 type LastQueryTracker private () =
     static let currentQuery = new System.Threading.AsyncLocal<TrackedQuery>()
 
-    static member Record (sql: string, parameters: (string * obj) list) =
+    static member Record(sql: string, parameters: (string * obj) list) =
         currentQuery.Value <- TrackedQuery(sql, parameters)
 
-    static member Reset () =
-        currentQuery.Value <- null
+    static member Reset() = currentQuery.Value <- null
 
-    static member Current : (string * (string * obj) list) option =
+    static member Current: (string * (string * obj) list) option =
         match currentQuery.Value with
         | null -> None
-        | t when not (System.String.IsNullOrWhiteSpace t.Sql) -> Some (t.Sql, t.Parameters)
+        | t when not (System.String.IsNullOrWhiteSpace t.Sql) -> Some(t.Sql, t.Parameters)
         | _ -> None
 
 type ResultEnvelope =

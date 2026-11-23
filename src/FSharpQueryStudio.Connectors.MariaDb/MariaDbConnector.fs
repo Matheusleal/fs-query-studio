@@ -94,7 +94,13 @@ type MariaDbConnector(connectionString: string) =
                     })
 
         FSharpQueryStudio.Protocol.LastQueryTracker.Record(sql, parameters)
-        { Columns = columns; Rows = rows; RawSql = Some sql; Parameters = parameters }
+
+        {
+            Columns = columns
+            Rows = rows
+            RawSql = Some sql
+            Parameters = parameters
+        }
 
     /// Executes `sql` and streams rows directly into a typed F# record without creating intermediate obj[] arrays per row.
     member this.ExecuteReaderStreamWithColumns<'T>
@@ -103,6 +109,7 @@ type MariaDbConnector(connectionString: string) =
         (mapperFactory: string list -> (System.Data.IDataRecord -> 'T))
         : 'T seq =
         FSharpQueryStudio.Protocol.LastQueryTracker.Record(sql, parameters)
+
         Seq.delay (fun () ->
             let connection = new MySqlConnection(effectiveConnectionString)
             connection.Open()

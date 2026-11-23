@@ -821,9 +821,8 @@ module Projection =
                         FSharpQueryStudio.Connectors.SqlPushdownFormatting.formatSql sql
                     with _ ->
                         sql
-                let qParams =
-                    parms
-                    |> List.map (fun (name, v) -> QueryParameter.Create(name, v))
+
+                let qParams = parms |> List.map (fun (name, v) -> QueryParameter.Create(name, v))
                 Some formatted, qParams
             | None -> None, []
 

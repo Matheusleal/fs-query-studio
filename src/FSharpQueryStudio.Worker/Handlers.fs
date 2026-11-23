@@ -564,7 +564,7 @@ module Handlers =
                             projected
                         else
                             match FSharpQueryStudio.Protocol.LastQueryTracker.Current with
-                            | Some (sql, parms) when not (String.IsNullOrWhiteSpace sql) ->
+                            | Some(sql, parms) when not (String.IsNullOrWhiteSpace sql) ->
                                 let formatted =
                                     try
                                         FSharpQueryStudio.Connectors.SqlPushdownFormatting.formatSql sql
@@ -573,7 +573,10 @@ module Handlers =
 
                                 { projected with
                                     RawQuery = Some formatted
-                                    Parameters = parms |> List.map (fun (name, v) -> FSharpQueryStudio.Protocol.QueryParameter.Create(name, v))
+                                    Parameters =
+                                        parms
+                                        |> List.map (fun (name, v) ->
+                                            FSharpQueryStudio.Protocol.QueryParameter.Create(name, v))
                                 }
                             | _ -> projected
 

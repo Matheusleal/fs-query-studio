@@ -4437,7 +4437,17 @@ let ``Deep coverage of Pushdown internals, aggregates, window functions, and FSq
 
     // Also with record return and empty row fallback in ExecuteScalarWithPlan
     let emptyConn =
-        AdvancedMockConnector(ConnectorKind("Sqlite"), onExecute = (fun _ _ -> { Columns = []; Rows = []; RawSql = None; Parameters = [] }))
+        AdvancedMockConnector(
+            ConnectorKind("Sqlite"),
+            onExecute =
+                (fun _ _ ->
+                    {
+                        Columns = []
+                        Rows = []
+                        RawSql = None
+                        Parameters = []
+                    })
+        )
 
     let emptyProds = SqlPushdownQueryable<CovProduct>(emptyConn, "Products")
     let emptySum = emptyProds.Sum<decimal>("Price")

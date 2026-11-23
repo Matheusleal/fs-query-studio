@@ -399,7 +399,14 @@ module DialectAndExtensionsFullCoverageTests =
                 member _.ConnectionString = "Data Source=:memory:"
                 member _.TestConnectionAsync(_) = Task.FromResult true
                 member _.DiscoverSchemaAsync(_) = Task.FromResult []
-                member _.ExecuteQuery _ _ = { Columns = [ "Plan" ]; Rows = []; RawSql = None; Parameters = [] }
+
+                member _.ExecuteQuery _ _ =
+                    {
+                        Columns = [ "Plan" ]
+                        Rows = []
+                        RawSql = None
+                        Parameters = []
+                    }
             }
 
         let explainEmpty =
