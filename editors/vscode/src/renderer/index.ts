@@ -68,6 +68,10 @@ const STYLE = `
 .fsq-schema .fsq-cell { flex: 1 1 0; min-width: 96px; }
 
 .fsq-raw-query { padding: 10px 14px; max-height: 420px; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+.fsq-raw-query[hidden],
+.fsq-schema[hidden],
+.fsq-head[hidden],
+.fsq-viewport[hidden] { display: none !important; }
 .fsq-raw-query-header { display: flex; align-items: center; justify-content: space-between; }
 .fsq-raw-query-title { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.8; }
 .fsq-raw-query-actions { display: inline-flex; gap: 6px; }
@@ -276,9 +280,14 @@ export function activate(context: RendererContextLike): {
     grid.els.schemaBtn.classList.toggle("active", view === "schema");
     grid.els.rawQueryBtn.classList.toggle("active", view === "rawQuery");
     grid.els.head.hidden = view !== "data";
+    grid.els.head.style.display = view === "data" ? "" : "none";
     grid.els.viewport.hidden = view !== "data";
+    grid.els.viewport.style.display = view === "data" ? "" : "none";
     grid.els.schema.hidden = view !== "schema";
+    grid.els.schema.style.display = view === "schema" ? "" : "none";
     grid.els.rawQuery.hidden = view !== "rawQuery";
+    grid.els.rawQuery.style.display = view === "rawQuery" ? "flex" : "none";
+    grid.els.loadMore.hidden = view !== "data" || !grid.token;
   }
 
   function build(item: OutputItemLike, element: HTMLElement): Grid {
@@ -349,6 +358,7 @@ export function activate(context: RendererContextLike): {
     const schema = document.createElement("div");
     schema.className = "fsq-schema";
     schema.hidden = true;
+    schema.style.display = "none";
     const schemaHead = document.createElement("div");
     schemaHead.className = "fsq-row";
     schemaHead.innerHTML = `<div class="fsq-cell">name</div><div class="fsq-cell">displayType</div>`;
@@ -373,6 +383,7 @@ export function activate(context: RendererContextLike): {
     const rawQuery = document.createElement("div");
     rawQuery.className = "fsq-raw-query";
     rawQuery.hidden = true;
+    rawQuery.style.display = "none";
 
     if (payload.rawQuery) {
       const header = document.createElement("div");

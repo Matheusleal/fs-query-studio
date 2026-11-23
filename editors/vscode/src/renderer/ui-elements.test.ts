@@ -383,6 +383,7 @@ describe("Results Grid UI Elements & Interactivity", () => {
       const rawQuery = container.querySelector(".fsq-raw-query") as HTMLElement;
 
       expect(rawQuery.hidden).toBe(true);
+      expect(rawQuery.style.display).toBe("none");
 
       // Click Raw Query
       rawQueryBtn.click();
@@ -390,8 +391,11 @@ describe("Results Grid UI Elements & Interactivity", () => {
       expect(dataBtn.classList.contains("active")).toBe(false);
       expect(schemaBtn.classList.contains("active")).toBe(false);
       expect(head.hidden).toBe(true);
+      expect(head.style.display).toBe("none");
       expect(viewport.hidden).toBe(true);
+      expect(viewport.style.display).toBe("none");
       expect(rawQuery.hidden).toBe(false);
+      expect(rawQuery.style.display).toBe("flex");
 
       // Verify SQL code
       const sqlCode = rawQuery.querySelector(".fsq-sql-box code");
@@ -428,7 +432,9 @@ describe("Results Grid UI Elements & Interactivity", () => {
       expect(dataBtn.classList.contains("active")).toBe(true);
       expect(rawQueryBtn.classList.contains("active")).toBe(false);
       expect(rawQuery.hidden).toBe(true);
+      expect(rawQuery.style.display).toBe("none");
       expect(viewport.hidden).toBe(false);
+      expect(viewport.style.display).toBe("");
     });
 
     it("displays empty message when result has no raw SQL query executed", () => {
@@ -458,6 +464,37 @@ describe("Results Grid UI Elements & Interactivity", () => {
       const rawQuery = container.querySelector(".fsq-raw-query") as HTMLElement;
       const paramVal = rawQuery.querySelector(".fsq-param-val");
       expect(paramVal?.textContent).toBe("NULL");
+    });
+
+    it("ensures raw query view is hidden with display none when switching between Data and Schema views", () => {
+      host.renderOutputItem(
+        createItem("out-tabs", samplePayload({ rawQuery: "SELECT 1", parameters: [] })),
+        container,
+      );
+
+      const rawQuery = container.querySelector(".fsq-raw-query") as HTMLElement;
+      const dataBtn = container.querySelector('button[data-view="data"]') as HTMLButtonElement;
+      const schemaBtn = container.querySelector('button[data-view="schema"]') as HTMLButtonElement;
+      const rawQueryBtn = container.querySelector('button[data-view="rawQuery"]') as HTMLButtonElement;
+
+      // Initially on Data tab
+      expect(rawQuery.hidden).toBe(true);
+      expect(rawQuery.style.display).toBe("none");
+
+      // Switch to Schema
+      schemaBtn.click();
+      expect(rawQuery.hidden).toBe(true);
+      expect(rawQuery.style.display).toBe("none");
+
+      // Switch to Raw Query
+      rawQueryBtn.click();
+      expect(rawQuery.hidden).toBe(false);
+      expect(rawQuery.style.display).toBe("flex");
+
+      // Switch back to Data
+      dataBtn.click();
+      expect(rawQuery.hidden).toBe(true);
+      expect(rawQuery.style.display).toBe("none");
     });
   });
 
