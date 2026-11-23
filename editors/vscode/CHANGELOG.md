@@ -8,11 +8,20 @@ follows [Keep a Changelog](https://keepachangelog.com/); version numbers are the
 
 ## [Unreleased]
 
+## [0.8.0] — 2026-11-23
+
 ### Added
 
+- **Raw Query Tab in Notebook Cell Results** — Interactive "Raw Query" tab in the notebook result viewer exposing the translated native SQL statement, bound parameter table (`@p0`, `@p1`), and a one-click copy button for quick query debugging and profiling.
 - **Dedicated `isNotNull`, `isNotEmpty`, and `isNotNullOrEmpty` Predicates** — First-class null and empty filtering in `fsql` `where (...)` clauses pushed down to native SQL (`IS NOT NULL` and `<> ''` / `LENGTH(...) > 0` on Oracle).
 - **Multi-Database Discovery & Hierarchical Tree Mapping (`Connection -> Database -> [Schema ->] Table -> Column`)** — Server-based SQL connectors (`SqlServer`, `PostgreSql`, `MySql`, `MariaDb`, `Oracle`) now discover all accessible databases on the server and expose them as a multi-level tree in both the VS Code Connections Explorer (`tree.ts`) and generated F# entities (`Connections.sql.<Conn>.<Database>.[<Schema>.]<Table>`), while preserving root-level shortcuts (`Connections.sql.<Conn>.<Table>`) for the default database.
 - **Direct SQLite Engine Queries on Mapped CSV, XML, JSON & Excel Connections** — Added `.rawQuery`, `.query<'T>`, and `.Execute` directly on `Connections.csv.<Conn>`, `Connections.xml.<Conn>`, `Connections.json.<Conn>`, and `Connections.excel.<Conn>`, with automatic on-demand staging in `.fsqs/cache/engine.db` and SQLite `VIEW` aliases (`<FileBaseName>`, `<TableName>`, `<Conn>_<TableName>`, `<Conn>`).
+- **Graphify Knowledge Graph Integration & AI Rules** — Built-in codebase knowledge graph integration with `.agents/rules/graphify.md`, `.agents/workflows/graphify.md`, and automated local ignore rules in `.gitignore` protecting repository history.
+
+### Changed
+
+- **Architecture Decoupling & Concurrency Hardening** — Single-stream SQLite writer queue, asynchronous secret store bridge, and modularized frontend connection controllers.
+- **Strict 100% Test Coverage Across All Classes** — Enforced 100.00% line coverage and at least 2 distinct tests per scenario rule across all connector, query, and worker handler components.
 
 ### Fixed
 

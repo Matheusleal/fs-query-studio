@@ -458,3 +458,6 @@ editors/vscode/.vite/
 *.vsix
 
 .fake
+
+# Graphify knowledge graph
+graphify-out/
