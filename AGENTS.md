@@ -17,13 +17,25 @@
 - O fluxo obrigatório para toda alteração é:
   1. Criar e alternar para uma nova branch (`git checkout -b feature/...`).
   2. Implementar as mudanças.
-  3. Comitar na branch de trabalho (`git commit`).
-  4. Executar e validar todos os testes (local e container Linux).
-  5. Executar o build completo e empacotamento: `dotnet fsi .\build.fsx release` (e opcionalmente testar instalação: `code --install-extension editors/vscode/fs-query-studio.vsix --force`).
-  6. Se houver falhas, corrigir e recomitar na branch até que tudo passe.
-  7. Enviar para o repositório remoto (`git push -u origin feature/...`).
-  8. **Somente após tudo testado, construído e funcionando**: Abrir o Pull Request via GitHub CLI (`gh pr create`).
-  9. Aguardar o usuário ou a aprovação/merge do PR.
+  3. Formatar todo o código F# com o Fantomas (`dotnet fantomas build.fsx src tests`) e verificar conformidade (`dotnet fantomas src tests build.fsx --check`).
+  4. Comitar na branch de trabalho (`git commit`).
+  5. Executar e validar todos os testes (local e container Linux).
+  6. Executar o build completo e empacotamento: `dotnet fsi .\build.fsx release` (e opcionalmente testar instalação: `code --install-extension editors/vscode/fs-query-studio.vsix --force`).
+  7. Se houver falhas, corrigir e recomitar na branch até que tudo passe.
+  8. Enviar para o repositório remoto (`git push -u origin feature/...`).
+  9. **Somente após tudo testado, construído e funcionando**: Abrir o Pull Request via GitHub CLI (`gh pr create`).
+  10. Aguardar o usuário ou a aprovação/merge do PR.
+
+## Regra Obrigatória: Formatação F# com Fantomas Antes de Qualquer Commit
+- **É estritamente obrigatório executar a formatação do código F# com o Fantomas antes de efetuar qualquer commit**:
+  ```powershell
+  dotnet fantomas build.fsx src tests
+  ```
+- **Validação de conformidade**:
+  ```powershell
+  dotnet fantomas src tests build.fsx --check
+  ```
+- Nenhum commit ou Pull Request pode conter arquivos F# (`.fs`, `.fsi`, `.fsx`) fora do padrão de formatação do Fantomas. O CI falhará imediatamente no step `Check F# Code Formatting (Fantomas)` caso haja divergência.
 
 ## Regra Obrigatória: Validação de Build de Release & Empacotamento VSIX
 - Antes de abrir qualquer Pull Request ou considerar qualquer alteração concluída, é **estritamente obrigatório** executar o build completo via:
@@ -88,6 +100,17 @@
     2. **Full Build & Release Validation**: `dotnet fsi .\build.fsx release` has been executed and passed with 100% success (exit code 0), verifying backend Release build, extension TypeScript compilation (`tsc --noEmit && node esbuild.mjs`), and VSIX packaging (`vsce package`).
     3. All tests have been executed and pass with 100% success locally and in the Linux container (`docker run ...`).
     4. There are no broken, hanging, or pending tests.
+
+## Mandatory Rule: F# Code Formatting with Fantomas Before Committing (English)
+- **It is strictly mandatory to format all F# code using Fantomas before making any commit**:
+  ```powershell
+  dotnet fantomas build.fsx src tests
+  ```
+- **Validation check**:
+  ```powershell
+  dotnet fantomas src tests build.fsx --check
+  ```
+- No commit or Pull Request may contain unformatted F# files (`.fs`, `.fsi`, `.fsx`). CI will fail immediately at the `Check F# Code Formatting (Fantomas)` step if any formatting discrepancies exist.
 
 ## Mandatory Rule: Full Release Build & VSIX Packaging Validation (English)
 - Before opening any Pull Request or marking any change complete, it is **strictly mandatory** to run the full release build via:
