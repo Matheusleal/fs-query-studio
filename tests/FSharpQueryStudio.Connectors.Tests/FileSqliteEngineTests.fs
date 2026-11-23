@@ -1054,6 +1054,8 @@ let ``FileSqliteEngine EnsureStaged handles column type overrides and row value 
                         DBNull.Value // DBNull cell
                     |]
                 |]
+            RawSql = None
+            Parameters = []
         }
 
     let fakePath = Path.Combine(Path.GetTempPath(), $"fake-data-{Guid.NewGuid():N}.dat")
@@ -1131,6 +1133,8 @@ let ``FileSqliteEngine IsStagedAndCurrent and DropStaleTableIfExists handle edge
                     {
                         Columns = [ "Id"; "Name" ]
                         Rows = [| [| box "1"; box "Alpha" |] |]
+                        RawSql = None
+                        Parameters = []
                     })
             )
 
@@ -1179,6 +1183,8 @@ let ``FileSqliteEngine EnsureStaged handles empty columns, inferred affinities, 
                     {
                         Columns = []
                         Rows = [| [| box "single_val" |] |]
+                        RawSql = None
+                        Parameters = []
                     }),
                 onProgress = throwingCb
             )
@@ -1232,6 +1238,8 @@ let ``FileSqliteEngine EnsureStaged handles empty columns, inferred affinities, 
                             null
                         |]
                     |]
+                RawSql = None
+                Parameters = []
             }
 
         let stagedInferred =

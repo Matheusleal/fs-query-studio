@@ -92,17 +92,23 @@ type AdvancedMockConnector(kind: ConnectorKind, ?onExecute: string -> (string * 
                     {
                         Columns = [ "PLAN_TABLE_OUTPUT" ]
                         Rows = [ [| box "PLAN_LINE_1" |]; [| box "PLAN_LINE_2" |] ]
+                        RawSql = Some sql
+                        Parameters = parameters
                     }
                 | "MySql"
                 | "MariaDb" ->
                     {
                         Columns = [ "id"; "select_type"; "table" ]
                         Rows = [ [| box "1"; box "SIMPLE"; box "Products" |] ]
+                        RawSql = Some sql
+                        Parameters = parameters
                     }
                 | _ ->
                     {
                         Columns = [ "detail" ]
                         Rows = [ [| box "1"; box "0"; box "0"; box "SCAN TABLE Products" |] ]
+                        RawSql = Some sql
+                        Parameters = parameters
                     }
 
 type DummyWithToRawSql() =
@@ -990,6 +996,8 @@ let ``SqlPushdownQueryProvider non-streaming execution and LINQ provider methods
                     {
                         Columns = [ "cnt" ]
                         Rows = [ [| box 42 |] ]
+                        RawSql = Some sql
+                        Parameters = parms
                     }
                 elif sql.Contains("Products") then
                     {
@@ -1015,11 +1023,15 @@ let ``SqlPushdownQueryProvider non-streaming execution and LINQ provider methods
                                     box (DateTime(2026, 2, 2))
                                 |]
                             ]
+                        RawSql = Some sql
+                        Parameters = parms
                     }
                 else
                     {
                         Columns = [ "val" ]
                         Rows = [ [| box 99 |] ]
+                        RawSql = Some sql
+                        Parameters = parms
                     }
         )
 
@@ -4395,6 +4407,8 @@ let ``Deep coverage of Pushdown internals, aggregates, window functions, and FSq
         {
             Columns = [ "val" ]
             Rows = [ [| box 42.0M |] ]
+            RawSql = Some sql
+            Parameters = parms
         }
 
     let conn = AdvancedMockConnector(ConnectorKind("Sqlite"), onExecute = mockOnExec)
@@ -4423,7 +4437,17 @@ let ``Deep coverage of Pushdown internals, aggregates, window functions, and FSq
 
     // Also with record return and empty row fallback in ExecuteScalarWithPlan
     let emptyConn =
-        AdvancedMockConnector(ConnectorKind("Sqlite"), onExecute = (fun _ _ -> { Columns = []; Rows = [] }))
+        AdvancedMockConnector(
+            ConnectorKind("Sqlite"),
+            onExecute =
+                (fun _ _ ->
+                    {
+                        Columns = []
+                        Rows = []
+                        RawSql = None
+                        Parameters = []
+                    })
+        )
 
     let emptyProds = SqlPushdownQueryable<CovProduct>(emptyConn, "Products")
     let emptySum = emptyProds.Sum<decimal>("Price")
@@ -4437,6 +4461,8 @@ let ``Deep coverage of Pushdown internals, aggregates, window functions, and FSq
                     {
                         Columns = [ "OrderId"; "CustomerId"; "Amount"; "Status" ]
                         Rows = [ [| box 101; box 1; box 50.0M; box "OK" |] ]
+                        RawSql = None
+                        Parameters = []
                     })
         )
 
@@ -4457,6 +4483,8 @@ let ``Deep coverage of Pushdown internals, aggregates, window functions, and FSq
                     {
                         Columns = [ "val" ]
                         Rows = [ [| box 7 |] ]
+                        RawSql = None
+                        Parameters = []
                     })
         )
 

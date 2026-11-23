@@ -1486,6 +1486,8 @@ let ``Connections query and DatabaseConnection fall back when connector is non-s
         {
             Columns = [ "Id"; "Title" ]
             Rows = [| [| box 10; box "NonStreamingItem" |] |]
+            RawSql = None
+            Parameters = []
         }
 
     let mockSql =
@@ -2042,7 +2044,16 @@ let ``Connections getMapper and sql category coverage helpers`` () =
 
     // 4. QueryInspectionExtensions
     let mockSql =
-        NonStreamingMockConnector(ConnectorKind.Sqlite, "Data Source=:memory:", { Columns = [ "Id" ]; Rows = [||] })
+        NonStreamingMockConnector(
+            ConnectorKind.Sqlite,
+            "Data Source=:memory:",
+            {
+                Columns = [ "Id" ]
+                Rows = [||]
+                RawSql = None
+                Parameters = []
+            }
+        )
 
     let qObj = SqlPushdownQueryable<SimpleItem>(mockSql, "SimpleItem")
     let sqlVal = QueryInspectionExtensions.toRawSql qObj
@@ -2054,19 +2065,46 @@ let ``Connections getMapper and sql category coverage helpers`` () =
 
     // 5. GenerateSqlProvider dialects
     let pgMock =
-        NonStreamingMockConnector(ConnectorKind.PostgreSql, "Host=localhost", { Columns = []; Rows = [||] })
+        NonStreamingMockConnector(
+            ConnectorKind.PostgreSql,
+            "Host=localhost",
+            {
+                Columns = []
+                Rows = [||]
+                RawSql = None
+                Parameters = []
+            }
+        )
 
     let pgConn = Connections.DatabaseConnection("PgDb", pgMock)
     Assert.Contains("POSTGRESQL", pgConn.GenerateSqlProvider())
 
     let msMock =
-        NonStreamingMockConnector(ConnectorKind.SqlServer, "Server=localhost", { Columns = []; Rows = [||] })
+        NonStreamingMockConnector(
+            ConnectorKind.SqlServer,
+            "Server=localhost",
+            {
+                Columns = []
+                Rows = [||]
+                RawSql = None
+                Parameters = []
+            }
+        )
 
     let msConn = Connections.DatabaseConnection("MsDb", msMock)
     Assert.Contains("MSSQLSERVER", msConn.GenerateSqlProvider())
 
     let myMock =
-        NonStreamingMockConnector(ConnectorKind.MySql, "Server=localhost", { Columns = []; Rows = [||] })
+        NonStreamingMockConnector(
+            ConnectorKind.MySql,
+            "Server=localhost",
+            {
+                Columns = []
+                Rows = [||]
+                RawSql = None
+                Parameters = []
+            }
+        )
 
     let myConn = Connections.DatabaseConnection("MyDb", myMock)
     Assert.Contains("POSTGRESQL", myConn.GenerateSqlProvider())
@@ -2528,7 +2566,13 @@ let ``DatabaseConnection.GenerateEntities maps multi-database and multi-schema t
             member _.ConnectionString =
                 "Server=localhost;Database=EcommerceDb;User Id=sa;Password=secret;"
 
-            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+            member _.ExecuteQuery _ _ =
+                {
+                    Columns = []
+                    Rows = Seq.empty
+                    RawSql = None
+                    Parameters = []
+                }
           interface IConnector with
               member _.Kind = ConnectorKind.SqlServer
 
@@ -2738,7 +2782,14 @@ let ``DatabaseConnection.GenerateEntities supports PostgreSQL, MySQL, MariaDB an
     let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
         { new IQueryableConnector with
             member _.ConnectionString = connStr
-            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+
+            member _.ExecuteQuery _ _ =
+                {
+                    Columns = []
+                    Rows = Seq.empty
+                    RawSql = None
+                    Parameters = []
+                }
           interface IConnector with
               member _.Kind = kind
 
@@ -2818,7 +2869,14 @@ let ``DatabaseConnection.GenerateEntities maps string and varchar types to strin
     let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
         { new IQueryableConnector with
             member _.ConnectionString = connStr
-            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+
+            member _.ExecuteQuery _ _ =
+                {
+                    Columns = []
+                    Rows = Seq.empty
+                    RawSql = None
+                    Parameters = []
+                }
           interface IConnector with
               member _.Kind = kind
 
@@ -2876,7 +2934,14 @@ let ``DatabaseConnection.GenerateEntities maps numeric and integral types correc
     let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
         { new IQueryableConnector with
             member _.ConnectionString = connStr
-            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+
+            member _.ExecuteQuery _ _ =
+                {
+                    Columns = []
+                    Rows = Seq.empty
+                    RawSql = None
+                    Parameters = []
+                }
           interface IConnector with
               member _.Kind = kind
 
@@ -2932,7 +2997,14 @@ let ``DatabaseConnection.GenerateEntities emits top-level and direct sub-schema 
     let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
         { new IQueryableConnector with
             member _.ConnectionString = connStr
-            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+
+            member _.ExecuteQuery _ _ =
+                {
+                    Columns = []
+                    Rows = Seq.empty
+                    RawSql = None
+                    Parameters = []
+                }
           interface IConnector with
               member _.Kind = kind
 
@@ -2992,7 +3064,14 @@ let ``DatabaseConnection.GenerateEntities emits top-level and schema properties 
     let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
         { new IQueryableConnector with
             member _.ConnectionString = connStr
-            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+
+            member _.ExecuteQuery _ _ =
+                {
+                    Columns = []
+                    Rows = Seq.empty
+                    RawSql = None
+                    Parameters = []
+                }
           interface IConnector with
               member _.Kind = kind
 
@@ -3036,7 +3115,14 @@ let ``DatabaseConnection.GenerateEntities maps string variants case-insensitivel
     let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
         { new IQueryableConnector with
             member _.ConnectionString = connStr
-            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+
+            member _.ExecuteQuery _ _ =
+                {
+                    Columns = []
+                    Rows = Seq.empty
+                    RawSql = None
+                    Parameters = []
+                }
           interface IConnector with
               member _.Kind = kind
 
@@ -3101,7 +3187,14 @@ let ``DatabaseConnection.GenerateEntities falls back to obj safely for unknown c
     let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
         { new IQueryableConnector with
             member _.ConnectionString = connStr
-            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+
+            member _.ExecuteQuery _ _ =
+                {
+                    Columns = []
+                    Rows = Seq.empty
+                    RawSql = None
+                    Parameters = []
+                }
           interface IConnector with
               member _.Kind = kind
 
@@ -3148,7 +3241,14 @@ let ``DatabaseConnection.GenerateEntities escapes F# reserved keywords in table 
     let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
         { new IQueryableConnector with
             member _.ConnectionString = connStr
-            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+
+            member _.ExecuteQuery _ _ =
+                {
+                    Columns = []
+                    Rows = Seq.empty
+                    RawSql = None
+                    Parameters = []
+                }
           interface IConnector with
               member _.Kind = kind
 
@@ -3192,7 +3292,14 @@ let ``DatabaseConnection.GenerateEntities exposes single sub-schema tables at to
     let makeConnector (kind: ConnectorKind) (connStr: string) (tables: ConnectorTable list) =
         { new IQueryableConnector with
             member _.ConnectionString = connStr
-            member _.ExecuteQuery _ _ = { Columns = []; Rows = Seq.empty }
+
+            member _.ExecuteQuery _ _ =
+                {
+                    Columns = []
+                    Rows = Seq.empty
+                    RawSql = None
+                    Parameters = []
+                }
           interface IConnector with
               member _.Kind = kind
 

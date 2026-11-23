@@ -950,13 +950,21 @@ module Connections =
 
         member _.Execute(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
             let p = defaultArg parameters []
+            FSharpQueryStudio.Protocol.LastQueryTracker.Record(sqlText, p)
 
-            match resolver with
-            | Some _ -> executeSqlRaw name sqlText p
-            | None -> connector.ExecuteQuery sqlText p
+            let r =
+                match resolver with
+                | Some _ -> executeSqlRaw name sqlText p
+                | None -> connector.ExecuteQuery sqlText p
+
+            { r with
+                RawSql = Some sqlText
+                Parameters = p
+            }
 
         member this.rawQuery(sqlText: string, ?parameters: (string * obj) list) : ConnectorQueryResult =
             let p = defaultArg parameters []
+            FSharpQueryStudio.Protocol.LastQueryTracker.Record(sqlText, p)
 
             match resolver with
             | Some _ -> this.Execute(sqlText, p)
@@ -965,6 +973,8 @@ module Connections =
                 let r = this.Execute(sqlText, p)
 
                 { r with
+                    RawSql = Some sqlText
+                    Parameters = p
                     Rows = logOnceDrained (connector :> IConnector).Kind stopwatch r.Rows
                 }
 

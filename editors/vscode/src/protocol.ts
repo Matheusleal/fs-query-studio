@@ -104,6 +104,12 @@ export interface OutputLine {
   text: string;
 }
 
+export interface QueryParameter {
+  name: string;
+  value: unknown;
+  displayType?: string | null;
+}
+
 /**
  * Mirror of `FSharpQueryStudio.Protocol.ResultEnvelope`. `displayText` and
  * `continuationToken` are F# `string option`, which FSharp.SystemTextJson
@@ -118,6 +124,8 @@ export interface ResultEnvelope {
   continuationToken: string | null;
   elapsedMs: number;
   output: OutputLine[];
+  rawQuery?: string | null;
+  parameters?: QueryParameter[] | null;
 }
 
 // --- F4: analysis/* request + response payloads ---

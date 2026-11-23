@@ -370,7 +370,33 @@ let ``ResultEnvelope, Column, and OutputLine types can be constructed and access
             ContinuationToken = None
             ElapsedMs = 10L
             Output = [ outLine ]
+            RawQuery = None
+            Parameters = []
         }
 
     Assert.Equal(ResultKind.Scalar, env.Kind)
     Assert.Equal(Some "42", env.DisplayText)
+    Assert.Null(env.RawQuery |> Option.toObj)
+    Assert.Empty(env.Parameters)
+
+    // Test QueryParameter and LastQueryTracker
+    let qp: QueryParameter =
+        {
+            Name = "@id"
+            Value = box 42
+            DisplayType = "int"
+        }
+
+    Assert.Equal("@id", qp.Name)
+    Assert.Equal(box 42, qp.Value)
+    Assert.Equal("int", qp.DisplayType)
+
+    LastQueryTracker.Reset()
+    Assert.True(LastQueryTracker.Current.IsNone)
+    LastQueryTracker.Record("SELECT 1", [ "@p", box 10 ])
+    Assert.True(LastQueryTracker.Current.IsSome)
+    let sql, parms = LastQueryTracker.Current.Value
+    Assert.Equal("SELECT 1", sql)
+    Assert.Equal(1, parms.Length)
+    LastQueryTracker.Reset()
+    Assert.True(LastQueryTracker.Current.IsNone)

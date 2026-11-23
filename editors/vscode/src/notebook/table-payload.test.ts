@@ -44,6 +44,8 @@ describe("buildTablePayload", () => {
       truncated: false,
       continuationToken: null,
       elapsedMs: 9,
+      rawQuery: null,
+      parameters: null,
     });
   });
 
@@ -69,5 +71,29 @@ describe("buildTablePayload", () => {
     );
     expect(payload.columns).toEqual([]);
     expect(payload.rows).toEqual([]);
+  });
+
+  it("propagates rawQuery and parameters from ResultEnvelope", () => {
+    const payload = buildTablePayload(
+      tableEnv({
+        rawQuery: "SELECT id, name FROM users WHERE age > @minAge",
+        parameters: [{ name: "@minAge", value: 18, displayType: "int" }],
+      }),
+      "file:///query.fsqnb",
+    );
+    expect(payload.rawQuery).toBe("SELECT id, name FROM users WHERE age > @minAge");
+    expect(payload.parameters).toEqual([{ name: "@minAge", value: 18, displayType: "int" }]);
+  });
+
+  it("defaults rawQuery and parameters to null when undefined in envelope", () => {
+    const payload = buildTablePayload(
+      tableEnv({
+        rawQuery: undefined,
+        parameters: undefined,
+      }),
+      "file:///query.fsqnb",
+    );
+    expect(payload.rawQuery).toBeNull();
+    expect(payload.parameters).toBeNull();
   });
 });

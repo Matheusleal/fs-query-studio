@@ -59,6 +59,64 @@ type OutputStream =
 
 type OutputLine = { Stream: OutputStream; Text: string }
 
+type QueryParameter =
+    {
+        Name: string
+        Value: obj
+        DisplayType: string
+    }
+
+    static member InferDisplayType(value: obj) : string =
+        match value with
+        | null -> "null"
+        | :? string -> "string"
+        | :? int -> "int"
+        | :? int64 -> "int64"
+        | :? double -> "float"
+        | :? single -> "float32"
+        | :? decimal -> "decimal"
+        | :? bool -> "bool"
+        | :? System.DateTime -> "datetime"
+        | :? System.DateTimeOffset -> "datetimeoffset"
+        | :? System.DateOnly -> "date"
+        | :? System.TimeOnly -> "time"
+        | :? System.Guid -> "guid"
+        | :? (byte array) -> "byte[]"
+        | other ->
+            let t = other.GetType()
+
+            if t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<option<_>> then
+                let innerT = t.GetGenericArguments().[0]
+                sprintf "%s option" innerT.Name
+            else
+                t.Name
+
+    static member Create(name: string, value: obj) =
+        {
+            Name = name
+            Value = value
+            DisplayType = QueryParameter.InferDisplayType value
+        }
+
+[<AllowNullLiteral>]
+type private TrackedQuery(sql: string, parameters: (string * obj) list) =
+    member _.Sql = sql
+    member _.Parameters = parameters
+
+type LastQueryTracker private () =
+    static let currentQuery = new System.Threading.AsyncLocal<TrackedQuery>()
+
+    static member Record(sql: string, parameters: (string * obj) list) =
+        currentQuery.Value <- TrackedQuery(sql, parameters)
+
+    static member Reset() = currentQuery.Value <- null
+
+    static member Current: (string * (string * obj) list) option =
+        match currentQuery.Value with
+        | null -> None
+        | t when not (System.String.IsNullOrWhiteSpace t.Sql) -> Some(t.Sql, t.Parameters)
+        | _ -> None
+
 type ResultEnvelope =
     {
         Kind: ResultKind
@@ -69,4 +127,6 @@ type ResultEnvelope =
         ContinuationToken: string option
         ElapsedMs: int64
         Output: OutputLine list
+        RawQuery: string option
+        Parameters: QueryParameter list
     }

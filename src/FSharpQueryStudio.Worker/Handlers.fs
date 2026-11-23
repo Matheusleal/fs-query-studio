@@ -469,6 +469,7 @@ module Handlers =
 
                     FsiSession.createInWorkspace effectiveWorkDir targetWs
 
+            FSharpQueryStudio.Protocol.LastQueryTracker.Reset()
             let outcome = Evaluation.evaluate session evalParams.Source
             stopwatch.Stop()
 
@@ -558,7 +559,28 @@ module Handlers =
                             sessionTokens.[sessionKey] <- token
                             token)
 
-                    { projected with
+                    let projectedWithQuery =
+                        if projected.RawQuery.IsSome then
+                            projected
+                        else
+                            match FSharpQueryStudio.Protocol.LastQueryTracker.Current with
+                            | Some(sql, parms) when not (String.IsNullOrWhiteSpace sql) ->
+                                let formatted =
+                                    try
+                                        FSharpQueryStudio.Connectors.SqlPushdownFormatting.formatSql sql
+                                    with _ ->
+                                        sql
+
+                                { projected with
+                                    RawQuery = Some formatted
+                                    Parameters =
+                                        parms
+                                        |> List.map (fun (name, v) ->
+                                            FSharpQueryStudio.Protocol.QueryParameter.Create(name, v))
+                                }
+                            | _ -> projected
+
+                    { projectedWithQuery with
                         Output = output
                         ContinuationToken = continuationToken
                     }

@@ -91,6 +91,7 @@ describe("Results Grid UI Elements & Interactivity", () => {
 
       const dataBtn = seg?.querySelector('button[data-view="data"]') as HTMLButtonElement;
       const schemaBtn = seg?.querySelector('button[data-view="schema"]') as HTMLButtonElement;
+      const rawQueryBtn = seg?.querySelector('button[data-view="rawQuery"]') as HTMLButtonElement;
 
       expect(dataBtn).toBeTruthy();
       expect(dataBtn.textContent).toBe("Data");
@@ -99,6 +100,10 @@ describe("Results Grid UI Elements & Interactivity", () => {
       expect(schemaBtn).toBeTruthy();
       expect(schemaBtn.textContent).toBe("Schema");
       expect(schemaBtn.classList.contains("active")).toBe(false);
+
+      expect(rawQueryBtn).toBeTruthy();
+      expect(rawQueryBtn.textContent).toBe("Raw Query");
+      expect(rawQueryBtn.classList.contains("active")).toBe(false);
     });
 
     it("renders row count indicator with correct pluralization and numbers", () => {
@@ -359,6 +364,146 @@ describe("Results Grid UI Elements & Interactivity", () => {
       expect(head.hidden).toBe(false);
       expect(viewport.hidden).toBe(false);
       expect(schema.hidden).toBe(true);
+    });
+  });
+
+  describe("Raw Query View Toggle UI", () => {
+    it("switches to raw query view with formatted SQL and parameters, and provides working copy button", () => {
+      const payloadWithQuery = samplePayload({
+        rawQuery: "SELECT id, title, price FROM products WHERE price > @minPrice",
+        parameters: [{ name: "@minPrice", value: 19.99 }],
+      });
+      host.renderOutputItem(createItem("out-query", payloadWithQuery), container);
+
+      const rawQueryBtn = container.querySelector('button[data-view="rawQuery"]') as HTMLButtonElement;
+      const dataBtn = container.querySelector('button[data-view="data"]') as HTMLButtonElement;
+      const schemaBtn = container.querySelector('button[data-view="schema"]') as HTMLButtonElement;
+      const head = container.querySelector(".fsq-head") as HTMLElement;
+      const viewport = container.querySelector(".fsq-viewport") as HTMLElement;
+      const rawQuery = container.querySelector(".fsq-raw-query") as HTMLElement;
+
+      expect(rawQuery.hidden).toBe(true);
+      expect(rawQuery.style.display).toBe("none");
+
+      // Click Raw Query
+      rawQueryBtn.click();
+      expect(rawQueryBtn.classList.contains("active")).toBe(true);
+      expect(dataBtn.classList.contains("active")).toBe(false);
+      expect(schemaBtn.classList.contains("active")).toBe(false);
+      expect(head.hidden).toBe(true);
+      expect(head.style.display).toBe("none");
+      expect(viewport.hidden).toBe(true);
+      expect(viewport.style.display).toBe("none");
+      expect(rawQuery.hidden).toBe(false);
+      expect(rawQuery.style.display).toBe("flex");
+
+      // Verify SQL code
+      const sqlCode = rawQuery.querySelector(".fsq-sql-box code");
+      expect(sqlCode?.textContent).toContain("SELECT id, title, price FROM products");
+
+      // Verify parameters table
+      const paramsTitle = rawQuery.querySelector(".fsq-params-title");
+      expect(paramsTitle?.textContent).toBe("Parameters (1)");
+      const headers = rawQuery.querySelectorAll(".fsq-params-table thead th");
+      expect(headers).toHaveLength(3);
+      expect(headers[0].textContent).toBe("Parameter");
+      expect(headers[1].textContent).toBe("Type");
+      expect(headers[2].textContent).toBe("Value");
+
+      const paramRows = rawQuery.querySelectorAll(".fsq-params-table tbody tr");
+      expect(paramRows).toHaveLength(1);
+      expect(paramRows[0].querySelector(".fsq-param-name")?.textContent).toBe("@minPrice");
+      expect(paramRows[0].querySelector(".fsq-param-type")?.textContent).toBe("number");
+      expect(paramRows[0].querySelector(".fsq-param-val")?.textContent).toBe("19.99");
+
+      // Verify Copy button functionality
+      let copiedText = "";
+      Object.assign(navigator, {
+        clipboard: {
+          writeText: (text: string) => {
+            copiedText = text;
+            return Promise.resolve();
+          },
+        },
+      });
+
+      const copyBtn = rawQuery.querySelector(".fsq-copy-query") as HTMLButtonElement;
+      expect(copyBtn).toBeTruthy();
+      expect(copyBtn.textContent).toBe("Copy");
+      copyBtn.click();
+      expect(copiedText).toBe("SELECT id, title, price FROM products WHERE price > @minPrice");
+      expect(copyBtn.textContent).toBe("Copied!");
+
+      // Toggle back to Data
+      dataBtn.click();
+      expect(dataBtn.classList.contains("active")).toBe(true);
+      expect(rawQueryBtn.classList.contains("active")).toBe(false);
+      expect(rawQuery.hidden).toBe(true);
+      expect(rawQuery.style.display).toBe("none");
+      expect(viewport.hidden).toBe(false);
+      expect(viewport.style.display).toBe("");
+    });
+
+    it("displays empty message when result has no raw SQL query executed", () => {
+      host.renderOutputItem(createItem("out-empty-q", samplePayload({ rawQuery: null, parameters: null })), container);
+
+      const rawQueryBtn = container.querySelector('button[data-view="rawQuery"]') as HTMLButtonElement;
+      rawQueryBtn.click();
+
+      const rawQuery = container.querySelector(".fsq-raw-query") as HTMLElement;
+      expect(rawQuery.hidden).toBe(false);
+      const emptyEl = rawQuery.querySelector(".fsq-empty");
+      expect(emptyEl?.textContent).toBe("No raw SQL query was executed for this result.");
+      expect(rawQuery.querySelector(".fsq-sql-box")).toBeNull();
+      expect(rawQuery.querySelector(".fsq-params-table")).toBeNull();
+    });
+
+    it("renders parameters with null values as NULL in the parameters table", () => {
+      const payloadWithNullParam = samplePayload({
+        rawQuery: "SELECT * FROM orders WHERE status = @status",
+        parameters: [{ name: "@status", value: null }],
+      });
+      host.renderOutputItem(createItem("out-null-param", payloadWithNullParam), container);
+
+      const rawQueryBtn = container.querySelector('button[data-view="rawQuery"]') as HTMLButtonElement;
+      rawQueryBtn.click();
+
+      const rawQuery = container.querySelector(".fsq-raw-query") as HTMLElement;
+      const paramType = rawQuery.querySelector(".fsq-param-type");
+      const paramVal = rawQuery.querySelector(".fsq-param-val");
+      expect(paramType?.textContent).toBe("null");
+      expect(paramVal?.textContent).toBe("NULL");
+    });
+
+    it("ensures raw query view is hidden with display none when switching between Data and Schema views", () => {
+      host.renderOutputItem(
+        createItem("out-tabs", samplePayload({ rawQuery: "SELECT 1", parameters: [] })),
+        container,
+      );
+
+      const rawQuery = container.querySelector(".fsq-raw-query") as HTMLElement;
+      const dataBtn = container.querySelector('button[data-view="data"]') as HTMLButtonElement;
+      const schemaBtn = container.querySelector('button[data-view="schema"]') as HTMLButtonElement;
+      const rawQueryBtn = container.querySelector('button[data-view="rawQuery"]') as HTMLButtonElement;
+
+      // Initially on Data tab
+      expect(rawQuery.hidden).toBe(true);
+      expect(rawQuery.style.display).toBe("none");
+
+      // Switch to Schema
+      schemaBtn.click();
+      expect(rawQuery.hidden).toBe(true);
+      expect(rawQuery.style.display).toBe("none");
+
+      // Switch to Raw Query
+      rawQueryBtn.click();
+      expect(rawQuery.hidden).toBe(false);
+      expect(rawQuery.style.display).toBe("flex");
+
+      // Switch back to Data
+      dataBtn.click();
+      expect(rawQuery.hidden).toBe(true);
+      expect(rawQuery.style.display).toBe("none");
     });
   });
 

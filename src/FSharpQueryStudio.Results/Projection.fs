@@ -4,6 +4,7 @@ open System
 open System.Collections
 open System.Collections.Concurrent
 open System.Collections.Generic
+open System.Linq
 open System.Reflection
 open Microsoft.FSharp.Reflection
 open FSharpQueryStudio.Protocol
@@ -54,6 +55,8 @@ module Projection =
             ContinuationToken = None
             ElapsedMs = elapsedMs
             Output = []
+            RawQuery = None
+            Parameters = []
         }
 
     let private recordSchema (t: Type) : Column list =
@@ -767,6 +770,62 @@ module Projection =
         (sourceCode: string option)
         (preferredColumnOrder: string list option)
         : ResultEnvelope * PagingCursor option * RetainedTable option =
+        let resolveQueryAndParams () : string option * QueryParameter list =
+            let fromObj =
+                match value with
+                | null -> None
+                | :? ConnectorQueryResult as cqr ->
+                    match cqr.RawSql with
+                    | Some s when not (String.IsNullOrWhiteSpace s) -> Some(s, cqr.Parameters)
+                    | _ -> None
+                | :? IQueryable as iq ->
+                    try
+                        let sql, parms = ResultKind.toRawSqlWithParameters (box iq)
+
+                        if not (String.IsNullOrWhiteSpace sql) then
+                            Some(sql, parms)
+                        else
+                            None
+                    with _ ->
+                        None
+                | other ->
+                    let t = other.GetType()
+                    let m = t.GetMethod("ToRawSql", Type.EmptyTypes)
+                    let m2 = t.GetMethod("ToRawQuery", Type.EmptyTypes)
+
+                    if not (isNull m) || not (isNull m2) then
+                        try
+                            let sql, parms = ResultKind.toRawSqlWithParameters other
+
+                            if not (String.IsNullOrWhiteSpace sql) then
+                                Some(sql, parms)
+                            else
+                                None
+                        with _ ->
+                            None
+                    else
+                        None
+
+            let resolved =
+                match fromObj with
+                | Some(sql, parms) -> Some(sql, parms)
+                | None ->
+                    match LastQueryTracker.Current with
+                    | Some(sql, parms) when not (String.IsNullOrWhiteSpace sql) -> Some(sql, parms)
+                    | _ -> None
+
+            match resolved with
+            | Some(sql, parms) ->
+                let formatted =
+                    try
+                        FSharpQueryStudio.Connectors.SqlPushdownFormatting.formatSql sql
+                    with _ ->
+                        sql
+
+                let qParams = parms |> List.map (fun (name, v) -> QueryParameter.Create(name, v))
+                Some formatted, qParams
+            | None -> None, []
+
         // Shared builder for the four materialized shapes (record / tuple /
         // dictionary / nested): the preview envelope is truncated to
         // `PreviewRowLimit`, but the full row set is always retained for
@@ -798,12 +857,15 @@ module Projection =
 
             let rectangular = rows |> Array.map padOrTruncate
             let preview = rectangular |> Array.truncate PreviewRowLimit
+            let rawQueryOpt, paramsList = resolveQueryAndParams ()
 
             let envelope =
                 { emptyEnvelope ResultKind.Table elapsedMs with
                     Schema = cols
                     Rows = preview
                     IsTruncated = rectangular.Length > PreviewRowLimit
+                    RawQuery = rawQueryOpt
+                    Parameters = paramsList
                 }
 
             envelope,
@@ -835,12 +897,15 @@ module Projection =
 
                 let allRows = query.Rows |> Array.ofSeq
                 let preview = allRows |> Array.truncate PreviewRowLimit
+                let rawQueryOpt, paramsList = resolveQueryAndParams ()
 
                 let envelope =
                     { emptyEnvelope ResultKind.Table elapsedMs with
                         Schema = columns
                         Rows = preview
                         IsTruncated = allRows.Length > PreviewRowLimit
+                        RawQuery = rawQueryOpt
+                        Parameters = paramsList
                     }
 
                 envelope,
@@ -878,10 +943,16 @@ module Projection =
 
                 if not (e.MoveNext()) then
                     disposeEnumerator ()
+                    let rawQueryOpt, paramsList = resolveQueryAndParams ()
                     // A cell ending in `[]` must not overwrite the notebook's
                     // exportable grid with an empty table — return the empty
                     // Table envelope but retain nothing.
-                    emptyEnvelope ResultKind.Table elapsedMs, None, None
+                    { emptyEnvelope ResultKind.Table elapsedMs with
+                        RawQuery = rawQueryOpt
+                        Parameters = paramsList
+                    },
+                    None,
+                    None
                 else
                     let first = e.Current
                     // The rest of the sequence, still lazy, with element 0 re-prepended.
@@ -1016,12 +1087,15 @@ module Projection =
                         // elements are ever pulled.
                         let cursor = new PagingCursor(full.GetEnumerator())
                         let page, hasMore = cursor.TakePage(PreviewRowLimit)
+                        let rawQueryOpt, paramsList = resolveQueryAndParams ()
 
                         let envelope =
                             { emptyEnvelope ResultKind.Table elapsedMs with
                                 Schema = [ { Name = "Value"; DisplayType = "obj" } ]
                                 Rows = page |> Array.map (fun r -> [| r |])
                                 IsTruncated = hasMore
+                                RawQuery = rawQueryOpt
+                                Parameters = paramsList
                             }
 
                         envelope, (if hasMore then Some cursor else None), None

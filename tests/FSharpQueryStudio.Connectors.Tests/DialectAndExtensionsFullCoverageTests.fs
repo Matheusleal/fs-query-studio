@@ -24,6 +24,8 @@ type DummyExplainConnector(dialectRows: obj array array) =
             {
                 Columns = [ "PlanOutput" ]
                 Rows = dialectRows
+                RawSql = None
+                Parameters = []
             }
 
 type MockProviderConnector() =
@@ -397,7 +399,14 @@ module DialectAndExtensionsFullCoverageTests =
                 member _.ConnectionString = "Data Source=:memory:"
                 member _.TestConnectionAsync(_) = Task.FromResult true
                 member _.DiscoverSchemaAsync(_) = Task.FromResult []
-                member _.ExecuteQuery _ _ = { Columns = [ "Plan" ]; Rows = [] }
+
+                member _.ExecuteQuery _ _ =
+                    {
+                        Columns = [ "Plan" ]
+                        Rows = []
+                        RawSql = None
+                        Parameters = []
+                    }
             }
 
         let explainEmpty =
@@ -416,6 +425,8 @@ module DialectAndExtensionsFullCoverageTests =
                     {
                         Columns = [ "Detail" ]
                         Rows = [ [| box "SCAN TABLE users" |] ]
+                        RawSql = None
+                        Parameters = []
                     }
             }
 
@@ -676,6 +687,8 @@ module DialectAndExtensionsFullCoverageTests =
             {
                 Columns = [ "Id"; "Name"; "Score" ]
                 Rows = [| [| box 1; box "Alice"; box 95.5 |]; [| box 2; box "Bob"; box 88.0 |] |]
+                RawSql = None
+                Parameters = []
             }
 
         let people = result.As<TestPersonRecord>() |> Seq.toList
@@ -695,6 +708,8 @@ module DialectAndExtensionsFullCoverageTests =
             {
                 Columns = [ "Id"; "Name"; "Score" ]
                 Rows = [||]
+                RawSql = None
+                Parameters = []
             }
 
         let people = result.As<TestPersonRecord>() |> Seq.toList

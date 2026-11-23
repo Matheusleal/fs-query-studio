@@ -16,5 +16,7 @@ export function buildTablePayload(env: ResultEnvelope, documentUri: string): Tab
     truncated: env.isTruncated === true,
     continuationToken: env.continuationToken ?? null,
     elapsedMs: env.elapsedMs,
+    rawQuery: env.rawQuery ?? null,
+    parameters: env.parameters ?? null,
   };
 }

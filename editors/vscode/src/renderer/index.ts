@@ -67,6 +67,38 @@ const STYLE = `
 .fsq-schema .fsq-row:first-child { font-weight: 600; border-bottom: 1px solid var(--fsq-border); }
 .fsq-schema .fsq-cell { flex: 1 1 0; min-width: 96px; }
 
+.fsq-raw-query { padding: 10px 14px; max-height: 420px; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+.fsq-raw-query[hidden],
+.fsq-schema[hidden],
+.fsq-head[hidden],
+.fsq-viewport[hidden] { display: none !important; }
+.fsq-raw-query-header { display: flex; align-items: center; justify-content: space-between; }
+.fsq-raw-query-title { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.8; }
+.fsq-raw-query-actions { display: inline-flex; gap: 6px; }
+.fsq-raw-query-actions button { font: inherit; font-size: 12px; line-height: 18px; padding: 2px 8px; cursor: pointer;
+  background: var(--vscode-button-secondaryBackground, transparent);
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  border: 1px solid var(--fsq-border); border-radius: 3px; }
+.fsq-raw-query-actions button:hover { background: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.15)); }
+.fsq-sql-box { margin: 0; padding: 10px 12px; border-radius: 4px; overflow-x: auto;
+  background: var(--vscode-editor-background, rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--fsq-border);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: var(--vscode-editor-font-size, 12px);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text; }
+.fsq-params-section { display: flex; flex-direction: column; gap: 6px; }
+.fsq-params-title { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.8; }
+.fsq-params-table { border-collapse: collapse; width: 100%; border: 1px solid var(--fsq-border); border-radius: 3px; overflow: hidden; }
+.fsq-params-table th, .fsq-params-table td { padding: 4px 10px; text-align: left; border-bottom: 1px solid var(--fsq-border); }
+.fsq-params-table th { font-weight: 600; background: var(--vscode-keybindingTable-headerBackground, rgba(128, 128, 128, 0.08)); }
+.fsq-params-table tr:last-child td { border-bottom: 0; }
+.fsq-param-name { font-family: var(--vscode-editor-font-family, monospace); font-weight: 600; }
+.fsq-param-type { font-family: var(--vscode-editor-font-family, monospace); opacity: 0.8; font-size: 11px; }
+.fsq-param-val { font-family: var(--vscode-editor-font-family, monospace); }
+
 .fsq-loadmore { margin: 6px; padding: 2px 10px; cursor: pointer; font: inherit;
   background: var(--vscode-button-secondaryBackground, transparent);
   color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
@@ -100,7 +132,7 @@ interface Grid {
   payload: TablePayload;
   rows: unknown[][];
   token: string | null;
-  view: "data" | "schema";
+  view: "data" | "schema" | "rawQuery";
   /** Per-column: does its first non-null value read as a number? Drives
    *  right-alignment + tabular figures on the header and every cell. */
   numericCols: boolean[];
@@ -114,10 +146,12 @@ interface Grid {
     sizer: HTMLElement;
     rowsHost: HTMLElement;
     schema: HTMLElement;
+    rawQuery: HTMLElement;
     loadMore: HTMLButtonElement;
     notice: HTMLElement;
     dataBtn: HTMLButtonElement;
     schemaBtn: HTMLButtonElement;
+    rawQueryBtn: HTMLButtonElement;
   };
 }
 
@@ -241,13 +275,20 @@ export function activate(context: RendererContextLike): {
     }
   }
 
-  function setView(grid: Grid, view: "data" | "schema"): void {
+  function setView(grid: Grid, view: "data" | "schema" | "rawQuery"): void {
     grid.view = view;
     grid.els.dataBtn.classList.toggle("active", view === "data");
     grid.els.schemaBtn.classList.toggle("active", view === "schema");
+    grid.els.rawQueryBtn.classList.toggle("active", view === "rawQuery");
     grid.els.head.hidden = view !== "data";
+    grid.els.head.style.display = view === "data" ? "" : "none";
     grid.els.viewport.hidden = view !== "data";
+    grid.els.viewport.style.display = view === "data" ? "" : "none";
     grid.els.schema.hidden = view !== "schema";
+    grid.els.schema.style.display = view === "schema" ? "" : "none";
+    grid.els.rawQuery.hidden = view !== "rawQuery";
+    grid.els.rawQuery.style.display = view === "rawQuery" ? "flex" : "none";
+    grid.els.loadMore.hidden = view !== "data" || !grid.token;
   }
 
   function build(item: OutputItemLike, element: HTMLElement): Grid {
@@ -278,7 +319,10 @@ export function activate(context: RendererContextLike): {
     const schemaBtn = document.createElement("button");
     schemaBtn.dataset.view = "schema";
     schemaBtn.textContent = "Schema";
-    seg.append(dataBtn, schemaBtn);
+    const rawQueryBtn = document.createElement("button");
+    rawQueryBtn.dataset.view = "rawQuery";
+    rawQueryBtn.textContent = "Raw Query";
+    seg.append(dataBtn, schemaBtn, rawQueryBtn);
     const count = document.createElement("span");
     count.className = "fsq-count";
     const exportBtn = document.createElement("button");
@@ -315,6 +359,7 @@ export function activate(context: RendererContextLike): {
     const schema = document.createElement("div");
     schema.className = "fsq-schema";
     schema.hidden = true;
+    schema.style.display = "none";
     const schemaHead = document.createElement("div");
     schemaHead.className = "fsq-row";
     schemaHead.innerHTML = `<div class="fsq-cell">name</div><div class="fsq-cell">displayType</div>`;
@@ -332,6 +377,94 @@ export function activate(context: RendererContextLike): {
       schema.appendChild(r);
     }
     panel.appendChild(schema);
+
+    const abortController = new AbortController();
+    const { signal } = abortController;
+
+    const rawQuery = document.createElement("div");
+    rawQuery.className = "fsq-raw-query";
+    rawQuery.hidden = true;
+    rawQuery.style.display = "none";
+
+    if (payload.rawQuery) {
+      const header = document.createElement("div");
+      header.className = "fsq-raw-query-header";
+
+      const title = document.createElement("span");
+      title.className = "fsq-raw-query-title";
+      title.textContent = "SQL Query";
+
+      const actions = document.createElement("div");
+      actions.className = "fsq-raw-query-actions";
+
+      const copyBtn = document.createElement("button");
+      copyBtn.className = "fsq-copy-query";
+      copyBtn.textContent = "Copy";
+      copyBtn.addEventListener(
+        "click",
+        () => {
+          const textToCopy = payload.rawQuery || "";
+          if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+            navigator.clipboard.writeText(textToCopy).catch(() => {});
+          }
+          copyBtn.textContent = "Copied!";
+          setTimeout(() => {
+            copyBtn.textContent = "Copy";
+          }, 1500);
+        },
+        { signal },
+      );
+
+      actions.appendChild(copyBtn);
+      header.append(title, actions);
+      rawQuery.appendChild(header);
+
+      const sqlBox = document.createElement("pre");
+      sqlBox.className = "fsq-sql-box";
+      const sqlCode = document.createElement("code");
+      sqlCode.textContent = payload.rawQuery;
+      sqlBox.appendChild(sqlCode);
+      rawQuery.appendChild(sqlBox);
+
+      if (payload.parameters && payload.parameters.length > 0) {
+        const paramsSec = document.createElement("div");
+        paramsSec.className = "fsq-params-section";
+
+        const paramsTitle = document.createElement("div");
+        paramsTitle.className = "fsq-params-title";
+        paramsTitle.textContent = `Parameters (${payload.parameters.length})`;
+        paramsSec.appendChild(paramsTitle);
+
+        const table = document.createElement("table");
+        table.className = "fsq-params-table";
+        table.innerHTML = `<thead><tr><th>Parameter</th><th>Type</th><th>Value</th></tr></thead>`;
+        const tbody = document.createElement("tbody");
+
+        for (const p of payload.parameters) {
+          const tr = document.createElement("tr");
+          const tdName = document.createElement("td");
+          tdName.className = "fsq-param-name";
+          tdName.textContent = p.name;
+          const tdType = document.createElement("td");
+          tdType.className = "fsq-param-type";
+          tdType.textContent = p.displayType || (p.value === null || p.value === undefined ? "null" : typeof p.value);
+          const tdVal = document.createElement("td");
+          tdVal.className = "fsq-param-val";
+          tdVal.textContent = p.value === null || p.value === undefined ? "NULL" : String(p.value);
+          tr.append(tdName, tdType, tdVal);
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+        paramsSec.appendChild(table);
+        rawQuery.appendChild(paramsSec);
+      }
+    } else {
+      const empty = document.createElement("div");
+      empty.className = "fsq-empty";
+      empty.textContent = "No raw SQL query was executed for this result.";
+      rawQuery.appendChild(empty);
+    }
+    panel.appendChild(rawQuery);
 
     const notice = document.createElement("div");
     notice.className = "fsq-notice";
@@ -355,9 +488,6 @@ export function activate(context: RendererContextLike): {
       notice.hidden = false;
     }
 
-    const abortController = new AbortController();
-    const { signal } = abortController;
-
     const grid: Grid = {
       id: item.id,
       abortController,
@@ -369,13 +499,14 @@ export function activate(context: RendererContextLike): {
       colWidths,
       gridTemplate,
       totalWidth,
-      els: { count, head, viewport, sizer, rowsHost, schema, loadMore, notice, dataBtn, schemaBtn },
+      els: { count, head, viewport, sizer, rowsHost, schema, rawQuery, loadMore, notice, dataBtn, schemaBtn, rawQueryBtn },
     };
 
     count.textContent = countLabel(grid.rows.length, materializedTruncated);
     dataBtn.classList.add("active");
     dataBtn.addEventListener("click", () => setView(grid, "data"), { signal });
     schemaBtn.addEventListener("click", () => setView(grid, "schema"), { signal });
+    rawQueryBtn.addEventListener("click", () => setView(grid, "rawQuery"), { signal });
     exportBtn.addEventListener("click", () => {
       context.postMessage?.({
         type: "exportCsv",

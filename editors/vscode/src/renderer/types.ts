@@ -20,6 +20,12 @@ export interface TableColumn {
   displayType: string;
 }
 
+export interface QueryParameter {
+  name: string;
+  value: unknown;
+  displayType?: string | null;
+}
+
 /** JSON body of an `application/x-fsquery-table+json` output item. */
 export interface TablePayload {
   /** Notebook URI; echoed in renderer→host messages so the host can RPC. */
@@ -32,6 +38,8 @@ export interface TablePayload {
   /** Opaque worker-issued paging token, or `null` when paging is unavailable. */
   continuationToken: string | null;
   elapsedMs: number;
+  rawQuery?: string | null;
+  parameters?: QueryParameter[] | null;
 }
 
 // --- renderer -> host ---

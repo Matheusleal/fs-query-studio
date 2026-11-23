@@ -92,7 +92,14 @@ type OracleConnector(connectionString: string) =
                             yield [| for i in 0 .. reader.FieldCount - 1 -> reader.GetValue(i) |]
                     })
 
-        { Columns = columns; Rows = rows }
+        FSharpQueryStudio.Protocol.LastQueryTracker.Record(sql, parameters)
+
+        {
+            Columns = columns
+            Rows = rows
+            RawSql = Some sql
+            Parameters = parameters
+        }
 
     /// Executes `sql` and streams rows directly into a typed F# record without creating intermediate obj[] arrays per row.
     member this.ExecuteReaderStreamWithColumns<'T>
@@ -101,6 +108,7 @@ type OracleConnector(connectionString: string) =
         (mapperFactory: string list -> (System.Data.IDataRecord -> 'T))
         : 'T seq =
         let targetSql = OracleConnector.PrepareSql sql
+        FSharpQueryStudio.Protocol.LastQueryTracker.Record(targetSql, parameters)
 
         Seq.delay (fun () ->
             let connection = new OracleConnection(connectionString)
