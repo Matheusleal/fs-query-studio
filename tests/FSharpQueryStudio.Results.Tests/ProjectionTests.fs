@@ -600,6 +600,7 @@ let ``a ConnectorQueryResult with RawSql and Parameters preserves them on the Re
     Assert.Equal(1, env.Parameters.Length)
     Assert.Equal("@cid", env.Parameters.[0].Name)
     Assert.Equal(box 42, env.Parameters.[0].Value)
+    Assert.Equal("int", env.Parameters.[0].DisplayType)
 
 [<Fact>]
 let ``Projection captures executed query from LastQueryTracker when value has no direct query metadata`` () =
@@ -616,6 +617,7 @@ let ``Projection captures executed query from LastQueryTracker when value has no
     Assert.Equal(1, env.Parameters.Length)
     Assert.Equal("@minPrice", env.Parameters.[0].Name)
     Assert.Equal(box 50.0, env.Parameters.[0].Value)
+    Assert.Equal("float", env.Parameters.[0].DisplayType)
     LastQueryTracker.Reset()
 
 [<Fact>]

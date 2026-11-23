@@ -59,7 +59,43 @@ type OutputStream =
 
 type OutputLine = { Stream: OutputStream; Text: string }
 
-type QueryParameter = { Name: string; Value: obj }
+type QueryParameter =
+    {
+        Name: string
+        Value: obj
+        DisplayType: string
+    }
+
+    static member InferDisplayType(value: obj) : string =
+        match value with
+        | null -> "null"
+        | :? string -> "string"
+        | :? int -> "int"
+        | :? int64 -> "int64"
+        | :? double -> "float"
+        | :? single -> "float32"
+        | :? decimal -> "decimal"
+        | :? bool -> "bool"
+        | :? System.DateTime -> "datetime"
+        | :? System.DateTimeOffset -> "datetimeoffset"
+        | :? System.DateOnly -> "date"
+        | :? System.TimeOnly -> "time"
+        | :? System.Guid -> "guid"
+        | :? (byte array) -> "byte[]"
+        | other ->
+            let t = other.GetType()
+            if t.IsGenericType && t.GetGenericTypeDefinition() = typedefof<option<_>> then
+                let innerT = t.GetGenericArguments().[0]
+                sprintf "%s option" innerT.Name
+            else
+                t.Name
+
+    static member Create(name: string, value: obj) =
+        {
+            Name = name
+            Value = value
+            DisplayType = QueryParameter.InferDisplayType value
+        }
 
 [<AllowNullLiteral>]
 type private TrackedQuery(sql: string, parameters: (string * obj) list) =

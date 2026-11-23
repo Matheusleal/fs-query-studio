@@ -96,6 +96,7 @@ const STYLE = `
 .fsq-params-table th { font-weight: 600; background: var(--vscode-keybindingTable-headerBackground, rgba(128, 128, 128, 0.08)); }
 .fsq-params-table tr:last-child td { border-bottom: 0; }
 .fsq-param-name { font-family: var(--vscode-editor-font-family, monospace); font-weight: 600; }
+.fsq-param-type { font-family: var(--vscode-editor-font-family, monospace); opacity: 0.8; font-size: 11px; }
 .fsq-param-val { font-family: var(--vscode-editor-font-family, monospace); }
 
 .fsq-loadmore { margin: 6px; padding: 2px 10px; cursor: pointer; font: inherit;
@@ -436,7 +437,7 @@ export function activate(context: RendererContextLike): {
 
         const table = document.createElement("table");
         table.className = "fsq-params-table";
-        table.innerHTML = `<thead><tr><th>Parameter</th><th>Value</th></tr></thead>`;
+        table.innerHTML = `<thead><tr><th>Parameter</th><th>Type</th><th>Value</th></tr></thead>`;
         const tbody = document.createElement("tbody");
 
         for (const p of payload.parameters) {
@@ -444,10 +445,13 @@ export function activate(context: RendererContextLike): {
           const tdName = document.createElement("td");
           tdName.className = "fsq-param-name";
           tdName.textContent = p.name;
+          const tdType = document.createElement("td");
+          tdType.className = "fsq-param-type";
+          tdType.textContent = p.displayType || (p.value === null || p.value === undefined ? "null" : typeof p.value);
           const tdVal = document.createElement("td");
           tdVal.className = "fsq-param-val";
           tdVal.textContent = p.value === null || p.value === undefined ? "NULL" : String(p.value);
-          tr.append(tdName, tdVal);
+          tr.append(tdName, tdType, tdVal);
           tbody.appendChild(tr);
         }
         table.appendChild(tbody);

@@ -776,14 +776,14 @@ module Projection =
                 | null -> None
                 | :? ConnectorQueryResult as cqr ->
                     match cqr.RawSql with
-                    | Some s when not (String.IsNullOrWhiteSpace s) ->
-                        Some (s, cqr.Parameters)
+                    | Some s when not (String.IsNullOrWhiteSpace s) -> Some(s, cqr.Parameters)
                     | _ -> None
                 | :? IQueryable as iq ->
                     try
                         let sql, parms = ResultKind.toRawSqlWithParameters (box iq)
+
                         if not (String.IsNullOrWhiteSpace sql) then
-                            Some (sql, parms)
+                            Some(sql, parms)
                         else
                             None
                     with _ ->
@@ -796,8 +796,9 @@ module Projection =
                     if not (isNull m) || not (isNull m2) then
                         try
                             let sql, parms = ResultKind.toRawSqlWithParameters other
+
                             if not (String.IsNullOrWhiteSpace sql) then
-                                Some (sql, parms)
+                                Some(sql, parms)
                             else
                                 None
                         with _ ->
@@ -807,15 +808,14 @@ module Projection =
 
             let resolved =
                 match fromObj with
-                | Some (sql, parms) -> Some (sql, parms)
+                | Some(sql, parms) -> Some(sql, parms)
                 | None ->
                     match LastQueryTracker.Current with
-                    | Some (sql, parms) when not (String.IsNullOrWhiteSpace sql) ->
-                        Some (sql, parms)
+                    | Some(sql, parms) when not (String.IsNullOrWhiteSpace sql) -> Some(sql, parms)
                     | _ -> None
 
             match resolved with
-            | Some (sql, parms) ->
+            | Some(sql, parms) ->
                 let formatted =
                     try
                         FSharpQueryStudio.Connectors.SqlPushdownFormatting.formatSql sql
@@ -823,10 +823,9 @@ module Projection =
                         sql
                 let qParams =
                     parms
-                    |> List.map (fun (name, v) -> { Name = name; Value = v })
+                    |> List.map (fun (name, v) -> QueryParameter.Create(name, v))
                 Some formatted, qParams
-            | None ->
-                None, []
+            | None -> None, []
 
         // Shared builder for the four materialized shapes (record / tuple /
         // dictionary / nested): the preview envelope is truncated to
@@ -952,7 +951,9 @@ module Projection =
                     { emptyEnvelope ResultKind.Table elapsedMs with
                         RawQuery = rawQueryOpt
                         Parameters = paramsList
-                    }, None, None
+                    },
+                    None,
+                    None
                 else
                     let first = e.Current
                     // The rest of the sequence, still lazy, with element 0 re-prepended.

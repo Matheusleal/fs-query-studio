@@ -29,7 +29,13 @@ the results grid toolbar shall render a segmented button for "Raw Query" (`data-
 ### [REQ-RAWQUERY-VIEW-005] Exibição Formatada de SQL, Tabela de Parâmetros e Cópia Rápida
 ```text
 When the user activates the "Raw Query" tab in the results panel,
-the renderer shall hide the data viewport and schema view, display the formatted SQL query in a monospace code container, display an itemized table of bound parameters (name and value) when parameters exist, provide a one-click copy button with visual feedback, and display an explanatory message when no SQL query was executed for the result.
+the renderer shall hide the data viewport and schema view, display the formatted SQL query in a monospace code container, display an itemized table of bound parameters (name, type, and value) when parameters exist, provide a one-click copy button with visual feedback, and display an explanatory message when no SQL query was executed for the result.
+```
+
+### [REQ-RAWQUERY-PARAM-TYPE-006] Exibição de Tipo do Parâmetro na Tabela
+```text
+When parameters are rendered in the parameters table of the Raw Query view,
+the renderer shall display three columns (`Parameter`, `Type`, `Value`), showing the parameter name, its inferred or declared display type, and its formatted value.
 ```
 
 ---

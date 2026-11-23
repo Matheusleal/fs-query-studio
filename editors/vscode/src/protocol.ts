@@ -107,6 +107,7 @@ export interface OutputLine {
 export interface QueryParameter {
   name: string;
   value: unknown;
+  displayType?: string | null;
 }
 
 /**

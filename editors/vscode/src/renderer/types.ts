@@ -23,6 +23,7 @@ export interface TableColumn {
 export interface QueryParameter {
   name: string;
   value: unknown;
+  displayType?: string | null;
 }
 
 /** JSON body of an `application/x-fsquery-table+json` output item. */

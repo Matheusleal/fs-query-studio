@@ -77,12 +77,12 @@ describe("buildTablePayload", () => {
     const payload = buildTablePayload(
       tableEnv({
         rawQuery: "SELECT id, name FROM users WHERE age > @minAge",
-        parameters: [{ name: "@minAge", value: 18 }],
+        parameters: [{ name: "@minAge", value: 18, displayType: "int" }],
       }),
       "file:///query.fsqnb",
     );
     expect(payload.rawQuery).toBe("SELECT id, name FROM users WHERE age > @minAge");
-    expect(payload.parameters).toEqual([{ name: "@minAge", value: 18 }]);
+    expect(payload.parameters).toEqual([{ name: "@minAge", value: 18, displayType: "int" }]);
   });
 
   it("defaults rawQuery and parameters to null when undefined in envelope", () => {

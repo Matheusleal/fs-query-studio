@@ -573,7 +573,7 @@ module Handlers =
 
                                 { projected with
                                     RawQuery = Some formatted
-                                    Parameters = parms |> List.map (fun (name, v) -> { Name = name; Value = v })
+                                    Parameters = parms |> List.map (fun (name, v) -> FSharpQueryStudio.Protocol.QueryParameter.Create(name, v))
                                 }
                             | _ -> projected
 

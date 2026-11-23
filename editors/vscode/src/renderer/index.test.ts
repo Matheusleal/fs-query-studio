@@ -132,7 +132,7 @@ describe("grid renderer", () => {
   it("toggles to the raw query view and back", () => {
     host = activate(ctx().context);
     host.renderOutputItem(
-      item("o1", payload({ rawQuery: "SELECT 1", parameters: [{ name: "@p", value: 10 }] })),
+      item("o1", payload({ rawQuery: "SELECT 1", parameters: [{ name: "@p", value: 10, displayType: "int" }] })),
       el,
     );
     (el.querySelector('[data-view="rawQuery"]') as HTMLButtonElement).click();
@@ -140,6 +140,7 @@ describe("grid renderer", () => {
     expect(rawQuery.hidden).toBe(false);
     expect(rawQuery.textContent).toContain("SELECT 1");
     expect(rawQuery.textContent).toContain("@p");
+    expect(rawQuery.textContent).toContain("int");
     expect((el.querySelector(".fsq-head") as HTMLElement).hidden).toBe(true);
     (el.querySelector('[data-view="data"]') as HTMLButtonElement).click();
     expect((el.querySelector(".fsq-raw-query") as HTMLElement).hidden).toBe(true);

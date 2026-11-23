@@ -404,9 +404,16 @@ describe("Results Grid UI Elements & Interactivity", () => {
       // Verify parameters table
       const paramsTitle = rawQuery.querySelector(".fsq-params-title");
       expect(paramsTitle?.textContent).toBe("Parameters (1)");
+      const headers = rawQuery.querySelectorAll(".fsq-params-table thead th");
+      expect(headers).toHaveLength(3);
+      expect(headers[0].textContent).toBe("Parameter");
+      expect(headers[1].textContent).toBe("Type");
+      expect(headers[2].textContent).toBe("Value");
+
       const paramRows = rawQuery.querySelectorAll(".fsq-params-table tbody tr");
       expect(paramRows).toHaveLength(1);
       expect(paramRows[0].querySelector(".fsq-param-name")?.textContent).toBe("@minPrice");
+      expect(paramRows[0].querySelector(".fsq-param-type")?.textContent).toBe("number");
       expect(paramRows[0].querySelector(".fsq-param-val")?.textContent).toBe("19.99");
 
       // Verify Copy button functionality
@@ -462,7 +469,9 @@ describe("Results Grid UI Elements & Interactivity", () => {
       rawQueryBtn.click();
 
       const rawQuery = container.querySelector(".fsq-raw-query") as HTMLElement;
+      const paramType = rawQuery.querySelector(".fsq-param-type");
       const paramVal = rawQuery.querySelector(".fsq-param-val");
+      expect(paramType?.textContent).toBe("null");
       expect(paramVal?.textContent).toBe("NULL");
     });
 
