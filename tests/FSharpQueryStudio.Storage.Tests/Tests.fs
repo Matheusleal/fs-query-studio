@@ -443,7 +443,7 @@ let ``Workspace readConfiguration handles varied formats: dollarSchemaVersion, m
     File.WriteAllText(wsFile, json1)
     let cfg1 = Workspace.readConfiguration dir
     Assert.Equal(2, cfg1.SchemaVersion)
-    Assert.Equal("0.7.0", cfg1.ExtensionVersion)
+    Assert.Equal("0.8.0", cfg1.ExtensionVersion)
     Assert.True(cfg1.UpdatedAt.IsNone)
     Assert.Empty(cfg1.Connections)
 
@@ -464,7 +464,7 @@ let ``Workspace readConfiguration handles varied formats: dollarSchemaVersion, m
 
     Workspace.writeConfiguration dir emptyExtConfig
     let cfg3 = Workspace.readConfiguration dir
-    Assert.Equal("0.7.0", cfg3.ExtensionVersion)
+    Assert.Equal("0.8.0", cfg3.ExtensionVersion)
 
 [<Fact>]
 let ``workspaceFilePath and writeConfiguration invoke upgrader when needsUpgrade is true`` () =
@@ -484,7 +484,7 @@ let ``workspaceFilePath and writeConfiguration invoke upgrader when needsUpgrade
     let cfg =
         {
             SchemaVersion = 2
-            ExtensionVersion = "0.7.0"
+            ExtensionVersion = "0.8.0"
             UpdatedAt = None
             Connections = []
         }

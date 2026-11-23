@@ -6,11 +6,20 @@ Todas as alterações notáveis da extensão **F# Query Studio** para o VS Code.
 
 ## [Não Lançado]
 
+## [0.8.0] — 2026-11-23
+
 ### Adicionado
 
+- **Aba Raw Query nos Resultados das Células** — Visualizador interativo de consulta gerada no painel de resultados do notebook exibindo a query SQL nativa gerada, tabela de parâmetros vinculados (`@p0`, `@p1`) e botão de cópia em um clique para inspeção e depuração rápida.
 - **Condições Dedicadas `isNotNull`, `isNotEmpty` e `isNotNullOrEmpty`** — Filtragem de valores não nulos e não vazios em cláusulas `where (...)` no `fsql` com pushdown para SQL nativo (`IS NOT NULL` e `<> ''` / `LENGTH(...) > 0` no Oracle).
 - **Descoberta Multi-Database e Mapeamento em Árvore (`Conexão -> Database -> [Schema ->] Tabela -> Coluna`)** — Conectores SQL de servidor (`SqlServer`, `PostgreSql`, `MySql`, `MariaDb`, `Oracle`) agora descobrem todos os databases acessíveis na instância e os mapeiam em estrutura de árvore tanto na TreeView do VS Code (`tree.ts`) quanto nas entidades F# geradas (`Connections.sql.<Conn>.<Database>.[<Schema>.]<Table>`), mantendo atalhos na raiz (`Connections.sql.<Conn>.<Table>`) para o database padrão.
 - **Consultas SQLite Diretas em Conexões CSV, XML, JSON e Excel Mapeadas** — Adicionados `.rawQuery`, `.query<'T>` e `.Execute` diretamente em `Connections.csv.<Conn>`, `Connections.xml.<Conn>`, `Connections.json.<Conn>` e `Connections.excel.<Conn>`, com auto-staging sob demanda em `.fsqs/cache/engine.db` e `VIEW`s de alias no SQLite (`<FileBaseName>`, `<TableName>`, `<Conn>_<TableName>`, `<Conn>`).
+- **Integração do Grafo de Conhecimento `graphify` e Regras de Agentes** — Integração de grafo de conhecimento persistente da base de código com diretrizes em `.agents/rules/graphify.md`, fluxos em `.agents/workflows/graphify.md` e regras locais automatizadas no `.gitignore` protegendo o repositório contra bloat.
+
+### Alterado
+
+- **Desacoplamento Arquitetural e Concorrência Reforçada** — Fila de escrita de thread única para SQLite (`SingleStreamSqliteWriter`), ponte assíncrona para o cofre de segredos (`ISecretStoreAsync`) e controladores modulares no frontend.
+- **Cobertura de Testes Estrita de 100% em Todas as Classes** — Manutenção de 100.00% de cobertura de linhas e mínimo de 2 testes distintos por cenário em todos os conectores, queries e handlers do worker.
 
 ### Corrigido
 
