@@ -296,3 +296,27 @@ let ``parseItem and parseCompletionItems cover label formats, details, and kinds
 
     let itemsWrapped = FsacParsing.parseCompletionItems wrappedObj
     Assert.Equal(2, itemsWrapped.Length)
+
+    // elementText non-string non-object fallback
+    let hoverWithNumberContents = JsonDocument.Parse("123").RootElement
+    let parsedHoverNumber = FsacParsing.parseHoverMarkdown hoverWithNumberContents
+    Assert.Equal(None, parsedHoverNumber.Signature)
+
+    let hoverWithArrayNumberContents = JsonDocument.Parse("[123, 456]").RootElement
+
+    let parsedHoverArrNumber =
+        FsacParsing.parseHoverMarkdown hoverWithArrayNumberContents
+
+    Assert.Equal(None, parsedHoverArrNumber.Signature)
+
+    // cleanCompletionDetail when property has no colon
+    let propNoColon =
+        JsonDocument.Parse("""{"label": "P", "kind": 10, "detail": "MyPropType"}""").RootElement
+
+    Assert.Equal(Some "MyPropType", (FsacParsing.parseItem propNoColon).Value.Detail)
+
+    // parseItem label description non-string fallback
+    let labelObjNonStringDesc =
+        JsonDocument.Parse("""{"label": {"label": "item", "description": 999}, "kind": 1}""").RootElement
+
+    Assert.Equal(Some "text", (FsacParsing.parseItem labelObjNonStringDesc).Value.Detail)

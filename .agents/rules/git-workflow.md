@@ -22,7 +22,7 @@ Sempre que for solicitado desenvolver uma funcionalidade, aplicar uma alteraçã
      - `chore/<nome-descritivo>` para tarefas de manutenção/configuração
 2. **Desenvolvimento e Testes Iterativos**:
    - Faça as alterações na branch criada.
-   - **Pré-requisito obrigatório de testes**: Para toda nova funcionalidade ou alteração de comportamento, implemente **no mínimo 2 testes independentes para cada cenário possível** (caminho feliz, variações, casos de borda e tratamento de erros) e mantenha **>= 90.00% de cobertura de linhas em cada classe/arquivo**.
+   - **Pré-requisito obrigatório de testes e cobertura de 100%**: Para toda nova funcionalidade, alteração, bugfix ou refatoração, **é obrigatório ter testes em tudo que for feito**. Implemente **no mínimo 2 testes independentes para cada cenário possível** (caminho feliz, variações, casos de borda e tratamento de erros) e mantenha **100.00% de cobertura de linhas em cada classe/arquivo modificado ou criado**. Refatore e elimine qualquer código inalcançável/morto. Consulte [.agents/rules/testing-coverage-100.md](file:///d:/Projects/github/mine/Matheusleal/fs-query-studio/.agents/rules/testing-coverage-100.md).
    - Comite na branch de trabalho (`git commit`).
    - Valide no container Linux (`docker run ...`) e localmente.
    - Itere e corrija até que 100% dos testes passem com sucesso.

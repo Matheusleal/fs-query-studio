@@ -6,6 +6,7 @@ open Microsoft.Data.Sqlite
 
 module SampleDataSqlite =
 
+    [<Literal>]
     let private createTablesSql =
         """
 CREATE TABLE IF NOT EXISTS Categories (
@@ -89,6 +90,7 @@ CREATE INDEX IF NOT EXISTS IX_OrderItems_ProductId ON OrderItems (ProductId);
 CREATE INDEX IF NOT EXISTS IX_Products_CategoryId ON Products (CategoryId);
 """
 
+    [<Literal>]
     let private createInventoryTablesSql =
         """
 CREATE TABLE IF NOT EXISTS Warehouses (
@@ -141,6 +143,7 @@ CREATE INDEX IF NOT EXISTS IX_StockLevels_ProductSku ON StockLevels (ProductSku)
 CREATE INDEX IF NOT EXISTS IX_Suppliers_Country ON Suppliers (Country);
 """
 
+    [<Literal>]
     let private createIndexesSql =
         """
 CREATE INDEX IF NOT EXISTS IX_Customers_Country ON Customers (Country, FirstName);
@@ -153,6 +156,7 @@ CREATE INDEX IF NOT EXISTS IX_OrderItems_ProductId ON OrderItems (ProductId);
 CREATE INDEX IF NOT EXISTS IX_Products_CategoryId ON Products (CategoryId);
 """
 
+    [<Literal>]
     let private createInventoryIndexesSql =
         """
 CREATE INDEX IF NOT EXISTS IX_StockLevels_WarehouseId ON StockLevels (WarehouseId);

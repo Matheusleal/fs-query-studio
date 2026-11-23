@@ -1,6 +1,7 @@
 namespace FSharpQueryStudio.Logging
 
 open System
+open System.Runtime.CompilerServices
 open Serilog.Context
 
 /// Attaches a request's protocol correlation ID (Section 7) to every log
@@ -11,5 +12,6 @@ module Correlation =
     [<Literal>]
     let CorrelationIdPropertyName = "CorrelationId"
 
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     let pushCorrelationId (correlationId: string) : IDisposable =
         LogContext.PushProperty(CorrelationIdPropertyName, correlationId)

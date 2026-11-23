@@ -59,3 +59,26 @@ let ``TryComplete returns false for an unknown id`` () =
         }
 
     Assert.False(channel.TryComplete reply)
+
+[<Fact>]
+let ``Request when send task faults sets exception on pending waiter task`` () =
+    let ex = System.InvalidOperationException("send failed")
+    let channel = HostChannel(fun _ -> Task.FromException(ex))
+
+    let task = channel.Request("secret/get", {| reference = "r" |})
+
+    let aggregateEx =
+        Assert.Throws<System.AggregateException>(fun () -> task.Wait(1000) |> ignore)
+
+    Assert.Contains("send failed", aggregateEx.InnerException.Message)
+
+[<Fact>]
+let ``Request when send task fails with custom error propagates to awaiter`` () =
+    task {
+        let ex = System.IO.IOException("pipe broken")
+        let channel = HostChannel(fun _ -> Task.FromException(ex))
+
+        let pending = channel.Request("secret/get", {| reference = "r" |})
+        let! thrown = Assert.ThrowsAsync<System.IO.IOException>(fun () -> pending)
+        Assert.Equal("pipe broken", thrown.Message)
+    }

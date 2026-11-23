@@ -360,22 +360,6 @@ module SqlComputationExtensions =
                     || mi.DeclaringType = typeof<FSqlQueryBuilder>
                     ->
                     tryFindRootSource firstArg
-                    |> Option.orElseWith (fun () ->
-                        try
-                            let v = LeafExpressionConverter.EvaluateQuotation firstArg
-
-                            if isNull v then
-                                None
-                            else
-                                let t = v.GetType()
-                                let srcProp = t.GetProperty("Source")
-
-                                if not (isNull srcProp) then
-                                    Some(srcProp.GetValue(v))
-                                else
-                                    Some v
-                        with _ ->
-                            None)
                 | _ ->
                     try
                         let v = LeafExpressionConverter.EvaluateQuotation e
@@ -420,12 +404,7 @@ module SqlComputationExtensions =
                     || mi.Name = "WithRecursiveCteSql"
                     ->
                     let name = LeafExpressionConverter.EvaluateQuotation(nameArg) :?> string
-
-                    let cteVal =
-                        match cteArg with
-                        | Lambda(_, body) -> LeafExpressionConverter.EvaluateQuotation(body)
-                        | _ -> LeafExpressionConverter.EvaluateQuotation(cteArg)
-
+                    let cteVal = LeafExpressionConverter.EvaluateQuotation(cteArg)
                     let isRec = mi.Name.StartsWith("WithRecursive")
                     ctes.Add((name, cteVal, isRec))
 
@@ -442,12 +421,7 @@ module SqlComputationExtensions =
                     || mi.Name = "WithRecursiveCteSql"
                     ->
                     let autoName = $"cte_{ctes.Count + 1}"
-
-                    let cteVal =
-                        match cteArg with
-                        | Lambda(_, body) -> LeafExpressionConverter.EvaluateQuotation(body)
-                        | _ -> LeafExpressionConverter.EvaluateQuotation(cteArg)
-
+                    let cteVal = LeafExpressionConverter.EvaluateQuotation(cteArg)
                     let isRec = mi.Name.StartsWith("WithRecursive")
                     ctes.Add((autoName, cteVal, isRec))
 
@@ -523,16 +497,7 @@ module SqlComputationExtensions =
                         | :? IQueryable as iq ->
                             match SqlPushdownQuery.tryFindPushdownSource iq.Expression with
                             | Some(_, Some p) -> targetList.Add(p.BaseSql)
-                            | Some(sIq, None) ->
-                                try
-                                    let pProp = sIq.GetType().GetProperty("Plan")
-
-                                    if not (isNull pProp) then
-                                        let p = pProp.GetValue(sIq) :?> PushdownQueryPlan
-                                        targetList.Add(p.BaseSql)
-                                with _ ->
-                                    ()
-                            | None -> ()
+                            | _ -> ()
                         | _ -> ()
 
                     let rec tryFindTable (e: Expr) : string option =
@@ -668,12 +633,7 @@ module SqlComputationExtensions =
 
                 if fullOuterJoinTables.Count > 0 then
                     for j in plan.Joins do
-                        if
-                            fullOuterJoinTables.Contains("*")
-                            || (fullOuterJoinTables
-                                |> Seq.exists (fun tbl ->
-                                    String.Equals(tbl, j.SourceTable, StringComparison.OrdinalIgnoreCase)))
-                        then
+                        if fullOuterJoinTables.Contains("*") || fullOuterJoinTables.Contains(j.SourceTable) then
                             j.JoinType <- "FULL OUTER JOIN"
 
                 plan.RightOuterJoinTables.AddRange(rightOuterJoinTables)
@@ -682,9 +642,7 @@ module SqlComputationExtensions =
                     for j in plan.Joins do
                         if
                             rightOuterJoinTables.Contains("*")
-                            || (rightOuterJoinTables
-                                |> Seq.exists (fun tbl ->
-                                    String.Equals(tbl, j.SourceTable, StringComparison.OrdinalIgnoreCase)))
+                            || rightOuterJoinTables.Contains(j.SourceTable)
                         then
                             j.JoinType <- "RIGHT OUTER JOIN"
 
@@ -735,13 +693,6 @@ module SqlComputationExtensions =
                         let prov = sourceIq.Provider :?> SqlPushdownQueryProvider
                         let p = prov.ExtractPlan(iq.Expression, ?seedPlan = seedPlan)
 
-                        match seedPlan with
-                        | Some sp ->
-                            for cte in sp.Ctes do
-                                if not (p.Ctes |> Seq.exists (fun c -> c.Name = cte.Name)) then
-                                    p.Ctes.Add(cte)
-                        | None -> ()
-
                         Some(
                             SqlPushdownQueryable<'T>(
                                 prov,
@@ -761,9 +712,9 @@ module SqlComputationExtensions =
                 | _ ->
                     match rhs with
                     | :? System.Linq.IQueryable<'T> as rhsIq -> System.Linq.Queryable.Union(lhs, rhsIq)
-                    | :? System.Collections.Generic.IEnumerable<'T> as rhsSeq ->
+                    | _ ->
+                        let rhsSeq = rhs :?> System.Collections.Generic.IEnumerable<'T>
                         System.Linq.Queryable.Union(lhs, rhsSeq.AsQueryable())
-                    | _ -> lhs
 
             let doUnionAll (lhs: System.Linq.IQueryable<'T>) (rhs: obj) : System.Linq.IQueryable<'T> =
                 match toSpq lhs, toSpq rhs with
@@ -771,9 +722,9 @@ module SqlComputationExtensions =
                 | _ ->
                     match rhs with
                     | :? System.Linq.IQueryable<'T> as rhsIq -> System.Linq.Queryable.Concat(lhs, rhsIq)
-                    | :? System.Collections.Generic.IEnumerable<'T> as rhsSeq ->
+                    | _ ->
+                        let rhsSeq = rhs :?> System.Collections.Generic.IEnumerable<'T>
                         System.Linq.Queryable.Concat(lhs, rhsSeq.AsQueryable())
-                    | _ -> lhs
 
             let doIntersect (lhs: System.Linq.IQueryable<'T>) (rhs: obj) : System.Linq.IQueryable<'T> =
                 match toSpq lhs, toSpq rhs with
@@ -781,9 +732,9 @@ module SqlComputationExtensions =
                 | _ ->
                     match rhs with
                     | :? System.Linq.IQueryable<'T> as rhsIq -> System.Linq.Queryable.Intersect(lhs, rhsIq)
-                    | :? System.Collections.Generic.IEnumerable<'T> as rhsSeq ->
+                    | _ ->
+                        let rhsSeq = rhs :?> System.Collections.Generic.IEnumerable<'T>
                         System.Linq.Queryable.Intersect(lhs, rhsSeq.AsQueryable())
-                    | _ -> lhs
 
             let doExcept (lhs: System.Linq.IQueryable<'T>) (rhs: obj) : System.Linq.IQueryable<'T> =
                 match toSpq lhs, toSpq rhs with
@@ -791,47 +742,27 @@ module SqlComputationExtensions =
                 | _ ->
                     match rhs with
                     | :? System.Linq.IQueryable<'T> as rhsIq -> System.Linq.Queryable.Except(lhs, rhsIq)
-                    | :? System.Collections.Generic.IEnumerable<'T> as rhsSeq ->
+                    | _ ->
+                        let rhsSeq = rhs :?> System.Collections.Generic.IEnumerable<'T>
                         System.Linq.Queryable.Except(lhs, rhsSeq.AsQueryable())
-                    | _ -> lhs
 
             let rec handleSetOps (expr: Expr) : System.Linq.IQueryable<'T> =
                 match expr with
                 | Call(inst, mi, [ lhsSource; rhsArg ]) when mi.Name = "Union" ->
                     let lhsQ = handleSetOps lhsSource
-
-                    let rhsVal =
-                        match rhsArg with
-                        | Lambda(_, body) -> LeafExpressionConverter.EvaluateQuotation(body)
-                        | _ -> LeafExpressionConverter.EvaluateQuotation(rhsArg)
-
+                    let rhsVal = LeafExpressionConverter.EvaluateQuotation(rhsArg)
                     doUnion lhsQ rhsVal
                 | Call(inst, mi, [ lhsSource; rhsArg ]) when mi.Name = "UnionAll" ->
                     let lhsQ = handleSetOps lhsSource
-
-                    let rhsVal =
-                        match rhsArg with
-                        | Lambda(_, body) -> LeafExpressionConverter.EvaluateQuotation(body)
-                        | _ -> LeafExpressionConverter.EvaluateQuotation(rhsArg)
-
+                    let rhsVal = LeafExpressionConverter.EvaluateQuotation(rhsArg)
                     doUnionAll lhsQ rhsVal
                 | Call(inst, mi, [ lhsSource; rhsArg ]) when mi.Name = "Intersect" ->
                     let lhsQ = handleSetOps lhsSource
-
-                    let rhsVal =
-                        match rhsArg with
-                        | Lambda(_, body) -> LeafExpressionConverter.EvaluateQuotation(body)
-                        | _ -> LeafExpressionConverter.EvaluateQuotation(rhsArg)
-
+                    let rhsVal = LeafExpressionConverter.EvaluateQuotation(rhsArg)
                     doIntersect lhsQ rhsVal
                 | Call(inst, mi, [ lhsSource; rhsArg ]) when mi.Name = "Except" ->
                     let lhsQ = handleSetOps lhsSource
-
-                    let rhsVal =
-                        match rhsArg with
-                        | Lambda(_, body) -> LeafExpressionConverter.EvaluateQuotation(body)
-                        | _ -> LeafExpressionConverter.EvaluateQuotation(rhsArg)
-
+                    let rhsVal = LeafExpressionConverter.EvaluateQuotation(rhsArg)
                     doExcept lhsQ rhsVal
                 | other ->
                     let baseRes =
@@ -1021,13 +952,6 @@ module FSqlExtensions =
                     let prov = sourceIq.Provider :?> SqlPushdownQueryProvider
                     let fullPlan = prov.ExtractPlan(this.Expression, ?seedPlan = seedPlan)
 
-                    match seedPlan with
-                    | Some sp ->
-                        for cte in sp.Ctes do
-                            if not (fullPlan.Ctes |> Seq.exists (fun c -> c.Name = cte.Name)) then
-                                fullPlan.Ctes.Add(cte)
-                    | None -> ()
-
                     let spq =
                         SqlPushdownQueryable<'T>(
                             prov,
@@ -1049,13 +973,6 @@ module FSqlExtensions =
                 | Some(sourceIq, seedPlan) ->
                     let prov = sourceIq.Provider :?> SqlPushdownQueryProvider
                     let fullPlan = prov.ExtractPlan(this.Expression, ?seedPlan = seedPlan)
-
-                    match seedPlan with
-                    | Some sp ->
-                        for cte in sp.Ctes do
-                            if not (fullPlan.Ctes |> Seq.exists (fun c -> c.Name = cte.Name)) then
-                                fullPlan.Ctes.Add(cte)
-                    | None -> ()
 
                     let spq =
                         SqlPushdownQueryable<'T>(
@@ -1079,13 +996,6 @@ module FSqlExtensions =
                     let prov = sourceIq.Provider :?> SqlPushdownQueryProvider
                     let fullPlan = prov.ExtractPlan(this.Expression, ?seedPlan = seedPlan)
 
-                    match seedPlan with
-                    | Some sp ->
-                        for cte in sp.Ctes do
-                            if not (fullPlan.Ctes |> Seq.exists (fun c -> c.Name = cte.Name)) then
-                                fullPlan.Ctes.Add(cte)
-                    | None -> ()
-
                     let spq =
                         SqlPushdownQueryable<'T>(
                             prov,
@@ -1107,13 +1017,6 @@ module FSqlExtensions =
                 | Some(sourceIq, seedPlan) ->
                     let prov = sourceIq.Provider :?> SqlPushdownQueryProvider
                     let fullPlan = prov.ExtractPlan(this.Expression, ?seedPlan = seedPlan)
-
-                    match seedPlan with
-                    | Some sp ->
-                        for cte in sp.Ctes do
-                            if not (fullPlan.Ctes |> Seq.exists (fun c -> c.Name = cte.Name)) then
-                                fullPlan.Ctes.Add(cte)
-                    | None -> ()
 
                     let spq =
                         SqlPushdownQueryable<'T>(

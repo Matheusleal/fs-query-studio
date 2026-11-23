@@ -26,7 +26,21 @@ jobs:
   build-and-test:
     name: Build and test (Windows)
     runs-on: windows-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
+
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - tests/FSharpQueryStudio.Protocol.Tests/FSharpQueryStudio.Protocol.Tests.fsproj
+          - tests/FSharpQueryStudio.Fsac.Tests/FSharpQueryStudio.Fsac.Tests.fsproj
+          - tests/FSharpQueryStudio.Execution.Tests/FSharpQueryStudio.Execution.Tests.fsproj
+          - tests/FSharpQueryStudio.Results.Tests/FSharpQueryStudio.Results.Tests.fsproj
+          - tests/FSharpQueryStudio.Connectors.Tests/FSharpQueryStudio.Connectors.Tests.fsproj
+          - tests/FSharpQueryStudio.Storage.Tests/FSharpQueryStudio.Storage.Tests.fsproj
+          - tests/FSharpQueryStudio.Security.Tests/FSharpQueryStudio.Security.Tests.fsproj
+          - tests/FSharpQueryStudio.Worker.Tests/FSharpQueryStudio.Worker.Tests.fsproj
+          - tests/FSharpQueryStudio.Integration.Tests/FSharpQueryStudio.Integration.Tests.fsproj
 
     steps:
       - uses: actions/checkout@v4
@@ -35,18 +49,12 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      - run: dotnet tool restore
-
-      - run: dotnet restore FSharpQueryStudio.slnx
-
-      - run: dotnet build FSharpQueryStudio.slnx --no-restore --configuration Release
-
       # SQL Server/PostgreSQL connector tests use Testcontainers, which
       # needs Linux Docker containers - not reliably available on
       # GitHub-hosted Windows runners. Excluded here and run on the Linux
       # job / locally instead - this filter is an escape hatch, not a way
       # to skip everything else.
-      - run: dotnet test FSharpQueryStudio.slnx --no-build --configuration Release --filter "Category!=RequiresDocker" --settings .runsettings --blame-hang --blame-hang-timeout 10m --logger "console;verbosity=normal"
+      - run: dotnet test "${{ matrix.project }}" --configuration Release --filter "Category!=RequiresDocker" --settings .runsettings --blame-hang --blame-hang-timeout 10m --logger "console;verbosity=normal"
 
   build-and-test-linux:
     name: Build and test (Linux)

@@ -1,6 +1,7 @@
 namespace FSharpQueryStudio.Execution
 
 open System.IO
+open System.Runtime.CompilerServices
 
 /// Cooperative cancellation for the currently running evaluation — see
 /// Section 9. Backed by a sentinel file in the evaluation's working
@@ -21,15 +22,19 @@ module CancellationSignal =
     [<Literal>]
     let SentinelFileName = ".cancel-requested"
 
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     let private sentinelPath (workingDirectory: string) =
         Path.Combine(workingDirectory, SentinelFileName)
 
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     let isCancelled (workingDirectory: string) : bool =
         File.Exists(sentinelPath workingDirectory)
 
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     let requestCancel (workingDirectory: string) : unit =
         File.WriteAllText(sentinelPath workingDirectory, "")
 
+    [<MethodImpl(MethodImplOptions.NoInlining)>]
     let reset (workingDirectory: string) : unit =
         let path = sentinelPath workingDirectory
 

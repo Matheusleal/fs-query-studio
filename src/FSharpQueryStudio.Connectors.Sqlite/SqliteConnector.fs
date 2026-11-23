@@ -2,6 +2,7 @@ namespace FSharpQueryStudio.Connectors
 
 open System
 open System.Data
+open System.Runtime.CompilerServices
 open System.Threading
 open System.Threading.Tasks
 open Microsoft.Data.Sqlite
@@ -10,9 +11,11 @@ open FSharpQueryStudio.Protocol
 [<AutoOpen>]
 module SqliteConnectorExtensions =
     type ConnectorKind with
+        [<MethodImpl(MethodImplOptions.NoInlining)>]
         static member Sqlite = ConnectorKind("Sqlite")
 
     type ConnectorCategory with
+        [<MethodImpl(MethodImplOptions.NoInlining)>]
         static member Sql =
             ConnectorCategory("sql", "Db", "FSharpQueryStudio.Connectors.Connections.SqlCategory")
 

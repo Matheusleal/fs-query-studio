@@ -53,3 +53,22 @@ let ``host-role logger writes its file under the given logs directory`` () =
         Assert.Single(files) |> ignore
     finally
         Directory.Delete(tempDir, true)
+
+[<Fact>]
+let ``defaultLogsDirectory returns valid path ending in FSharpQueryStudio logs`` () =
+    let path = LoggerSetup.defaultLogsDirectory ()
+    Assert.False(String.IsNullOrWhiteSpace path)
+    let normalized = path.Replace('\\', '/')
+
+    Assert.True(
+        normalized.EndsWith("/FSharpQueryStudio/logs")
+        || normalized.EndsWith("FSharpQueryStudio/logs")
+    )
+
+[<Fact>]
+let ``defaultLogsDirectory uses LocalApplicationData folder path`` () =
+    let expectedBase =
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData)
+
+    let actual = LoggerSetup.defaultLogsDirectory ()
+    Assert.StartsWith(expectedBase, actual)

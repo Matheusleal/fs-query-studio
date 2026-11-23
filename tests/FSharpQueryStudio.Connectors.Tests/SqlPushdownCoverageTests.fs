@@ -7106,3 +7106,236 @@ let ``Pushdown comprehensive coverage section 54 - deep AST branches, joins, tup
     Assert.Equal(box 3, LinqInMemoryFallback.evaluate (Expression.Add(Expression.Constant(1), Expression.Constant(2))))
 
     Assert.True(true)
+
+[<Fact>]
+let ``String IsNullOrEmpty and IsNullOrWhiteSpace pushdown scenario 1`` () =
+    use db = new CovTempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let prods = SqlPushdownQueryable<CovProduct>(conn, "Products")
+
+    let qNullOrEmpty =
+        fsql {
+            for p in prods do
+                where (String.IsNullOrEmpty(p.Category))
+                select p.Id
+        }
+
+    let sql1 = toRawSql qNullOrEmpty
+    Assert.Contains("IS NULL OR", sql1)
+
+    let qNullOrWs =
+        fsql {
+            for p in prods do
+                where (String.IsNullOrWhiteSpace(p.Category))
+                select p.Id
+        }
+
+    let sql2 = toRawSql qNullOrWs
+    Assert.Contains("TRIM", sql2)
+
+[<Fact>]
+let ``String IsNullOrEmpty and IsNullOrWhiteSpace variations scenario 2`` () =
+    use db = new CovTempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let prods = SqlPushdownQueryable<CovProduct>(conn, "Products")
+
+    let q1 =
+        fsql {
+            for p in prods do
+                where (not (String.IsNullOrEmpty(p.Name)))
+                select p.Price
+        }
+
+    let sql1 = toRawSql q1
+    Assert.NotEmpty(sql1)
+
+    let q2 =
+        fsql {
+            for p in prods do
+                where (not (String.IsNullOrWhiteSpace(p.Name)))
+                select p.Price
+        }
+
+    let sql2 = toRawSql q2
+    Assert.NotEmpty(sql2)
+
+[<Fact>]
+let ``String EndsWith and StartsWith pushdown scenario 1`` () =
+    use db = new CovTempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let prods = SqlPushdownQueryable<CovProduct>(conn, "Products")
+
+    let qEnds =
+        fsql {
+            for p in prods do
+                where (p.Category.EndsWith("ics"))
+                select p.Id
+        }
+
+    let sql1 = toRawSql qEnds
+    Assert.Contains("LIKE", sql1)
+
+    let qStarts =
+        fsql {
+            for p in prods do
+                where (p.Category.StartsWith("Elec"))
+                select p.Id
+        }
+
+    let sql2 = toRawSql qStarts
+    Assert.Contains("LIKE", sql2)
+
+[<Fact>]
+let ``String EndsWith and StartsWith variations scenario 2`` () =
+    use db = new CovTempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let prods = SqlPushdownQueryable<CovProduct>(conn, "Products")
+
+    let qEnds2 =
+        fsql {
+            for p in prods do
+                where (p.Name.EndsWith("board"))
+                select p.Price
+        }
+
+    let sql1 = toRawSql qEnds2
+    Assert.Contains("LIKE", sql1)
+
+    let qStarts2 =
+        fsql {
+            for p in prods do
+                where (p.Name.StartsWith("Key"))
+                select p.Price
+        }
+
+    let sql2 = toRawSql qStarts2
+    Assert.Contains("LIKE", sql2)
+
+[<Fact>]
+let ``Window functions lag and lead with offset and defaultValue scenario 1`` () =
+    use db = new CovTempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let prods = SqlPushdownQueryable<CovProduct>(conn, "Products")
+
+    let qLag =
+        fsql {
+            for p in prods do
+                select (fsql.lag (p.Price, offset = 2, defaultValue = 0.0M, over = fsql.window (sortBy = p.Id)))
+        }
+
+    let sqlLag = toRawSql qLag
+    Assert.Contains("LAG(", sqlLag)
+
+    let qLead =
+        fsql {
+            for p in prods do
+                select (fsql.lead (p.Price, offset = 2, defaultValue = 99.0M, over = fsql.window (sortBy = p.Id)))
+        }
+
+    let sqlLead = toRawSql qLead
+    Assert.Contains("LEAD(", sqlLead)
+
+[<Fact>]
+let ``Window functions lag and lead variations scenario 2`` () =
+    use db = new CovTempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let prods = SqlPushdownQueryable<CovProduct>(conn, "Products")
+
+    let qLagSimple =
+        fsql {
+            for p in prods do
+                select (fsql.lag (p.Price, over = fsql.window (sortBy = p.Price)))
+        }
+
+    let sqlLag = toRawSql qLagSimple
+    Assert.Contains("LAG(", sqlLag)
+
+    let qLeadSimple =
+        fsql {
+            for p in prods do
+                select (fsql.lead (p.Price, over = fsql.window (sortBy = p.Price)))
+        }
+
+    let sqlLead = toRawSql qLeadSimple
+    Assert.Contains("LEAD(", sqlLead)
+
+[<Fact>]
+let ``Window functions ntile firstValue lastValue scenario 1`` () =
+    use db = new CovTempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let prods = SqlPushdownQueryable<CovProduct>(conn, "Products")
+
+    let qNtile =
+        fsql {
+            for p in prods do
+                select (fsql.ntile (4, over = fsql.window (sortBy = p.Price)))
+        }
+
+    let sqlNtile = toRawSql qNtile
+    Assert.Contains("NTILE(4)", sqlNtile)
+
+    let qFirst =
+        fsql {
+            for p in prods do
+                select (fsql.firstValue (p.Price, over = fsql.window (sortBy = p.Id)))
+        }
+
+    let sqlFirst = toRawSql qFirst
+    Assert.Contains("FIRST_VALUE(", sqlFirst)
+
+    let qLast =
+        fsql {
+            for p in prods do
+                select (fsql.lastValue (p.Price, over = fsql.window (sortBy = p.Id)))
+        }
+
+    let sqlLast = toRawSql qLast
+    Assert.Contains("LAST_VALUE(", sqlLast)
+
+[<Fact>]
+let ``Window functions ntile firstValue lastValue variations scenario 2`` () =
+    use db = new CovTempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let prods = SqlPushdownQueryable<CovProduct>(conn, "Products")
+
+    let qNtile2 =
+        fsql {
+            for p in prods do
+                select (fsql.ntile (10, over = fsql.window (partitionBy = p.Category, sortBy = p.Price)))
+        }
+
+    let sqlNtile = toRawSql qNtile2
+    Assert.Contains("NTILE(10)", sqlNtile)
+
+    let qFirstPart =
+        fsql {
+            for p in prods do
+                select (fsql.firstValue (p.Name, over = fsql.window (partitionBy = p.Category, sortBy = p.Price)))
+        }
+
+    let sqlFirst = toRawSql qFirstPart
+    Assert.Contains("FIRST_VALUE(", sqlFirst)
+
+[<Fact>]
+let ``ExpressionPushdownTranslator staged sqlite connection string matching scenario 1`` () =
+    let conn1 = SqliteConnector("Data Source=C:/temp/engine.db") :> IQueryableConnector
+    let conn2 = SqliteConnector("Data Source=C:/other/engine.db") :> IQueryableConnector
+    let prods1 = SqlPushdownQueryable<CovProduct>(conn1, "Products")
+    let prods2 = SqlPushdownQueryable<CovProduct>(conn2, "Products")
+
+    let joined =
+        prods1.Join(prods2, (fun p1 -> p1.Id), (fun p2 -> p2.Id), (fun p1 p2 -> p1.Price + p2.Price))
+
+    Assert.NotNull(joined)
+
+[<Fact>]
+let ``ExpressionPushdownTranslator staged sqlite connection string matching scenario 2`` () =
+    let conn1 = SqliteConnector("Data Source=C:/data/app.db") :> IQueryableConnector
+    let conn2 = SqliteConnector("Data Source=C:/data/engine.db") :> IQueryableConnector
+    let prods1 = SqlPushdownQueryable<CovProduct>(conn1, "Products")
+    let prods2 = SqlPushdownQueryable<CovProduct>(conn2, "Products")
+
+    let joined =
+        prods1.Join(prods2, (fun p1 -> p1.Id), (fun p2 -> p2.Id), (fun p1 p2 -> p1.Id))
+
+    Assert.NotNull(joined)

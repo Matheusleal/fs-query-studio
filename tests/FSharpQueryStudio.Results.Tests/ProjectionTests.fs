@@ -766,3 +766,61 @@ let ``projectWithCursor surfaces mid-stream record sequence exceptions as Error 
     Assert.True(retained.IsNone)
     Assert.True(env.DisplayText.IsSome)
     Assert.Contains("ORA-00936", env.DisplayText.Value)
+
+type private RecordWithFloatOption = { Id: int; Value: double option }
+
+[<Fact>]
+let ``extractAnonymousRecordBlocks handles backtick identifiers not followed by equals scenario 1`` () =
+    let src = "{| ``notAssigned`` ; ``assigned`` = 42 |}"
+    Projection.registerSourceCode src
+    let blocks = Projection.extractAnonymousRecordBlocks src
+    Assert.Single(blocks) |> ignore
+    Assert.Equal<string list>([ "assigned" ], blocks.[0])
+
+[<Fact>]
+let ``extractAnonymousRecordBlocks handles normal identifiers not followed by equals scenario 2`` () =
+    let src = "{| notAssigned ; assigned = 100 |}"
+    let blocks = Projection.extractAnonymousRecordBlocks src
+    Assert.Single(blocks) |> ignore
+    Assert.Equal<string list>([ "assigned" ], blocks.[0])
+
+[<Fact>]
+let ``tryGetOrExtractRecordOrder returns None when fields do not match source blocks scenario 1`` () =
+    let src = "{| a = 1; b = 2 |}"
+    let item = {| x = 10; y = 20 |}
+    let order = Projection.tryGetOrExtractRecordOrder (item.GetType()) (Some src)
+    Assert.True(order.IsNone)
+
+[<Fact>]
+let ``registerSourceCode handles whitespace, empty, and invalid blocks safely scenario 2`` () =
+    Projection.registerSourceCode ""
+    Projection.registerSourceCode "   "
+    Projection.registerSourceCode null
+    Projection.registerSourceCode "let x = 1"
+    Assert.True(true)
+
+[<Fact>]
+let ``sanitizeCell handles float option with NaN and Infinity scenario 1`` () =
+    let r1 =
+        {
+            Id = 1
+            Value = Some System.Double.NaN
+        }
+
+    let r2 =
+        {
+            Id = 2
+            Value = Some System.Double.PositiveInfinity
+        }
+
+    let env = envOf (box [ r1; r2 ])
+    Assert.Equal(ResultKind.Table, env.Kind)
+    Assert.Null(env.Rows.[0].[1])
+    Assert.Null(env.Rows.[1].[1])
+
+[<Fact>]
+let ``sanitizeCell handles regular float option values scenario 2`` () =
+    let r = { Id = 1; Value = Some 42.5 }
+    let env = envOf (box [ r ])
+    Assert.Equal(ResultKind.Table, env.Kind)
+    Assert.Equal(box 42.5, env.Rows.[0].[1])

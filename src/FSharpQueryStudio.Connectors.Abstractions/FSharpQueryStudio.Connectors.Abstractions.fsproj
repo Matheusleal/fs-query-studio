@@ -5,6 +5,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>FSharpQueryStudio.Connectors.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Include="IConnector.fs" />
     <Compile Include="ConnectionStringSecrets.fs" />
     <Compile Include="TabularDataMapping.fs" />
