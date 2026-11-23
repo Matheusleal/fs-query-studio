@@ -156,6 +156,7 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
 
             let sql = plan.BuildSql(dialect)
             let allParams = (plan.BaseParameters @ (plan.Parameters |> List.ofSeq))
+            FSharpQueryStudio.Protocol.LastQueryTracker.Record(sql, allParams)
 
             let rows: 'T seq =
                 match connector with
@@ -1361,6 +1362,10 @@ module SqlPushdownQuery =
         match query with
         | null -> ("", [])
         | :? string as s -> (s, [])
+        | :? ConnectorQueryResult as cqr ->
+            match cqr.RawSql with
+            | Some sql -> (sql, cqr.Parameters)
+            | None -> ("", [])
         | :? PushdownQueryPlan as plan ->
             let dialect = defaultArg plan.Dialect SqlDialect.Sqlite
             let sql = plan.BuildSql(dialect)

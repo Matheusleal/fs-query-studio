@@ -189,7 +189,7 @@ module private XmlCells =
                 elements
 
         if bounded.Length = 0 then
-            { Columns = []; Rows = Seq.empty }
+            { Columns = []; Rows = Seq.empty; RawSql = None; Parameters = [] }
         else
             let colOrder = ResizeArray<string>()
 
@@ -238,6 +238,8 @@ module private XmlCells =
             {
                 Columns = columns
                 Rows = rows :> seq<obj array>
+                RawSql = None
+                Parameters = []
             }
 
 /// Local XML file connector with XXE-safe parsing, multi-collection discovery,
@@ -274,10 +276,10 @@ type XmlConnector(filePath: string, ?options: XmlOptions) =
     /// Reads data rows from the target collection/table in the XML document.
     member _.ReadRows(?tableName: string, ?maxRows: int) : ConnectorQueryResult =
         if not (File.Exists cleanPath) then
-            { Columns = []; Rows = Seq.empty }
+            { Columns = []; Rows = Seq.empty; RawSql = None; Parameters = [] }
         else
             match loadRootElement () with
-            | None -> { Columns = []; Rows = Seq.empty }
+            | None -> { Columns = []; Rows = Seq.empty; RawSql = None; Parameters = [] }
             | Some root ->
                 let collections = XmlCells.discoverCollections root options
 

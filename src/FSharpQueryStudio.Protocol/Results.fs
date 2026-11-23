@@ -59,6 +59,28 @@ type OutputStream =
 
 type OutputLine = { Stream: OutputStream; Text: string }
 
+type QueryParameter = { Name: string; Value: obj }
+
+[<AllowNullLiteral>]
+type private TrackedQuery(sql: string, parameters: (string * obj) list) =
+    member _.Sql = sql
+    member _.Parameters = parameters
+
+type LastQueryTracker private () =
+    static let currentQuery = new System.Threading.AsyncLocal<TrackedQuery>()
+
+    static member Record (sql: string, parameters: (string * obj) list) =
+        currentQuery.Value <- TrackedQuery(sql, parameters)
+
+    static member Reset () =
+        currentQuery.Value <- null
+
+    static member Current : (string * (string * obj) list) option =
+        match currentQuery.Value with
+        | null -> None
+        | t when not (System.String.IsNullOrWhiteSpace t.Sql) -> Some (t.Sql, t.Parameters)
+        | _ -> None
+
 type ResultEnvelope =
     {
         Kind: ResultKind
@@ -69,4 +91,6 @@ type ResultEnvelope =
         ContinuationToken: string option
         ElapsedMs: int64
         Output: OutputLine list
+        RawQuery: string option
+        Parameters: QueryParameter list
     }

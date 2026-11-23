@@ -24,6 +24,8 @@ let ``a ConnectorQueryResult tail value projects to a Table with the connector's
                     yield [| box 1; box "Ada" |]
                     yield [| box 2; box "Grace" |]
                 }
+            RawSql = None
+            Parameters = []
         }
 
     let env = envOf (box query)
@@ -42,6 +44,8 @@ let ``a ConnectorQueryResult tail value is fully retained for export, even past 
         {
             Columns = [ "n" ]
             Rows = seq { for i in 1..rowCount -> [| box i |] }
+            RawSql = None
+            Parameters = []
         }
 
     let env, cursor, retained = Projection.projectWithCursor (box query) 0L
@@ -562,17 +566,57 @@ let ``sequence of ConnectorQueryResult falls back to Text envelope with expected
         {
             Columns = [ "x" ]
             Rows = seq { yield [| box 1 |] }
+            RawSql = None
+            Parameters = []
         }
 
     let q2: ConnectorQueryResult =
         {
             Columns = [ "y" ]
             Rows = seq { yield [| box 2 |] }
+            RawSql = None
+            Parameters = []
         }
 
     let env, _, _ = Projection.projectWithCursor (box [ q1; q2 ]) 0L
     Assert.Equal(ResultKind.Text, env.Kind)
     Assert.True(env.DisplayText.IsSome)
+
+[<Fact>]
+let ``a ConnectorQueryResult with RawSql and Parameters preserves them on the ResultEnvelope`` () =
+    let q: ConnectorQueryResult =
+        {
+            Columns = [ "id"; "total" ]
+            Rows = seq { yield [| box 101; box 99.9M |] }
+            RawSql = Some "SELECT id, total FROM orders WHERE customer_id = @cid"
+            Parameters = [ "@cid", box 42 ]
+        }
+
+    let env = envOf (box q)
+    Assert.Equal(ResultKind.Table, env.Kind)
+    Assert.True(env.RawQuery.IsSome)
+    Assert.Contains("SELECT", env.RawQuery.Value)
+    Assert.Contains("orders", env.RawQuery.Value)
+    Assert.Equal(1, env.Parameters.Length)
+    Assert.Equal("@cid", env.Parameters.[0].Name)
+    Assert.Equal(box 42, env.Parameters.[0].Value)
+
+[<Fact>]
+let ``Projection captures executed query from LastQueryTracker when value has no direct query metadata`` () =
+    LastQueryTracker.Reset()
+    LastQueryTracker.Record("SELECT sku, price FROM products WHERE price > @minPrice", [ "@minPrice", box 50.0 ])
+
+    let people = [ { Id = 1; Name = "Test" } ]
+    let env = envOf (box people)
+
+    Assert.Equal(ResultKind.Table, env.Kind)
+    Assert.True(env.RawQuery.IsSome)
+    Assert.Contains("SELECT", env.RawQuery.Value)
+    Assert.Contains("products", env.RawQuery.Value)
+    Assert.Equal(1, env.Parameters.Length)
+    Assert.Equal("@minPrice", env.Parameters.[0].Name)
+    Assert.Equal(box 50.0, env.Parameters.[0].Value)
+    LastQueryTracker.Reset()
 
 [<Fact>]
 let ``record sequence with mixed types falls back to Text envelope`` () =

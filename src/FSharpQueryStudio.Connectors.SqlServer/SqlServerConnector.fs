@@ -76,7 +76,8 @@ type SqlServerConnector(connectionString: string) =
                             yield [| for i in 0 .. reader.FieldCount - 1 -> reader.GetValue(i) |]
                     })
 
-        { Columns = columns; Rows = rows }
+        FSharpQueryStudio.Protocol.LastQueryTracker.Record(sql, parameters)
+        { Columns = columns; Rows = rows; RawSql = Some sql; Parameters = parameters }
 
     /// Executes `sql` and streams rows directly into a typed F# record without creating intermediate obj[] arrays per row.
     member this.ExecuteReaderStreamWithColumns<'T>
@@ -84,6 +85,7 @@ type SqlServerConnector(connectionString: string) =
         (parameters: (string * obj) list)
         (mapperFactory: string list -> (System.Data.IDataRecord -> 'T))
         : 'T seq =
+        FSharpQueryStudio.Protocol.LastQueryTracker.Record(sql, parameters)
         Seq.delay (fun () ->
             let connection = new SqlConnection(connectionString)
             connection.Open()

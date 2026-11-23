@@ -184,7 +184,7 @@ module private JsonCells =
                 items
 
         if boundedItems.Length = 0 then
-            { Columns = []; Rows = Seq.empty }
+            { Columns = []; Rows = Seq.empty; RawSql = None; Parameters = [] }
         else
             let hasObjects =
                 boundedItems |> Array.exists (fun e -> e.ValueKind = JsonValueKind.Object)
@@ -208,6 +208,8 @@ module private JsonCells =
                 {
                     Columns = [ colName ]
                     Rows = rows :> seq<obj array>
+                    RawSql = None
+                    Parameters = []
                 }
             else
                 let colOrder = ResizeArray<string>()
@@ -261,6 +263,8 @@ module private JsonCells =
                 {
                     Columns = columns
                     Rows = rows :> seq<obj array>
+                    RawSql = None
+                    Parameters = []
                 }
 
 /// Local JSON file connector supporting multi-collection discovery, nested property flattening,
@@ -289,7 +293,7 @@ type JsonConnector(filePath: string, ?options: JsonOptions) =
     /// Reads data rows from the target collection/table in the JSON file.
     member _.ReadRows(?tableName: string, ?maxRows: int) : ConnectorQueryResult =
         if not (File.Exists cleanPath) then
-            { Columns = []; Rows = Seq.empty }
+            { Columns = []; Rows = Seq.empty; RawSql = None; Parameters = [] }
         else
             use doc = parseDocument ()
             let collections = JsonCells.discoverCollections doc.RootElement options

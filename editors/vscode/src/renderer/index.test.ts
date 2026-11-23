@@ -129,6 +129,23 @@ describe("grid renderer", () => {
     expect((el.querySelector(".fsq-head") as HTMLElement).hidden).toBe(false);
   });
 
+  it("toggles to the raw query view and back", () => {
+    host = activate(ctx().context);
+    host.renderOutputItem(
+      item("o1", payload({ rawQuery: "SELECT 1", parameters: [{ name: "@p", value: 10 }] })),
+      el,
+    );
+    (el.querySelector('[data-view="rawQuery"]') as HTMLButtonElement).click();
+    const rawQuery = el.querySelector(".fsq-raw-query") as HTMLElement;
+    expect(rawQuery.hidden).toBe(false);
+    expect(rawQuery.textContent).toContain("SELECT 1");
+    expect(rawQuery.textContent).toContain("@p");
+    expect((el.querySelector(".fsq-head") as HTMLElement).hidden).toBe(true);
+    (el.querySelector('[data-view="data"]') as HTMLButtonElement).click();
+    expect((el.querySelector(".fsq-raw-query") as HTMLElement).hidden).toBe(true);
+    expect((el.querySelector(".fsq-head") as HTMLElement).hidden).toBe(false);
+  });
+
   it("posts exportCsv on Export click", () => {
     const c = ctx();
     host = activate(c.context);

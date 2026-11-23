@@ -28,7 +28,7 @@ type private FakeQueryableConnector(rows: obj array list) =
         member _.ConnectionString = "Data Source=:memory:"
 
         member _.ExecuteQuery (_sql: string) (_parameters: (string * obj) list) : ConnectorQueryResult =
-            { Columns = [ "Name" ]; Rows = rows }
+            { Columns = [ "Name" ]; Rows = rows; RawSql = None; Parameters = [] }
 
 type private FakeResolver(connector: IConnector) =
     interface IConnectionResolver with

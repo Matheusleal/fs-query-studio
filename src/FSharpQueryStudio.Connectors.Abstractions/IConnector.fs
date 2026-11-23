@@ -32,6 +32,8 @@ type ConnectorQueryResult =
     {
         Columns: string list
         Rows: obj array seq
+        RawSql: string option
+        Parameters: (string * obj) list
     }
 
 /// Event data reported during file staging and cache population phases.

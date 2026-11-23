@@ -93,13 +93,13 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
         let lastRow = sheet.LastRowUsed()
 
         if isNull firstRow || isNull lastRow then
-            { Columns = []; Rows = Seq.empty }
+            { Columns = []; Rows = Seq.empty; RawSql = None; Parameters = [] }
         else
             let firstCell = firstRow.FirstCellUsed()
             let lastCell = firstRow.LastCellUsed()
 
             if isNull firstCell || isNull lastCell then
-                { Columns = []; Rows = Seq.empty }
+                { Columns = []; Rows = Seq.empty; RawSql = None; Parameters = [] }
             else
                 let firstCol = firstCell.Address.ColumnNumber
                 let lastCol = lastCell.Address.ColumnNumber
@@ -164,6 +164,8 @@ type ExcelConnector(filePath: string, ?options: ExcelOptions) =
                 {
                     Columns = columns
                     Rows = collected.ToArray() :> seq<obj array>
+                    RawSql = None
+                    Parameters = []
                 }
 
     interface IConnector with

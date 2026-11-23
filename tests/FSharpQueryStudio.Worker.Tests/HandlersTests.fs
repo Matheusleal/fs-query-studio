@@ -1372,10 +1372,10 @@ let ``a second execution/evaluate under the same DocumentUri overwrites the tab'
             Directory.CreateDirectory tempDir |> ignore
 
             let firstScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult)"
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] }; RawSql = None; Parameters = [] }: ConnectorQueryResult)"
 
             let secondScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 2 |]; yield [| box 3 |] } }: ConnectorQueryResult)"
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 2 |]; yield [| box 3 |] }; RawSql = None; Parameters = [] }: ConnectorQueryResult)"
 
             let! _ =
                 Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Overwrite1.fsx" firstScript)
@@ -1456,7 +1456,7 @@ let ``results/discard removes a retained result, and a repeat call is a no-op`` 
             Directory.CreateDirectory tempDir |> ignore
 
             let tableScript =
-                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] } }: ConnectorQueryResult)"
+                "({ Columns = [ \"n\" ]; Rows = seq { yield [| box 1 |] }; RawSql = None; Parameters = [] }: ConnectorQueryResult)"
 
             let! _ =
                 Handlers.dispatch (evaluateRequestFor "eval1" "untitled:Discard1.fsx" tableScript)
@@ -3472,7 +3472,7 @@ let ``results/exportCsv with relative path generates CSV file in current workspa
             let docUri = Path.Combine(tmp, "export_rel.fsqnb")
 
             let cellSource =
-                "({ Columns = [ \"ID\"; \"Title\" ]; Rows = seq { yield [| box 101; box \"Hello CSV\" |] } }: ConnectorQueryResult)"
+                "({ Columns = [ \"ID\"; \"Title\" ]; Rows = seq { yield [| box 101; box \"Hello CSV\" |] }; RawSql = None; Parameters = [] }: ConnectorQueryResult)"
 
             let! evalResp =
                 Handlers.dispatch (notebookCellRequest "eval-export-rel" cellSource docUri)
@@ -3527,7 +3527,7 @@ let ``results/exportCsv resolves unescaped Windows URI when stored with encoded 
             let unescapedDocUri = "file:///C:/Projects/my_nb.fsqnb"
 
             let cellSource =
-                "({ Columns = [ \"Val\" ]; Rows = seq { yield [| box 999 |] } }: ConnectorQueryResult)"
+                "({ Columns = [ \"Val\" ]; Rows = seq { yield [| box 999 |] }; RawSql = None; Parameters = [] }: ConnectorQueryResult)"
 
             let! evalResp =
                 Handlers.dispatch (notebookCellRequest "eval-encoded-uri" cellSource encodedDocUri)
@@ -3629,6 +3629,66 @@ let ``workspace/createSampleData and workspace/createAdvancedSamples respect lan
                 File.Exists(Path.Combine(tmp, "sample_postgresql_pt.fsqnb")),
                 "Portuguese PostgreSQL notebook should NOT be created when language is en"
             )
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
+[<Fact>]
+let ``execution evaluate returns RawQuery and Parameters in ResultEnvelope when query is present`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-handlers-rawquery-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tmp) |> ignore
+        Handlers.setWorkspaceDirForTests (Some tmp)
+
+        try
+            let docUri = Path.Combine(tmp, "query_test.fsqnb")
+            let cellSource =
+                "({ Columns = [ \"id\"; \"title\" ]; Rows = seq { yield [| box 1; box \"Notebook\" |] }; RawSql = Some \"SELECT id, title FROM items WHERE price > @p\"; Parameters = [ \"@p\", box 99.5 ] }: ConnectorQueryResult)"
+
+            let! evalResp = Handlers.dispatch (notebookCellRequest "eval-rawquery-test" cellSource docUri)
+            Assert.True(evalResp.Error.IsNone)
+            Assert.True(evalResp.Result.IsSome)
+
+            let resultElem = evalResp.Result.Value
+            let rawQueryProp = resultElem.GetProperty("rawQuery")
+            Assert.True(rawQueryProp.GetString() <> null)
+            Assert.Contains("SELECT", rawQueryProp.GetString())
+            Assert.Contains("items", rawQueryProp.GetString())
+
+            let paramsProp = resultElem.GetProperty("parameters")
+            Assert.Equal(System.Text.Json.JsonValueKind.Array, paramsProp.ValueKind)
+            Assert.Equal(1, paramsProp.GetArrayLength())
+            let firstParam = paramsProp.[0]
+            Assert.Equal("@p", firstParam.GetProperty("name").GetString())
+        finally
+            Handlers.setWorkspaceDirForTests None
+            cleanTempDir tmp
+    }
+
+[<Fact>]
+let ``execution evaluate returns null RawQuery and empty Parameters for plain record table`` () =
+    task {
+        let tmp = Path.Combine(Path.GetTempPath(), "fqs-handlers-norawquery-" + Guid.NewGuid().ToString("N"))
+        Directory.CreateDirectory(tmp) |> ignore
+        Handlers.setWorkspaceDirForTests (Some tmp)
+
+        try
+            let docUri = Path.Combine(tmp, "norawquery_test.fsqnb")
+            let cellSource = "[ {| id = 1; name = \"In-Memory\" |} ]"
+
+            let! evalResp = Handlers.dispatch (notebookCellRequest "eval-norawquery-test" cellSource docUri)
+            Assert.True(evalResp.Error.IsNone)
+            Assert.True(evalResp.Result.IsSome)
+
+            let resultElem = evalResp.Result.Value
+            let mutable rawQueryProp = Unchecked.defaultof<System.Text.Json.JsonElement>
+            let hasRawQuery = resultElem.TryGetProperty("rawQuery", &rawQueryProp)
+            Assert.True(not hasRawQuery || rawQueryProp.ValueKind = System.Text.Json.JsonValueKind.Null)
+
+            let paramsProp = resultElem.GetProperty("parameters")
+            Assert.Equal(System.Text.Json.JsonValueKind.Array, paramsProp.ValueKind)
+            Assert.Equal(0, paramsProp.GetArrayLength())
         finally
             Handlers.setWorkspaceDirForTests None
             cleanTempDir tmp

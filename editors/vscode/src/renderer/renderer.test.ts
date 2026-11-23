@@ -136,6 +136,7 @@ describe("Renderer Optimization: Single Style Injection & AbortController (TASK-
       const exportBtn = container1.querySelector(".fsq-export") as HTMLButtonElement;
       const dataBtn = container1.querySelector('button[data-view="data"]') as HTMLButtonElement;
       const schemaBtn = container1.querySelector('button[data-view="schema"]') as HTMLButtonElement;
+      const rawQueryBtn = container1.querySelector('button[data-view="rawQuery"]') as HTMLButtonElement;
       const viewport = container1.querySelector(".fsq-viewport") as HTMLElement;
 
       // Verify active works
@@ -145,6 +146,9 @@ describe("Renderer Optimization: Single Style Injection & AbortController (TASK-
       schemaBtn.click();
       expect(container1.querySelector(".fsq-schema")?.getAttribute("hidden")).toBeNull();
 
+      rawQueryBtn.click();
+      expect(container1.querySelector(".fsq-raw-query")?.getAttribute("hidden")).toBeNull();
+
       // Dispose the output item
       host.disposeOutputItem("out-dispose");
 
@@ -153,8 +157,8 @@ describe("Renderer Optimization: Single Style Injection & AbortController (TASK-
       expect(mock.sent).toHaveLength(1); // Still 1, didn't increase
 
       dataBtn.click();
-      // Should remain on schema view because click listener was aborted
-      expect(container1.querySelector(".fsq-schema")?.getAttribute("hidden")).toBeNull();
+      // Should remain on raw query view because click listener was aborted
+      expect(container1.querySelector(".fsq-raw-query")?.getAttribute("hidden")).toBeNull();
 
       // Viewport scroll should not throw or trigger
       viewport.dispatchEvent(new Event("scroll"));
