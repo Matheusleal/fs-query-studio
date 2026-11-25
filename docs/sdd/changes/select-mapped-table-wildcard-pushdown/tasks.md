@@ -1,0 +1,10 @@
+# Tasks Ledger: `select-mapped-table-wildcard-pushdown`
+
+| ID | Status | Requisito | Descrição da Tarefa |
+|---|---|---|---|
+| **TASK-01** | `Done` | `REQ-SELECT-TABLE-WILDCARD-001`, `REQ-SELECT-TABLE-MIXED-002`, `REQ-SELECT-TABLE-MULTI-003`, `REQ-SELECT-DIRECT-TABLE-004`, `REQ-PUSHDOWN-PROJ-DISPATCH` | Implementar `tryResolveTableAlias` e atualizar despacho de projeção em `ExpressionPushdownTranslator.fs` para emitir `<alias>.*` para membros de tabela mapeada em `NewExpression` e para projeções diretas de tabela (`select t0` / `select t1`). |
+| **TASK-02** | `Done` | `REQ-MAPPER-NESTED-RECORD-005` | Suportar hidratação de records aninhados em `RecordReaders.fs` (`CompiledRecordMapper`) e `SqlPushdownQuery.fs` para materialização correta em tempo de execução quando campos de um record recebem uma tabela mapeada. |
+| **TASK-03** | `Done` | `REQ-SELECT-TABLE-WILDCARD-001`..`005` | Escrever bateria abrangente de testes automatizados em `tests/FSharpQueryStudio.Connectors.Tests/` cobrindo todos os cenários (base table wildcard, join table wildcard, multi-table wildcard, ordem mista, direct `select t0`/`select t1`, execução/hidratação em memória com SQLite). Mínimo de 2 testes distintos por cenário, mantendo 100.00% de cobertura. |
+| **TASK-04** | `Done` | `REQ-SELECT-TABLE-WILDCARD-001`..`004` | Atualizar os guias canônicos `docs/FSQL_AI_AGENT_GUIDE.md` e `docs/FSQL_AI_AGENT_GUIDE_PT.md` documentando o uso de tabelas mapeadas no `select` de consultas FSQL. |
+| **TASK-05** | `Done` | `REQ-SELECT-TABLE-WILDCARD-001`..`005` | Formatar todo o código F# com o Fantomas (`dotnet fantomas build.fsx src tests`) e verificar conformidade (`dotnet fantomas src tests build.fsx --check`). |
+| **TASK-06** | `Done` | `REQ-SELECT-TABLE-WILDCARD-001`..`005` | Executar a compilação completa de release e empacotamento VSIX via `dotnet fsi .\build.fsx release` e validação E2E dos cadernos de amostra via `node editors/vscode/test_all_samples_e2e.mjs`. |

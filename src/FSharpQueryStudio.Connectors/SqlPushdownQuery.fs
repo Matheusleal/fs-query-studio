@@ -169,6 +169,35 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
                     let res = connector.ExecuteQuery sql allParams
 
                     seq {
+                        let rec instantiateRecord (t: Type) (cols: string list) (r: obj array) : obj =
+                            if FSharpType.IsRecord(t) then
+                                let flds = FSharpType.GetRecordFields(t)
+                                let innerCtor = FSharpValue.PreComputeRecordConstructor(t)
+
+                                let innerArgs =
+                                    flds
+                                    |> Array.mapi (fun defIdx fld ->
+                                        let colIdx =
+                                            cols
+                                            |> List.tryFindIndex (fun c ->
+                                                String.Equals(c, fld.Name, StringComparison.OrdinalIgnoreCase))
+                                            |> Option.defaultValue (if defIdx < r.Length then defIdx else 0)
+
+                                        let v =
+                                            if colIdx >= 0 && colIdx < r.Length then
+                                                r.[colIdx]
+                                            else
+                                                null
+
+                                        if FSharpType.IsRecord(fld.PropertyType) then
+                                            instantiateRecord fld.PropertyType cols r
+                                        else
+                                            RecordReaders.ConvertValue v fld.PropertyType)
+
+                                innerCtor innerArgs
+                            else
+                                RecordReaders.ConvertValue (if r.Length > 0 then r.[0] else null) t
+
                         for row in res.Rows do
                             let targetType = typeof<'T>
 
@@ -178,8 +207,13 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
                                 let args = Array.zeroCreate fields.Length
 
                                 for i in 0 .. fields.Length - 1 do
-                                    let v = if i < row.Length then row.[i] else null
-                                    args.[i] <- RecordReaders.ConvertValue v fields.[i].PropertyType
+                                    let ft = fields.[i].PropertyType
+
+                                    if FSharpType.IsRecord(ft) then
+                                        args.[i] <- instantiateRecord ft res.Columns row
+                                    else
+                                        let v = if i < row.Length then row.[i] else null
+                                        args.[i] <- RecordReaders.ConvertValue v ft
 
                                 yield unbox<'T>(ctor args)
                             else if row.Length > 0 then

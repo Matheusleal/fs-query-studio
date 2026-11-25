@@ -649,6 +649,218 @@ module ExpressionPushdownTranslator =
                             (None, colName)
         | _ -> (None, unwrapped.ToString())
 
+    /// Attempts to resolve an expression as a reference to an entire mapped table (e.g. range variable or tuple component),
+    /// returning the table's assigned SQL alias if matched.
+    let tryResolveTableAlias (plan: PushdownQueryPlan) (expr: Expression) : string option =
+        let unwrapped =
+            match expr with
+            | null -> null
+            | :? UnaryExpression as u when
+                u.NodeType = ExpressionType.Convert
+                || u.NodeType = ExpressionType.ConvertChecked
+                || u.NodeType = ExpressionType.TypeAs
+                ->
+                u.Operand
+            | other -> other
+            |> unwrapBlock
+            |> unwrapQuote
+
+        match unwrapped with
+        | null -> None
+        | :? ParameterExpression as p ->
+            let isTupleLike =
+                let n = p.Type.Name
+
+                n.StartsWith("Tuple")
+                || n.StartsWith("ValueTuple")
+                || n.StartsWith("AnonymousObject")
+
+            if isTupleLike then
+                None
+            elif not (isNull p.Name) && plan.OuterAliases.ContainsKey p.Name then
+                Some plan.OuterAliases.[p.Name]
+            elif
+                not (isNull p.Name)
+                && (p.Name = plan.BaseAlias || p.Name = "_t0" || p.Name = "t0")
+            then
+                Some plan.BaseAlias
+            elif
+                not (isNull p.Name)
+                && plan.Joins
+                   |> Seq.exists (fun j -> j.Alias = p.Name || j.Alias.TrimStart('_') = p.Name)
+            then
+                let j =
+                    plan.Joins
+                    |> Seq.find (fun j -> j.Alias = p.Name || j.Alias.TrimStart('_') = p.Name)
+
+                Some j.Alias
+            elif plan.BaseRowType.IsSome && plan.BaseRowType.Value = p.Type then
+                Some plan.BaseAlias
+            elif plan.Joins |> Seq.exists (fun j -> j.RowType = Some p.Type) then
+                let j = plan.Joins |> Seq.find (fun j -> j.RowType = Some p.Type)
+                Some j.Alias
+            elif plan.Joins.Count = 0 then
+                Some plan.BaseAlias
+            else
+                None
+        | :? MemberExpression as m ->
+            let isColumnOnEntity =
+                if not (isNull m.Expression) then
+                    let exprType = m.Expression.Type
+
+                    let isTupleExpr =
+                        exprType.Name.StartsWith("Tuple")
+                        || exprType.Name.StartsWith("ValueTuple")
+                        || exprType.Name.StartsWith("AnonymousObject")
+
+                    if isTupleExpr then
+                        false
+                    else
+                        plan.BaseRowType = Some exprType
+                        || plan.Joins |> Seq.exists (fun j -> j.RowType = Some exprType)
+                        || (not (m.Member.Name.StartsWith("Item"))
+                            && not (m.Member.Name = "t0")
+                            && not (m.Member.Name = "_t0")
+                            && not (m.Member.Name = "t1")
+                            && not (m.Member.Name = "_t1"))
+                else
+                    false
+
+            if isColumnOnEntity then
+                None
+            else
+                let baseMatches = if plan.BaseRowType = Some m.Type then 1 else 0
+
+                let matchingJoins =
+                    plan.Joins |> Seq.filter (fun j -> j.RowType = Some m.Type) |> Seq.toList
+
+                let totalMatches = baseMatches + matchingJoins.Length
+
+                if totalMatches = 1 then
+                    if baseMatches = 1 then
+                        Some plan.BaseAlias
+                    else
+                        Some matchingJoins.[0].Alias
+                else
+                    let path = ResizeArray<string>()
+                    let mutable curr: Expression = m :> Expression
+                    let mutable rootParam: ParameterExpression option = None
+                    let mutable keepWalking = true
+
+                    while keepWalking && not (isNull curr) do
+                        match curr with
+                        | :? MemberExpression as parentM ->
+                            path.Add(parentM.Member.Name)
+                            curr <- parentM.Expression
+                        | :? ParameterExpression as p ->
+                            rootParam <- Some p
+                            keepWalking <- false
+                        | :? UnaryExpression as u when u.NodeType = ExpressionType.Convert -> curr <- u.Operand
+                        | _ -> keepWalking <- false
+
+                    path.Reverse()
+
+                    if path.Count = 0 then
+                        None
+                    else
+                        let tupleItems = path |> Seq.filter (fun s -> s.StartsWith("Item")) |> Seq.toList
+
+                        if not (List.isEmpty tupleItems) then
+                            if tupleItems.Length = 1 then
+                                let itemStr = tupleItems.[0].Substring(4)
+
+                                match Int32.TryParse(itemStr) with
+                                | true, n when n >= 1 ->
+                                    let tableIdx = n - 1
+
+                                    let alias =
+                                        if tableIdx = 0 then
+                                            plan.BaseAlias
+                                        else
+                                            sprintf "_t%d" tableIdx
+
+                                    Some alias
+                                | _ -> None
+                            else
+                                let first = tupleItems.[0]
+
+                                if first = "Item8" && tupleItems.Length = 2 then
+                                    let subStr = tupleItems.[1].Substring(4)
+
+                                    match Int32.TryParse(subStr) with
+                                    | true, subIdx when subIdx >= 1 ->
+                                        let leftJoins =
+                                            plan.Joins |> Seq.filter (fun j -> j.JoinType = "LEFT JOIN") |> Seq.toList
+
+                                        let tableIdx =
+                                            if leftJoins.Length >= subIdx then
+                                                let joinTarget = leftJoins.[subIdx - 1]
+
+                                                let idx =
+                                                    plan.Joins
+                                                    |> Seq.findIndex (fun j -> obj.ReferenceEquals(j, joinTarget))
+
+                                                idx + 1
+                                            else
+                                                let baseOffset = max 0 (plan.Joins.Count - leftJoins.Length)
+
+                                                baseOffset + subIdx
+
+                                        Some(sprintf "_t%d" tableIdx)
+                                    | _ -> None
+                                else
+                                    let k =
+                                        match rootParam with
+                                        | Some p ->
+                                            let d = getTupleDepth p.Type
+                                            if d > 0 then d else plan.Joins.Count
+                                        | None
+                                        | _ -> plan.Joins.Count
+
+                                    let leadingOnes =
+                                        let mutable count = 0
+                                        let mutable stopped = false
+
+                                        for item in tupleItems do
+                                            if not stopped then
+                                                if item = "Item1" then
+                                                    count <- count + 1
+                                                else
+                                                    stopped <- true
+
+                                        count
+
+                                    let hasItem2 = tupleItems |> List.exists (fun s -> s = "Item2")
+
+                                    let tableIdx = if not hasItem2 then 0 else max 0 (k - leadingOnes)
+
+                                    let alias =
+                                        if tableIdx = 0 then
+                                            plan.BaseAlias
+                                        else
+                                            sprintf "_t%d" tableIdx
+
+                                    Some alias
+                        else
+                            let firstName = path.[0]
+
+                            if firstName = plan.BaseAlias || firstName = "_t0" || firstName = "t0" then
+                                Some plan.BaseAlias
+                            elif
+                                plan.Joins
+                                |> Seq.exists (fun j -> j.Alias = firstName || j.Alias.TrimStart('_') = firstName)
+                            then
+                                let j =
+                                    plan.Joins
+                                    |> Seq.find (fun j -> j.Alias = firstName || j.Alias.TrimStart('_') = firstName)
+
+                                Some j.Alias
+                            elif plan.OuterAliases.ContainsKey firstName then
+                                Some plan.OuterAliases.[firstName]
+                            else
+                                None
+        | _ -> None
+
     let rec extractColumnNameWithAlias (plan: PushdownQueryPlan) (expr: Expression) : string =
         let unwrapped = unwrapQuote expr |> unwrapOptionOrNullableMember
 
@@ -3886,7 +4098,8 @@ module ExpressionPushdownTranslator =
                 | :? NewExpression as newExpr ->
                     let ctor = newExpr.Constructor
                     let paramInfos = if isNull ctor then [||] else ctor.GetParameters()
-                    let colParts = ResizeArray<string>()
+                    let wildcardParts = ResizeArray<string>()
+                    let scalarParts = ResizeArray<string>()
                     let mutable ok = true
 
                     for idx in 0 .. newExpr.Arguments.Count - 1 do
@@ -3901,33 +4114,46 @@ module ExpressionPushdownTranslator =
                             else
                                 sprintf "Item%d" itemNum
 
-                        match translateScalarExpr dialect plan arg with
-                        | Some sqlExpr ->
-                            let qAlias = SqlDialect.quoteIdentifier dialect alias
-                            colParts.Add($"{sqlExpr} AS {qAlias}")
-                        | None
-                        | _ -> ok <- false
+                        match tryResolveTableAlias plan arg with
+                        | Some tblAlias -> wildcardParts.Add($"{tblAlias}.*")
+                        | None ->
+                            match translateScalarExpr dialect plan arg with
+                            | Some sqlExpr ->
+                                let qAlias = SqlDialect.quoteIdentifier dialect alias
+                                scalarParts.Add($"{sqlExpr} AS {qAlias}")
+                            | None
+                            | _ -> ok <- false
 
-                    if ok && colParts.Count > 0 then
+                    if ok && (wildcardParts.Count > 0 || scalarParts.Count > 0) then
+                        let colParts = ResizeArray<string>(wildcardParts)
+                        colParts.AddRange(scalarParts)
                         plan.Projection <- Some(String.concat ", " colParts)
                 | :? MemberExpression as m ->
-                    let unwrappedM = unwrapOptionOrNullableMember m
+                    match tryResolveTableAlias plan m with
+                    | Some tblAlias -> plan.Projection <- Some $"{tblAlias}.*"
+                    | None ->
+                        let unwrappedM = unwrapOptionOrNullableMember m
 
-                    match unwrappedM with
-                    | :? MemberExpression as realM ->
-                        match translateScalarExpr dialect plan realM with
-                        | Some sqlExpr ->
-                            let qProp = SqlDialect.quoteIdentifier dialect realM.Member.Name
-                            plan.Projection <- Some $"{sqlExpr} AS {qProp}"
-                        | None
-                        | _ -> ()
-                    | _ ->
-                        match translateScalarExpr dialect plan m with
-                        | Some sqlExpr ->
-                            let qProp = SqlDialect.quoteIdentifier dialect m.Member.Name
-                            plan.Projection <- Some $"{sqlExpr} AS {qProp}"
-                        | None
-                        | _ -> ()
+                        match unwrappedM with
+                        | :? MemberExpression as realM ->
+                            match translateScalarExpr dialect plan realM with
+                            | Some sqlExpr ->
+                                let qProp = SqlDialect.quoteIdentifier dialect realM.Member.Name
+                                plan.Projection <- Some $"{sqlExpr} AS {qProp}"
+                            | None
+                            | _ -> ()
+                        | _ ->
+                            match translateScalarExpr dialect plan m with
+                            | Some sqlExpr ->
+                                let qProp = SqlDialect.quoteIdentifier dialect m.Member.Name
+                                plan.Projection <- Some $"{sqlExpr} AS {qProp}"
+                            | None
+                            | _ -> ()
+                | :? ParameterExpression as p ->
+                    if plan.Joins.Count > 0 then
+                        match tryResolveTableAlias plan p with
+                        | Some tblAlias -> plan.Projection <- Some $"{tblAlias}.*"
+                        | None -> ()
                 | :? BinaryExpression as b ->
                     match translateScalarExpr dialect plan b with
                     | Some sqlExpr ->
