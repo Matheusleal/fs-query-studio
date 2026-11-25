@@ -170,7 +170,14 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
 
                     seq {
                         let rec instantiateRecord (t: Type) (cols: string list) (r: obj array) : obj =
-                            if FSharpType.IsRecord(t) then
+                            if
+                                t.IsGenericType
+                                && t.GetGenericTypeDefinition().Name.StartsWith("ExtractedTable")
+                            then
+                                let innerType = t.GetGenericArguments().[0]
+                                let innerVal = instantiateRecord innerType cols r
+                                Activator.CreateInstance(t, innerVal)
+                            elif FSharpType.IsRecord(t) then
                                 let flds = FSharpType.GetRecordFields(t)
                                 let innerCtor = FSharpValue.PreComputeRecordConstructor(t)
 
@@ -209,7 +216,11 @@ type SqlPushdownQueryProvider(connector: IQueryableConnector, baseSql: string, b
                                 for i in 0 .. fields.Length - 1 do
                                     let ft = fields.[i].PropertyType
 
-                                    if FSharpType.IsRecord(ft) then
+                                    if
+                                        FSharpType.IsRecord(ft)
+                                        || (ft.IsGenericType
+                                            && ft.GetGenericTypeDefinition().Name.StartsWith("ExtractedTable"))
+                                    then
                                         args.[i] <- instantiateRecord ft res.Columns row
                                     else
                                         let v = if i < row.Length then row.[i] else null

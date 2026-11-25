@@ -651,7 +651,7 @@ module ExpressionPushdownTranslator =
 
     /// Attempts to resolve an expression as a reference to an entire mapped table (e.g. range variable or tuple component),
     /// returning the table's assigned SQL alias if matched.
-    let tryResolveTableAlias (plan: PushdownQueryPlan) (expr: Expression) : string option =
+    let rec tryResolveTableAlias (plan: PushdownQueryPlan) (expr: Expression) : string option =
         let unwrapped =
             match expr with
             | null -> null
@@ -667,6 +667,14 @@ module ExpressionPushdownTranslator =
 
         match unwrapped with
         | null -> None
+        | :? MethodCallExpression as call when call.Method.Name = "extract" && call.Arguments.Count > 0 ->
+            tryResolveTableAlias plan call.Arguments.[call.Arguments.Count - 1]
+        | :? NewExpression as n when
+            n.Type.IsGenericType
+            && n.Type.GetGenericTypeDefinition().Name.StartsWith("ExtractedTable")
+            && n.Arguments.Count > 0
+            ->
+            tryResolveTableAlias plan n.Arguments.[0]
         | :? ParameterExpression as p ->
             let isTupleLike =
                 let n = p.Type.Name

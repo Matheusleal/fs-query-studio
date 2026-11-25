@@ -874,6 +874,14 @@ module CompiledRecordMapper =
                 | ctors -> ctors |> Array.maxBy (fun c -> c.GetParameters().Length)
 
             Expression.New(innerCtor, innerArgs :> seq<Expression>) :> Expression
+        elif
+            ft.IsGenericType
+            && ft.GetGenericTypeDefinition().Name.StartsWith("ExtractedTable")
+        then
+            let innerType = ft.GetGenericArguments().[0]
+            let innerExpr = buildFieldExpression recordParam idx innerType columns
+            let ctor = ft.GetConstructor([| innerType |])
+            Expression.New(ctor, innerExpr) :> Expression
         elif ft = typeof<int> then
             Expression.Call(typeof<RecordReaders>.GetMethod("ReadInt32"), recordParam, Expression.Constant(idx))
             :> Expression

@@ -291,14 +291,14 @@ Join multiple relational tables and project selected scalar fields, or project e
 """
                 mkCode
                     """
-// 10. Multi-table join with whole mapped table wildcard projection (Customer = c) alongside order details
+// 10. Multi-table join with whole mapped table wildcard projection (Customer = fsql.extract c) alongside order details
 fsql {
     for o in Connections.sql.SqlServer_Advanced.Orders do
     join c in Connections.sql.SqlServer_Advanced.Customers on (o.CustomerId = c.Id)
     where (o.Status = "Completed")
     take 10
     select {|
-        Customer = c
+        Customer = fsql.extract c
         OrderId = o.Id
         OrderDate = o.OrderDate
         TotalAmount = o.TotalAmount
@@ -691,14 +691,14 @@ Junte múltiplas tabelas relacionais e projete campos escalares específicos, ou
 """
                 mkCode
                     """
-// 10. Junção multi-tabela com projeção curinga de tabela inteira (Cliente = c) junto aos dados do pedido
+// 10. Junção multi-tabela com projeção curinga de tabela inteira (Cliente = fsql.extract c) junto aos dados do pedido
 fsql {
     for o in Connections.sql.SqlServer_Advanced.Orders do
     join c in Connections.sql.SqlServer_Advanced.Customers on (o.CustomerId = c.Id)
     where (o.Status = "Completed")
     take 10
     select {|
-        Cliente = c
+        Cliente = fsql.extract c
         PedidoId = o.Id
         DataPedido = o.OrderDate
         ValorTotal = o.TotalAmount

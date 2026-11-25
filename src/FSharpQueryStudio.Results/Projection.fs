@@ -59,14 +59,88 @@ module Projection =
             Parameters = []
         }
 
+    let private isExtractedTableType (t: Type) =
+        not (isNull t)
+        && (typeof<IExtractedTable>.IsAssignableFrom(t)
+            || (t.IsGenericType
+                && t.GetGenericTypeDefinition().Name.StartsWith("ExtractedTable")))
+
+    let private getInnerRecordType (t: Type) =
+        if isNull t then
+            None
+        elif t.IsGenericType then
+            let genArgs = t.GetGenericArguments()
+            if genArgs.Length > 0 then Some genArgs.[0] else None
+        else
+            None
+
     let private recordSchema (t: Type) : Column list =
-        FSharpType.GetRecordFields(t, recordBindingFlags)
-        |> Array.map (fun p ->
-            {
-                Name = p.Name
-                DisplayType = p.PropertyType.Name
-            })
-        |> Array.toList
+        let fields = FSharpType.GetRecordFields(t, recordBindingFlags)
+
+        let hasExtracted =
+            fields |> Array.exists (fun p -> isExtractedTableType p.PropertyType)
+
+        if not hasExtracted then
+            fields
+            |> Array.map (fun p ->
+                {
+                    Name = p.Name
+                    DisplayType = p.PropertyType.Name
+                })
+            |> Array.toList
+        else
+            let rawColumnNames = ResizeArray<string * string>()
+
+            for p in fields do
+                if isExtractedTableType p.PropertyType then
+                    match getInnerRecordType p.PropertyType with
+                    | Some innerT when FSharpType.IsRecord(innerT, recordBindingFlags) ->
+                        let innerFields = FSharpType.GetRecordFields(innerT, recordBindingFlags)
+
+                        for inf in innerFields do
+                            rawColumnNames.Add((p.Name, inf.Name))
+                    | _ -> rawColumnNames.Add((p.Name, p.Name))
+                else
+                    rawColumnNames.Add((p.Name, p.Name))
+
+            let counts = rawColumnNames |> Seq.countBy snd |> dict
+            let columns = ResizeArray<Column>()
+
+            for p in fields do
+                if isExtractedTableType p.PropertyType then
+                    match getInnerRecordType p.PropertyType with
+                    | Some innerT when FSharpType.IsRecord(innerT, recordBindingFlags) ->
+                        let innerFields = FSharpType.GetRecordFields(innerT, recordBindingFlags)
+
+                        for inf in innerFields do
+                            let colName =
+                                if counts.[inf.Name] > 1 then
+                                    sprintf "%s_%s" p.Name inf.Name
+                                else
+                                    inf.Name
+
+                            columns.Add(
+                                {
+                                    Name = colName
+                                    DisplayType = inf.PropertyType.Name
+                                }
+                            )
+                    | _ ->
+                        columns.Add(
+                            {
+                                Name = p.Name
+                                DisplayType = p.PropertyType.Name
+                            }
+                        )
+                else
+                    columns.Add(
+                        {
+                            Name = p.Name
+                            DisplayType = p.PropertyType.Name
+                        }
+                    )
+
+            columns |> Seq.toList
 
     let private optionValuePropCache = ConcurrentDictionary<Type, PropertyInfo option>()
 
@@ -97,33 +171,86 @@ module Projection =
 
     let private recordReaderCache = ConcurrentDictionary<Type, obj -> obj array>()
 
-    let private getRecordReader (t: Type) : (obj -> obj array) =
+    let rec private getRecordReader (t: Type) : (obj -> obj array) =
         recordReaderCache.GetOrAdd(
             t,
             Func<Type, obj -> obj array>(fun typ ->
                 let rawReader = FSharpValue.PreComputeRecordReader(typ, recordBindingFlags)
                 let fields = FSharpType.GetRecordFields(typ, recordBindingFlags)
 
-                let needsSanitize =
-                    fields
-                    |> Array.exists (fun f ->
-                        let pt = f.PropertyType
+                let hasExtracted =
+                    fields |> Array.exists (fun f -> isExtractedTableType f.PropertyType)
 
-                        pt = typeof<double>
-                        || pt = typeof<single>
-                        || pt = typeof<obj>
-                        || (pt.IsGenericType && pt.GetGenericTypeDefinition() = typedefof<option<_>>))
+                if not hasExtracted then
+                    let needsSanitize =
+                        fields
+                        |> Array.exists (fun f ->
+                            let pt = f.PropertyType
 
-                if not needsSanitize then
-                    rawReader
+                            pt = typeof<double>
+                            || pt = typeof<single>
+                            || pt = typeof<obj>
+                            || (pt.IsGenericType && pt.GetGenericTypeDefinition() = typedefof<option<_>>))
+
+                    if not needsSanitize then
+                        rawReader
+                    else
+                        fun (instance: obj) ->
+                            let arr = rawReader instance
+
+                            for i = 0 to arr.Length - 1 do
+                                arr.[i] <- sanitizeCell arr.[i]
+
+                            arr
                 else
+                    let extractors =
+                        fields
+                        |> Array.mapi (fun i f ->
+                            if isExtractedTableType f.PropertyType then
+                                match getInnerRecordType f.PropertyType with
+                                | Some innerT when FSharpType.IsRecord(innerT, recordBindingFlags) ->
+                                    let innerReader = getRecordReader innerT
+
+                                    let innerFldCount =
+                                        (FSharpType.GetRecordFields(innerT, recordBindingFlags)).Length
+
+                                    fun (outerArr: obj array) (rowBuilder: ResizeArray<obj>) ->
+                                        let v = outerArr.[i]
+
+                                        if isNull v then
+                                            for _ in 1..innerFldCount do
+                                                rowBuilder.Add(null)
+                                        else
+                                            let innerObj =
+                                                match v with
+                                                | :? IExtractedTable as ext -> ext.GetInnerValue()
+                                                | _ ->
+                                                    let prop = v.GetType().GetProperty("Value", recordBindingFlags)
+                                                    if isNull prop then v else prop.GetValue(v)
+
+                                            if isNull innerObj then
+                                                for _ in 1..innerFldCount do
+                                                    rowBuilder.Add(null)
+                                            else
+                                                let innerCells = innerReader innerObj
+
+                                                for c in innerCells do
+                                                    rowBuilder.Add(c)
+                                | _ ->
+                                    fun (outerArr: obj array) (rowBuilder: ResizeArray<obj>) ->
+                                        rowBuilder.Add(sanitizeCell outerArr.[i])
+                            else
+                                fun (outerArr: obj array) (rowBuilder: ResizeArray<obj>) ->
+                                    rowBuilder.Add(sanitizeCell outerArr.[i]))
+
                     fun (instance: obj) ->
-                        let arr = rawReader instance
+                        let outerArr = rawReader instance
+                        let row = ResizeArray<obj>()
 
-                        for i = 0 to arr.Length - 1 do
-                            arr.[i] <- sanitizeCell arr.[i]
+                        for ext in extractors do
+                            ext outerArr row
 
-                        arr)
+                        row.ToArray())
         )
 
     let private tupleReaderCache = ConcurrentDictionary<Type, obj -> obj array>()
@@ -472,6 +599,54 @@ module Projection =
                     else
                         None
             | _ -> None
+
+    let private expandPreferredOrder (t: Type) (orderOpt: string list option) : string list option =
+        match orderOpt with
+        | None -> None
+        | Some order ->
+            if not (FSharpType.IsRecord(t, recordBindingFlags)) then
+                Some order
+            else
+                let fields = FSharpType.GetRecordFields(t, recordBindingFlags)
+
+                let hasExtracted =
+                    fields |> Array.exists (fun f -> isExtractedTableType f.PropertyType)
+
+                if not hasExtracted then
+                    Some order
+                else
+                    let schemaCols = recordSchema t
+                    let expanded = ResizeArray<string>()
+
+                    for name in order do
+                        let matchingField =
+                            fields
+                            |> Array.tryFind (fun f -> String.Equals(f.Name, name, StringComparison.OrdinalIgnoreCase))
+
+                        match matchingField with
+                        | Some f when isExtractedTableType f.PropertyType ->
+                            match getInnerRecordType f.PropertyType with
+                            | Some innerT when FSharpType.IsRecord(innerT, recordBindingFlags) ->
+                                let innerFields = FSharpType.GetRecordFields(innerT, recordBindingFlags)
+
+                                for inf in innerFields do
+                                    let col =
+                                        schemaCols
+                                        |> List.tryFind (fun c ->
+                                            String.Equals(c.Name, inf.Name, StringComparison.OrdinalIgnoreCase)
+                                            || String.Equals(
+                                                c.Name,
+                                                $"{f.Name}_{inf.Name}",
+                                                StringComparison.OrdinalIgnoreCase
+                                            ))
+
+                                    match col with
+                                    | Some c -> expanded.Add(c.Name)
+                                    | None -> expanded.Add(inf.Name)
+                            | _ -> expanded.Add(name)
+                        | _ -> expanded.Add(name)
+
+                    Some(expanded |> Seq.toList)
 
     let private reorderTable
         (columns: Column list)
@@ -921,6 +1096,7 @@ module Projection =
                 let pref =
                     preferredColumnOrder
                     |> Option.orElseWith (fun () -> tryGetOrExtractRecordOrder t sourceCode)
+                    |> expandPreferredOrder t
 
                 materializedTable (recordSchema t) [| recordRow t v |] pref
             | :? IEnumerable as items when not (value :? string) ->
@@ -981,6 +1157,7 @@ module Projection =
                         let pref =
                             preferredColumnOrder
                             |> Option.orElseWith (fun () -> tryGetOrExtractRecordOrder recordType sourceCode)
+                            |> expandPreferredOrder recordType
 
                         let reader = getRecordReader recordType
                         let dataRows = ResizeArray<obj array>()

@@ -827,14 +827,16 @@ Connections.sql.rawQuery(
 
                 mkMarkdown
                     """
-## 27. 🌟 Projeção de Tabelas Mapeadas Inteiras no SELECT (`alias.*`)
+## 27. 🌟 Projeção de Tabelas Mapeadas Inteiras no SELECT (`alias.*`) e `fsql.extract`
 
-No F# Query Studio, você pode projetar a entidade inteira de uma tabela mapeada (ex: `Cliente = c` ou `Pedido = o`) diretamente dentro do registro anônimo `select {| ... |}` ou tupla em conjunto com propriedades escalares de outras tabelas relacionadas. O motor de pushdown traduz automaticamente para `${alias}.*` no `SELECT` SQL, posicionando os curingas de tabela primeiro e hidratando os registros de domínio aninhados na execução.
+No F# Query Studio, você pode projetar a entidade inteira de uma tabela mapeada (ex: `Cliente = c`) diretamente dentro do registro anônimo `select {| ... |}` ou tupla em conjunto com propriedades escalares de outras tabelas relacionadas.
+
+> 💡 **Dica de Desmembramento (Grid Plana)**: Ao projetar uma tabela inteira dentro de um registro anônimo, use `Cliente = fsql.extract c` (ou `extract c`) para que a Grid interativa extraia automaticamente todas as propriedades (`Id`, `FirstName`, `LastName`...) em colunas individuais de primeiro nível, em vez de exibir um objeto JSON dentro da célula!
 """
 
                 mkCode
                     """
-// 27. Projeção de tabela mapeada inteira (Cliente = c) com campos específicos do pedido
+// 27. Projeção de tabela mapeada com fsql.extract para exibir todas as colunas desmembradas na grid
 let detalhesClientePedido =
     fsql {
         for c in Connections.sql.SampleStore.Customers do
@@ -843,7 +845,7 @@ let detalhesClientePedido =
         sortByDescending o.TotalAmount
         take 10
         select {|
-            Cliente = c
+            Cliente = fsql.extract c
             NumeroPedido = o.OrderNumber
             DataPedido = o.OrderDate
             ValorTotal = o.TotalAmount

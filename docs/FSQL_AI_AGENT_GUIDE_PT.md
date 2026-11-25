@@ -428,6 +428,19 @@ let projecaoDiretaTabela =
         join o in Connections.sql.SampleStore.Orders on (c.CustomerId = o.CustomerId)
         select c
     } // Traduz para: SELECT _t0.* FROM Customers _t0 JOIN Orders _t1 ...
+
+// Usando extract / fsql.extract para desmembrar as propriedades da tabela diretamente na Grid (sem coluna de objeto JSON):
+let clientesComPedidosGridPlana =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        join o in Connections.sql.SampleStore.Orders on (c.CustomerId = o.CustomerId)
+        select {|
+            CustomerTable = fsql.extract c // ou extract c
+            OrderId = o.OrderId
+            Amount = o.Amount
+        |}
+    }
+// Na Grid da interface, as propriedades de CustomerTable (Id, FirstName, LastName...) são extraídas diretamente como colunas individuais ao lado de OrderId e Amount!
 ```
 
 ---

@@ -1000,3 +1000,118 @@ let ``fsql select with mapped tables on SQL Server and Postgres formats dialect 
 
     let pgRaw = toRawSql qPg
     Assert.Contains("SELECT _t0.*, _t1.OrderId AS \"Prop Com Espaco\" FROM customers _t0", pgRaw)
+
+[<Fact>]
+let ``fsql select with extract table compiles to wildcard and hydrates ExtractedTable on SQLite`` () =
+    use db = new AdvTempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let customers = SqlPushdownQueryable<AdvCustomer>(conn, "Customers")
+    let orders = SqlPushdownQueryable<AdvOrder>(conn, "Orders")
+
+    let q =
+        fsql {
+            for c in customers do
+                join o in orders on (c.CustomerId = o.CustomerId)
+                where (c.CustomerId = 1)
+
+                select
+                    {|
+                        CustomerTable = extract c
+                        OrderId = o.OrderId
+                        OrderAmount = o.Amount
+                    |}
+        }
+
+    let sql = toRawSql q
+    Assert.Contains("SELECT _t0.*,", sql)
+    Assert.Contains("_t1.Amount AS OrderAmount", sql)
+    Assert.Contains("_t1.OrderId AS OrderId", sql)
+    Assert.Contains("JOIN Orders _t1 ON", sql)
+    Assert.Contains("CustomerId", sql)
+
+    let rows = q |> Seq.toList
+    Assert.Equal(2, rows.Length)
+    Assert.Equal("Alice", rows.[0].CustomerTable.Value.CustomerName)
+    Assert.Equal(1, rows.[0].CustomerTable.Value.CustomerId)
+    Assert.Equal(150.0M, rows.[0].OrderAmount)
+
+[<Fact>]
+let ``fsql select with extract table projects to flat columns in ResultEnvelope without JSON object column`` () =
+    use db = new AdvTempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let customers = SqlPushdownQueryable<AdvCustomer>(conn, "Customers")
+    let orders = SqlPushdownQueryable<AdvOrder>(conn, "Orders")
+
+    let q =
+        fsql {
+            for c in customers do
+                join o in orders on (c.CustomerId = o.CustomerId)
+                where (c.CustomerId = 1)
+
+                select
+                    {|
+                        CustomerTable = fsql.extract c
+                        OrderId = o.OrderId
+                        OrderAmount = o.Amount
+                    |}
+        }
+
+    let env, _, _ = FSharpQueryStudio.Results.Projection.projectWithCursor q 0L
+    let colNames = env.Schema |> List.map (fun c -> c.Name)
+
+    // Extracted columns are flat, individual columns!
+    Assert.Contains("CustomerId", colNames)
+    Assert.Contains("CustomerName", colNames)
+    Assert.Contains("OrderId", colNames)
+    Assert.Contains("OrderAmount", colNames)
+    Assert.DoesNotContain("CustomerTable", colNames)
+
+    // The rows contain the individual flattened values, not a JSON object
+    Assert.True(env.Rows.Length >= 2)
+    let row0 = env.Rows.[0]
+    Assert.Equal<int>(colNames.Length, row0.Length)
+
+    let custNameIdx = colNames |> List.findIndex (fun c -> c = "CustomerName")
+    Assert.Equal("Alice", row0.[custNameIdx].ToString())
+
+    let orderAmtIdx = colNames |> List.findIndex (fun c -> c = "OrderAmount")
+    Assert.True(row0.[orderAmtIdx].ToString().StartsWith("150"))
+
+[<Fact>]
+let ``fsql select with multiple extracted tables disambiguates colliding column names in grid schema`` () =
+    use db = new AdvTempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let customers = SqlPushdownQueryable<AdvCustomer>(conn, "Customers")
+    let orders = SqlPushdownQueryable<AdvOrder>(conn, "Orders")
+
+    let q =
+        fsql {
+            for c in customers do
+                join o in orders on (c.CustomerId = o.CustomerId)
+                where (c.CustomerId = 1)
+
+                select
+                    {|
+                        Customer = extract c
+                        Order = extract o
+                    |}
+        }
+
+    let sql = toRawSql q
+    Assert.Contains("SELECT _t0.*, _t1.* FROM Customers _t0", sql)
+
+    let env, _, _ = FSharpQueryStudio.Results.Projection.projectWithCursor q 0L
+    let colNames = env.Schema |> List.map (fun c -> c.Name)
+
+    // CustomerId exists in both AdvCustomer and AdvOrder -> disambiguated with prefix!
+    Assert.Contains("Customer_CustomerId", colNames)
+    Assert.Contains("Order_CustomerId", colNames)
+
+    // Non-colliding columns remain clean without prefix
+    Assert.Contains("CustomerName", colNames)
+    Assert.Contains("OrderId", colNames)
+    Assert.Contains("Amount", colNames)
+
+    // Rows are fully flattened into separate columns
+    let row0 = env.Rows.[0]
+    Assert.Equal<int>(colNames.Length, row0.Length)

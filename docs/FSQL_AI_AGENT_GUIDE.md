@@ -433,6 +433,19 @@ let singleTableDirect =
         join o in Connections.sql.SampleStore.Orders on (c.CustomerId = o.CustomerId)
         select c
     } // Translates to: SELECT _t0.* FROM Customers _t0 JOIN Orders _t1 ...
+
+// Using extract / fsql.extract to flatten table properties directly into the UI grid (no nested JSON object column):
+let flatCustomerWithOrders =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        join o in Connections.sql.SampleStore.Orders on (c.CustomerId = o.CustomerId)
+        select {|
+            CustomerTable = fsql.extract c // or extract c
+            OrderId = o.OrderId
+            Amount = o.Amount
+        |}
+    }
+// In the UI Grid, CustomerTable's properties (Id, FirstName, LastName...) are extracted directly as individual columns alongside OrderId and Amount!
 ```
 
 ---

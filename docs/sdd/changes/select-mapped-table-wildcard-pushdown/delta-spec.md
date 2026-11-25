@@ -38,6 +38,14 @@ When the sample generator initializes interactive sample notebooks (`sample_demo
 the sample generator shall include an interactive demonstration illustrating whole mapped table wildcard projection in `select` (`alias.*`) combined with scalar properties and nested record hydration.
 ```
 
+### [REQ-SELECT-TABLE-EXTRACT-007] Função Especial `extract` / `fsql.extract` para Desmembramento de Colunas na Grid
+```text
+When a query projection contains a member assigned to `extract <table>` or `fsql.extract <table>`,
+the query translator shall resolve `<table>` into `<alias>.*` in the generated SQL,
+the record mapper shall hydrate the table entity inside an `ExtractedTable<'T>` wrapper, and
+the result table projector (`Projection.fs`) shall extract the entity's properties into individual, first-class columns in the interactive grid schema and rows, without rendering a single JSON object column.
+```
+
 ---
 
 ## 2. MODIFIED Requirements
