@@ -283,22 +283,25 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 10. 🌐 Multi-Table Relational Projection"
+                mkMarkdown
+                    """
+## 10. 🌐 Multi-Table Relational Projection & Whole Table Wildcards (`alias.*`)
+
+Join multiple relational tables and project selected scalar fields, or project entire mapped tables (e.g. `Customer = c`) alongside scalar columns to emit `${alias}.*` in SQL pushdown.
+"""
                 mkCode
                     """
-// 10. Joining 4 relational tables (Orders, Customers, OrderItems, Products)
+// 10. Multi-table join with whole mapped table wildcard projection (Customer = c) alongside order details
 fsql {
     for o in Connections.sql.SqlServer_Advanced.Orders do
     join c in Connections.sql.SqlServer_Advanced.Customers on (o.CustomerId = c.Id)
-    join oi in Connections.sql.SqlServer_Advanced.OrderItems on (o.Id = oi.OrderId)
-    join p in Connections.sql.SqlServer_Advanced.Products on (oi.ProductId = p.Id)
     where (o.Status = "Completed")
+    take 10
     select {|
+        Customer = c
         OrderId = o.Id
-        Customer = c.FirstName + " " + c.LastName
-        Product = p.Name
-        Quantity = oi.Quantity
-        LineTotal = oi.LineTotal
+        OrderDate = o.OrderDate
+        TotalAmount = o.TotalAmount
     |}
 }
 """
@@ -680,22 +683,25 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 10. 🌐 Projeção Relacional Multi-Tabela"
+                mkMarkdown
+                    """
+## 10. 🌐 Projeção Relacional Multi-Tabela e Curinga de Tabela Inteira (`alias.*`)
+
+Junte múltiplas tabelas relacionais e projete campos escalares específicos, ou projete tabelas mapeadas inteiras (ex: `Cliente = c`) em conjunto com colunas escalares para emitir `${alias}.*` no pushdown SQL Server.
+"""
                 mkCode
                     """
-// 10. Junção de 4 tabelas relacionais (Orders, Customers, OrderItems, Products)
+// 10. Junção multi-tabela com projeção curinga de tabela inteira (Cliente = c) junto aos dados do pedido
 fsql {
     for o in Connections.sql.SqlServer_Advanced.Orders do
     join c in Connections.sql.SqlServer_Advanced.Customers on (o.CustomerId = c.Id)
-    join oi in Connections.sql.SqlServer_Advanced.OrderItems on (o.Id = oi.OrderId)
-    join p in Connections.sql.SqlServer_Advanced.Products on (oi.ProductId = p.Id)
     where (o.Status = "Completed")
+    take 10
     select {|
-        OrderId = o.Id
-        Customer = c.FirstName + " " + c.LastName
-        Product = p.Name
-        Quantity = oi.Quantity
-        LineTotal = oi.LineTotal
+        Cliente = c
+        PedidoId = o.Id
+        DataPedido = o.OrderDate
+        ValorTotal = o.TotalAmount
     |}
 }
 """

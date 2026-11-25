@@ -32,6 +32,12 @@ When an executed query projects a mapped table into a record field whose declare
 the record mapper shall instantiate the nested record type by mapping columns from the result set matching the nested record's field names.
 ```
 
+### [REQ-SAMPLE-NOTEBOOKS-DEMO-006] Exemplos Práticos nos Cadernos de Demonstração
+```text
+When the sample generator initializes interactive sample notebooks (`sample_demo.fsqnb` and `sample_demo_pt.fsqnb`, alongside engine-specific advanced notebooks),
+the sample generator shall include an interactive demonstration illustrating whole mapped table wildcard projection in `select` (`alias.*`) combined with scalar properties and nested record hydration.
+```
+
 ---
 
 ## 2. MODIFIED Requirements

@@ -827,6 +827,36 @@ Connections.sql.rawQuery(
 
                 mkMarkdown
                     """
+## 27. 🌟 Whole Mapped Table Projection in SELECT (`alias.*`)
+
+In F# Query Studio, you can project an entire mapped table entity (e.g. `Customer = c` or `Order = o`) directly inside the `select {| ... |}` anonymous record or tuple alongside scalar properties from other joined tables. The pushdown engine automatically compiles this into `${alias}.*` in the SQL `SELECT` clause, positioning whole-table wildcards first and hydrating nested domain records upon query execution.
+"""
+
+                mkCode
+                    """
+// 27. Projecting an entire mapped table (Customer = c) alongside scalar order fields
+let customerOrderDetails =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        join o in Connections.sql.SampleStore.Orders on (c.Id = o.CustomerId)
+        where (c.Country = "Brazil" && o.TotalAmount >= 100.0f)
+        sortByDescending o.TotalAmount
+        take 10
+        select {|
+            Customer = c
+            OrderNumber = o.OrderNumber
+            OrderDate = o.OrderDate
+            TotalAmount = o.TotalAmount
+            Status = o.Status
+        |}
+    }
+
+printfn "Emitted SQL with Wildcard Pushdown (c.*):\n%s" (toRawQuery customerOrderDetails)
+customerOrderDetails
+"""
+
+                mkMarkdown
+                    """
 ---
 
 ### 📚 Official Documentation & References

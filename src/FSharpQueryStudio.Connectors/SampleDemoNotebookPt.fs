@@ -827,6 +827,36 @@ Connections.sql.rawQuery(
 
                 mkMarkdown
                     """
+## 27. 🌟 Projeção de Tabelas Mapeadas Inteiras no SELECT (`alias.*`)
+
+No F# Query Studio, você pode projetar a entidade inteira de uma tabela mapeada (ex: `Cliente = c` ou `Pedido = o`) diretamente dentro do registro anônimo `select {| ... |}` ou tupla em conjunto com propriedades escalares de outras tabelas relacionadas. O motor de pushdown traduz automaticamente para `${alias}.*` no `SELECT` SQL, posicionando os curingas de tabela primeiro e hidratando os registros de domínio aninhados na execução.
+"""
+
+                mkCode
+                    """
+// 27. Projeção de tabela mapeada inteira (Cliente = c) com campos específicos do pedido
+let detalhesClientePedido =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        join o in Connections.sql.SampleStore.Orders on (c.Id = o.CustomerId)
+        where (c.Country = "Brazil" && o.TotalAmount >= 100.0f)
+        sortByDescending o.TotalAmount
+        take 10
+        select {|
+            Cliente = c
+            NumeroPedido = o.OrderNumber
+            DataPedido = o.OrderDate
+            ValorTotal = o.TotalAmount
+            Status = o.Status
+        |}
+    }
+
+printfn "SQL Gerado com Pushdown Curinga (c.*):\n%s" (toRawQuery detalhesClientePedido)
+detalhesClientePedido
+"""
+
+                mkMarkdown
+                    """
 ---
 
 ### 📚 Documentação & Recursos Oficiais
