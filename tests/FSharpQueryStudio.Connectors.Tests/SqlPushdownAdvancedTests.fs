@@ -1115,3 +1115,57 @@ let ``fsql select with multiple extracted tables disambiguates colliding column 
     // Rows are fully flattened into separate columns
     let row0 = env.Rows.[0]
     Assert.Equal<int>(colNames.Length, row0.Length)
+
+[<Fact>]
+let ``fsql select with direct single table extract projects flat columns on SQLite`` () =
+    use db = new AdvTempSqliteDb()
+    let conn = SqliteConnector(db.Path)
+    let customers = SqlPushdownQueryable<AdvCustomer>(conn, "Customers")
+
+    let q =
+        fsql {
+            for c in customers do
+                where (c.CustomerId = 2)
+                select {| Customer = fsql.extract c |}
+        }
+
+    let sql = toRawSql q
+    Assert.Contains("SELECT _t0.* FROM Customers _t0", sql)
+
+    let env, _, _ = FSharpQueryStudio.Results.Projection.projectWithCursor q 0L
+    let colNames = env.Schema |> List.map (fun c -> c.Name)
+    Assert.Equal<string list>([ "CustomerId"; "CustomerName" ], colNames)
+    Assert.Equal(1, env.Rows.Length)
+    Assert.Equal(box 2, env.Rows.[0].[0])
+    Assert.Equal(box "Bob", env.Rows.[0].[1])
+
+[<Fact>]
+let ``fsql select with extract table on Postgres and SqlServer generates dialect quoted wildcard query`` () =
+    let sqlServerConn = SqlServerConnector("Server=dummy;Database=dummy;")
+    let pgConn = PostgreSqlConnector("Host=dummy;Database=dummy;")
+
+    let qSqlServer =
+        fsql {
+            for c in SqlPushdownQueryable<AdvCustomer>(sqlServerConn, "Customers") do
+                select
+                    {|
+                        Cust = extract c
+                        ``Col Espaco`` = 42
+                    |}
+        }
+
+    let sqlServerRaw = toRawSql qSqlServer
+    Assert.Contains("SELECT _t0.*, 42 AS [Col Espaco] FROM Customers _t0", sqlServerRaw)
+
+    let qPg =
+        fsql {
+            for c in SqlPushdownQueryable<AdvCustomer>(pgConn, "customers") do
+                select
+                    {|
+                        Cust = extract c
+                        ``Col Espaco`` = 42
+                    |}
+        }
+
+    let pgRaw = toRawSql qPg
+    Assert.Contains("SELECT _t0.*, 42 AS \"Col Espaco\" FROM customers _t0", pgRaw)

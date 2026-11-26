@@ -912,3 +912,27 @@ let ``record sequence containing ExtractedTable with colliding column names pref
     Assert.Equal(box "Alice", env.Rows.[0].[1])
     Assert.Equal(box 2, env.Rows.[0].[2])
     Assert.Equal(box "Bob", env.Rows.[0].[3])
+
+[<Fact>]
+let ``record sequence containing ExtractedTable with null inner value produces null row cells`` () =
+    let item =
+        {|
+            City = "Rome"
+            Customer = ExtractedTable<Person>(Unchecked.defaultof<Person>)
+        |}
+
+    let env, _, _ = Projection.projectWithCursor (box [ item ]) 0L
+    let colNames = env.Schema |> List.map (fun c -> c.Name)
+    Assert.Equal<string list>([ "City"; "Id"; "Name" ], colNames)
+    Assert.Equal(1, env.Rows.Length)
+    Assert.Equal(box "Rome", env.Rows.[0].[0])
+    Assert.Null(env.Rows.[0].[1])
+    Assert.Null(env.Rows.[0].[2])
+
+[<Fact>]
+let ``ExtractedTable struct implements IExtractedTable and exposes GetInnerValue`` () =
+    let person = { Id = 42; Name = "Grace" }
+    let extracted = ExtractedTable(person)
+    Assert.Equal(person, extracted.Value)
+    let asInterface = extracted :> IExtractedTable
+    Assert.Equal(box person, asInterface.GetInnerValue())
