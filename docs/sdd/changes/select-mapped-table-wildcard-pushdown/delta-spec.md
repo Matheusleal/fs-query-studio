@@ -46,6 +46,13 @@ the record mapper shall hydrate the table entity inside an `ExtractedTable<'T>` 
 the result table projector (`Projection.fs`) shall extract the entity's properties into individual, first-class columns in the interactive grid schema and rows, without rendering a single JSON object column.
 ```
 
+### [REQ-TEXTMATE-EXTRACT-008] Syntax Highlighting da Função `extract` via TextMate Grammar
+```text
+When the TextMate grammar (`fsharp-query.tmLanguage.json`) parses an F# source or query expression,
+the syntax grammar shall classify `extract` under `#functions` as `support.function.fsharp entity.name.function.fsharp`, and
+the syntax grammar shall exclude `extract` from `#variables` identifier matching via negative lookahead.
+```
+
 ---
 
 ## 2. MODIFIED Requirements

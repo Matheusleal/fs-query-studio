@@ -1,4 +1,4 @@
-﻿namespace FSharpQueryStudio.Connectors
+namespace FSharpQueryStudio.Connectors
 
 open AdvancedSampleNotebookCommon
 
