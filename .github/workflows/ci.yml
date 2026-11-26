@@ -24,23 +24,32 @@ jobs:
       - run: dotnet fantomas src tests build.fsx --check
 
   build-and-test:
-    name: Build and test (Windows)
+    name: Test Windows (${{ matrix.name }})
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
 
     strategy:
       fail-fast: false
       matrix:
-        project:
-          - tests/FSharpQueryStudio.Protocol.Tests/FSharpQueryStudio.Protocol.Tests.fsproj
-          - tests/FSharpQueryStudio.Fsac.Tests/FSharpQueryStudio.Fsac.Tests.fsproj
-          - tests/FSharpQueryStudio.Execution.Tests/FSharpQueryStudio.Execution.Tests.fsproj
-          - tests/FSharpQueryStudio.Results.Tests/FSharpQueryStudio.Results.Tests.fsproj
-          - tests/FSharpQueryStudio.Connectors.Tests/FSharpQueryStudio.Connectors.Tests.fsproj
-          - tests/FSharpQueryStudio.Storage.Tests/FSharpQueryStudio.Storage.Tests.fsproj
-          - tests/FSharpQueryStudio.Security.Tests/FSharpQueryStudio.Security.Tests.fsproj
-          - tests/FSharpQueryStudio.Worker.Tests/FSharpQueryStudio.Worker.Tests.fsproj
-          - tests/FSharpQueryStudio.Integration.Tests/FSharpQueryStudio.Integration.Tests.fsproj
+        include:
+          - name: Protocol
+            project: tests/FSharpQueryStudio.Protocol.Tests/FSharpQueryStudio.Protocol.Tests.fsproj
+          - name: Fsac
+            project: tests/FSharpQueryStudio.Fsac.Tests/FSharpQueryStudio.Fsac.Tests.fsproj
+          - name: Execution
+            project: tests/FSharpQueryStudio.Execution.Tests/FSharpQueryStudio.Execution.Tests.fsproj
+          - name: Results
+            project: tests/FSharpQueryStudio.Results.Tests/FSharpQueryStudio.Results.Tests.fsproj
+          - name: Connectors
+            project: tests/FSharpQueryStudio.Connectors.Tests/FSharpQueryStudio.Connectors.Tests.fsproj
+          - name: Storage
+            project: tests/FSharpQueryStudio.Storage.Tests/FSharpQueryStudio.Storage.Tests.fsproj
+          - name: Security
+            project: tests/FSharpQueryStudio.Security.Tests/FSharpQueryStudio.Security.Tests.fsproj
+          - name: Worker
+            project: tests/FSharpQueryStudio.Worker.Tests/FSharpQueryStudio.Worker.Tests.fsproj
+          - name: Integration
+            project: tests/FSharpQueryStudio.Integration.Tests/FSharpQueryStudio.Integration.Tests.fsproj
 
     steps:
       - uses: actions/checkout@v4
@@ -57,9 +66,9 @@ jobs:
       - run: dotnet test "${{ matrix.project }}" --configuration Release --filter "Category!=RequiresDocker" --settings .runsettings --blame-hang --blame-hang-timeout 10m --logger "console;verbosity=normal"
 
   build-and-test-linux:
-    name: Build and test (Linux)
+    name: Test Linux (${{ matrix.name }})
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     # Runs the reused libraries + the F# worker on Linux, each project
     # individually so one failure doesn't mask the others. The VS Code
@@ -69,16 +78,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        project:
-          - tests/FSharpQueryStudio.Protocol.Tests/FSharpQueryStudio.Protocol.Tests.fsproj
-          - tests/FSharpQueryStudio.Fsac.Tests/FSharpQueryStudio.Fsac.Tests.fsproj
-          - tests/FSharpQueryStudio.Execution.Tests/FSharpQueryStudio.Execution.Tests.fsproj
-          - tests/FSharpQueryStudio.Results.Tests/FSharpQueryStudio.Results.Tests.fsproj
-          - tests/FSharpQueryStudio.Connectors.Tests/FSharpQueryStudio.Connectors.Tests.fsproj
-          - tests/FSharpQueryStudio.Storage.Tests/FSharpQueryStudio.Storage.Tests.fsproj
-          - tests/FSharpQueryStudio.Security.Tests/FSharpQueryStudio.Security.Tests.fsproj
-          - tests/FSharpQueryStudio.Worker.Tests/FSharpQueryStudio.Worker.Tests.fsproj
-          - tests/FSharpQueryStudio.Integration.Tests/FSharpQueryStudio.Integration.Tests.fsproj
+        include:
+          - name: Protocol
+            project: tests/FSharpQueryStudio.Protocol.Tests/FSharpQueryStudio.Protocol.Tests.fsproj
+          - name: Fsac
+            project: tests/FSharpQueryStudio.Fsac.Tests/FSharpQueryStudio.Fsac.Tests.fsproj
+          - name: Execution
+            project: tests/FSharpQueryStudio.Execution.Tests/FSharpQueryStudio.Execution.Tests.fsproj
+          - name: Results
+            project: tests/FSharpQueryStudio.Results.Tests/FSharpQueryStudio.Results.Tests.fsproj
+          - name: Connectors
+            project: tests/FSharpQueryStudio.Connectors.Tests/FSharpQueryStudio.Connectors.Tests.fsproj
+          - name: Storage
+            project: tests/FSharpQueryStudio.Storage.Tests/FSharpQueryStudio.Storage.Tests.fsproj
+          - name: Security
+            project: tests/FSharpQueryStudio.Security.Tests/FSharpQueryStudio.Security.Tests.fsproj
+          - name: Worker
+            project: tests/FSharpQueryStudio.Worker.Tests/FSharpQueryStudio.Worker.Tests.fsproj
+          - name: Integration
+            project: tests/FSharpQueryStudio.Integration.Tests/FSharpQueryStudio.Integration.Tests.fsproj
 
     steps:
       - uses: actions/checkout@v4
