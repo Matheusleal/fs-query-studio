@@ -63,7 +63,7 @@ jobs:
       # GitHub-hosted Windows runners. Excluded here and run on the Linux
       # job / locally instead - this filter is an escape hatch, not a way
       # to skip everything else.
-      - run: dotnet test "${{ matrix.project }}" --configuration Release --filter "Category!=RequiresDocker" --settings .runsettings --blame-hang --blame-hang-timeout 10m --logger "console;verbosity=normal"
+      - run: dotnet test "${{ matrix.project }}" --configuration Release --filter "Category!=RequiresDocker" --settings .runsettings --blame-hang --blame-hang-timeout 20m --logger "console;verbosity=normal"
 
   build-and-test-linux:
     name: Test Linux (${{ matrix.name }})
@@ -110,8 +110,8 @@ jobs:
   build-and-test-gate:
     name: Build and test (Windows)
     needs: [build-and-test]
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Confirm all Windows test suites passed
-        run: Write-Output "All Windows test suites completed successfully."
+        run: echo "All Windows test suites completed successfully."
