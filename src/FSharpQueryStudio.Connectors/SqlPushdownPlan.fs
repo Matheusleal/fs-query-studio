@@ -3,6 +3,25 @@ namespace FSharpQueryStudio.Connectors
 open System
 open System.Collections.Generic
 
+/// Marker interface for tables whose properties should be extracted/flattened into individual columns in the grid.
+type IExtractedTable =
+    abstract member GetInnerValue: unit -> obj
+
+/// Wrapper type indicating that the wrapped table's properties should be extracted/flattened into individual columns in the grid.
+[<Struct>]
+type ExtractedTable<'T> =
+    val Value: 'T
+    new(v: 'T) = { Value = v }
+
+    interface IExtractedTable with
+        member this.GetInnerValue() = box this.Value
+
+    override this.ToString() =
+        if isNull (box this.Value) then
+            "null"
+        else
+            sprintf "%O" this.Value
+
 type OrderDirection =
     | Ascending
     | Descending

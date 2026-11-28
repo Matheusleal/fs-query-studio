@@ -870,3 +870,69 @@ let ``sanitizeCell handles regular float option values scenario 2`` () =
     let env = envOf (box [ r ])
     Assert.Equal(ResultKind.Table, env.Kind)
     Assert.Equal(box 42.5, env.Rows.[0].[1])
+
+[<Fact>]
+let ``record sequence containing ExtractedTable flattens inner record columns without JSON object column`` () =
+    let p = { Id = 10; Name = "Ada" }
+
+    let item =
+        {|
+            CustomerTable = ExtractedTable(p)
+            City = "London"
+        |}
+
+    let env, _, _ = Projection.projectWithCursor (box [ item ]) 0L
+
+    let colNames = env.Schema |> List.map (fun c -> c.Name)
+    Assert.Equal<string list>([ "City"; "Id"; "Name" ], colNames)
+
+    Assert.Equal(1, env.Rows.Length)
+    Assert.Equal(box "London", env.Rows.[0].[0])
+    Assert.Equal(box 10, env.Rows.[0].[1])
+    Assert.Equal(box "Ada", env.Rows.[0].[2])
+
+[<Fact>]
+let ``record sequence containing ExtractedTable with colliding column names prefixes duplicate columns`` () =
+    let p1 = { Id = 1; Name = "Alice" }
+    let p2 = { Id = 2; Name = "Bob" }
+
+    let item =
+        {|
+            First = ExtractedTable(p1)
+            Second = ExtractedTable(p2)
+        |}
+
+    let env, _, _ = Projection.projectWithCursor (box [ item ]) 0L
+
+    let colNames = env.Schema |> List.map (fun c -> c.Name)
+    Assert.Equal<string list>([ "First_Id"; "First_Name"; "Second_Id"; "Second_Name" ], colNames)
+
+    Assert.Equal(1, env.Rows.Length)
+    Assert.Equal(box 1, env.Rows.[0].[0])
+    Assert.Equal(box "Alice", env.Rows.[0].[1])
+    Assert.Equal(box 2, env.Rows.[0].[2])
+    Assert.Equal(box "Bob", env.Rows.[0].[3])
+
+[<Fact>]
+let ``record sequence containing ExtractedTable with null inner value produces null row cells`` () =
+    let item =
+        {|
+            City = "Rome"
+            Customer = ExtractedTable<Person>(Unchecked.defaultof<Person>)
+        |}
+
+    let env, _, _ = Projection.projectWithCursor (box [ item ]) 0L
+    let colNames = env.Schema |> List.map (fun c -> c.Name)
+    Assert.Equal<string list>([ "City"; "Id"; "Name" ], colNames)
+    Assert.Equal(1, env.Rows.Length)
+    Assert.Equal(box "Rome", env.Rows.[0].[0])
+    Assert.Null(env.Rows.[0].[1])
+    Assert.Null(env.Rows.[0].[2])
+
+[<Fact>]
+let ``ExtractedTable struct implements IExtractedTable and exposes GetInnerValue`` () =
+    let person = { Id = 42; Name = "Grace" }
+    let extracted = ExtractedTable(person)
+    Assert.Equal(person, extracted.Value)
+    let asInterface = extracted :> IExtractedTable
+    Assert.Equal(box person, asInterface.GetInnerValue())

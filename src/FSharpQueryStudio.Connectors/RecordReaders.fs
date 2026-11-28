@@ -841,6 +841,104 @@ type RecordReaders =
 module CompiledRecordMapper =
     let private compiledMapperCache = ConcurrentDictionary<Type * string, obj>()
 
+    let rec private buildFieldExpression
+        (recordParam: ParameterExpression)
+        (idx: int)
+        (ft: Type)
+        (columns: string list)
+        : Expression =
+        if FSharpType.IsRecord(ft) then
+            let innerFields = FSharpType.GetRecordFields(ft)
+
+            let innerColIndices =
+                innerFields
+                |> Array.mapi (fun defaultIdx inf ->
+                    let byName =
+                        columns
+                        |> List.tryFindIndex (fun c -> String.Equals(c, inf.Name, StringComparison.OrdinalIgnoreCase))
+
+                    match byName with
+                    | Some cIdx -> cIdx
+                    | None -> if defaultIdx < columns.Length then defaultIdx else 0)
+
+            let innerArgs: Expression list =
+                innerFields
+                |> Array.mapi (fun j inf ->
+                    let inIdx = innerColIndices.[j]
+                    buildFieldExpression recordParam inIdx inf.PropertyType columns)
+                |> List.ofArray
+
+            let innerCtor =
+                match ft.GetConstructors() with
+                | [| c |] -> c
+                | ctors -> ctors |> Array.maxBy (fun c -> c.GetParameters().Length)
+
+            Expression.New(innerCtor, innerArgs :> seq<Expression>) :> Expression
+        elif
+            ft.IsGenericType
+            && ft.GetGenericTypeDefinition().Name.StartsWith("ExtractedTable")
+        then
+            let innerType = ft.GetGenericArguments().[0]
+            let innerExpr = buildFieldExpression recordParam idx innerType columns
+            let ctor = ft.GetConstructor([| innerType |])
+            Expression.New(ctor, innerExpr) :> Expression
+        elif ft = typeof<int> then
+            Expression.Call(typeof<RecordReaders>.GetMethod("ReadInt32"), recordParam, Expression.Constant(idx))
+            :> Expression
+        elif ft = typeof<int64> then
+            Expression.Call(typeof<RecordReaders>.GetMethod("ReadInt64"), recordParam, Expression.Constant(idx))
+            :> Expression
+        elif ft = typeof<int16> then
+            Expression.Call(typeof<RecordReaders>.GetMethod("ReadInt16"), recordParam, Expression.Constant(idx))
+            :> Expression
+        elif ft = typeof<byte> then
+            Expression.Call(typeof<RecordReaders>.GetMethod("ReadByte"), recordParam, Expression.Constant(idx))
+            :> Expression
+        elif ft = typeof<decimal> then
+            Expression.Call(typeof<RecordReaders>.GetMethod("ReadDecimal"), recordParam, Expression.Constant(idx))
+            :> Expression
+        elif ft = typeof<double> then
+            Expression.Call(typeof<RecordReaders>.GetMethod("ReadDouble"), recordParam, Expression.Constant(idx))
+            :> Expression
+        elif ft = typeof<single> then
+            Expression.Call(typeof<RecordReaders>.GetMethod("ReadSingle"), recordParam, Expression.Constant(idx))
+            :> Expression
+        elif ft = typeof<bool> then
+            Expression.Call(typeof<RecordReaders>.GetMethod("ReadBool"), recordParam, Expression.Constant(idx))
+            :> Expression
+        elif ft = typeof<string> then
+            Expression.Call(typeof<RecordReaders>.GetMethod("ReadString"), recordParam, Expression.Constant(idx))
+            :> Expression
+        elif ft = typeof<Guid> then
+            Expression.Call(typeof<RecordReaders>.GetMethod("ReadGuid"), recordParam, Expression.Constant(idx))
+            :> Expression
+        elif ft = typeof<DateTime> then
+            Expression.Call(typeof<RecordReaders>.GetMethod("ReadDateTime"), recordParam, Expression.Constant(idx))
+            :> Expression
+        elif ft = typeof<DateOnly> then
+            Expression.Call(typeof<RecordReaders>.GetMethod("ReadDateOnly"), recordParam, Expression.Constant(idx))
+            :> Expression
+        elif ft = typeof<TimeOnly> then
+            Expression.Call(typeof<RecordReaders>.GetMethod("ReadTimeOnly"), recordParam, Expression.Constant(idx))
+            :> Expression
+        elif ft = typeof<byte[]> then
+            Expression.Call(typeof<RecordReaders>.GetMethod("ReadByteArray"), recordParam, Expression.Constant(idx))
+            :> Expression
+        elif ft.IsGenericType && ft.GetGenericTypeDefinition() = typedefof<option<_>> then
+            let innerType = ft.GetGenericArguments().[0]
+
+            let readOpt =
+                typeof<RecordReaders>.GetMethod("ReadOption").MakeGenericMethod([| innerType |])
+
+            Expression.Call(readOpt, recordParam, Expression.Constant(idx)) :> Expression
+        else
+            let readObj = typeof<RecordReaders>.GetMethod("ReadObject")
+
+            let callExpr =
+                Expression.Call(readObj, recordParam, Expression.Constant(idx), Expression.Constant(ft))
+
+            Expression.Convert(callExpr, ft) :> Expression
+
     let getCompiledRecordMapper<'T> (columns: string list) : (IDataRecord -> 'T) =
         let targetType = typeof<'T>
         let key = (targetType, String.concat "," columns)
@@ -873,127 +971,7 @@ module CompiledRecordMapper =
                             fields
                             |> Array.mapi (fun i f ->
                                 let idx = colIndices.[i]
-                                let ft = f.PropertyType
-
-                                if ft = typeof<int> then
-                                    Expression.Call(
-                                        typeof<RecordReaders>.GetMethod("ReadInt32"),
-                                        recordParam,
-                                        Expression.Constant(idx)
-                                    )
-                                    :> Expression
-                                elif ft = typeof<int64> then
-                                    Expression.Call(
-                                        typeof<RecordReaders>.GetMethod("ReadInt64"),
-                                        recordParam,
-                                        Expression.Constant(idx)
-                                    )
-                                    :> Expression
-                                elif ft = typeof<int16> then
-                                    Expression.Call(
-                                        typeof<RecordReaders>.GetMethod("ReadInt16"),
-                                        recordParam,
-                                        Expression.Constant(idx)
-                                    )
-                                    :> Expression
-                                elif ft = typeof<byte> then
-                                    Expression.Call(
-                                        typeof<RecordReaders>.GetMethod("ReadByte"),
-                                        recordParam,
-                                        Expression.Constant(idx)
-                                    )
-                                    :> Expression
-                                elif ft = typeof<decimal> then
-                                    Expression.Call(
-                                        typeof<RecordReaders>.GetMethod("ReadDecimal"),
-                                        recordParam,
-                                        Expression.Constant(idx)
-                                    )
-                                    :> Expression
-                                elif ft = typeof<double> then
-                                    Expression.Call(
-                                        typeof<RecordReaders>.GetMethod("ReadDouble"),
-                                        recordParam,
-                                        Expression.Constant(idx)
-                                    )
-                                    :> Expression
-                                elif ft = typeof<single> then
-                                    Expression.Call(
-                                        typeof<RecordReaders>.GetMethod("ReadSingle"),
-                                        recordParam,
-                                        Expression.Constant(idx)
-                                    )
-                                    :> Expression
-                                elif ft = typeof<bool> then
-                                    Expression.Call(
-                                        typeof<RecordReaders>.GetMethod("ReadBool"),
-                                        recordParam,
-                                        Expression.Constant(idx)
-                                    )
-                                    :> Expression
-                                elif ft = typeof<string> then
-                                    Expression.Call(
-                                        typeof<RecordReaders>.GetMethod("ReadString"),
-                                        recordParam,
-                                        Expression.Constant(idx)
-                                    )
-                                    :> Expression
-                                elif ft = typeof<Guid> then
-                                    Expression.Call(
-                                        typeof<RecordReaders>.GetMethod("ReadGuid"),
-                                        recordParam,
-                                        Expression.Constant(idx)
-                                    )
-                                    :> Expression
-                                elif ft = typeof<DateTime> then
-                                    Expression.Call(
-                                        typeof<RecordReaders>.GetMethod("ReadDateTime"),
-                                        recordParam,
-                                        Expression.Constant(idx)
-                                    )
-                                    :> Expression
-                                elif ft = typeof<DateOnly> then
-                                    Expression.Call(
-                                        typeof<RecordReaders>.GetMethod("ReadDateOnly"),
-                                        recordParam,
-                                        Expression.Constant(idx)
-                                    )
-                                    :> Expression
-                                elif ft = typeof<TimeOnly> then
-                                    Expression.Call(
-                                        typeof<RecordReaders>.GetMethod("ReadTimeOnly"),
-                                        recordParam,
-                                        Expression.Constant(idx)
-                                    )
-                                    :> Expression
-                                elif ft = typeof<byte[]> then
-                                    Expression.Call(
-                                        typeof<RecordReaders>.GetMethod("ReadByteArray"),
-                                        recordParam,
-                                        Expression.Constant(idx)
-                                    )
-                                    :> Expression
-                                elif ft.IsGenericType && ft.GetGenericTypeDefinition() = typedefof<option<_>> then
-                                    let innerType = ft.GetGenericArguments().[0]
-
-                                    let readOpt =
-                                        typeof<RecordReaders>
-                                            .GetMethod("ReadOption")
-                                            .MakeGenericMethod([| innerType |])
-
-                                    Expression.Call(readOpt, recordParam, Expression.Constant(idx)) :> Expression
-                                else
-                                    let readObj = typeof<RecordReaders>.GetMethod("ReadObject")
-
-                                    let callExpr =
-                                        Expression.Call(
-                                            readObj,
-                                            recordParam,
-                                            Expression.Constant(idx),
-                                            Expression.Constant(ft)
-                                        )
-
-                                    Expression.Convert(callExpr, ft) :> Expression)
+                                buildFieldExpression recordParam idx f.PropertyType columns)
                             |> List.ofArray
 
                         let ctor =

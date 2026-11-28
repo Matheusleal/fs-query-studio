@@ -1,4 +1,4 @@
-﻿namespace FSharpQueryStudio.Connectors
+namespace FSharpQueryStudio.Connectors
 
 open AdvancedSampleNotebookCommon
 
@@ -289,22 +289,25 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 10. 🌐 Multi-Table Relational Projection"
+                mkMarkdown
+                    """
+## 10. 🌐 Multi-Table Relational Projection & Whole Table Wildcards (`alias.*`)
+
+Join multiple relational tables and project selected scalar fields, or project entire mapped tables (e.g. `Customer = c`) alongside scalar columns to emit `${alias}.*` in PostgreSQL pushdown.
+"""
                 mkCode
                     """
-// 10. Joining 4 relational tables (orders, customers, order_items, products)
+// 10. Multi-table join with whole mapped table wildcard projection (Customer = fsql.extract c) alongside order details
 fsql {
     for o in Connections.sql.PostgreSQL_Advanced.orders do
     join c in Connections.sql.PostgreSQL_Advanced.customers on (o.customer_id = c.id)
-    join oi in Connections.sql.PostgreSQL_Advanced.order_items on (o.id = oi.order_id)
-    join p in Connections.sql.PostgreSQL_Advanced.products on (oi.product_id = p.id)
     where (o.status = "Completed")
+    take 10
     select {|
+        Customer = fsql.extract c
         OrderId = o.id
-        Customer = c.first_name + " " + c.last_name
-        Product = p.name
-        Quantity = oi.quantity
-        LineTotal = oi.line_total
+        OrderDate = o.order_date
+        TotalAmount = o.total_amount
     |}
 }
 """
@@ -691,22 +694,25 @@ fsql {
     |}
 }
 """
-                mkMarkdown "## 10. 🌐 Projeção Relacional Multi-Tabela"
+                mkMarkdown
+                    """
+## 10. 🌐 Projeção Relacional Multi-Tabela e Curinga de Tabela Inteira (`alias.*`)
+
+Junte múltiplas tabelas relacionais e projete campos escalares específicos, ou projete tabelas mapeadas inteiras (ex: `Cliente = c`) em conjunto com colunas escalares para emitir `${alias}.*` no pushdown PostgreSQL.
+"""
                 mkCode
                     """
-// 10. Junção de 4 tabelas relacionais (pedidos, clientes, itens de pedidos e produtos)
+// 10. Junção multi-tabela com projeção curinga de tabela inteira (Cliente = fsql.extract c) junto aos dados do pedido
 fsql {
     for o in Connections.sql.PostgreSQL_Advanced.orders do
     join c in Connections.sql.PostgreSQL_Advanced.customers on (o.customer_id = c.id)
-    join oi in Connections.sql.PostgreSQL_Advanced.order_items on (o.id = oi.order_id)
-    join p in Connections.sql.PostgreSQL_Advanced.products on (oi.product_id = p.id)
     where (o.status = "Completed")
+    take 10
     select {|
-        OrderId = o.id
-        Customer = c.first_name + " " + c.last_name
-        Product = p.name
-        Quantity = oi.quantity
-        LineTotal = oi.line_total
+        Cliente = fsql.extract c
+        PedidoId = o.id
+        DataPedido = o.order_date
+        ValorTotal = o.total_amount
     |}
 }
 """

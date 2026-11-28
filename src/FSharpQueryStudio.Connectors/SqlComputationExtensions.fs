@@ -326,6 +326,9 @@ module SqlComputationExtensions =
         /// Returns a structured query execution plan report for diagnostics.
         member inline _.explain(query: obj) : ExecutionPlanReport = SqlPushdownQuery.explainQuery query
 
+        /// Extracts the properties of a mapped table so that they appear as individual columns in query results.
+        member inline _.extract(table: 'T) : ExtractedTable<'T> = ExtractedTable<'T>(table)
+
         member private this.BaseRun(typed) = base.Run(typed)
 
         member this.Run(q: Expr<QuerySource<'T, System.Linq.IQueryable>>) : System.Linq.IQueryable<'T> =
@@ -859,6 +862,9 @@ module SqlComputationExtensions =
 
     /// Extracts the formatted, indented raw SQL query for any queryable, plan, or expression.
     let toRawQuery (query: obj) : string = SqlPushdownQuery.toRawQuery query
+
+    /// Extracts the properties of a mapped table so that they appear as individual columns in query results.
+    let extract (table: 'T) : ExtractedTable<'T> = ExtractedTable<'T>(table)
 
     /// Extracts the raw SQL query for any queryable, plan, or expression.
     let toRawSql (query: obj) : string = SqlPushdownQuery.toRawSql query

@@ -92,10 +92,36 @@ describe("FSharpQuerySemanticTokensProvider", () => {
       "isNotNullOrEmpty",
       "isNull",
       "explain",
+      "extract",
     ];
     for (const fn of newFunctions) {
       expect(functionsRegex.test(fn)).toBe(true);
     }
+  });
+
+  it("verifies extract function in TextMate grammar classifies as function and not variable", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const grammarPath = path.resolve(__dirname, "../../syntaxes/fsharp-query.tmLanguage.json");
+    const grammar = JSON.parse(fs.readFileSync(grammarPath, "utf8"));
+
+    const functionsPattern = grammar.repository.functions.patterns[0];
+    expect(functionsPattern.name).toBe("support.function.fsharp entity.name.function.fsharp");
+    const functionsRegex = new RegExp(functionsPattern.match);
+
+    // Exact matches
+    expect(functionsRegex.test("extract")).toBe(true);
+    expect(functionsRegex.test("extract c")).toBe(true);
+    expect(functionsRegex.test("fsql.extract c")).toBe(true);
+
+    // Variables pattern must exclude extract via negative lookahead
+    const variablesPattern = grammar.repository.variables.patterns[0];
+    const variablesRegex = new RegExp(`^${variablesPattern.match}$`);
+    expect(variablesRegex.test("extract")).toBe(false);
+
+    // Non-reserved names starting with extract should still be variables
+    expect(variablesRegex.test("extractor")).toBe(true);
+    expect(variablesRegex.test("extractedTable")).toBe(true);
   });
 
   it("verifies leftOuterJoin and query keywords are recognized in semantic tokens provider", () => {

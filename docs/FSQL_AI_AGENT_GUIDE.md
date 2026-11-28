@@ -401,6 +401,53 @@ let planInspection =
     }
 ```
 
+### 3.13 Whole Mapped Table Projections in `select` (Wildcard `alias.*`)
+
+In `fsql`, agents can project an entire mapped table by simply referencing its range variable (e.g. `t0` or `t1`) inside an anonymous record (`{| ... |}`), typed F# record, or tuple. This automatically translates to `<alias>.*` without column aliasing, while keeping scalar properties aliased cleanly as `<expr> AS [<Alias>]`:
+
+```fsharp
+// Projects all columns of the Customers table alongside specific columns of the Orders table:
+// Translates to: SELECT _t0.*, _t1.OrderId AS PropTabela2_1, _t1.Amount AS PropTabela2_2 FROM Customers _t0 JOIN Orders _t1 ...
+let customerWithOrders =
+    fsql {
+        for t0 in Connections.sql.SampleStore.Customers do
+        join t1 in Connections.sql.SampleStore.Orders on (t0.CustomerId = t1.CustomerId)
+        select {|
+            Tabela = t0
+            PropTabela2_1 = t1.OrderId
+            PropTabela2_2 = t1.Amount
+        |}
+    }
+
+// Multi-table wildcards and direct table projections are also supported:
+let multiWildcard =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        join o in Connections.sql.SampleStore.Orders on (c.CustomerId = o.CustomerId)
+        select {| Cliente = c; Ordem = o |}
+    } // Translates to: SELECT _t0.*, _t1.* FROM Customers _t0 JOIN Orders _t1 ...
+
+let singleTableDirect =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        join o in Connections.sql.SampleStore.Orders on (c.CustomerId = o.CustomerId)
+        select c
+    } // Translates to: SELECT _t0.* FROM Customers _t0 JOIN Orders _t1 ...
+
+// Using extract / fsql.extract to flatten table properties directly into the UI grid (no nested JSON object column):
+let flatCustomerWithOrders =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        join o in Connections.sql.SampleStore.Orders on (c.CustomerId = o.CustomerId)
+        select {|
+            CustomerTable = fsql.extract c // or extract c
+            OrderId = o.OrderId
+            Amount = o.Amount
+        |}
+    }
+// In the UI Grid, CustomerTable's properties (Id, FirstName, LastName...) are extracted directly as individual columns alongside OrderId and Amount!
+```
+
 ---
 
 ## 4. Query Inspection & Diagnostic Tools

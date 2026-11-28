@@ -396,6 +396,53 @@ let inspecaoPlano =
     }
 ```
 
+### 3.13 Projeção de Tabelas Mapeadas Inteiras no `select` (Curinga `alias.*`)
+
+No `fsql`, é possível projetar uma tabela mapeada inteira simplesmente informando sua variável de iteração (ex: `t0` ou `t1`) dentro de um registro anônimo (`{| ... |}`), registro F# tipado ou tupla. Isso traduz automaticamente para `<alias>.*` sem cláusula de alias de coluna inválida, enquanto mantém as propriedades escalares com seus respectivos aliases (`<expr> AS [<Alias>]`):
+
+```fsharp
+// Projeta todas as colunas da tabela Clientes juntamente com colunas específicas da tabela Pedidos:
+// Traduz para: SELECT _t0.*, _t1.OrderId AS PropTabela2_1, _t1.Amount AS PropTabela2_2 FROM Customers _t0 JOIN Orders _t1 ...
+let clientesComPedidos =
+    fsql {
+        for t0 in Connections.sql.SampleStore.Customers do
+        join t1 in Connections.sql.SampleStore.Orders on (t0.CustomerId = t1.CustomerId)
+        select {|
+            Tabela = t0
+            PropTabela2_1 = t1.OrderId
+            PropTabela2_2 = t1.Amount
+        |}
+    }
+
+// Suporte a múltiplas tabelas curinga e projeção direta de tabela:
+let multiplasTabelas =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        join o in Connections.sql.SampleStore.Orders on (c.CustomerId = o.CustomerId)
+        select {| Cliente = c; Ordem = o |}
+    } // Traduz para: SELECT _t0.*, _t1.* FROM Customers _t0 JOIN Orders _t1 ...
+
+let projecaoDiretaTabela =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        join o in Connections.sql.SampleStore.Orders on (c.CustomerId = o.CustomerId)
+        select c
+    } // Traduz para: SELECT _t0.* FROM Customers _t0 JOIN Orders _t1 ...
+
+// Usando extract / fsql.extract para desmembrar as propriedades da tabela diretamente na Grid (sem coluna de objeto JSON):
+let clientesComPedidosGridPlana =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        join o in Connections.sql.SampleStore.Orders on (c.CustomerId = o.CustomerId)
+        select {|
+            CustomerTable = fsql.extract c // ou extract c
+            OrderId = o.OrderId
+            Amount = o.Amount
+        |}
+    }
+// Na Grid da interface, as propriedades de CustomerTable (Id, FirstName, LastName...) são extraídas diretamente como colunas individuais ao lado de OrderId e Amount!
+```
+
 ---
 
 ## 4. Ferramentas de Inspeção e Diagnóstico de Queries

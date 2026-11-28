@@ -827,6 +827,38 @@ Connections.sql.rawQuery(
 
                 mkMarkdown
                     """
+## 27. 🌟 Whole Mapped Table Projection in SELECT (`alias.*`) & `fsql.extract`
+
+In F# Query Studio, you can project an entire mapped table entity (e.g. `Customer = c`) directly inside the `select {| ... |}` anonymous record or tuple alongside scalar properties from other joined tables.
+
+> 💡 **Flattening Tip**: When projecting a whole table inside an anonymous record, use `CustomerTable = fsql.extract c` (or `extract c`) so the interactive grid extracts every property (`Id`, `FirstName`, `LastName`...) directly into individual first-class table columns instead of rendering a nested JSON object column!
+"""
+
+                mkCode
+                    """
+// 27. Projecting an entire mapped table with fsql.extract so all columns appear flat in the grid
+let customerOrderDetails =
+    fsql {
+        for c in Connections.sql.SampleStore.Customers do
+        join o in Connections.sql.SampleStore.Orders on (c.Id = o.CustomerId)
+        where (c.Country = "Brazil" && o.TotalAmount >= 100.0f)
+        sortByDescending o.TotalAmount
+        take 10
+        select {|
+            CustomerTable = fsql.extract c
+            OrderNumber = o.OrderNumber
+            OrderDate = o.OrderDate
+            TotalAmount = o.TotalAmount
+            Status = o.Status
+        |}
+    }
+
+printfn "Emitted SQL with Wildcard Pushdown (c.*):\n%s" (toRawQuery customerOrderDetails)
+customerOrderDetails
+"""
+
+                mkMarkdown
+                    """
 ---
 
 ### 📚 Official Documentation & References
